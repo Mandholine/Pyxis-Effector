@@ -1,0 +1,103 @@
+# Pyxis Effector - Plugin for Aegisub
+# Copyright (C) 2026 @mandholine, @effector2, @pholguinc
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation version 3.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+# For any question you can visit: https://discord.gg/rYsARc3fB9
+
+import os
+import sys
+import time
+from ass_parser import ASSParser
+from node_engine import GraphEngine
+from pyxis_profiler import PyxisProfiler
+
+def run_performance_diagnostic(ass_path=None, custom_graph=None, use_mp=False, num_lines=10):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    if ass_path is None:
+        ass_path = os.path.join(base_dir, "preview_base.ass")
+    
+    print("=" * 80)
+    print("           INICIANDO DIAGNOSTICO DE RENDIMIENTO PYXIS NODES             ")
+    print("=" * 80)
+    print(f" Archivo ASS de Prueba : {ass_path}")
+    print(f" Multiprocesamiento    : {'Activado' if use_mp else 'Desactivado (Secuencial)'}")
+    print(f" Lineas a Procesar     : {num_lines}")
+    print("-" * 80)
+    
+    profiler = PyxisProfiler(enabled=True)
+    profiler.start()
+
+    # 1. Fase Lectura y Parsing ASS
+    profiler.start_phase("parse_ass")
+    parsed_ass = ASSParser.read_file(ass_path)
+    styles, dialogues, rx, ry, fd = parsed_ass
+    
+    test_dialogues = []
+    if dialogues:
+        for i in range(num_lines):
+            orig = dialogues[i % len(dialogues)]
+            cloned = {'raw': orig['raw'], 'metrics': orig.get('metrics')}
+            test_dialogues.append(cloned)
+    profiler.end_phase("parse_ass")
+    profiler.total_dialogue_inputs = len(test_dialogues)
+
+    # 2. Grafo con enlaces completos
+    if custom_graph is None:
+        custom_graph = {
+            'nodes': [
+                {'id': 1, 'type': 'Bucles/Main Loop', 'properties': {'iterador': 'syl'}, 'inputs': []},
+                {'id': 2, 'type': 'Bucles/MaxLoop', 'properties': {'veces': '30', 'var_name': 'j'}, 'inputs': [{'name': 'Bucle In', 'link': 1}]},
+                {'id': 3, 'type': 'Math/Calc', 'properties': {'expr': 'j * 2.5 + sin(j * 0.1) * 10'}, 'inputs': []},
+                {'id': 4, 'type': 'Tags/Pos', 'properties': {'x': 'syl.center', 'y': 'syl.middle'}, 'inputs': [{'name': 'x', 'link': 3}, {'name': 'y'}]},
+                {'id': 5, 'type': 'Sistema/Salida', 'properties': {'apply_to': 'Sel. Lines'}, 'inputs': [
+                    {'name': 'Bucle / Dominio', 'link': 2},
+                    {'name': 'Layer'},
+                    {'name': 'Start Time'},
+                    {'name': 'End Time'},
+                    {'name': 'Tags', 'link': 4},
+                    {'name': 'Return'}
+                ]}
+            ],
+            'links': [
+                [1, 1, 0, 2, 0, 'flow'],
+                [2, 2, 0, 5, 0, 'flow'],
+                [3, 3, 0, 4, 0, 'number'],
+                [4, 4, 0, 5, 4, 'string']
+            ]
+        }
+
+    # 3. Compilacion del Grafo
+    profiler.start_phase("graph_prep")
+    engine = GraphEngine(custom_graph, rx, ry, fd)
+    profiler.end_phase("graph_prep")
+
+    # 4. Fase de Ejecucion de Workers
+    profiler.start_phase("workers_exec")
+    lines = engine.process(test_dialogues, styles, use_multiprocessing=use_mp)
+    profiler.end_phase("workers_exec")
+
+    profiler.total_lines_generated = len(lines)
+    profiler.stop()
+
+    # Generar y mostrar reporte completo
+    report = profiler.generate_report()
+    print(report)
+
+    # Guardar en archivo
+    out_file = os.path.join(base_dir, "pyxis_performance_report.txt")
+    profiler.save_report(out_file)
+    print(f"\n[OK] Informe de rendimiento guardado exitosamente en:\n{out_file}")
+    return profiler
+
+if __name__ == "__main__":
+    run_performance_diagnostic(use_mp=False, num_lines=15)

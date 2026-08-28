@@ -1,0 +1,3188 @@
+/*
+ * Pyxis Effector - Plugin for Aegisub
+ * Copyright (C) 2026 @mandholine, @effector2, @pholguinc
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation version 3.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ * For any question you can visit: https://discord.gg/rYsARc3fB9
+ */
+
+/* =============================================================================
+   Pyxis Node Studio v1.0.1 - Modern UI Design System & Theme Engine
+   ============================================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+
+:root, [data-theme="teal"] {
+    --bg-canvas: #081116;
+    --bg-topbar: rgba(12, 23, 29, 0.94);
+    --bg-panel: rgba(16, 29, 36, 0.92);
+    --bg-card: #152630;
+    --bg-input: #0a1318;
+    --border-subtle: rgba(255, 255, 255, 0.1);
+    --border-highlight: rgba(34, 133, 140, 0.5);
+    
+    --accent-primary: #22858c;
+    --accent-primary-hover: #1a6f75;
+    --accent-gradient: linear-gradient(135deg, #22858c 0%, #548c87 100%);
+    --accent-glow: rgba(34, 133, 140, 0.4);
+    
+    --accent-secondary: #3a628c;
+    --accent-secondary-gradient: linear-gradient(135deg, #3a628c 0%, #105a8c 100%);
+    
+    --text-main: #ffffff;
+    --text-muted: #c7d8e2;
+    --text-inverse: #081116;
+    
+    --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Fira Code', monospace;
+}
+
+/* =============================================================================
+   GLOBAL SLEEK SCROLLBARS (PYXIS DARK THEME - NO WHITE DEFAULT SCROLLBARS)
+   ============================================================================= */
+*, *::before, *::after {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.22) rgba(10, 13, 18, 0.4);
+    box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(10, 13, 18, 0.5);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-primary, #10b981);
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+/* =============================================================================
+   GLASSMORPHIC STARTUP LOADING OVERLAY
+   ============================================================================= */
+#pyxis-loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(13, 15, 18, 0.88);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.4s ease, visibility 0.4s ease;
+    user-select: none;
+}
+
+#pyxis-loading-overlay.fade-out {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.pyxis-loader-spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--accent-primary, #10b981);
+    border-right-color: var(--accent-secondary, #6366f1);
+    border-radius: 50%;
+    animation: pyxis-spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    margin-bottom: 22px;
+    box-shadow: 0 0 20px var(--accent-glow, rgba(16, 185, 129, 0.3));
+}
+
+@keyframes pyxis-spin {
+    to { transform: rotate(360deg); }
+}
+
+.pyxis-loader-title {
+    font-family: var(--font-sans);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-main, #ffffff);
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.pyxis-loader-status {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-muted, #9ca3af);
+    letter-spacing: 0.2px;
+    transition: opacity 0.2s ease;
+}
+
+[data-theme="violet"] {
+    --bg-canvas: #0c0914;
+    --bg-topbar: rgba(19, 15, 30, 0.94);
+    --bg-panel: rgba(23, 19, 36, 0.92);
+    --bg-card: #1e1930;
+    --bg-input: #0f0c18;
+    --border-subtle: rgba(255, 255, 255, 0.1);
+    --border-highlight: rgba(103, 41, 140, 0.5);
+    
+    --accent-primary: #67298c;
+    --accent-primary-hover: #552075;
+    --accent-gradient: linear-gradient(135deg, #67298c 0%, #83558c 100%);
+    --accent-glow: rgba(103, 41, 140, 0.4);
+    
+    --accent-secondary: #452e8c;
+    --accent-secondary-gradient: linear-gradient(135deg, #452e8c 0%, #663f8c 100%);
+    
+    --text-main: #ffffff;
+    --text-muted: #ddd6fe;
+    --text-inverse: #0c0914;
+}
+
+[data-theme="crimson"] {
+    --bg-canvas: #120908;
+    --bg-topbar: rgba(23, 12, 12, 0.94);
+    --bg-panel: rgba(28, 16, 16, 0.92);
+    --bg-card: #221414;
+    --bg-input: #140a0a;
+    --border-subtle: rgba(255, 255, 255, 0.1);
+    --border-highlight: rgba(140, 27, 13, 0.5);
+    
+    --accent-primary: #8c1b0d;
+    --accent-primary-hover: #a82414;
+    --accent-gradient: linear-gradient(135deg, #8c1b0d 0%, #8c3b19 100%);
+    --accent-glow: rgba(140, 27, 13, 0.4);
+    
+    --accent-secondary: #8c0e5b;
+    --accent-secondary-gradient: linear-gradient(135deg, #8c0e5b 0%, #8c3742 100%);
+    
+    --text-main: #ffffff;
+    --text-muted: #f5d0c5;
+    --text-inverse: #120908;
+}
+
+/* Reset & Global Canvas Options */
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-canvas);
+    color: var(--text-main);
+    font-family: var(--font-sans);
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Glassmorphism utility */
+.glass-panel {
+    background: var(--bg-panel);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border-subtle);
+}
+
+/* =============================================================================
+   1. TOP BAR (Program-level controls)
+   ============================================================================= */
+.top-bar {
+    height: 52px;
+    background: var(--bg-topbar);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    z-index: 100;
+    position: relative;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.top-bar-left, .top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.brand-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.8px;
+    color: var(--text-main);
+    margin-right: 6px;
+}
+
+.brand-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255, 255, 255, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.brand-badge {
+    background: var(--accent-glow);
+    color: var(--accent-primary);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 12px;
+    border: 1px solid var(--accent-primary);
+    letter-spacing: 0.5px;
+    margin-right: 8px;
+}
+
+/* SVG Icon Helper */
+.svg-icon {
+    width: 18px;
+    height: 18px;
+    stroke-width: 2;
+    stroke: currentColor;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    display: inline-block;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+/* General Buttons */
+.pyxis-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    background: var(--bg-card);
+    color: var(--text-main);
+    border: 1px solid var(--border-subtle);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pyxis-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.pyxis-btn:active {
+    transform: translateY(1px);
+}
+
+/* Primary Button (Listo / Guardar) with Glowing Gradient Hover */
+.pyxis-btn-primary {
+    background: var(--accent-gradient) !important;
+    color: var(--text-inverse) !important;
+    border: none !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 14px var(--accent-glow);
+}
+
+.pyxis-btn-primary:hover {
+    background: var(--accent-gradient) !important;
+    color: var(--text-inverse) !important;
+    filter: brightness(1.18) !important;
+    box-shadow: 0 0 22px var(--accent-glow) !important;
+}
+
+.pyxis-btn-danger {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid #ef4444;
+}
+
+.pyxis-btn-danger:hover {
+    background: #ef4444;
+    color: #ffffff;
+}
+
+/* Quick Save Template Button with Accent Glow & Entry Animation */
+.pyxis-btn-quick-save {
+    background: rgba(16, 185, 129, 0.18) !important;
+    border: 1px solid #10b981 !important;
+    color: #a7f3d0 !important;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
+    animation: pyxisPopIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.pyxis-btn-quick-save:hover {
+    background: #10b981 !important;
+    color: #022c22 !important;
+    box-shadow: 0 0 22px rgba(16, 185, 129, 0.65) !important;
+}
+
+.pyxis-btn-quick-save:active {
+    transform: scale(0.96);
+}
+
+/* Language Toggle Button */
+.pyxis-btn-lang {
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    gap: 5px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-card);
+    color: var(--text-main);
+    letter-spacing: 0.5px;
+    transition: all 0.2s ease;
+}
+
+.pyxis-btn-lang:hover {
+    border-color: var(--accent-primary);
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.pyxis-btn-lang #lang-indicator {
+    color: var(--accent-primary);
+}
+
+.pyxis-lang-pill {
+    padding: 1px 5px;
+    border-radius: 4px;
+    opacity: 0.55;
+    font-weight: 700;
+    font-size: 11px;
+    transition: all 0.2s ease;
+}
+
+.pyxis-lang-pill.active {
+    opacity: 1;
+    background: var(--accent-primary);
+    color: #ffffff;
+    box-shadow: 0 0 6px var(--accent-glow);
+}
+
+@keyframes pyxisPopIn {
+    0% {
+        opacity: 0;
+        transform: scale(0.85);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.pyxis-btn-icon {
+    padding: 8px;
+    border-radius: 8px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    flex-shrink: 0;
+}
+
+@property --pyxis-spin-angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+}
+
+@keyframes pyxisSpinAngle {
+    from { --pyxis-spin-angle: 0deg; }
+    to { --pyxis-spin-angle: 360deg; }
+}
+
+/* Dynamic Primary Button: Generar Capas with Progress Fill & Aurora Shimmer Border Glow */
+.btn-generate-wrapper {
+    position: relative;
+    border-radius: 8px;
+    box-shadow: 0 0 14px var(--accent-glow);
+    padding: 0;
+    margin: 6px 0;
+    transition: box-shadow 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-generate-wrapper.generating {
+    box-shadow: none;
+}
+
+/* Soft Aurora Ambient Glow (blurred outer halo) */
+.btn-generate-wrapper.generating::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: 10px;
+    background: conic-gradient(
+        from var(--pyxis-spin-angle),
+        transparent 0%,
+        #ff007f 8%,
+        #ff7700 16%,
+        #ffea00 24%,
+        #00e676 32%,
+        #00e5ff 40%,
+        #2979ff 48%,
+        #d500f9 56%,
+        transparent 70%,
+        transparent 100%
+    );
+    animation: pyxisSpinAngle 2.8s linear infinite;
+    filter: blur(4px);
+    opacity: 0.85;
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* Traveling Light Beam (crisp 100% opacity inner border edge) */
+.btn-generate-wrapper.generating::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: 9px;
+    background: conic-gradient(
+        from var(--pyxis-spin-angle),
+        transparent 0%,
+        #ff007f 8%,
+        #ff7700 16%,
+        #ffea00 24%,
+        #00e676 32%,
+        #00e5ff 40%,
+        #2979ff 48%,
+        #d500f9 56%,
+        transparent 70%,
+        transparent 100%
+    );
+    animation: pyxisSpinAngle 2.8s linear infinite;
+    opacity: 1.0;
+    z-index: 1;
+    pointer-events: none;
+}
+
+.btn-generate {
+    position: relative;
+    background: var(--accent-gradient);
+    color: var(--text-inverse);
+    border: none;
+    padding: 7px 18px;
+    height: 36px;
+    font-weight: 700;
+    font-size: 12.5px;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
+    min-width: 165px;
+    border-radius: 8px;
+    z-index: 2;
+    overflow: hidden;
+}
+
+.btn-generate:hover {
+    filter: brightness(1.15);
+    box-shadow: 0 0 22px var(--accent-glow);
+}
+
+.btn-progress-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 0%;
+    background: rgba(255, 255, 255, 0.3);
+    transition: width 0.25s linear;
+    z-index: 1;
+    pointer-events: none;
+}
+
+.btn-generate.generating {
+    background: #0b101b;
+    color: #f8fafc;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.6);
+}
+
+.btn-generate.generating:hover {
+    background: #070a12;
+    filter: brightness(1.1);
+}
+
+.btn-generate.generating:hover #btn-generate-label {
+    opacity: 0.75;
+}
+
+.btn-generate.generating .btn-progress-fill {
+    background: var(--accent-gradient);
+    opacity: 0.85;
+}
+
+.btn-generate.generating span,
+.btn-generate.generating svg {
+    position: relative;
+    z-index: 3;
+}
+
+/* --- Floating Estimation Tooltip Card --- */
+.pyxis-estimation-card {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 260px;
+    background: #0f172a;
+    border: 1px solid rgba(59, 130, 246, 0.4);
+    border-radius: 10px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.75), 0 0 20px rgba(59, 130, 246, 0.25);
+    padding: 12px 14px;
+    z-index: 9999;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+    pointer-events: none;
+    transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(12px);
+}
+
+.pyxis-estimation-card .est-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+}
+
+.pyxis-estimation-card .est-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #e2e8f0;
+    letter-spacing: 0.5px;
+}
+
+.pyxis-estimation-card .est-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(96, 165, 250, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(96, 165, 250, 0.35);
+}
+
+.pyxis-estimation-card .est-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+}
+
+.pyxis-estimation-card .est-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.pyxis-estimation-card .est-item-main {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding-bottom: 6px;
+    margin-bottom: 2px;
+}
+
+.pyxis-estimation-card .est-lbl {
+    font-size: 9.5px;
+    color: #94a3b8;
+    margin-bottom: 2px;
+}
+
+.pyxis-estimation-card .est-val {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #f8fafc;
+    font-family: monospace;
+}
+
+.pyxis-estimation-card .est-alert {
+    margin-top: 10px;
+    padding: 5px 8px;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 6px;
+    color: #fca5a5;
+    font-size: 9.5px;
+    line-height: 1.35;
+}
+
+/* =============================================================================
+   2. FLOATING CANVAS TOOLBAR (Smooth Scale Animation without Trembling)
+   ============================================================================= */
+.workspace {
+    position: relative;
+    width: 100vw;
+    height: calc(100vh - 52px);
+}
+
+#node_canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    position: relative;
+    z-index: 1;
+    opacity: 1 !important;
+}
+
+.pyxis-canvas-toolbar {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-panel);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 30px;
+    padding: 4px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+    z-index: 50;
+    contain: layout style;
+}
+
+.pyxis-tb-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    max-width: 36px;
+    min-height: 36px;
+    max-height: 36px;
+    flex: 0 0 36px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease, background 0.2s ease;
+    outline: none;
+    position: relative;
+    transform-origin: center center;
+    will-change: transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+
+.pyxis-tb-btn:hover {
+    color: var(--accent-primary);
+    background: rgba(255, 255, 255, 0.14);
+    transform: scale(1.15);
+    z-index: 2;
+}
+
+.pyxis-tb-btn:disabled,
+.pyxis-tb-btn.disabled {
+    opacity: 0.25 !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+    transform: none !important;
+    color: var(--text-muted) !important;
+    background: transparent !important;
+}
+
+.pyxis-tb-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border-subtle);
+    margin: 0 4px;
+    flex-shrink: 0;
+}
+
+/* Tooltips */
+[data-tooltip] {
+    position: relative;
+}
+
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(-3px);
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #f1f5f9;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    z-index: 99999;
+}
+
+[data-tooltip]:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Tooltip alineado a la derecha para botones en el extremo derecho */
+.top-bar-right [data-tooltip]::after {
+    left: auto;
+    right: 0;
+    transform: translateY(-3px);
+}
+
+.top-bar-right [data-tooltip]:hover::after {
+    transform: translateY(0);
+}
+
+/* Tooltip mostrado hacia ARRIBA para la barra flotante inferior del canvas */
+.pyxis-canvas-toolbar [data-tooltip]::after {
+    top: auto;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%) translateY(3px);
+}
+
+.pyxis-canvas-toolbar [data-tooltip]:hover::after {
+    transform: translateX(-50%) translateY(0);
+}
+
+.pyxis-tb-btn.pyxis-tb-btn-text {
+    width: auto !important;
+    min-width: auto !important;
+    max-width: none !important;
+    border-radius: 20px !important;
+    padding: 0 12px !important;
+    white-space: nowrap !important;
+    gap: 6px;
+}
+
+/* =============================================================================
+   3. MODAL & SETTINGS UI
+   ============================================================================= */
+.pyxis-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pyxis-modal-dialog {
+    width: 620px;
+    max-width: 90vw;
+    max-height: 85vh;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    overflow-y: auto;
+    animation: scaleUp 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pyxis-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 14px;
+}
+
+.pyxis-modal-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--accent-primary);
+}
+
+.pyxis-modal-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pyxis-modal-close:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* =============================================================================
+   MODERN THEME SELECTOR LIST (COMPACT & SLEEK)
+   ============================================================================= */
+.pyxis-theme-list-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+    min-height: 140px;
+    max-height: 270px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 10px;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+}
+
+.pyxis-theme-list-section {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.pyxis-theme-list-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #94a3b8);
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pyxis-theme-list-row {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: 7px;
+    padding: 7px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+    box-sizing: border-box;
+}
+
+.pyxis-theme-list-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.16);
+    transform: translateX(2px);
+}
+
+.pyxis-theme-list-row.active {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: var(--accent-primary, #10b981);
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+}
+
+.pyxis-theme-row-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+}
+
+.pyxis-theme-radio {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.pyxis-theme-list-row.active .pyxis-theme-radio {
+    border-color: var(--accent-primary, #10b981);
+    background: var(--accent-primary, #10b981);
+    box-shadow: 0 0 8px var(--accent-primary, #10b981);
+}
+
+.pyxis-theme-radio-inner {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #ffffff;
+    display: none;
+}
+
+.pyxis-theme-list-row.active .pyxis-theme-radio-inner {
+    display: block;
+}
+
+.pyxis-theme-row-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.pyxis-theme-row-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-main, #f8fafc);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pyxis-theme-badge-custom {
+    font-size: 9.5px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(16, 185, 129, 0.18);
+    color: var(--accent-primary, #10b981);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.pyxis-theme-row-desc {
+    font-size: 10.5px;
+    color: var(--text-muted, #94a3b8);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pyxis-theme-row-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.pyxis-theme-swatches {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pyxis-theme-swatch {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.pyxis-theme-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pyxis-theme-action-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-muted, #94a3b8);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+}
+
+.pyxis-theme-action-btn:hover {
+    color: var(--text-main, #ffffff);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.pyxis-theme-action-btn.delete:hover {
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+}
+
+.pyxis-theme-empty-state {
+    font-size: 11.5px;
+    color: var(--text-muted, #94a3b8);
+    font-style: italic;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 6px;
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* =============================================================================
+   COMPACT COLOR PICKER MODAL
+   ============================================================================= */
+.pyxis-modal-overlay.pyxis-color-picker-overlay {
+    background: rgba(0, 0, 0, 0.15);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    display: block;
+    pointer-events: auto;
+}
+
+.pyxis-color-picker-dialog {
+    width: 490px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 20px var(--accent-glow);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    animation: scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    color: var(--text-main);
+}
+
+.pyxis-color-picker-dialog.pyxis-color-picker-floating {
+    position: fixed;
+    z-index: 2005;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px var(--border-subtle), 0 0 24px rgba(139, 92, 246, 0.3);
+    animation: scaleUp 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cp-main-layout {
+    display: flex;
+    gap: 16px;
+}
+
+.cp-left-column {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 224px;
+}
+
+.cp-visual-column {
+    display: flex;
+    gap: 8px;
+}
+
+/* 2D Spectrum Box */
+.cp-satval-box {
+    position: relative;
+    width: 194px;
+    height: 194px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    cursor: crosshair;
+    overflow: hidden;
+    user-select: none;
+}
+
+.cp-satval-white {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to right, #fff, rgba(255, 255, 255, 0));
+}
+
+.cp-satval-black {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, #000, rgba(0, 0, 0, 0));
+}
+
+.cp-satval-cursor {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 0 3px rgba(0,0,0,0.8);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+
+/* Slider Bars */
+.cp-slider-bar {
+    position: relative;
+    width: 20px;
+    height: 194px;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    user-select: none;
+}
+
+.cp-hue-bar {
+    background: linear-gradient(to bottom, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+}
+
+.cp-slider-handle {
+    position: absolute;
+    left: -2px;
+    right: -2px;
+    height: 6px;
+    border: 1.5px solid #ffffff;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+/* Right Controls Column */
+.cp-controls-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.cp-preview-compare {
+    display: flex;
+    height: 40px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    overflow: hidden;
+}
+
+.cp-preview-half {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.cp-field-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 8px;
+}
+
+.cp-field-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cp-field-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    width: 36px;
+}
+
+.cp-field-input {
+    flex: 1;
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-main);
+    border-radius: 5px;
+    padding: 4px 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.cp-field-input:focus {
+    border-color: var(--accent-primary);
+}
+
+/* Presets Swatches Grid (Under Spectrum Box) */
+.cp-presets-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.cp-presets-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+}
+
+.cp-preset-chip {
+    height: 20px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.cp-preset-chip:hover {
+    transform: scale(1.1);
+    border-color: #ffffff;
+}
+
+.cp-btn-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.cp-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+}
+
+/* Remove ugly box separators from context menus */
+.litegraph.litecontextmenu .litemenu-entry.separator,
+.litegraph .litemenu-entry.separator,
+.litecontextmenu .separator,
+.litemenu-entry.separator {
+    display: none !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+}
+
+/* Context Menu Native Alignment & Submenu Polish */
+.litegraph.litecontextmenu {
+    border-radius: 8px !important;
+    background: rgba(18, 22, 34, 0.95) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 15px rgba(0, 210, 255, 0.15) !important;
+    padding: 4px !important;
+    z-index: 10000 !important;
+}
+
+.litegraph.litecontextmenu .litemenu-entry:not(.separator) {
+    border-radius: 6px !important;
+    font-family: var(--font-sans) !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    padding: 6px 12px !important;
+    margin: 1px 0 !important;
+    color: var(--text-main) !important;
+    transition: background 0.12s ease, color 0.12s ease !important;
+}
+
+.litegraph.litecontextmenu .litemenu-entry.has_submenu {
+    position: relative;
+    border-right: none !important;
+}
+
+.litegraph.litecontextmenu .litemenu-entry.has_submenu::after {
+    content: "›";
+    float: right;
+    font-weight: bold;
+    margin-left: 12px;
+    opacity: 0.7;
+    font-size: 14px;
+}
+
+.litegraph.litecontextmenu .litemenu-entry:hover:not(.disabled):not(.separator) {
+    background: var(--accent-primary) !important;
+    color: var(--text-inverse) !important;
+}
+
+/* =============================================================================
+   PYXIS SCRIPT CODE EDITOR MODAL
+   ============================================================================= */
+.pyxis-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(10, 13, 18, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: pyxisModalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pyxisModalFadeIn {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+#pyxis-confirm-modal {
+    z-index: 100000000 !important;
+}
+
+.pyxis-code-modal {
+    width: 880px;
+    max-width: 95vw;
+    height: 640px;
+    max-height: 90vh;
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(59, 130, 246, 0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: #f8fafc;
+    font-family: var(--font-sans, system-ui);
+}
+
+.pyxis-code-header {
+    height: 48px;
+    background: rgba(15, 23, 42, 0.95);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    user-select: none;
+}
+
+.pyxis-code-title {
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pyxis-code-badge {
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    background: #3b82f6;
+    color: #ffffff;
+    letter-spacing: 0.5px;
+}
+
+.pyxis-code-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+.pyxis-code-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    background: #090d16;
+    gap: 8px;
+}
+
+.pyxis-template-select-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pyxis-template-select {
+    flex: 1;
+    background: #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    color: #f8fafc;
+    padding: 6px 10px;
+    font-size: 12px;
+    outline: none;
+}
+
+.pyxis-code-editor-container {
+    flex: 1;
+    width: 100%;
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+#pyxis-ace-editor {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    font-size: 13px;
+}
+
+.ace_editor {
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace !important;
+}
+
+.ace_editor.ace_autocomplete, .ace_autocomplete {
+    z-index: 9999999 !important;
+    position: fixed !important;
+    background: rgba(15, 23, 42, 0.85) !important;
+    backdrop-filter: blur(16px) saturate(130%) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(130%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 1px rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    color: #e2e8f0 !important;
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace !important;
+}
+
+/* Colores de texto desaturados y elegantes */
+.ace_editor.ace_autocomplete .ace_completion-highlight,
+.ace_dark.ace_editor.ace_autocomplete .ace_completion-highlight,
+.ace_autocomplete .ace_completion-highlight {
+    color: #93C5FD !important; /* Azul cielo pastel suave en vez de verde brillante */
+    font-weight: 600 !important;
+}
+
+.ace_autocomplete .ace_completion-meta,
+.ace_editor.ace_autocomplete .ace_completion-meta {
+    color: #94A3B8 !important; /* Gris suave tenue */
+    opacity: 0.75 !important;
+    font-size: 11px !important;
+}
+
+/* Fila al pasar el cursor o seleccionar */
+.ace_autocomplete .ace_line-hover,
+.ace_dark.ace_editor.ace_autocomplete .ace_line-hover {
+    background: rgba(255, 255, 255, 0.07) !important;
+    border: none !important;
+}
+
+.ace_autocomplete .ace_selected,
+.ace_dark.ace_editor.ace_autocomplete .ace_marker-layer .ace_active-line {
+    background: rgba(99, 102, 241, 0.28) !important; /* Índigo sutil translúcido */
+    border: none !important;
+}
+
+/* Desplazador (Scrollbar) Oscuro, Fino y Minimalista */
+.ace_autocomplete ::-webkit-scrollbar,
+.ace_editor ::-webkit-scrollbar,
+.pyxis-code-modal ::-webkit-scrollbar {
+    width: 6px !important;
+    height: 6px !important;
+}
+
+.ace_autocomplete ::-webkit-scrollbar-track,
+.ace_editor ::-webkit-scrollbar-track,
+.pyxis-code-modal ::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.4) !important;
+    border-radius: 4px !important;
+}
+
+.ace_autocomplete ::-webkit-scrollbar-thumb,
+.ace_editor ::-webkit-scrollbar-thumb,
+.pyxis-code-modal ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16) !important;
+    border-radius: 4px !important;
+}
+
+.ace_autocomplete ::-webkit-scrollbar-thumb:hover,
+.ace_editor ::-webkit-scrollbar-thumb:hover,
+.pyxis-code-modal ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.28) !important;
+}
+
+.ace_autocomplete ::-webkit-scrollbar-corner,
+.ace_editor ::-webkit-scrollbar-corner,
+.pyxis-code-modal ::-webkit-scrollbar-corner {
+    background: transparent !important;
+}
+
+.ace_doc-tooltip {
+    z-index: 10000000 !important;
+    position: fixed !important;
+    background: rgba(15, 23, 42, 0.88) !important;
+    backdrop-filter: blur(16px) saturate(130%) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(130%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7) !important;
+    border-radius: 8px !important;
+    color: #cbd5e1 !important;
+    padding: 10px 14px !important;
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+}
+
+.pyxis-code-footer {
+    height: 52px;
+    background: #0f172a;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+}
+
+.pyxis-code-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.pyxis-code-btn-primary {
+    background: #2563eb;
+    color: #ffffff;
+}
+
+.pyxis-code-btn-primary:hover {
+    background: #1d4ed8;
+    box-shadow: 0 0 12px rgba(37, 99, 235, 0.4);
+}
+
+.pyxis-code-btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: #cbd5e1;
+}
+
+.pyxis-code-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* --- PYXIS TAG GRID PICKER MODAL (NODO TAG DINÁMICO) --- */
+.pyxis-tag-picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pyxis-tag-picker-dialog {
+    background: var(--bg-panel, #12161f);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+    width: 900px;
+    max-width: 94vw;
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--text-main, #e2e8f0);
+}
+
+.pyxis-tag-picker-header {
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.pyxis-tag-picker-title {
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-main, #f8fafc);
+}
+
+.pyxis-tag-picker-search {
+    background: var(--bg-input, #1a1d26);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    color: var(--text-main, #f1f5f9);
+    border-radius: 5px;
+    padding: 5px 9px;
+    font-size: 11px;
+    outline: none;
+    width: 220px;
+    transition: border-color 0.2s ease;
+}
+
+.pyxis-tag-picker-search:focus {
+    border-color: var(--accent-primary, #8b5cf6);
+}
+
+.pyxis-tag-picker-body {
+    padding: 12px 14px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pyxis-tag-category {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pyxis-tag-cat-title {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted, #94a3b8);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pyxis-tag-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 6px;
+}
+
+.pyxis-tag-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-main, #e2e8f0);
+    padding: 5px 8px;
+    min-height: 28px;
+    border-radius: 5px;
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pyxis-tag-btn:hover {
+    background: rgba(139, 92, 246, 0.25);
+    border-color: rgba(139, 92, 246, 0.6);
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(139, 92, 246, 0.2);
+}
+
+.pyxis-tag-btn.active {
+    background: var(--accent-primary, #8b5cf6);
+    border-color: var(--accent-primary, #8b5cf6);
+    color: #ffffff;
+    font-weight: 700;
+    box-shadow: 0 0 8px rgba(139, 92, 246, 0.5);
+}
+
+/* --- POPPER FLOTANTE DE DEFINIR VARIABLES --- */
+.pyxis-vars-picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    z-index: 100000;
+}
+
+.pyxis-vars-floating-dialog {
+    background: var(--bg-panel, #12161f);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+    color: var(--text-main, #e2e8f0);
+    overflow: hidden;
+    animation: pyxisFadeIn 0.15s ease-out;
+    position: relative;
+}
+
+/* --- AUTOCOMPLETADO FLOTANTE ACE COMPLETER STYLE --- */
+.pyxis-vars-suggestions-box {
+    position: absolute;
+    z-index: 1000002;
+    background: #141720;
+    border: 1px solid rgba(139, 92, 246, 0.6);
+    border-radius: 6px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 10px rgba(139, 92, 246, 0.2);
+    width: 170px;
+    max-height: 130px;
+    overflow-y: auto;
+    padding: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+/* Custom slim dark scrollbar for completer */
+.pyxis-vars-suggestions-box::-webkit-scrollbar {
+    width: 4px;
+}
+
+.pyxis-vars-suggestions-box::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.pyxis-vars-suggestions-box::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.pyxis-vars-suggest-item {
+    padding: 3px 7px;
+    border-radius: 4px;
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: #cbd5e1;
+    cursor: pointer;
+    transition: all 0.1s ease;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    line-height: 1.4;
+}
+
+.pyxis-vars-suggest-item .suggest-type {
+    font-size: 9px;
+    opacity: 0.5;
+    font-style: italic;
+    color: #94a3b8;
+}
+
+.pyxis-vars-suggest-item:hover,
+.pyxis-vars-suggest-item.active {
+    background: var(--accent-primary, #8b5cf6);
+    color: #ffffff;
+}
+
+.pyxis-vars-suggest-item.active .suggest-type {
+    color: #e2e8f0;
+    opacity: 0.8;
+}
+
+/* =============================================================================
+   MESH ENGINE GRID PICKER MODAL (SHAPE SLICER)
+   ============================================================================= */
+.pyxis-mesh-picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pyxis-mesh-picker-dialog {
+    background: var(--bg-panel, #12161f);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.16));
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+    width: 720px;
+    max-width: 95vw;
+    max-height: 84vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--text-main, #e2e8f0);
+}
+
+.pyxis-mesh-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    padding: 6px;
+}
+
+.pyxis-mesh-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 10px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pyxis-mesh-card:hover {
+    background: rgba(139, 92, 246, 0.2);
+    border-color: rgba(139, 92, 246, 0.7);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(139, 92, 246, 0.25);
+}
+
+.pyxis-mesh-card.active {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.35) 0%, rgba(59, 130, 246, 0.35) 100%);
+    border-color: var(--accent-primary, #8b5cf6);
+    box-shadow: 0 0 14px rgba(139, 92, 246, 0.5);
+}
+
+.pyxis-mesh-svg-box {
+    width: 52px;
+    height: 52px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pyxis-mesh-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #f1f5f9;
+    text-align: center;
+}
+
+.pyxis-mesh-desc {
+    font-size: 9.5px;
+    color: var(--text-muted, #94a3b8);
+    text-align: center;
+    line-height: 1.25;
+}
+
+/* =============================================================================
+   IN-NODE ARTPLAYER PREVIEW OVERLAY (LITEGRAPH OUTPUT NODE INTEGRATION)
+   ============================================================================= */
+#pyxis-canvas-players-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 5;
+}
+
+.pyxis-node-player-wrapper {
+    position: absolute;
+    pointer-events: none;
+    background: #090d16;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.pyxis-node-player-toolbar {
+    height: 28px;
+    background: rgba(15, 23, 42, 0.95);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #cbd5e1;
+    pointer-events: auto;
+}
+
+.pyxis-node-player-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.pyxis-player-btn-sm {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.pyxis-player-btn-sm:hover {
+    background: rgba(139, 92, 246, 0.4);
+    border-color: rgba(139, 92, 246, 0.8);
+}
+
+.pyxis-node-header-actions {
+    position: absolute;
+    display: flex;
+    gap: 7px;
+    z-index: 1000;
+    pointer-events: auto;
+}
+
+.pyxis-header-icon-btn {
+    width: 28px;
+    height: 26px;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(139, 92, 246, 0.45);
+    color: #a7f3d0;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    user-select: none;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
+}
+
+.pyxis-header-icon-btn svg {
+    width: 17px;
+    height: 17px;
+    stroke: #a7f3d0;
+    fill: none;
+    transition: stroke 0.18s ease, transform 0.18s ease;
+}
+
+.pyxis-header-icon-btn img {
+    width: 17px;
+    height: 17px;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
+    transition: transform 0.18s ease;
+}
+
+.pyxis-header-icon-btn:hover {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.65) 0%, rgba(59, 130, 246, 0.65) 100%);
+    border-color: rgba(167, 243, 208, 0.9);
+    box-shadow: 0 0 14px rgba(139, 92, 246, 0.7);
+    transform: translateY(-1px);
+}
+
+.pyxis-header-icon-btn:hover svg,
+.pyxis-header-icon-btn:hover img {
+    stroke: #ffffff;
+    transform: scale(1.08);
+}
+
+.pyxis-header-icon-btn:active {
+    transform: translateY(0) scale(0.95);
+    box-shadow: 0 0 4px rgba(139, 92, 246, 0.4);
+}
+
+.pyxis-header-icon-btn.disabled,
+.pyxis-header-icon-btn:disabled,
+.pyxis-header-icon-btn.pyxis-btn-disabled {
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+    position: relative !important;
+    opacity: 0.55 !important;
+    filter: grayscale(40%) !important;
+}
+
+.pyxis-header-icon-btn.disabled::after,
+.pyxis-header-icon-btn:disabled::after,
+.pyxis-header-icon-btn.pyxis-btn-disabled::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 14, 22, 0.75);
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* --- ANIMACIÓN ELEGANTE DE BORDE: REFRESH PREVIEW (CYAN / EMERALD / VIOLET) --- */
+.pyxis-header-icon-btn.is-refreshing {
+    position: relative !important;
+    border-color: transparent !important;
+    background: #0f172a !important;
+    pointer-events: none !important;
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.5), 0 0 24px rgba(139, 92, 246, 0.3) !important;
+    overflow: hidden !important;
+    z-index: 1 !important;
+}
+
+.pyxis-header-icon-btn.is-refreshing::before {
+    content: '';
+    position: absolute;
+    top: -60%;
+    left: -60%;
+    width: 220%;
+    height: 220%;
+    background: conic-gradient(
+        transparent 0deg,
+        transparent 150deg,
+        rgba(56, 189, 248, 0.85) 230deg,
+        rgba(167, 243, 208, 1) 300deg,
+        rgba(139, 92, 246, 0.95) 360deg
+    );
+    animation: pyxisSpinBeam 1.2s linear infinite;
+    z-index: -2;
+}
+
+.pyxis-header-icon-btn.is-refreshing::after {
+    content: '';
+    position: absolute;
+    inset: 1.5px;
+    background: #0d1527;
+    border-radius: calc(6px - 1.5px);
+    z-index: -1;
+}
+
+.pyxis-header-icon-btn.is-refreshing svg {
+    stroke: #38bdf8 !important;
+    animation: pyxisSpinSlow 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.8));
+    position: relative;
+    z-index: 3;
+}
+
+/* --- ANIMACIÓN ELEGANTE DE BORDE: HARDSUB EXPORT (AMBER / CORAL / ROSE GOLD) --- */
+.pyxis-header-icon-btn.is-rendering-hardsub {
+    position: relative !important;
+    border-color: transparent !important;
+    background: #180d1e !important;
+    pointer-events: none !important;
+    box-shadow: 0 0 16px rgba(244, 63, 94, 0.55), 0 0 26px rgba(245, 158, 11, 0.35) !important;
+    overflow: hidden !important;
+    z-index: 1 !important;
+}
+
+.pyxis-header-icon-btn.is-rendering-hardsub::before {
+    content: '';
+    position: absolute;
+    top: -60%;
+    left: -60%;
+    width: 220%;
+    height: 220%;
+    background: conic-gradient(
+        transparent 0deg,
+        transparent 150deg,
+        rgba(244, 63, 94, 0.85) 230deg,
+        rgba(251, 191, 36, 1) 300deg,
+        rgba(236, 72, 153, 0.95) 360deg
+    );
+    animation: pyxisSpinBeam 1.0s linear infinite;
+    z-index: -2;
+}
+
+.pyxis-header-icon-btn.is-rendering-hardsub::after {
+    content: '';
+    position: absolute;
+    inset: 1.5px;
+    background: #180c1d;
+    border-radius: calc(6px - 1.5px);
+    z-index: -1;
+}
+
+.pyxis-header-icon-btn.is-rendering-hardsub svg {
+    stroke: #fbbf24 !important;
+    animation: pyxisHardsubPulse 1.2s ease-in-out infinite;
+    filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.85));
+    position: relative;
+    z-index: 3;
+}
+
+.pyxis-floating-header-actions .pyxis-header-icon-btn.is-refreshing::after,
+.pyxis-floating-header-actions .pyxis-header-icon-btn.is-rendering-hardsub::after {
+    border-radius: 2.5px !important;
+}
+
+@keyframes pyxisSpinBeam {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes pyxisSpinSlow {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes pyxisHardsubPulse {
+    0%, 100% {
+        transform: scale(0.95);
+        stroke: #fb7185;
+    }
+    50% {
+        transform: scale(1.12);
+        stroke: #fde68a;
+    }
+}
+
+.pyxis-btn-tooltip {
+    position: fixed;
+    z-index: 100001;
+    background: rgba(13, 17, 24, 0.95);
+    border: 1px solid rgba(139, 92, 246, 0.6);
+    color: #f1f5f9;
+    padding: 4px 9px;
+    border-radius: 5px;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6), 0 0 10px rgba(139, 92, 246, 0.3);
+    backdrop-filter: blur(8px);
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transform: translateX(-50%) translateY(4px);
+}
+
+.pyxis-btn-tooltip.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.pyxis-artplayer-box {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: #090d16 !important;
+    overflow: hidden !important;
+    position: relative !important;
+    pointer-events: auto !important;
+}
+
+.pyxis-artplayer-box .art-video-player {
+    position: relative !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    background: #000 !important;
+}
+
+/* Área del vídeo: Ocupa el espacio superior disponible dejando libre la barra de controles inferior */
+.pyxis-artplayer-box .art-video {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 68px !important;
+    width: 100% !important;
+    height: calc(100% - 68px) !important;
+    max-height: calc(100% - 68px) !important;
+    overflow: hidden !important;
+    background: #000 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    z-index: 1 !important;
+}
+
+.pyxis-artplayer-box .art-video video,
+.pyxis-artplayer-box video {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    margin: auto !important;
+    object-fit: contain !important;
+    object-position: center center !important;
+    background: #000 !important;
+}
+
+/* Lienzo de Subtítulos JASSUB: JASSUB gestiona su posicionamiento nativo sobre el video */
+div.JASSUB,
+.JASSUB,
+.JASSUB canvas,
+.pyxis-artplayer-box canvas, 
+.pyxis-artplayer-box .jassub-canvas,
+.jassub-canvas {
+    z-index: 25 !important;
+    pointer-events: none !important;
+}
+
+/* Ocultar únicamente el icono gigante de Play del centro */
+.pyxis-artplayer-box .art-state {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+/* Barra de controles inferior de Artplayer (Fija y estática sin animación de inactividad) */
+.pyxis-artplayer-box .art-bottom,
+.pyxis-artplayer-box .art-controls,
+.pyxis-artplayer-box .art-bottom *,
+.pyxis-artplayer-box .art-controls *,
+.pyxis-artplayer-box.art-hide .art-bottom,
+.pyxis-artplayer-box.art-auto-hide .art-bottom,
+.pyxis-artplayer-box .art-video-player .art-bottom,
+.pyxis-artplayer-box .art-video-player.art-hide .art-bottom,
+.pyxis-artplayer-box .art-video-player.art-auto-hide .art-bottom,
+.pyxis-artplayer-box .art-video-player:not(:hover) .art-bottom {
+    transform: none !important;
+    transition: none !important;
+    animation: none !important;
+}
+
+.pyxis-artplayer-box .art-bottom {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    height: 68px !important;
+    background: #0d131f !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    padding: 2px 14px 12px 14px !important;
+    z-index: 35 !important;
+    pointer-events: auto !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    transition: none !important;
+    animation: none !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+}
+
+.pyxis-artplayer-box .art-progress {
+    height: 6px !important;
+    margin-top: 2px !important;
+    margin-bottom: 4px !important;
+    position: relative !important;
+    overflow: visible !important;
+}
+
+.pyxis-artplayer-box .art-controls {
+    height: 36px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+}
+
+/* =============================================================================
+   FLOATING PREVIEW PLAYER (PIN MODE) STYLES
+   ============================================================================= */
+
+#pyxis-floating-players-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 9999;
+}
+
+.pyxis-floating-player-wrapper {
+    position: fixed !important;
+    pointer-events: auto !important;
+    z-index: 10000 !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(139, 92, 246, 0.45) !important;
+    background: rgba(15, 20, 32, 0.95) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 24px rgba(139, 92, 246, 0.3) !important;
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), top 0.35s cubic-bezier(0.16, 1, 0.3, 1), left 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-width: 380px !important;
+    min-height: 180px !important;
+}
+
+body.pyxis-resizing-active,
+body.pyxis-resizing-active * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+
+body.pyxis-resizing-active iframe,
+body.pyxis-resizing-active input,
+body.pyxis-resizing-active textarea,
+body.pyxis-resizing-active select,
+body.pyxis-resizing-active button,
+body.pyxis-resizing-active #node_canvas,
+body.pyxis-resizing-active #pyxis-canvas-players-layer {
+    pointer-events: none !important;
+}
+
+body.pyxis-resizing-active #pyxis-floating-players-container,
+body.pyxis-resizing-active .pyxis-floating-player-wrapper,
+body.pyxis-resizing-active .pyxis-floating-resizer {
+    pointer-events: auto !important;
+}
+
+.pyxis-floating-resizer {
+    position: absolute !important;
+    width: 18px !important;
+    height: 18px !important;
+    z-index: 100005 !important;
+    pointer-events: auto !important;
+    box-sizing: border-box !important;
+    transition: border-color 0.2s ease, background 0.2s ease !important;
+}
+
+.pyxis-floating-resizer:hover {
+    background: rgba(167, 139, 250, 0.25) !important;
+}
+
+.pyxis-floating-resizer.nw {
+    top: 0 !important;
+    left: 0 !important;
+    cursor: nwse-resize !important;
+    border-top: 2.5px solid rgba(167, 139, 250, 0.8) !important;
+    border-left: 2.5px solid rgba(167, 139, 250, 0.8) !important;
+    border-top-left-radius: 8px !important;
+}
+
+.pyxis-floating-resizer.ne {
+    top: 0 !important;
+    right: 0 !important;
+    cursor: nesw-resize !important;
+    border-top: 2.5px solid rgba(167, 139, 250, 0.8) !important;
+    border-right: 2.5px solid rgba(167, 139, 250, 0.8) !important;
+    border-top-right-radius: 8px !important;
+}
+
+.pyxis-floating-resizer.sw {
+    bottom: 0 !important;
+    left: 0 !important;
+    cursor: nesw-resize !important;
+    border-bottom: 2.5px solid rgba(167, 139, 250, 0.8) !important;
+    border-left: 2.5px solid rgba(167, 139, 250, 0.8) !important;
+    border-bottom-left-radius: 8px !important;
+}
+
+.pyxis-floating-resizer.se {
+    bottom: 0 !important;
+    right: 0 !important;
+    cursor: nwse-resize !important;
+    border-bottom: 2.5px solid rgba(167, 139, 250, 0.8) !important;
+    border-right: 2.5px solid rgba(167, 139, 250, 0.8) !important;
+    border-bottom-right-radius: 8px !important;
+}
+
+.pyxis-floating-header {
+    height: 30px !important;
+    background: linear-gradient(90deg, rgba(30, 27, 75, 0.95), rgba(15, 23, 42, 0.95)) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0 8px !important;
+    cursor: move !important;
+    user-select: none !important;
+    flex-shrink: 0 !important;
+}
+
+.pyxis-floating-header-title {
+    font-size: 10.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.4px !important;
+    color: var(--accent-primary, #a78bfa) !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+}
+
+.pyxis-floating-header-title svg {
+    width: 13px !important;
+    height: 13px !important;
+}
+
+.pyxis-floating-header-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    margin-right: 14px !important;
+}
+
+.pyxis-floating-header-actions .pyxis-header-icon-btn {
+    width: 22px !important;
+    height: 22px !important;
+    padding: 2px !important;
+    border-radius: 4px !important;
+}
+
+.pyxis-floating-header-actions .pyxis-header-icon-btn svg,
+.pyxis-floating-header-actions .pyxis-header-icon-btn img {
+    width: 13px !important;
+    height: 13px !important;
+}
+
+.pyxis-header-icon-btn.active {
+    color: #a78bfa !important;
+    background: rgba(139, 92, 246, 0.3) !important;
+    border-color: rgba(167, 139, 250, 0.6) !important;
+    box-shadow: 0 0 12px rgba(167, 139, 250, 0.5) !important;
+}
+
+@keyframes pyxisMagneticPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.8), 0 16px 40px rgba(0, 0, 0, 0.75);
+    }
+    50% {
+        box-shadow: 0 0 0 14px rgba(167, 139, 250, 0), 0 16px 40px rgba(0, 0, 0, 0.75);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(167, 139, 250, 0), 0 16px 40px rgba(0, 0, 0, 0.75);
+    }
+}
+
+.pyxis-magnetic-pulse {
+    animation: pyxisMagneticPulse 0.5s ease-out 1;
+}
+
+/* =============================================================================
+   FLOATING IMAGE VIEWER (IMG TO SHAPE) STYLES
+   ============================================================================= */
+
+.pyxis-node-imgviewer-wrapper {
+    position: absolute;
+    pointer-events: auto;
+    background: rgba(18, 22, 31, 0.95);
+    border: 1.6px solid rgba(139, 92, 246, 0.7);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+    z-index: 1000;
+}
+
+.pyxis-node-imgviewer-wrapper.pyxis-floating-player-wrapper {
+    position: fixed !important;
+    z-index: 99999 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(139, 92, 246, 0.6) !important;
+}
+
+.pyxis-imgviewer-toolbar {
+    height: 24px;
+    background: rgba(15, 23, 42, 0.92);
+    border-bottom: 1px solid rgba(139, 92, 246, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 6px;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.pyxis-imgviewer-modes {
+    display: flex;
+    gap: 4px;
+}
+
+.pyxis-imgviewer-btn {
+    background: rgba(139, 92, 246, 0.15);
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    color: #a7f3d0;
+    font: bold 9px monospace;
+    border-radius: 4px;
+    padding: 1px 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.pyxis-imgviewer-btn:hover, .pyxis-imgviewer-btn.active {
+    background: #8b5cf6;
+    color: #ffffff;
+    border-color: #a7f3d0;
+    box-shadow: 0 0 6px rgba(139, 92, 246, 0.6);
+}
+
+.pyxis-imgviewer-body {
+    position: relative;
+    width: 100%;
+    height: calc(100% - 24px);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.95) 100%);
+}
+
+.pyxis-imgviewer-img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+}
+
+.pyxis-imgviewer-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/* =============================================================================
+   CANVAS BACKGROUND VIDEO (GPU-ACCELERATED)
+   ============================================================================= */
+.canvas-bg-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity 0.3s ease;
+    background: transparent;
+}
+
+/* =============================================================================
+   MODAL DIALOGS & CONTAINERS
+   ============================================================================= */
+.pyxis-modal-dialog {
+    background: var(--bg-panel, #12161f);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(16, 185, 129, 0.1);
+    width: 760px;
+    max-width: 95vw;
+    max-height: 90vh;
+    padding: 18px 22px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    color: var(--text-main, #f8fafc);
+}
+
+.pyxis-theme-editor-dialog {
+    width: 960px !important;
+    max-width: 95vw !important;
+    max-height: 90vh !important;
+    padding: 20px 24px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+}
+
+.pyxis-settings-dialog {
+    width: 760px !important;
+    max-width: 95vw !important;
+    max-height: 90vh !important;
+    padding: 20px 24px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+}
+
+/* =============================================================================
+   THEME EDITOR & COLOR PICKER STYLES (MODERN PYXIS DESIGN)
+   ============================================================================= */
+.theme-editor-mock-container {
+    background: rgba(10, 14, 22, 0.95);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.6);
+    box-sizing: border-box;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.theme-editor-mock-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--accent-primary, #10b981);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+}
+
+.theme-editor-mock-canvas {
+    position: relative;
+    background: #080b10;
+    border-radius: 6px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 110px;
+}
+
+.theme-mock-node {
+    width: 230px;
+    background: #141a17;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 7px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.2s ease;
+}
+
+.theme-mock-node-header {
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+    background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+}
+
+.theme-mock-node-cat {
+    font-size: 9.5px;
+    opacity: 0.9;
+    background: rgba(0, 0, 0, 0.35);
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.theme-mock-node-body {
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--text-main, #ffffff);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: inherit;
+}
+
+.mock-slot-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-muted, #94a3b8);
+}
+
+.mock-slot-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-primary, #10b981);
+    box-shadow: 0 0 6px var(--accent-primary, #10b981);
+    display: inline-block;
+}
+
+.mock-slot-dot.out {
+    background: var(--accent-secondary, #6366f1);
+    box-shadow: 0 0 6px var(--accent-secondary, #6366f1);
+}
+
+.mock-widget-btn {
+    background: var(--accent-primary, #10b981);
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    width: 100%;
+}
+
+.theme-editor-section {
+    background: rgba(18, 22, 31, 0.6);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    padding: 14px 16px;
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.theme-editor-sec-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--accent-primary, #10b981);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.theme-editor-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.theme-editor-item {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    box-sizing: border-box;
+    transition: all 0.15s ease;
+}
+
+.theme-editor-item:hover {
+    background: rgba(255, 255, 255, 0.045);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-editor-item-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.theme-editor-item-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-main, #f1f5f9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.theme-editor-item-sub {
+    font-size: 10px;
+    color: var(--text-muted, #94a3b8);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.theme-editor-item .pyxis-color-field {
+    width: 135px;
+    flex-shrink: 0;
+}
+
+.pyxis-color-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-input, #161b22);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    border-radius: 6px;
+    padding: 2px 4px;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+}
+
+.pyxis-color-field:hover,
+.pyxis-color-field:focus-within {
+    border-color: var(--accent-primary, #10b981);
+    box-shadow: 0 0 0 1px var(--accent-primary, #10b981);
+}
+
+.pyxis-color-chip {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+}
+
+.pyxis-color-chip:hover {
+    transform: scale(1.12);
+}
+
+.pyxis-color-chip input[type="color"] {
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    width: 36px;
+    height: 36px;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    background: transparent;
+    opacity: 0;
+}
+
+.pyxis-color-hex-text {
+    background: transparent;
+    border: none;
+    color: var(--text-main, #f1f5f9);
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    font-weight: 600;
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+    outline: none;
+    text-transform: uppercase;
+    padding: 0;
+    margin: 0 2px;
+}
+
+.pyxis-color-pro-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+    padding: 1px 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.pyxis-color-pro-btn:hover {
+    color: var(--accent-primary, #10b981);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.pyxis-color-pro-btn .svg-icon {
+    width: 12px;
+    height: 12px;
+}
+
+.theme-editor-cats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.theme-editor-cat-card {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 7px;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    box-sizing: border-box;
+    transition: all 0.15s ease;
+}
+
+.theme-editor-cat-card:hover {
+    background: rgba(255, 255, 255, 0.045);
+    border-color: rgba(255, 255, 255, 0.14);
+}
+
+.theme-editor-cat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.theme-editor-cat-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-main, #f8fafc);
+}
+
+.theme-editor-cat-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    letter-spacing: 0.3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 0.2s ease;
+}
+
+.cat-badge-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.theme-editor-cat-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.theme-editor-cat-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+
+.theme-editor-col-lbl {
+    font-size: 9.5px;
+    color: var(--text-muted, #94a3b8);
+    font-weight: 500;
+}
+
+.pyxis-cat-swap-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-muted, #94a3b8);
+    border-radius: 4px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    margin-top: 12px;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.pyxis-cat-swap-btn:hover {
+    color: var(--accent-primary, #10b981);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--accent-primary, #10b981);
+    transform: rotate(180deg);
+}
+
+.pyxis-cat-swap-btn .svg-icon {
+    width: 12px;
+    height: 12px;
+}
+
+.pyxis-spin {
+    animation: pyxis-spin 0.8s linear infinite !important;
+}
+
+/* =============================================================================
+   THEME EDITOR TABS & PANES
+   ============================================================================= */
+.pyxis-theme-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    padding-bottom: 8px;
+}
+
+.pyxis-theme-tab {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-muted, #94a3b8);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.pyxis-theme-tab:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-theme-tab.active {
+    background: var(--accent-gradient, linear-gradient(135deg, #10b981 0%, #3b82f6 100%));
+    color: #ffffff;
+    border-color: transparent;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.pyxis-theme-tab-pane {
+    display: none;
+}
+
+.pyxis-theme-tab-pane.active {
+    display: block;
+}
+
+/* --- Theme Editor Global Homogenizer Banner --- */
+.theme-editor-global-cat-banner {
+    grid-column: 1 / -1;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+    box-sizing: border-box;
+}
+
+.theme-editor-global-cat-banner .global-cat-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 200px;
+    flex: 1;
+}
+
+.theme-editor-global-cat-banner .global-cat-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main, #ffffff);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.theme-editor-global-cat-banner .global-cat-desc {
+    font-size: 11.5px;
+    color: var(--text-muted, #94a3b8);
+}
+
+.theme-editor-global-cat-banner .global-cat-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.theme-editor-global-cat-banner .global-cat-controls .pyxis-color-field {
+    width: 100px;
+    flex-shrink: 0;
+}
+
+.theme-editor-global-cat-banner #btn-apply-all-categories {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 6px !important;
+    padding: 0 16px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    border-radius: 6px !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    font-family: var(--font-sans, sans-serif) !important;
+    color: #ffffff !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    cursor: pointer !important;
+    background: var(--accent-gradient, linear-gradient(135deg, #10b981 0%, #3b82f6 100%)) !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3) !important;
+    transition: filter 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease !important;
+}
+
+.theme-editor-global-cat-banner #btn-apply-all-categories:hover {
+    filter: brightness(1.18) !important;
+    box-shadow: 0 0 16px var(--accent-glow, rgba(16, 185, 129, 0.5)) !important;
+}
+
+.theme-editor-global-cat-banner #btn-apply-all-categories:active {
+    transform: translateY(1px) !important;
+}
+
+.theme-editor-global-cat-banner #btn-apply-all-categories span {
+    color: #ffffff !important;
+    white-space: nowrap !important;
+    display: inline-block !important;
+    line-height: 1 !important;
+}
+
+.theme-editor-global-cat-banner #btn-apply-all-categories svg {
+    color: #ffffff !important;
+    stroke: #ffffff !important;
+    flex-shrink: 0 !important;
+}
+
