@@ -1,1 +1,1 @@
-### Todavía no hay readme. En contrucción.
+### Todavía no hay readme. En construcción.
