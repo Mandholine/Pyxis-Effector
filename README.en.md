@@ -83,13 +83,13 @@ We extend our sincere gratitude to the original developers and contributors of *
 
 Pyxis Effector integrates and builds upon these open-source technologies and libraries:
 
-* **LiteGraph.js:** Node graph rendering engine and visual canvas (MIT License).
-* **Ace Editor:** Embedded code editor for scripting nodes (BSD License).
-* **ArtPlayer.js:** HTML5 video playback framework (MIT License).
-* **JASSUB / libass:** WebAssembly ASS subtitle rendering engine (MIT / ISC / GPL Licenses).
-* **Potrace:** Bitmap-to-vector curve tracing utility (GPL v2+ License).
-* **FFmpeg:** Multimedia framework for audio extraction, decoding, and video transcoding (LGPL v2.1+ / GPL v2+ Licenses).
-* **Python Runtime (Embedded):** Embedded Python Software Foundation distribution (PSF License).
+* [**LiteGraph.js**](https://github.com/jagenjo/litegraph.js): Node graph rendering engine and visual canvas (MIT License).
+* [**Ace Editor**](https://github.com/ajaxorg/ace): Embedded code editor for scripting nodes (BSD License).
+* [**ArtPlayer.js**](https://artplayer.org/): HTML5 video playback framework (MIT License).
+* [**JASSUB**](https://github.com/ThaUnknown/jassub) / [**libass**](https://github.com/libass/libass): WebAssembly ASS subtitle rendering engine (MIT / ISC / GPL Licenses).
+* [**Potrace**](https://potrace.sourceforge.net/): Bitmap-to-vector curve tracing utility (GPL v2+ License).
+* [**FFmpeg**](https://ffmpeg.org/): Multimedia framework for audio extraction, decoding, and video transcoding (LGPL v2.1+ / GPL v2+ Licenses).
+* [**Python Runtime (Embedded)**](https://www.python.org/): Embedded Python Software Foundation distribution (PSF License).
 
 ---
 

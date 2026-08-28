@@ -83,13 +83,13 @@ Dedicamos un agradecimiento especial a los desarrolladores y contribuidores orig
 
 Pyxis Effector integra y hace uso de estas tecnologías y librerías de código abierto:
 
-* **LiteGraph.js:** Motor de grafo de nodos y canvas visual (Licencia MIT).
-* **Ace Editor:** Editor de código embebido para nodos de scripting (Licencia BSD).
-* **ArtPlayer.js:** Reproductor de vídeo HTML5 (Licencia MIT).
-* **JASSUB / libass:** Renderizado de subtítulos ASS en WebAssembly (Licencias MIT / ISC / GPL).
-* **Potrace:** Utilidad de vectorización y trazado de mapas de bits a curvas (Licencia GPL v2+).
-* **FFmpeg:** Framework multimedia para decodificación, extracción de audio y transcodificación de vídeo (Licencias LGPL v2.1+ / GPL v2+).
-* **Python Runtime (Embedded):** Entorno de ejecución embebido de Python Software Foundation (Licencia PSF).
+* [**LiteGraph.js**](https://github.com/jagenjo/litegraph.js): Motor de grafo de nodos y canvas visual (Licencia MIT).
+* [**Ace Editor**](https://github.com/ajaxorg/ace): Editor de código embebido para nodos de scripting (Licencia BSD).
+* [**ArtPlayer.js**](https://artplayer.org/): Reproductor de vídeo HTML5 (Licencia MIT).
+* [**JASSUB**](https://github.com/ThaUnknown/jassub) / [**libass**](https://github.com/libass/libass): Renderizado de subtítulos ASS en WebAssembly (Licencias MIT / ISC / GPL).
+* [**Potrace**](https://potrace.sourceforge.net/): Utilidad de vectorización y trazado de mapas de bits a curvas (Licencia GPL v2+).
+* [**FFmpeg**](https://ffmpeg.org/): Framework multimedia para decodificación, extracción de audio y transcodificación de vídeo (Licencias LGPL v2.1+ / GPL v2+).
+* [**Python Runtime (Embedded)**](https://www.python.org/): Entorno de ejecución embebido de Python Software Foundation (Licencia PSF).
 
 ---
 
