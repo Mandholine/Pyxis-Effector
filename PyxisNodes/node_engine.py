@@ -522,7 +522,17 @@ def _get_static_eval_globals():
         return _STATIC_EVAL_GLOBALS
     
     import math
-    g = {"math": math, "__builtins__": {}}
+    safe_builtins = {
+        "min": min, "max": max, "abs": abs, "round": round,
+        "int": int, "float": float, "pow": pow, "sum": sum,
+        "len": len, "str": str, "bool": bool
+    }
+    g = {"math": math, "__builtins__": safe_builtins}
+    for k, v in safe_builtins.items():
+        g[k] = v
+    for fn in ("sin", "cos", "tan", "sqrt", "ceil", "floor", "atan2", "degrees", "radians", "hypot", "log", "exp", "pi"):
+        if hasattr(math, fn):
+            g[fn] = getattr(math, fn)
     from decorators import NODE_REGISTRY
     for k, v in NODE_REGISTRY.items():
         fn_name = v.__name__
@@ -544,6 +554,18 @@ def _get_static_eval_globals():
     return _STATIC_EVAL_GLOBALS
 
 
+class AttrDict(dict):
+    """Permite acceso por atributo (.campo) a diccionarios en expresiones de eval()."""
+    def __getattr__(self, name):
+        if name in self:
+            val = self[name]
+            return AttrDict(val) if isinstance(val, dict) else val
+        raise AttributeError(f"'dict' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+
 def _eval_num_expr(val, context=None, default=0.0):
     if val is None or val == "":
         return default
@@ -552,6 +574,14 @@ def _eval_num_expr(val, context=None, default=0.0):
     val_str = str(val).strip()
     if not val_str:
         return default
+
+    # Convertir formato decimal con coma (ej. "0,5" o "-3,14") a float si es literal simple
+    m_comma = re.match(r"^([+-]?\d+),(\d+)$", val_str)
+    if m_comma:
+        try:
+            return float(f"{m_comma.group(1)}.{m_comma.group(2)}")
+        except Exception:
+            pass
 
     # Convertir formato hex ASS (&HAA& o &HAA) a decimal float si es un valor literal simple
     m_hex = re.match(r"^&[hH]([0-9a-fA-F]+)&?$", val_str)
@@ -576,6 +606,9 @@ def _eval_num_expr(val, context=None, default=0.0):
 
         eval_globals = _get_static_eval_globals()
         eval_locals = dict(context) if isinstance(context, dict) else {}
+        for k, v in list(eval_locals.items()):
+            if isinstance(v, dict) and not isinstance(v, AttrDict):
+                eval_locals[k] = AttrDict(v)
         
         # Inyectar funciones adaptadoras al contexto local para closure de contexto
         eval_locals["audio_rms"] = lambda *args, **kwargs: eval_globals["audio_rms"](*args, context=context, **kwargs)
@@ -1176,31 +1209,17 @@ class GraphEngine:
             from nodes.tag_nodes import node_condicionador
             return str(node_condicionador(context, condicion=cond_raw, si_verdadero=si_verdadero, si_falso=si_falso))
 
-        elif node_type in ["Dynamic Format", "Dynamic Format"]:
+        elif node_type in ["Dynamic Format"]:
             try:
-                prop_fmt = str(_get_prop_value(props, "Formato", _get_prop_value(props, "formato", "%s")))
+                fmt = str(_get_prop_value(props, "Formato", "%s"))
                 inputs_list = node.get('inputs', [])
                 inputs_count = len(inputs_list)
 
-                # Comprobar compatibilidad si un proyecto antiguo tenía 'Formato' como input 0
-                is_legacy = (inputs_count > 0 and inputs_list[0].get('name') == 'Formato')
-                if is_legacy:
-                    in0_val = self.get_input_value(node, 0, context)
-                    if in0_val != "" and "%" in in0_val:
-                        fmt = in0_val
-                        start_idx = 1
-                    else:
-                        fmt = prop_fmt if prop_fmt else "%s"
-                        start_idx = 0
-                else:
-                    fmt = prop_fmt if prop_fmt else "%s"
-                    start_idx = 0
-
                 values = []
-                for i in range(start_idx, inputs_count):
+                for i in range(inputs_count):
                     val = self.get_input_value(node, i, context)
                     if val is None or str(val) == "":
-                        prop_name = f"In{i + 1 - start_idx}"
+                        prop_name = f"In{i + 1}"
                         val = props.get(prop_name, "")
                     values.append(str(val) if val is not None else "")
 
@@ -1374,16 +1393,20 @@ class GraphEngine:
                         shp = v_shp
 
                 def safe_float(v, default=0.0):
+                    if v is None or str(v).strip() == "": return default
                     try:
                         return float(v)
                     except Exception:
-                        return default
+                        pass
+                    return float(_eval_num_expr(v, context, default=default))
 
                 def safe_int(v, default=1):
+                    if v is None or str(v).strip() == "": return default
                     try:
                         return int(float(v))
                     except Exception:
-                        return default
+                        pass
+                    return int(round(float(_eval_num_expr(v, context, default=float(default)))))
 
                 cols = safe_int(get_val(["Cols", "cols", "columnas", "Num Rayos", "num_rayos", "Num Anillos", "num_anillos"], "2"), 2)
                 rows = safe_int(get_val(["Rows", "rows", "filas"], "2"), 2)
@@ -1648,27 +1671,37 @@ class GraphEngine:
         elif node_type in ["Functions/Bezier Curve", "Bezier Curve"]:
             try:
                 import math
-                p0_raw = self.get_input_value(node, 0, context)
-                if p0_raw == "": p0_raw = _get_prop_value(props, "p0", "0,0")
-                p1_raw = self.get_input_value(node, 1, context)
-                if p1_raw == "": p1_raw = _get_prop_value(props, "p1", "50,100")
-                p2_raw = self.get_input_value(node, 2, context)
-                if p2_raw == "": p2_raw = _get_prop_value(props, "p2", "150,100")
-                p3_raw = self.get_input_value(node, 3, context)
-                if p3_raw == "": p3_raw = _get_prop_value(props, "p3", "200,0")
-                t_raw = self.get_input_value(node, 4, context)
-                if t_raw == "": t_raw = _get_prop_value(props, "t", "0.5")
-                modo = str(_get_prop_value(props, "modo", "Cúbica 2D")).strip()
+
+                def _get_val(name, default):
+                    inputs = node.get('inputs', [])
+                    for idx, inp in enumerate(inputs):
+                        if inp.get('name') == name or inp.get('property') == name.lower():
+                            v = self.get_input_value(node, idx, context)
+                            if v != "":
+                                return v
+                    v = _get_prop_value(props, name.lower(), _get_prop_value(props, name, default))
+                    return v if v != "" else default
 
                 def _parse_pt(pt_val, default=(0.0, 0.0)):
                     if isinstance(pt_val, (list, tuple)) and len(pt_val) >= 2:
                         return float(_eval_num_expr(pt_val[0], context, default[0])), float(_eval_num_expr(pt_val[1], context, default[1]))
                     s = str(pt_val).strip()
-                    if ',' in s:
-                        parts = s.split(',')
-                        return float(_eval_num_expr(parts[0], context, default[0])), float(_eval_num_expr(parts[1], context, default[1]))
-                    elif ' ' in s:
-                        parts = s.split()
+                    depth = 0
+                    split_idx = -1
+                    for i, ch in enumerate(s):
+                        if ch in '([{':
+                            depth += 1
+                        elif ch in ')]}':
+                            depth -= 1
+                        elif ch == ',' and depth == 0:
+                            split_idx = i
+                            break
+                    if split_idx != -1:
+                        part0 = s[:split_idx].strip()
+                        part1 = s[split_idx+1:].strip()
+                        return float(_eval_num_expr(part0, context, default[0])), float(_eval_num_expr(part1, context, default[1]))
+                    elif ' ' in s and depth == 0:
+                        parts = s.split(None, 1)
                         return float(_eval_num_expr(parts[0], context, default[0])), float(_eval_num_expr(parts[1], context, default[1]))
                     try:
                         v = float(_eval_num_expr(s, context, default[0]))
@@ -1676,34 +1709,129 @@ class GraphEngine:
                     except Exception:
                         return default
 
-                x0, y0 = _parse_pt(p0_raw, (0.0, 0.0))
-                x1, y1 = _parse_pt(p1_raw, (50.0, 100.0))
-                x2, y2 = _parse_pt(p2_raw, (150.0, 100.0))
-                x3, y3 = _parse_pt(p3_raw, (200.0, 0.0))
+                def _sample_polyline_arc_length(pts, progress_t):
+                    if pts is None or len(pts) == 0:
+                        return 0.0, 0.0, 1.0, 0.0
+                    if len(pts) == 1:
+                        return float(pts[0][0]), float(pts[0][1]), 1.0, 0.0
+                    seg_lens = []
+                    total_len = 0.0
+                    for k in range(len(pts) - 1):
+                        d = math.hypot(pts[k+1][0] - pts[k][0], pts[k+1][1] - pts[k][1])
+                        seg_lens.append(d)
+                        total_len += d
+                    if total_len <= 1e-9:
+                        return float(pts[0][0]), float(pts[0][1]), 1.0, 0.0
+                    target_d = progress_t * total_len
+                    accum = 0.0
+                    chosen_idx = len(pts) - 2
+                    frac = 0.0
+                    for k, slen in enumerate(seg_lens):
+                        if accum + slen >= target_d:
+                            chosen_idx = k
+                            frac = (target_d - accum) / slen if slen > 0 else 0.0
+                            break
+                        accum += slen
+                    pA = pts[chosen_idx]
+                    pB = pts[chosen_idx + 1]
+                    cur_x = pA[0] + frac * (pB[0] - pA[0])
+                    cur_y = pA[1] + frac * (pB[1] - pA[1])
+                    cur_dx = pB[0] - pA[0]
+                    cur_dy = pB[1] - pA[1]
+                    return cur_x, cur_y, cur_dx, cur_dy
 
+                modo = str(_get_prop_value(props, "modo", "Cúbica 2D")).strip()
+                m_lower = modo.lower()
+
+                t_raw = _get_val("t", "0.5")
                 ft = float(_eval_num_expr(t_raw, context, 0.5))
                 ft = max(0.0, min(1.0, ft))
                 u = 1.0 - ft
 
-                if "cuadr" in modo.lower():
-                    bx = u * u * x0 + 2.0 * u * ft * x1 + ft * ft * x2
-                    by = u * u * y0 + 2.0 * u * ft * y1 + ft * ft * y2
-                    dx = 2.0 * u * (x1 - x0) + 2.0 * ft * (x2 - x1)
-                    dy = 2.0 * u * (y1 - y0) + 2.0 * ft * (y2 - y1)
-                    spline_str = f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(y2,2)} {round(x2,2)} {round(y2,2)}"
-                else:
-                    bx = (u**3)*x0 + 3*(u**2)*ft*x1 + 3*u*(ft**2)*x2 + (ft**3)*x3
-                    by = (u**3)*y0 + 3*(u**2)*ft*y1 + 3*u*(ft**2)*y2 + (ft**3)*y3
-                    dx = 3*(u**2)*(x1 - x0) + 6*u*ft*(x2 - x1) + 3*(ft**2)*(x3 - x2)
-                    dy = 3*(u**2)*(y1 - y0) + 6*u*ft*(y2 - y1) + 3*(ft**2)*(x3 - y2)
-                    spline_str = f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(y2,2)} {round(x3,2)} {round(y3,2)}"
+                subdivs_raw = _get_val("Subdivs", "100")
+                subdivs = max(0, min(2000, int(float(_eval_num_expr(subdivs_raw, context, 100)))))
+
+                if any(k in m_lower for k in ("cuad", "quad")):
+                    x0, y0 = _parse_pt(_get_val("P0", "0,0"), (0.0, 0.0))
+                    x1, y1 = _parse_pt(_get_val("P1", "50,100"), (50.0, 100.0))
+                    x2, y2 = _parse_pt(_get_val("P2", "100,0"), (100.0, 0.0))
+                    spline_str = f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(x2,2)} {round(x2,2)} {round(x2,2)}"
+                    if subdivs >= 2:
+                        pts = []
+                        for j in range(subdivs + 1):
+                            s = j / float(subdivs)
+                            us = 1.0 - s
+                            px = us * us * x0 + 2.0 * us * s * x1 + s * s * x2
+                            py = us * us * y0 + 2.0 * us * s * y1 + s * s * y2
+                            pts.append((px, py))
+                        bx, by, dx, dy = _sample_polyline_arc_length(pts, ft)
+                    else:
+                        bx = u * u * x0 + 2.0 * u * ft * x1 + ft * ft * x2
+                        by = u * u * y0 + 2.0 * u * ft * y1 + ft * ft * y2
+                        dx = 2.0 * u * (x1 - x0) + 2.0 * ft * (x2 - x1)
+                        dy = 2.0 * u * (y1 - y0) + 2.0 * ft * (y2 - y1)
+                elif any(k in m_lower for k in ("trazado", "velocidad", "tangente", "assdraw", "spline")):
+                    shape_raw = _get_val("Shape", "")
+                    if str(shape_raw).strip().lower().startswith("shape."):
+                        from nodes.shape_nodes import resolve_shape_value
+                        shape_raw = resolve_shape_value(shape_raw, context)
+                    shape_str = str(shape_raw).strip()
+                    eff_subdivs = max(5, subdivs if subdivs >= 2 else 100)
+                    from clipper_engine import ClipperEngine
+                    contours = ClipperEngine.parse_assdraw(shape_str, bezier_steps=eff_subdivs)
+                    if contours and len(contours) > 0 and len(contours[0]) > 1:
+                        pts = contours[0]
+                        bx, by, dx, dy = _sample_polyline_arc_length(pts, ft)
+                        spline_str = shape_str
+                    else:
+                        x0, y0 = _parse_pt(_get_val("P0", "0,0"), (0.0, 0.0))
+                        x1, y1 = _parse_pt(_get_val("P1", "50,100"), (50.0, 100.0))
+                        x2, y2 = _parse_pt(_get_val("P2", "150,100"), (150.0, 100.0))
+                        x3, y3 = _parse_pt(_get_val("P3", "200,0"), (200.0, 0.0))
+                        spline_str = shape_str if shape_str else f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(x2,2)} {round(x3,2)} {round(y3,2)}"
+                        if subdivs >= 2:
+                            pts = []
+                            for j in range(subdivs + 1):
+                                s = j / float(subdivs)
+                                us = 1.0 - s
+                                px = (us**3)*x0 + 3*(us**2)*s*x1 + 3*us*(s**2)*x2 + (s**3)*x3
+                                py = (us**3)*y0 + 3*(us**2)*s*y1 + 3*us*(s**2)*y2 + (s**3)*y3
+                                pts.append((px, py))
+                            bx, by, dx, dy = _sample_polyline_arc_length(pts, ft)
+                        else:
+                            bx = (u**3)*x0 + 3*(u**2)*ft*x1 + 3*u*(ft**2)*x2 + (ft**3)*x3
+                            by = (u**3)*y0 + 3*(u**2)*ft*y1 + 3*u*(ft**2)*y2 + (ft**3)*y3
+                            dx = 3*(u**2)*(x1 - x0) + 6*u*ft*(x2 - x1) + 3*(ft**2)*(x3 - x2)
+                            dy = 3*(u**2)*(y1 - y0) + 6*u*ft*(y2 - y1) + 3*(ft**2)*(y3 - y2)
+                else: # Cúbica 2D
+                    x0, y0 = _parse_pt(_get_val("P0", "0,0"), (0.0, 0.0))
+                    x1, y1 = _parse_pt(_get_val("P1", "50,100"), (50.0, 100.0))
+                    x2, y2 = _parse_pt(_get_val("P2", "150,100"), (150.0, 100.0))
+                    x3, y3 = _parse_pt(_get_val("P3", "200,0"), (200.0, 0.0))
+                    spline_str = f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(x2,2)} {round(x3,2)} {round(y3,2)}"
+                    if subdivs >= 2:
+                        pts = []
+                        for j in range(subdivs + 1):
+                            s = j / float(subdivs)
+                            us = 1.0 - s
+                            px = (us**3)*x0 + 3*(us**2)*s*x1 + 3*us*(s**2)*x2 + (s**3)*x3
+                            py = (us**3)*y0 + 3*(us**2)*s*y1 + 3*us*(s**2)*y2 + (s**3)*y3
+                            pts.append((px, py))
+                        bx, by, dx, dy = _sample_polyline_arc_length(pts, ft)
+                    else:
+                        bx = (u**3)*x0 + 3*(u**2)*ft*x1 + 3*u*(ft**2)*x2 + (ft**3)*x3
+                        by = (u**3)*y0 + 3*(u**2)*ft*y1 + 3*u*(ft**2)*y2 + (ft**3)*y3
+                        dx = 3*(u**2)*(x1 - x0) + 6*u*ft*(x2 - x1) + 3*(ft**2)*(x3 - x2)
+                        dy = 3*(u**2)*(y1 - y0) + 6*u*ft*(y2 - y1) + 3*(ft**2)*(y3 - y2)
 
                 tan_rad = math.atan2(dy, dx)
                 tan_deg = math.degrees(tan_rad)
                 norm_deg = (tan_deg + 90.0) % 360.0
 
-                fmt_x = int(bx) if float(bx).is_integer() else round(bx, 2)
-                fmt_y = int(by) if float(by).is_integer() else round(by, 2)
+                rbx = round(float(bx), 2)
+                rby = round(float(by), 2)
+                fmt_x = int(rbx) if rbx.is_integer() else rbx
+                fmt_y = int(rby) if rby.is_integer() else rby
 
                 if output_slot_index == 1: return str(fmt_x)
                 elif output_slot_index == 2: return str(fmt_y)
@@ -1711,9 +1839,6 @@ class GraphEngine:
                 elif output_slot_index == 4: return str(round(norm_deg, 2))
                 elif output_slot_index == 5: return spline_str
                 else:
-                    m_clean = modo.lower()
-                    if m_clean in ("spline", "assdraw", "trazado assdraw", "b"):
-                        return spline_str
                     return f"\\pos({fmt_x},{fmt_y})"
             except Exception as e:
                 return f"[Err Curva Bézier: {e}]"
@@ -1994,7 +2119,7 @@ class GraphEngine:
         # ---------------------------------------------------------------------
         # 4C. CLIP GRADIENT (Multi-Slot: Clip ASS, Progreso 0-1, Índice, Total)
         # ---------------------------------------------------------------------
-        elif node_type in ["Functions/Clip Gradient", "Shape/Clip Gradient", "Clip Gradient"]:
+        elif node_type in ["Functions/Clip Gradient", "Clip Gradient"]:
             try:
                 num_clips_raw = self.get_input_value(node, 0, context)
                 if num_clips_raw == "": num_clips_raw = str(_get_prop_value(props, "num_clips", _get_prop_value(props, "franjas", "5"))).strip()
@@ -2100,7 +2225,7 @@ class GraphEngine:
         # ---------------------------------------------------------------------
         # 4E. AUDIO WAVEFORM (Multi-Slot: Shape Out, \pos Tag, X Array, Y Array, Bandas Array)
         # ---------------------------------------------------------------------
-        elif node_type in ["Audio/Audio Waveform", "Audio Waveform", "/Audio Waveform", "Audio/Waveform"]:
+        elif node_type in ["Audio/Audio Waveform", "Audio Waveform"]:
             try:
                 inputs_list = node.get("inputs", [])
                 def get_val(port_name_or_aliases, default_val=""):
@@ -2402,9 +2527,12 @@ class GraphEngine:
             val = _get_prop_value(props, "valor", _get_prop_value(props, "value", _get_prop_value(props, "text", _get_prop_value(props, "texto", ""))))
             return str(val) if val is not None else ""
             
-        if node_type in ["Number", "Number"]:
-            try: return float(props.get("valor", 0))
-            except Exception: return 0.0
+        if node_type in ["Number"]:
+            raw_val = _get_prop_value(props, "valor", _get_prop_value(props, "value", 0))
+            res = _eval_num_expr(raw_val, context, default=0.0)
+            if isinstance(res, float) and res.is_integer():
+                return str(int(res))
+            return f"{res:.4f}".rstrip('0').rstrip('.')
 
         # ---------------------------------------------------------------------
         # REGISTRO GENÉRICO DE NODOS PYXIS
@@ -2452,7 +2580,7 @@ class GraphEngine:
             else:
                 return str(self.recall(key_val, input_val))
 
-        elif node_type == "Loops/Main Loop":
+        elif node_type in ["Loops/Main Loop", "Main Loop"] or (isinstance(node_type, str) and node_type.endswith("Main Loop")):
             unit = context.get('active_unit')
             if output_slot_index == 1:
                 return str(getattr(unit, 'i', 1) if unit else 1)
@@ -2460,7 +2588,7 @@ class GraphEngine:
                 return str(getattr(unit, 'n', 1) if unit else 1)
             return ""
 
-        elif node_type == "Loops/MaxLoop":
+        elif node_type in ["Loops/MaxLoop", "MaxLoop"] or (isinstance(node_type, str) and node_type.endswith("MaxLoop")):
             if output_slot_index == 1:
                 return str(context.get('fx_i', context.get('j', 1)))
             elif output_slot_index == 2:
@@ -2549,6 +2677,10 @@ class GraphEngine:
                 else:
                     val_n = float(_eval_num_expr(raw_n, context, 1.0))
 
+                raw_accel = self.get_input_value(node, 2, context)
+                if raw_accel == "": raw_accel = _get_prop_value(props, "accel", "1.0")
+                accel_val = max(0.001, float(_eval_num_expr(raw_accel, context, 1.0)))
+
                 # Determine progress t (0.0 to 1.0)
                 if 0.0 <= val_i <= 1.0 and (raw_n == "" or val_n == 1.0):
                     t_val = val_i
@@ -2560,25 +2692,30 @@ class GraphEngine:
 
                 t_val = max(0.0, min(1.0, t_val))
 
-                mode = props.get("mode", "Linear")
+                # Apply power-law acceleration / deceleration: t^accel (like ASS \t tag)
+                if accel_val != 1.0 and t_val > 0.0:
+                    t_val = t_val ** accel_val
+
                 inputs_count = len(node.get('inputs', []))
                 val_list = []
-                for i in range(2, inputs_count):
+                for i in range(3, inputs_count):
                     val = self.get_input_value(node, i, context)
+                    if val == "":
+                        inp = node['inputs'][i]
+                        prop_name = inp.get('property') or inp.get('name', '').lower()
+                        val = _get_prop_value(props, prop_name, "")
                     if val != "": val_list.append(val)
 
                 if len(val_list) < 2:
-                    p_v1 = str(_get_prop_value(props, "v1", "")).strip()
-                    p_v2 = str(_get_prop_value(props, "v2", "")).strip()
-                    if p_v1 != "" or p_v2 != "":
-                        val_list = [p_v1 if p_v1 != "" else "0", p_v2 if p_v2 != "" else "1"]
+                    p_v1 = str(_get_prop_value(props, "v1", "0")).strip()
+                    p_v2 = str(_get_prop_value(props, "v2", "1")).strip()
+                    val_list = [p_v1, p_v2]
 
                 if not val_list:
                     return ""
                 if len(val_list) == 1:
                     return str(val_list[0])
                 
-                t_val = max(0.0, min(1.0, t_val))
                 n_segments = len(val_list) - 1
                 scaled_t = t_val * n_segments
                 seg_idx = int(scaled_t)
@@ -2588,25 +2725,7 @@ class GraphEngine:
                 else:
                     local_t = scaled_t - seg_idx
                 
-                if mode == "Smooth":
-                    local_t = local_t * local_t * (3.0 - 2.0 * local_t)
-                elif mode == "Accelerate":
-                    local_t = local_t * local_t
-                elif mode == "Decelerate":
-                    local_t = local_t * (2.0 - local_t)
-                
                 v1, v2 = val_list[seg_idx], val_list[seg_idx + 1]
-                
-                # Numeric interpolation
-                try:
-                    n1, n2 = float(v1), float(v2)
-                    res = n1 + (n2 - n1) * local_t
-                    if float(n1).is_integer() and float(n2).is_integer() and float(res).is_integer():
-                        return str(int(res))
-                    return f"{res:.2f}".rstrip('0').rstrip('.')
-                except (ValueError, TypeError):
-                    pass
-                
                 str1, str2 = str(v1).strip(), str(v2).strip()
                 
                 # Alpha interpolation (&HAA&)
@@ -2670,7 +2789,32 @@ class GraphEngine:
                             return " ".join(parts)
                     except Exception:
                         pass
-                
+
+                # Numeric interpolation (numbers or context expressions like l.left, l.left+l.width, syl.x)
+                try:
+                    def _to_num(val_raw):
+                        try:
+                            return float(val_raw)
+                        except (ValueError, TypeError):
+                            pass
+                        res = _eval_num_expr(val_raw, context, default=None)
+                        if res is not None:
+                            try:
+                                return float(res)
+                            except (ValueError, TypeError):
+                                pass
+                        return None
+
+                    n1 = _to_num(v1)
+                    n2 = _to_num(v2)
+                    if n1 is not None and n2 is not None:
+                        res = n1 + (n2 - n1) * local_t
+                        if float(n1).is_integer() and float(n2).is_integer() and float(res).is_integer():
+                            return str(int(res))
+                        return f"{res:.2f}".rstrip('0').rstrip('.')
+                except Exception:
+                    pass
+
                 return str(v1 if local_t < 0.5 else v2)
             except Exception as e:
                 return f"[Err Interpolador: {e}]"

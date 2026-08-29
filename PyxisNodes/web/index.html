@@ -998,12 +998,16 @@
                 node.title === "Interpolador Tiempo" ||
                 node.title === "Text to Shape" ||
                 node.title === "IMG to Shape" ||
+                node.title === "Bezier Curve" ||
+                node.title === "Curva Bézier" ||
                 (node.type && (
                     String(node.type).includes("Polares") ||
                     String(node.type).includes("Concatenate") ||
                     String(node.type).includes("Previewer") ||
                     String(node.type).includes("Text to Shape") ||
                     String(node.type).includes("IMG to Shape") ||
+                    String(node.type).includes("Bezier") ||
+                    String(node.type).includes("Curva") ||
                     String(node.type).includes("preview") ||
                     String(node.type).includes("Time") ||
                     String(node.type).includes("Audio") ||
@@ -3648,9 +3652,9 @@
                     <div class="pyxis-tag-picker-header">
                         <div class="pyxis-tag-picker-title">
                             <svg class="svg-icon" viewBox="0 0 24 24" style="stroke: #8b5cf6; width:18px; height:18px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                            <span>Catálogo de Formas Vectoriales (Shapes Lib - 80 Formas)</span>
+                            <span>Catálogo de Shapes Vectoriales (Shapes Lib - 80 Shapes)</span>
                         </div>
-                        <input type="text" class="pyxis-tag-picker-search" id="pyxis-shapes-picker-search-input" placeholder="Buscar forma (ej: circulo, estrella, corazon, sakura, pixel)..." autofocus>
+                        <input type="text" class="pyxis-tag-picker-search" id="pyxis-shapes-picker-search-input" placeholder="Buscar shape (ej: circulo, estrella, corazon, sakura, pixel)..." autofocus>
                         <button class="pyxis-modal-close" id="btn-close-shapes-picker" style="background:transparent; border:none; color:var(--text-muted); cursor:pointer;">
                             <svg class="svg-icon" viewBox="0 0 24 24" style="width:18px; height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
@@ -3915,7 +3919,7 @@
                     }
                 });
                 const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, text_req_w + 16);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
                 return [Math.max(base_w, 22 + boxW + right_space), 11 + reqParams.length * 23 + 42];
             };
 
@@ -4188,7 +4192,7 @@
                     }
                 });
                 const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, text_req_w + 16);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
                 return [Math.max(base_w, 22 + boxW + right_space), 11 + reqInputs.length * 23 + 12];
             };
 
@@ -4475,7 +4479,7 @@
                     }
                 });
                 const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, text_req_w + 16);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
                 return [Math.max(base_w, 22 + boxW + right_space), 11 + reqInputs.length * 23 + 42];
             };
 
@@ -4745,7 +4749,7 @@
                     }
                 });
                 const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, text_req_w + 16);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
                 return [Math.max(base_w, 22 + boxW + right_space), 11 + 3 * 23 + 12];
             };
 
@@ -4903,7 +4907,7 @@
                     }
                 });
                 const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, text_req_w + 16);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
                 const contentH = 34 + count * 23 + 52;
                 return [Math.max(base_w, 22 + boxW + right_space), contentH];
             };
@@ -5761,14 +5765,17 @@
         function isFilePathPropOrVal(propKey, val) {
             if (!val || typeof val !== "string") return false;
             const p = String(propKey || "").toLowerCase();
+            if (p === "text" || p === "texto" || p === "valor" || p === "value" || p === "formato" || p === "format" || p === "key" || p === "default" || p === "tag" || p === "variables" || p === "code" || p.startsWith("in")) {
+                return false;
+            }
             if (p === "image_path" || p === "audio_path" || p === "file_path" || p === "path" || p.includes("ruta")) {
                 return true;
             }
             const str = val.trim();
-            if (/^[a-zA-Z]:[\\\/]/.test(str) || /^\\\\[^\\]/.test(str) || str.startsWith("./") || str.startsWith("../")) {
+            if (/^[a-zA-Z]:[\\\/]/.test(str) || /^\\\\[^\\\/]+[\\\/][^\\\/]+/.test(str) || str.startsWith("./") || str.startsWith("../")) {
                 return true;
             }
-            if (/\.(png|jpg|jpeg|gif|webp|bmp|wav|mp3|ogg|flac|aac|ass|srt|txt|py|lua|json)$/i.test(str)) {
+            if ((str.includes("/") || str.includes("\\")) && /\.(png|jpg|jpeg|gif|webp|bmp|wav|mp3|ogg|flac|aac|ass|srt|txt|py|lua|json)$/i.test(str)) {
                 return true;
             }
             return false;
@@ -5948,7 +5955,7 @@
 
             if (!isSalidaNode) {
                 inputEl.onscroll = function() {
-                    inputEl.scrollLeft = 0;
+                    if (inputEl.scrollWidth <= inputEl.clientWidth + 2) inputEl.scrollLeft = 0;
                 };
             }
 
@@ -5956,7 +5963,7 @@
             setTimeout(() => {
                 inputEl.focus();
                 inputEl.setSelectionRange(0, inputEl.value.length);
-                if (!isSalidaNode) inputEl.scrollLeft = 0;
+                if (!isSalidaNode && inputEl.scrollWidth <= inputEl.clientWidth + 2) inputEl.scrollLeft = 0;
             }, 10);
 
             inputEl.oninput = function() {
@@ -5991,12 +5998,12 @@
                 const curPadRight = isSalidaNode ? Math.max(2, Math.round(10 * newScale)) : Math.max(2, Math.round(6 * newScale));
                 inputEl.style.padding = "0 " + curPadRight + "px 0 " + curPadLeft + "px";
                 inputEl.style.lineHeight = (newScreenH - 3 * newScale) + "px";
-                if (!isSalidaNode) inputEl.scrollLeft = 0;
+                if (!isSalidaNode && inputEl.scrollWidth <= inputEl.clientWidth + 2) inputEl.scrollLeft = 0;
             };
 
             if (!isSalidaNode) {
                 inputEl.onkeyup = function() {
-                    inputEl.scrollLeft = 0;
+                    if (inputEl.scrollWidth <= inputEl.clientWidth + 2) inputEl.scrollLeft = 0;
                 };
             }
 
@@ -6116,24 +6123,6 @@
                     { full: "Heavy Math (Trig + Sqrt)", short: "Math" },
                     { full: "Matrix Multiply", short: "Matrix" },
                     { full: "Prime Factorization", short: "Prime" }
-                ]
-            },
-            "Time Ipol": {
-                propKey: "mode",
-                modes: [
-                    { full: "Linear", short: "Linear" },
-                    { full: "Smooth", short: "Smooth" },
-                    { full: "Accelerate", short: "Accel" },
-                    { full: "Decelerate", short: "Decel" }
-                ]
-            },
-            "Interpolator": {
-                propKey: "mode",
-                modes: [
-                    { full: "Linear", short: "Linear" },
-                    { full: "Smooth", short: "Smooth" },
-                    { full: "Accelerate", short: "Accel" },
-                    { full: "Decelerate", short: "Decel" }
                 ]
             },
             "Shape Transform": {
@@ -6541,7 +6530,10 @@
             const title = String(node.title || node.type || "");
             if (title.includes("IMG to pixels") || title.includes("Imagen a Partículas")) return null;
             for (const key in DYNAMIC_NODE_MODES) {
-                const matches = (key === "Math" ? (title === "Math") : (key === "Text" ? (title === "Text") : (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key)))) || 
+                const matches = (key === "Math" ? (title === "Math" || title === "Mates") : 
+                                (key === "Text" ? (title === "Text" || title === "Texto" || (node && (node.type === "Text" || node.type === "Texto"))) : 
+                                (key === "Bezier Curve" ? (title.includes("Bezier") || title.includes("Bézier") || title.includes("Curva") || (node && node.type && String(node.type).includes("Bezier"))) :
+                                (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key))))) || 
                                 (key.includes("/") && key.split("/").some(k => title.includes(k.trim())));
                 if (matches) {
                     const entry = DYNAMIC_NODE_MODES[key];
@@ -6861,6 +6853,7 @@
                 "DEFAULT": [
                     { name: "Iterator", default: "i", property: "iterador" },
                     { name: "Total", default: "N", property: "total" },
+                    { name: "Accel", default: "1.0", property: "accel" },
                     { name: "V1", default: "0", property: "v1" },
                     { name: "V2", default: "1", property: "v2" }
                 ]
@@ -6997,30 +6990,34 @@
             },
             "Bezier Curve": {
                 "Cuadrática 2D": [
-                    { name: "P0", default: "0,0" },
-                    { name: "P1", default: "50,100" },
-                    { name: "P2", default: "100,0" },
-                    { name: "t", default: "0.5" }
+                    { name: "P0", default: "0,0", property: "p0" },
+                    { name: "P1", default: "50,100", property: "p1" },
+                    { name: "P2", default: "100,0", property: "p2" },
+                    { name: "t", default: "0.5", property: "t" },
+                    { name: "Subdivs", default: "100", property: "subdivs" }
                 ],
                 "Cúbica 2D": [
-                    { name: "P0", default: "0,0" },
-                    { name: "P1", default: "50,100" },
-                    { name: "P2", default: "150,100" },
-                    { name: "P3", default: "200,0" },
-                    { name: "t", default: "0.5" }
+                    { name: "P0", default: "0,0", property: "p0" },
+                    { name: "P1", default: "50,100", property: "p1" },
+                    { name: "P2", default: "150,100", property: "p2" },
+                    { name: "P3", default: "200,0", property: "p3" },
+                    { name: "t", default: "0.5", property: "t" },
+                    { name: "Subdivs", default: "100", property: "subdivs" }
                 ],
                 "Trazado ASSdraw": [
-                    { name: "Shape", default: "" },
-                    { name: "t", default: "0.5" }
+                    { name: "Shape", default: "", property: "shape" },
+                    { name: "t", default: "0.5", property: "t" },
+                    { name: "Subdivs", default: "100", property: "subdivs" }
                 ],
                 "Velocidad Constante t": [
-                    { name: "Shape", default: "" },
-                    { name: "t", default: "0.5" },
-                    { name: "Subdivs", default: "100" }
+                    { name: "Shape", default: "", property: "shape" },
+                    { name: "t", default: "0.5", property: "t" },
+                    { name: "Subdivs", default: "100", property: "subdivs" }
                 ],
                 "Tangente & Normal": [
-                    { name: "Shape", default: "" },
-                    { name: "t", default: "0.5" }
+                    { name: "Shape", default: "", property: "shape" },
+                    { name: "t", default: "0.5", property: "t" },
+                    { name: "Subdivs", default: "100", property: "subdivs" }
                 ]
             },
             "Tag Oscillator": {
@@ -7906,7 +7903,7 @@
                         ctx.fillText("+", x1 + btnW / 2, drawY + btnH / 2 + 1);
 
                         // Minus Button (-)
-                        const minInputs = (n.title === "Interpolator" || n.type === "Interpolator") ? 4 : 2;
+                        const minInputs = (n.title === "Interpolator" || n.type === "Interpolator" || n.title === "Interpolador" || n.type === "Interpolador") ? 5 : 2;
                         const canRemove = n.inputs && (n.inputs.length > minInputs);
 
                         ctx.fillStyle = canRemove ? "#1e242d" : "#12151b";
@@ -7950,7 +7947,7 @@
                             if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("add-input");
                             if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                         } else if (localX >= x2 - 4 && localX <= x2 + btnW + 4) {
-                            const minInputs = (targetNode.title === "Interpolator" || targetNode.type === "Interpolator") ? 4 : 2;
+                            const minInputs = (targetNode.title === "Interpolator" || targetNode.type === "Interpolator" || targetNode.title === "Interpolador" || targetNode.type === "Interpolador") ? 5 : 2;
                             if (targetNode.inputs && targetNode.inputs.length > minInputs) {
                                 const lastInp = targetNode.inputs[targetNode.inputs.length - 1];
                                 const lastProp = lastInp ? (lastInp.property || lastInp.name) : null;
@@ -8094,7 +8091,7 @@ remainingOldInputs.forEach(unmatchedInp => {
                     }
                 });
                 const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, text_req_w + 16);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
                 const reqH = 30 + count * 23 + 8;
                 return [Math.max(base_w, 22 + boxW + right_space), reqH];
             };
@@ -8569,7 +8566,7 @@ function setupDynamicInlineNode(node) {
 
                 const titleText = String(this.title || this.type || "");
                 const titleW = getExactTextWidth(titleText, "bold 12px sans-serif");
-                const boxW = Math.max(50, max_input_w + 14);
+                const boxW = Math.max(50, Math.ceil(max_input_w + 36));
                 const right_space = max_output_w > 0 ? (max_output_w + 28) : 14;
                 const minBaseW = (titleText === "Math" || (this.type && this.type.includes("Math"))) ? 165 : 175;
 
@@ -8583,8 +8580,9 @@ function setupDynamicInlineNode(node) {
                 );
 
                 // REGLA UNIVERSAL FASE 2: req_w >= titleW + modeW + 54px para eliminar colisión en barra de título
+                const maxRows = Math.max(nodeInputs.length, (this.outputs ? this.outputs.length : 0));
                 let req_w = Math.max(minBaseW, 20 + boxW + right_space, titleW + modeW + 54);
-                let req_h = 11 + nodeInputs.length * 23 + 12 + (hasLoopFooter ? 14 : 0);
+                let req_h = 12 + maxRows * 23 + (hasLoopFooter ? 14 : 0);
 
                 // Overrides específicos de la Fase 2
                 if (titleText.includes("Slicer")) {
@@ -8596,7 +8594,10 @@ function setupDynamicInlineNode(node) {
                     req_w = Math.max(req_w, 235);
                 } else if (titleText.includes("Audio Modulator") || (this.type && this.type.includes("Audio"))) {
                     req_w = Math.max(req_w, 225);
-                } else if (titleText.includes("Clip") || titleText.includes("Curva") || titleText.includes("Shape Transform") || titleText.includes("Ipol") || titleText.includes("Interpolator")) {
+                } else if (titleText.includes("Curva") || titleText.includes("Bezier")) {
+                    req_w = Math.max(req_w, 235);
+                    req_h = Math.max(req_h, 150);
+                } else if (titleText.includes("Clip") || titleText.includes("Shape Transform") || titleText.includes("Ipol") || titleText.includes("Interpolator")) {
                     req_w = Math.max(req_w, 215);
                 }
 
@@ -13059,7 +13060,7 @@ function setupDynamicInlineNode(node) {
                                     });
                                     if (max_line_tw > 0) {
                                         const right_space = max_out_label_len > 0 ? (max_out_label_len * 7.5 + 38) : 16;
-                                        const boxW = Math.max(65, max_line_tw + 16);
+                                        const boxW = Math.max(65, Math.ceil(max_line_tw + 36));
                                         req_w = Math.max(req_w, 22 + boxW + right_space);
                                     }
                                     if (propKey === "variables" && lines.length > 1) {
@@ -13083,7 +13084,7 @@ function setupDynamicInlineNode(node) {
                                     });
                                     if (max_line_tw > 0) {
                                         const right_space = max_out_label_len > 0 ? (max_out_label_len * 7.5 + 38) : 16;
-                                        const boxW = Math.max(65, max_line_tw + 16);
+                                        const boxW = Math.max(65, Math.ceil(max_line_tw + 36));
                                         req_w = Math.max(req_w, 22 + boxW + right_space);
                                     }
                                 }
@@ -13248,7 +13249,7 @@ function setupDynamicInlineNode(node) {
                     setupImgToPixelsNode(this);
                 } else if (node_name === "MultiRandom" || node_name.includes("MultiRandom")) {
                     setupRandomMasterNode(this);
-                } else if (category === "Audio" || category === "Shape" || (category === "Math" && node_name !== "MultiRandom" && !node_name.includes("MultiRandom")) || node_name.includes("Audio") || node_name === "Math" || node_name === "Text" || node_name.includes("Shape Transform") || node_name.includes("Shape Slicer") || node_name.includes("Curva") || node_name.includes("Particles") || node_name.includes("Bordes") || node_name.includes("Clip") || node_name.includes("Tag Oscillator") || node_name.includes("Oscilador") || node_name.includes("Tag Animado") || node_name.includes("Synced Time") || node_name.includes("Kana") || node_name.includes("Ipol") || node_name.includes("Interpolator") || node_name.includes("Benchmark") || node_name.includes("Gradiente") || node_name.includes("MultiTag") || node_name.includes("Sys Var") || node_name.includes("SysVar") || node_name === "Module" || node_name.includes("Module")) {
+                } else if (category === "Audio" || category === "Shape" || (category === "Math" && node_name !== "MultiRandom" && !node_name.includes("MultiRandom")) || node_name.includes("Audio") || node_name === "Math" || node_name === "Text" || node_name.includes("Shape Transform") || node_name.includes("Shape Slicer") || node_name.includes("Bezier") || node_name === "Bezier Curve" || node_name.includes("Curva") || node_name.includes("Particles") || node_name.includes("Bordes") || node_name.includes("Clip") || node_name.includes("Tag Oscillator") || node_name.includes("Oscilador") || node_name.includes("Tag Animado") || node_name.includes("Synced Time") || node_name.includes("Kana") || node_name.includes("Ipol") || node_name.includes("Interpolator") || node_name.includes("Benchmark") || node_name.includes("Gradiente") || node_name.includes("MultiTag") || node_name.includes("Sys Var") || node_name.includes("SysVar") || node_name === "Module" || node_name.includes("Module")) {
                     setupDynamicInlineNode(this);
                 } else if (node_name === "Offset" || node_name.includes("Offset")) {
                     setupOffsetNode(this);
@@ -13335,14 +13336,14 @@ function setupDynamicInlineNode(node) {
 
         const FALLBACK_SYSTEM_NODES = {
             "": {
-                "String": {
-                    "node_kind": "data", "inputs": [], "outputs": ["String"], "color": "#4B4B4B",
-                    "properties": { "valor": "" }, "widgets": [{ "type": "text", "name": "Text", "property": "valor" }]
-                },
                 "Text": {
                     "node_kind": "text", "inputs": ["Text"], "outputs": ["Out"], "color": "#0F766E",
                     "properties": { "operacion": "Strip Tags" },
                     "widgets": []
+                },
+                "String": {
+                    "node_kind": "data", "inputs": [], "outputs": ["String"], "color": "#4B4B4B",
+                    "properties": { "valor": "" }, "widgets": [{ "type": "text", "name": "Text", "property": "valor" }]
                 },
                 "Concatenate": {
                     "node_kind": "data", "inputs": ["In1", "In2"], "outputs": ["String"], "color": "#4B4B4B",
@@ -13440,9 +13441,14 @@ function setupDynamicInlineNode(node) {
                 }
             },
             "Functions": {
+                "Bezier Curve": {
+                    "node_kind": "data", "inputs": ["P0", "P1", "P2", "P3", "t", "Subdivs"], "outputs": ["\\pos", "X", "Y", "Tan", "Norm", "Spline"], "color": "#8B5CF6",
+                    "properties": { "p0": "0,0", "p1": "50,100", "p2": "150,100", "p3": "200,0", "t": "0.5", "subdivs": "100", "modo": "Cúbica 2D" },
+                    "widgets": []
+                },
                 "Interpolator": {
-                    "node_kind": "data", "inputs": ["Iterator", "Total", "V1", "V2"], "outputs": ["Data"], "color": "#8B5CF6",
-                    "properties": { "iterador": "i", "total": "N", "v1": "0", "v2": "1", "mode": "Linear" },
+                    "node_kind": "data", "inputs": ["Iterator", "Total", "Accel", "V1", "V2"], "outputs": ["Data"], "color": "#8B5CF6",
+                    "properties": { "iterador": "i", "total": "N", "accel": "1.0", "v1": "0", "v2": "1" },
                     "widgets": []
                 },
                 "Particles": {
@@ -13496,7 +13502,7 @@ function setupDynamicInlineNode(node) {
                 },
                 "Time Ipol": {
                     "node_kind": "data", "inputs": ["Duration (ms)", "Points / Values", "Acceleration"], "outputs": ["Data"], "color": "#2563EB",
-                    "properties": { "dur": "syl.duration", "points": "0, 100", "accel": "1.0", "mode": "Linear" },
+                    "properties": { "dur": "syl.duration", "points": "0, 100", "accel": "1.0" },
                     "widgets": []
                 }
             },
@@ -13538,27 +13544,6 @@ function setupDynamicInlineNode(node) {
 
         function registerSystemNodes(system_nodes, overwrite = false) {
             if (!system_nodes) return;
-
-            // Limpiar cualquier registro legacy/duplicado previo en el registro global de LiteGraph
-            const legacyKeys = [
-                "Time/Offset", "Time/Duration", "Time/Parse ASS Time", "Time/Format ASS Time",
-                "String/Concatenar", "Texto/Concatenar", "Math/Math",
-                "Math/Trigonometría/Curva Bézier", "Math/Curva Bézier",
-                "Text/Operaciones/Strip Tags", "Text/Operaciones/Mayúsculas", "Text/Operaciones/Minúsculas",
-                "Text/Operaciones/Reemplazar", "Text/Operaciones/Subcadena", "Text/Operaciones/Longitud",
-                "Text/Operaciones/Contener", "Text/Especial/Transliterar Kana", "Text/Especial/Text to Shape",
-                "Text/Strip Tags", "Text/Mayúsculas", "Text/Minúsculas", "Text/Reemplazar", "Text/Subcadena",
-                "Text/Longitud", "Text/Contener", "Text/Transliterar Kana", "Text/Text to Shape", "Text/Text",
-                "Texto/Texto", "String/Texto", "Shape/Corte/Shape Slicer", "Tags/Tag Oscilador", "Shape/Clip Gradient",
-                "Partículas/Operaciones/Partículas", "Partículas/Operaciones/IMG to pixels", "Partículas/Partículas",
-                "Partículas/IMG to pixels", "Partículas/Operaciones/Imagen a Partículas", "Partículas/Imagen a Partículas",
-                "Partículas/Operaciones", "Particles"
-            ];
-            legacyKeys.forEach(k => {
-                if (LiteGraph.registered_node_types[k]) {
-                    delete LiteGraph.registered_node_types[k];
-                }
-            });
 
             for (const k in LiteGraph.registered_node_types) {
                 if (k.startsWith("Shape/Formas/") || k.startsWith("Shape/Estrellas/") ||
@@ -13726,9 +13711,10 @@ function setupDynamicInlineNode(node) {
                     try {
                         let updatedInfoAegi = null;
                         let updatedInfoBase = null;
+                        const serialized = (window.graph) ? window.graph.serialize() : null;
                         if (typeof window.pywebview.api.get_preview_info === "function") {
-                            updatedInfoAegi = await window.pywebview.api.get_preview_info("aegisub");
-                            updatedInfoBase = await window.pywebview.api.get_preview_info("base");
+                            updatedInfoAegi = await window.pywebview.api.get_preview_info("aegisub", undefined, serialized);
+                            updatedInfoBase = await window.pywebview.api.get_preview_info("base", undefined, serialized);
                             if (updatedInfoAegi) {
                                 window.PyxisPreviewConfig = updatedInfoAegi;
                             }
@@ -13738,7 +13724,14 @@ function setupDynamicInlineNode(node) {
                             for (const nId in players) {
                                 const p = players[nId];
                                 if (!p) continue;
+                                if (window.graph) {
+                                    const liveNode = window.graph.getNodeById(Number(nId)) || window.graph.getNodeById(nId);
+                                    if (liveNode) p.node = liveNode;
+                                }
                                 const curSrc = (p.node && p.node.properties && p.node.properties.preview_source) || "base";
+                                const connectedOutputs = (p.node && typeof resolveConnectedOutputsForPreview === "function")
+                                    ? resolveConnectedOutputsForPreview(p.node)
+                                    : [];
                                 const hasAegi = Boolean(window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub);
                                 p.hasAegisub = hasAegi;
                                 if (typeof window.PyxisNodePlayerManager.updateSourceButtonUI === "function") {
@@ -13746,14 +13739,30 @@ function setupDynamicInlineNode(node) {
                                 }
                                 if (curSrc === "base") {
                                     if (typeof window.pywebview.api.get_preview_video_data_url === "function") {
-                                        const newVid = await window.pywebview.api.get_preview_video_data_url("base");
-                                        if (newVid && p.art && p.videoUrl !== newVid) {
+                                        const newVid = await window.pywebview.api.get_preview_video_data_url("base", connectedOutputs, serialized);
+                                        const isArtInError = Boolean(p.art && p.art.template && p.art.template.$player && p.art.template.$player.classList.contains('art-error'));
+                                        if (newVid && p.art && (p.videoUrl !== newVid || isArtInError)) {
                                             p.videoUrl = newVid;
-                                            try { p.art.switchUrl(newVid); } catch(err) {}
+                                            if (p.art.template && p.art.template.$player) {
+                                                p.art.template.$player.classList.remove('art-error');
+                                            }
+                                            if (p.art.mask) p.art.mask.show = false;
+                                            if (p.art.loading) p.art.loading.show = false;
+                                            if (p.art.notice) p.art.notice.show = "";
+                                            try {
+                                                await p.art.switchUrl(newVid);
+                                            } catch(err) {
+                                                console.warn("[Pyxis Daemon switchUrl error, retrying directly]", err);
+                                                try { p.art.url = newVid; } catch(e) {}
+                                            }
+                                            if (p.art.template && p.art.template.$player) {
+                                                p.art.template.$player.classList.remove('art-error');
+                                            }
+                                            if (p.art.mask) p.art.mask.show = false;
                                         }
                                     }
                                     if (typeof window.pywebview.api.get_initial_base_ass === "function" && p.jassub) {
-                                        const baseAss = await window.pywebview.api.get_initial_base_ass("base");
+                                        const baseAss = await window.pywebview.api.get_initial_base_ass("base", connectedOutputs, serialized);
                                         if (baseAss && typeof updateJassubTrack === "function") {
                                             await updateJassubTrack(p.jassub, baseAss);
                                         }
@@ -13791,14 +13800,30 @@ function setupDynamicInlineNode(node) {
                                     }
                                 } else if (curSrc === "aegisub" && hasAegi) {
                                     if (typeof window.pywebview.api.get_preview_video_data_url === "function") {
-                                        const newVid = await window.pywebview.api.get_preview_video_data_url("aegisub");
-                                        if (newVid && p.art && p.videoUrl !== newVid) {
+                                        const newVid = await window.pywebview.api.get_preview_video_data_url("aegisub", connectedOutputs, serialized);
+                                        const isArtInError = Boolean(p.art && p.art.template && p.art.template.$player && p.art.template.$player.classList.contains('art-error'));
+                                        if (newVid && p.art && (p.videoUrl !== newVid || isArtInError)) {
                                             p.videoUrl = newVid;
-                                            try { p.art.switchUrl(newVid); } catch(err) {}
+                                            if (p.art.template && p.art.template.$player) {
+                                                p.art.template.$player.classList.remove('art-error');
+                                            }
+                                            if (p.art.mask) p.art.mask.show = false;
+                                            if (p.art.loading) p.art.loading.show = false;
+                                            if (p.art.notice) p.art.notice.show = "";
+                                            try {
+                                                await p.art.switchUrl(newVid);
+                                            } catch(err) {
+                                                console.warn("[Pyxis Daemon switchUrl error, retrying directly]", err);
+                                                try { p.art.url = newVid; } catch(e) {}
+                                            }
+                                            if (p.art.template && p.art.template.$player) {
+                                                p.art.template.$player.classList.remove('art-error');
+                                            }
+                                            if (p.art.mask) p.art.mask.show = false;
                                         }
                                     }
                                     if (typeof window.pywebview.api.get_initial_base_ass === "function" && p.jassub) {
-                                        const baseAss = await window.pywebview.api.get_initial_base_ass("aegisub");
+                                        const baseAss = await window.pywebview.api.get_initial_base_ass("aegisub", connectedOutputs, serialized);
                                         if (baseAss && typeof updateJassubTrack === "function") {
                                             await updateJassubTrack(p.jassub, baseAss);
                                         }

@@ -58,13 +58,20 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
                 "pid": os.getpid(),
                 "daemon_mode": getattr(self.daemon_context, "daemon_mode", True)
             })
-        elif self.path.startswith("/media_file"):
+        elif self.path.startswith("/media_file") or self.path.startswith("/bg_media/"):
             try:
                 from urllib.parse import parse_qs, urlparse
                 parsed = urlparse(self.path)
-                params = parse_qs(parsed.query)
-                file_path = params.get("path", [None])[0]
-                if file_path and os.path.exists(file_path):
+                file_path = None
+                if self.path.startswith("/bg_media/"):
+                    f_name = parsed.path.replace("/bg_media/", "").strip()
+                    appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                    file_path = os.path.join(appdata_dir, "PyxisNodes", "bg_media", f_name)
+                else:
+                    params = parse_qs(parsed.query)
+                    file_path = params.get("path", [None])[0]
+
+                if file_path and os.path.isfile(file_path):
                     import mimetypes
                     mime_type, _ = mimetypes.guess_type(file_path)
                     mime_type = mime_type or "video/mp4"
@@ -75,6 +82,14 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
                         bytes_range = range_header.replace("bytes=", "").split("-")
                         start = int(bytes_range[0]) if bytes_range[0] else 0
                         end = int(bytes_range[1]) if len(bytes_range) > 1 and bytes_range[1] else file_size - 1
+
+                        if start >= file_size or start < 0 or (end is not None and end < start):
+                            self.send_response(416)
+                            self.send_header("Content-Range", f"bytes */{file_size}")
+                            self.send_header("Accept-Ranges", "bytes")
+                            self.end_headers()
+                            return
+
                         end = min(end, file_size - 1)
                         chunk_size = end - start + 1
 
@@ -91,7 +106,15 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
 
                         with open(file_path, "rb") as f:
                             f.seek(start)
-                            self.wfile.write(f.read(chunk_size))
+                            remaining = chunk_size
+                            buffer_size = 65536
+                            while remaining > 0:
+                                to_read = min(buffer_size, remaining)
+                                chunk_data = f.read(to_read)
+                                if not chunk_data:
+                                    break
+                                self.wfile.write(chunk_data)
+                                remaining -= len(chunk_data)
                     else:
                         self.send_response(200)
                         self.send_header("Content-Type", mime_type)
@@ -104,12 +127,22 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
                         self.end_headers()
 
                         with open(file_path, "rb") as f:
-                            import shutil
-                            shutil.copyfileobj(f, self.wfile)
+                            buffer_size = 65536
+                            while True:
+                                chunk_data = f.read(buffer_size)
+                                if not chunk_data:
+                                    break
+                                self.wfile.write(chunk_data)
                     return
+            except (BrokenPipeError, ConnectionResetError):
+                # Desconexión normal del reproductor durante seek o carga inicial
+                return
             except Exception as e:
                 print(f"[Pyxis Daemon Media Stream Error] {e}", flush=True)
-            self.send_error(404, "File Not Found")
+            try:
+                self.send_error(404, "File Not Found")
+            except Exception:
+                pass
         elif ".well-known" in self.path or "devtools" in self.path:
             self._send_json({}, 200)
         else:
@@ -251,13 +284,6 @@ class PyxisDaemonServer:
                 else:
                     self.main_api._cached_preview_base_info = None
 
-            # Notificar al frontend en JS para que recargue el subtítulo
-            try:
-                js_code = "if (window.__pyxis_reload_subtitles) window.__pyxis_reload_subtitles();"
-                self.window.evaluate_js(js_code)
-            except Exception as e:
-                print(f"[Pyxis Daemon Warning JS Reload] {e}", flush=True)
-
             # Mostrar y traer al frente la ventana restaurando el formato previo
             try:
                 saved_state = getattr(self.main_api, "_saved_window_state", None)
@@ -286,6 +312,13 @@ class PyxisDaemonServer:
 
             if self.window and getattr(self.window, "title", None):
                 self.bring_to_foreground(self.window.title, is_maximized=is_max)
+
+            # Notificar al frontend en JS para que recargue el subtítulo (con la ventana ya visible)
+            try:
+                js_code = "if (window.__pyxis_reload_subtitles) window.__pyxis_reload_subtitles();"
+                self.window.evaluate_js(js_code)
+            except Exception as e:
+                print(f"[Pyxis Daemon Warning JS Reload] {e}", flush=True)
 
             return True
         except Exception as e:

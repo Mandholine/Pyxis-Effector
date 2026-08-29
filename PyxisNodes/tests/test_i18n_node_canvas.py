@@ -93,14 +93,20 @@ class TestI18nNodeCanvas(unittest.TestCase):
         self.assertEqual(dummy_serialized_node["outputs"][1]["name"], "Iterator (i)")
 
     def test_math_text_customizations(self):
-        """Verifica que Math sea Mates, Text sea String, categoría Texto no tenga (String), y bucles traducidos."""
+        """Verifica que Math sea Mates, Text sea Texto en español y Text en inglés, String sea String, y bucles traducidos."""
         self.assertEqual(self.es_dict.get("nodes.titles.Math"), "Mates", "Math title must be 'Mates' in Spanish")
-        self.assertEqual(self.es_dict.get("nodes.titles.Text"), "String", "Text title must be 'String' in Spanish")
+        self.assertEqual(self.es_dict.get("nodes.titles.Text"), "Texto", "Text title must be 'Texto' in Spanish")
         self.assertEqual(self.es_dict.get("nodes.titles.String"), "String", "String title must be 'String' in Spanish")
+        self.assertEqual(self.en_dict.get("nodes.titles.Text"), "Text", "Text title must be 'Text' in English")
+        self.assertEqual(self.en_dict.get("nodes.titles.String"), "String", "String title must be 'String' in English")
         self.assertEqual(self.es_dict.get("nodes.titles.Main Loop"), "Bucle Primario", "Main Loop title must be 'Bucle Primario' in Spanish")
         self.assertEqual(self.es_dict.get("nodes.titles.MaxLoop"), "Bucle Máximo", "MaxLoop title must be 'Bucle Máximo' in Spanish")
         self.assertEqual(self.es_dict.get("nodes.categories.Text"), "Texto", "Text category must be 'Texto'")
         self.assertNotIn("(String)", self.es_dict.get("nodes.categories.Text", ""), "Text category must not have (String)")
+        self.assertEqual(self.es_dict.get("nodes.categories.Shape"), "Shape", "Shape category must be 'Shape' in Spanish")
+        self.assertEqual(self.es_dict.get("nodes.slots.Shape"), "Shape", "Shape slot must be 'Shape' in Spanish")
+        self.assertEqual(self.es_dict.get("nodes.slots.Shape / Text"), "Shape / Texto", "Shape / Text slot must be 'Shape / Texto' in Spanish")
+        self.assertEqual(self.es_dict.get("nodes.titles.IMG to Shape"), "Imagen a Shape", "IMG to Shape must be 'Imagen a Shape' in Spanish")
 
     def test_litegraph_node_context_menus(self):
         """Verifica que el menú contextual de litegraph.js tenga las traducciones al español."""
@@ -148,6 +154,14 @@ class TestI18nNodeCanvas(unittest.TestCase):
         self.assertIn("LGraphGroup.prototype.isPointInMoveOnlyIcon", js)
         self.assertIn("group.isPointInMoveOnlyIcon", js)
         self.assertIn("this.selected_group_ignore_nodes = true;", js)
+
+    def test_root_nodes_order_text_above_string(self):
+        """Verifica que el nodo Text esté ordenado por encima de String en el menú raíz."""
+        import nodes_library
+        root_nodes = list(SYSTEM_NODE_DB.get("", {}).keys())
+        self.assertIn("Text", root_nodes)
+        self.assertIn("String", root_nodes)
+        self.assertLess(root_nodes.index("Text"), root_nodes.index("String"), "Text must be ordered above String in root menu")
 
 if __name__ == "__main__":
     unittest.main()

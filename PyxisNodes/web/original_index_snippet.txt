@@ -1,0 +1,559 @@
+Created At: 2026-08-13T14:42:57-03:00
+Completed At: 2026-08-13T14:42:57-03:00
+File Path: `file:///f:/Kara%20Effector/Node/Antigravity-PyxisNode/Versi%C3%B3n%20en%20desarrollo/PyxisNodes/web/index.html`
+Total Lines: 3140
+Total Bytes: 161056
+Showing lines 2050 to 2600
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2050:                         else if (inp.name === "Paso") propName = "step";
+2051:                         else if (inp.name === "Opciones") propName = "options";
+2052:                         else if (inp.name.includes("Contador")) propName = "counter";
+2053:                         else if (inp.name === "Color Min" || inp.name.includes("Probabilidad")) propName = "min";
+2054: 
+2055:                         const w = this.widgets.find(widget => widget.property === propName);
+2056:                         if (w && w.last_y !== undefined) {
+2057:                             inp.pos = [0, w.last_y + 13];
+2058:                         } else {
+2059:                             inp.pos = [0, 53 + idx * 30];
+2060:                         }
+2061:                     });
+2062:                 }
+2063: 
+2064:                 const modoKey = String(this.properties.modo || "R").toLowerCase();
+2065:                 const modeDef = RANDOM_DEFINITIONS[modoKey] || { desc: "aleatorio básico (entero/flotante)", preview: "R(min, max)" };
+2066: 
+2067:                 ctx.save();
+2068:                 ctx.font = "italic 11px sans-serif";
+2069:                 ctx.fillStyle = "#94a3b8";
+2070:                 ctx.textAlign = "left";
+2071:                 
+2072:                 let desc = modeDef.desc;
+2073:                 ctx.fillText(desc, 12, this.size[1] - 22);
+2074: 
+2075:                 ctx.font = "bold 12px monospace";
+2076:                 ctx.fillStyle = "#a7f3d0";
+2077:                 
+2078:                 let previewStr = getRandomLivePreview(this);
+2079:                 const maxW = this.size[0] - 24;
+2080:                 if (ctx.measureText(previewStr).width > maxW) {
+2081:                     let truncated = previewStr;
+2082:                     while (truncated.length > 0 && ctx.measureText(truncated + "...").width > maxW) {
+2083:                         truncated = truncated.slice(0, -1);
+2084:                     }
+2085:                     previewStr = truncated + "...";
+2086:                 }
+2087:                 
+2088:                 ctx.fillText(previewStr, 12, this.size[1] - 8);
+2089:                 ctx.restore();
+2090:             };
+2091: 
+2092:             const oldConfigure = node.onConfigure;
+2093:             node.onConfigure = function(info) {
+2094:                 if (oldConfigure) oldConfigure.call(this, info);
+2095:                 updateRandomInputs();
+2096:             };
+2097: 
+2098:             updateRandomInputs();
+2099:         }
+2100: 
+2101:         function setupCondicionadorNode(node) {
+2102:             if (!node.properties) node.properties = {};
+2103:             if (node.properties.condicion === undefined) node.properties.condicion = "True";
+2104:             if (node.properties.si_verdadero === undefined) node.properties.si_verdadero = "";
+2105:             if (node.properties.si_falso === undefined) node.properties.si_falso = "";
+2106:             node.widgets_up = true;
+2107: 
+2108:             function updateCondicionadorInputs() {
+2109:                 const reqInputs = ["Condición", "Si Verdadero", "Si Falso"];
+2110: 
+2111:                 const oldLinks = {};
+2112:                 if (node.inputs) {
+2113:                     node.inputs.forEach((inp) => {
+2114:                         if (inp.link !== null && inp.link !== undefined) {
+2115:                             oldLinks[inp.name] = inp.link;
+2116:                         }
+2117:                     });
+2118:                 }
+2119: 
+2120:                 if (node.inputs) {
+2121:                     if (node.graph) {
+2122:                         while (node.inputs.length > 0) node.removeInput(0);
+2123:                     } else {
+2124:                         node.inputs = [];
+2125:                     }
+2126:                 }
+2127: 
+2128:                 node.widgets = [];
+2129: 
+2130:                 reqInputs.forEach((paramName, idx) => {
+2131:                     node.addInput(paramName, "data");
+2132:                     const inputSlot = node.inputs[node.inputs.length - 1];
+2133:                     inputSlot.label = " ";
+2134:                     inputSlot.pos = [0, 19 + idx * 30];
+2135: 
+2136:                     if (oldLinks[paramName] !== undefined && node.graph && node.graph.links) {
+2137:                         const linkId = oldLinks[paramName];
+2138:                         if (node.graph.links[linkId]) {
+2139:                             inputSlot.link = linkId;
+2140:                         }
+2141:                     }
+2142: 
+2143:                     let propKey = "condicion";
+2144:                     if (paramName === "Si Verdadero") propKey = "si_verdadero";
+2145:                     else if (paramName === "Si Falso") propKey = "si_falso";
+2146: 
+2147:                     if (node.properties[propKey] === undefined) {
+2148:                         node.properties[propKey] = (propKey === "condicion") ? "True" : "";
+2149:                     }
+2150: 
+2151:                     const curVal = String(node.properties[propKey] !== undefined ? node.properties[propKey] : "");
+2152:                     const w = node.addWidget("text", paramName, curVal, function(val) {
+2153:                         const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
+2154:                         node.properties[propKey] = cleanVal;
+2155:                         node.properties[paramName] = cleanVal;
+2156:                         if (node.computeSize) {
+2157:                             node.size = node.computeSize();
+2158:                         }
+2159:                         if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+2160:                     });
+2161:                     w.property = propKey;
+2162:                     w.last_y = 6 + idx * 30;
+2163:                     setupSingleLineTextWidget(node, w, paramName, propKey);
+2164:                 });
+2165: 
+2166:                 if (node.computeSize) {
+2167:                     node.size = node.computeSize();
+2168:                 } else {
+2169:                     node.size = [195, 12 + reqInputs.length * 30];
+2170:                 }
+2171:                 if (node.setDirtyCanvas && node.graph) node.setDirtyCanvas(true, true);
+2172:             }
+2173: 
+2174:             node.computeSize = function() {
+2175:                 let base_w = 195;
+2176:                 let text_req_w = 0;
+2177:                 if (node.properties) {
+2178:                     for (const p in node.properties) {
+2179:                         const val = String(node.properties[p] || "");
+2180:                         if (val.length > 0) {
+2181:                             text_req_w = Math.max(text_req_w, val.length * 8.5 + 44);
+2182:                         }
+2183:                     }
+2184:                 }
+2185:                 if (node.widgets) {
+2186:                     for (let i = 0; i < node.widgets.length; i++) {
+2187:                         const w = node.widgets[i];
+2188:                         if (w && w.value !== undefined && w.value !== null) {
+2189:                             const val = String(w.value || "");
+2190:                             if (val.length > 0) {
+2191:                                 text_req_w = Math.max(text_req_w, val.length * 8.5 + 44);
+2192:                             }
+2193:                         }
+2194:                     }
+2195:                 }
+2196:                 return [Math.max(base_w, text_req_w), 12 + 3 * 30];
+2197:             };
+2198: 
+2199:             const oldDraw = node.onDrawForeground;
+2200:             node.onDrawForeground = function(ctx) {
+2201:                 if (oldDraw) oldDraw.call(this, ctx);
+2202:                 if (this.flags && this.flags.collapsed) return;
+2203: 
+2204:                 if (this.inputs && this.widgets) {
+2205:                     this.inputs.forEach((inp, idx) => {
+2206:                         inp.label = " ";
+2207:                         let propKey = "condicion";
+2208:                         if (inp.name === "Si Verdadero") propKey = "si_verdadero";
+2209:                         else if (inp.name === "Si Falso") propKey = "si_falso";
+2210: 
+2211:                         const w = this.widgets.find(widget => widget.property === propKey);
+2212:                         if (w && w.last_y !== undefined) {
+2213:                             inp.pos = [0, w.last_y + 13];
+2214:                         } else {
+2215:                             inp.pos = [0, 19 + idx * 30];
+2216:                         }
+2217:                     });
+2218:                 }
+2219:             };
+2220: 
+2221:             const oldConfigure = node.onConfigure;
+2222:             node.onConfigure = function(info) {
+2223:                 if (oldConfigure) oldConfigure.call(this, info);
+2224:                 updateCondicionadorInputs();
+2225:             };
+2226: 
+2227:             updateCondicionadorInputs();
+2228:         }
+2229: 
+2230:         function setupSingleLineTextWidget(node, widget, titleName, propertyName) {
+2231:             if (!widget) return;
+2232: 
+2233:             widget.type = "custom";
+2234:             if (propertyName) widget.property = propertyName;
+2235: 
+2236:             widget.mouse = function(event, pos, node) {
+2237:                 if (event.type === "mousedown" || event.type === "click") {
+2238:                     if (LGraphCanvas.active_canvas) {
+2239:                         const propKey = propertyName || widget.property;
+2240:                         const curVal = String((node.properties && propKey && node.properties[propKey] !== undefined)
+2241:                             ? node.properties[propKey]
+2242:                             : (widget.value !== undefined ? widget.value : ""));
+2243:                         LGraphCanvas.active_canvas.prompt(titleName || widget.name || "Texto", curVal, function(val) {
+2244:                             const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
+2245:                             if (node.properties && propKey) node.properties[propKey] = cleanVal;
+2246:                             widget.value = cleanVal;
+2247:                             if (node.computeSize) {
+2248:                                 node.size = node.computeSize();
+2249:                             }
+2250:                             if (LGraphCanvas.active_canvas.setDirtyCanvas) LGraphCanvas.active_canvas.setDirtyCanvas(true, true);
+2251:                         }, event, false);
+2252:                     }
+2253:                     return true;
+2254:                 }
+2255:             };
+2256: 
+2257:             widget.callback = function(value, canvas, node, pos, event) {
+2258:                 if (canvas) {
+2259:                     const propKey = propertyName || widget.property;
+2260:                     const curVal = String((node.properties && propKey && node.properties[propKey] !== undefined)
+2261:                         ? node.properties[propKey]
+2262:                         : (widget.value !== undefined ? widget.value : ""));
+2263:                     canvas.prompt(titleName || widget.name || "Texto", curVal, function(val) {
+2264:                         const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
+2265:                         if (node.properties && propKey) node.properties[propKey] = cleanVal;
+2266:                         widget.value = cleanVal;
+2267:                         if (node.computeSize) {
+2268:                             node.size = node.computeSize();
+2269:                         }
+2270:                         if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
+2271:                     }, event, false);
+2272:                 }
+2273:             };
+2274: 
+2275:             widget.computeSize = function(width) {
+2276:                 return [width - 24, 26];
+2277:             };
+2278: 
+2279:             widget.draw = function(ctx, node, width, y, height) {
+2280:                 const propKey = propertyName || widget.property;
+2281:                 const curVal = String((node.properties && propKey && node.properties[propKey] !== undefined)
+2282:                     ? node.properties[propKey]
+2283:                     : (widget.value !== undefined ? widget.value : ""));
+2284:                 const margin = 12;
+2285:                 const wWidth = width - 24;
+2286:                 const wHeight = 26;
+2287: 
+2288:                 ctx.save();
+2289:                 ctx.fillStyle = "#12161f";
+2290:                 ctx.strokeStyle = "#8b5cf6";
+2291:                 ctx.lineWidth = 1.5;
+2292:                 ctx.beginPath();
+2293:                 if (ctx.roundRect) ctx.roundRect(margin, y, wWidth, wHeight, 13);
+2294:                 else ctx.rect(margin, y, wWidth, wHeight);
+2295:                 ctx.fill();
+2296:                 ctx.stroke();
+2297: 
+2298:                 ctx.beginPath();
+2299:                 if (ctx.roundRect) ctx.roundRect(margin + 2, y + 2, wWidth - 4, wHeight - 4, 11);
+2300:                 else ctx.rect(margin + 2, y + 2, wWidth - 4, wHeight - 4);
+2301:                 ctx.clip();
+2302: 
+2303:                 ctx.fillStyle = curVal.length > 0 ? "#a7f3d0" : "#64748b";
+2304:                 ctx.font = "bold 12px monospace";
+2305:                 ctx.textAlign = "left";
+2306: 
+2307:                 const dispText = curVal.length > 0 ? curVal : (widget.name || titleName || "");
+2308:                 ctx.fillText(dispText, margin + 10, y + 17);
+2309:                 ctx.restore();
+2310:             };
+2311:         }
+2312: 
+2313:         function setupDefinirVarsNode(node) {
+2314:             const varWidget = node.widgets ? node.widgets.find(w => w.property === "variables") : null;
+2315:             if (!varWidget) return;
+2316: 
+2317:             varWidget.type = "custom";
+2318: 
+2319:             varWidget.mouse = function(event, pos, node) {
+2320:                 if (event.type === "mousedown" || event.type === "click") {
+2321:                     if (LGraphCanvas.active_canvas) {
+2322:                         LGraphCanvas.active_canvas.prompt("Variables", node.properties.variables || "", function(val) {
+2323:                             node.properties.variables = val;
+2324:                             if (node.computeSize) node.size = node.computeSize();
+2325:                             if (LGraphCanvas.active_canvas.setDirtyCanvas) LGraphCanvas.active_canvas.setDirtyCanvas(true, true);
+2326:                         }, event);
+2327:                     }
+2328:                     return true;
+2329:                 }
+2330:             };
+2331: 
+2332:             varWidget.callback = function(value, canvas, node, pos, event) {
+2333:                 if (canvas) {
+2334:                     canvas.prompt("Variables", node.properties.variables || "", function(val) {
+2335:                         node.properties.variables = val;
+2336:                         if (node.computeSize) node.size = node.computeSize();
+2337:                         if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
+2338:                     }, event);
+2339:                 }
+2340:             };
+2341: 
+2342:             varWidget.computeSize = function(width) {
+2343:                 const text = String(node.properties.variables || "");
+2344:                 const lines = text.split('\n');
+2345:                 if (lines.length <= 1) return [width - 24, 26];
+2346:                 return [width - 24, lines.length * 18 + 8];
+2347:             };
+2348: 
+2349:             varWidget.draw = function(ctx, node, width, y, height) {
+2350:                 const text = String(node.properties.variables || "");
+2351:                 const lines = text.split('\n');
+2352:                 const margin = 12;
+2353:                 const wWidth = width - 24;
+2354:                 const wHeight = (lines.length <= 1) ? 26 : (lines.length * 18 + 8);
+2355: 
+2356:                 ctx.save();
+2357:                 ctx.fillStyle = "#12161f";
+2358:                 ctx.strokeStyle = "#8b5cf6";
+2359:                 ctx.lineWidth = 1.5;
+2360:                 ctx.beginPath();
+2361:                 if (ctx.roundRect) ctx.roundRect(margin, y, wWidth, wHeight, lines.length <= 1 ? 13 : 8);
+2362:                 else ctx.rect(margin, y, wWidth, wHeight);
+2363:                 ctx.fill();
+2364:                 ctx.stroke();
+2365: 
+2366:                 ctx.fillStyle = "#a7f3d0";
+2367:                 ctx.font = "bold 12px monospace";
+2368:                 ctx.textAlign = "left";
+2369: 
+2370:                 if (lines.length <= 1) {
+2371:                     const str = lines[0] || "";
+2372:                     ctx.fillText(str, margin + 10, y + 17);
+2373:                 } else {
+2374:                     for (let i = 0; i < lines.length; i++) {
+2375:                         ctx.fillText(lines[i], margin + 10, y + 17 + i * 18);
+2376:                     }
+2377:                 }
+2378:                 ctx.restore();
+2379:             };
+2380:         }
+2381: 
+2382:         function createNodeConstructor(category, node_name, definition, is_system) {
+2383:             const node_kind = definition.node_kind || "data";
+2384:             return function() {
+2385:                 addProperties(this, definition);
+2386:                 this.resizable = true;
+2387: 
+2388:                 this.computeSize = function() {
+2389:                     let title_text = this.title || node_name || "";
+2390:                     let title_len = title_text.length;
+2391:                     
+2392:                     let num_in = this.inputs ? this.inputs.length : 0;
+2393:                     let num_out = this.outputs ? this.outputs.length : 0;
+2394:                     let max_slots = Math.max(num_in, num_out);
+2395:                     let num_wid = this.widgets ? this.widgets.length : 0;
+2396: 
+2397:                     let max_slot_label_len = 0;
+2398:                     if (this.inputs) {
+2399:                         for (let i = 0; i < this.inputs.length; i++) {
+2400:                             if (this.inputs[i].name) max_slot_label_len = Math.max(max_slot_label_len, this.inputs[i].name.length);
+2401:                         }
+2402:                     }
+2403:                     if (this.outputs) {
+2404:                         for (let i = 0; i < this.outputs.length; i++) {
+2405:                             if (this.outputs[i].name) max_slot_label_len = Math.max(max_slot_label_len, this.outputs[i].name.length);
+2406:                         }
+2407:                     }
+2408: 
+2409:                     let req_w = Math.max(105, title_len * 7.5 + 28, max_slot_label_len * 7 + 34);
+2410:                     if (num_wid > 0) {
+2411:                         if (node_name === "Concatenar") {
+2412:                             req_w = Math.max(145, title_len * 8.5 + 48, max_slot_label_len * 7.5 + 50);
+2413:                         } else if (node_name === "Salida") {
+2414:                             req_w = Math.max(200, title_len * 8.5 + 48, max_slot_label_len * 7.5 + 50);
+2415:                         } else if (node_name === "Format Dinámico" || node_name === "Número" || node_name === "Texto" || node_name === "Get Var") {
+2416:                             req_w = Math.max(130, title_len * 7.5 + 34, max_slot_label_len * 7 + 36);
+2417:                         } else if (node_name === "Definir Vars") {
+2418:                             req_w = Math.max(220, title_len * 7.5 + 34);
+2419:                         } else {
+2420:                             req_w = Math.max(req_w, 150);
+2421:                         }
+2422:                     }
+2423:                     if (this.title === "Main Loop" || node_name === "Main Loop") req_w = 180;
+2424:                     if (num_wid === 0 && max_slots <= 1) {
+2425:                         req_w = Math.max(105, title_len * 7.2 + 24, max_slot_label_len * 7 + 28);
+2426:                     }
+2427: 
+2428:                     // Anchos específicos solicitados expresamente por el usuario para evitar solapamientos
+2429:                     if (node_name === "Benchmark Math") req_w = Math.max(req_w, 340);
+2430:                     else if (node_name.includes("module") || title_text.includes("module")) req_w = Math.max(req_w, 145);
+2431:                     else if (node_name === "SquareWave" || node_name === "SineWave" || node_name === "SawtoothWave") req_w = Math.max(req_w, 150);
+2432:                     else if (node_name.startsWith("Flor Sakura")) req_w = Math.max(req_w, 145);
+2433:                     else if (node_name === "Seno" || node_name === "Coseno" || node_name === "Tangente") req_w = Math.max(req_w, 145);
+2434:                     else if (node_name === "RadToDeg" || node_name === "DegToRad") req_w = Math.max(req_w, 135);
+2435:                     else if (node_name === "EaseIn" || node_name === "EaseOut" || node_name === "EaseInOut") req_w = Math.max(req_w, 155);
+2436:                     else if (node_name === "Parse ASS Time") req_w = Math.max(req_w, 205);
+2437:                     else if (node_name === "Format ASS Time") req_w = Math.max(req_w, 200);
+2438:                     else if (node_name === "Offset") req_w = Math.max(req_w, 200);
+2439:                     else if (node_name === "Duración") req_w = Math.max(req_w, 235);
+2440:                     else if (node_name === "Esquinas Redondeadas") req_w = Math.max(req_w, 185);
+2441:                     else if (node_name === "Corazón Borde") req_w = Math.max(req_w, 135);
+2442:                     else if (node_name.startsWith("Nota Musical")) req_w = Math.max(req_w, 140);
+2443:                     else if (node_name === "Minúsculas" || node_name === "Mayúsculas") req_w = Math.max(req_w, 120);
+2444: 
+2445:                     let multiline_extra_h = 0;
+2446:                     if (this.properties) {
+2447:                         for (const propKey in this.properties) {
+2448:                             if (propKey === "colors" || propKey === "formats") continue;
+2449:                             const propVal = this.properties[propKey];
+2450:                             if (propVal !== undefined && propVal !== null) {
+2451:                                 const text = String(propVal);
+2452:                                 if (text.length > 0) {
+2453:                                     const lines = text.split('\n');
+2454:                                     let max_line_len = 0;
+2455:                                     lines.forEach(l => { if (l.length > max_line_len) max_line_len = l.length; });
+2456:                                     if (max_line_len > 0) {
+2457:                                         req_w = Math.max(req_w, max_line_len * 8.5 + 40);
+2458:                                     }
+2459:                                     if (propKey === "variables" && lines.length > 1) {
+2460:                                         multiline_extra_h = (lines.length - 1) * 22;
+2461:                                     }
+2462:                                 }
+2463:                             }
+2464:                         }
+2465:                     }
+2466:                     if (this.widgets) {
+2467:                         for (let i = 0; i < this.widgets.length; i++) {
+2468:                             const w = this.widgets[i];
+2469:                             if (w && w.value !== undefined && w.value !== null) {
+2470:                                 const wText = String(w.value);
+2471:                                 if (wText.length > 0) {
+2472:                                     const lines = wText.split('\n');
+2473:                                     let max_line_len = 0;
+2474:                                     lines.forEach(l => { if (l.length > max_line_len) max_line_len = l.length; });
+2475:                                     if (max_line_len > 0) {
+2476:                                         req_w = Math.max(req_w, max_line_len * 8.5 + 40);
+2477:                                     }
+2478:                                 }
+2479:                             }
+2480:                         }
+2481:                     }
+2482: 
+2483:                     let slots_h = max_slots * 19;
+2484:                     let widgets_h = num_wid > 0 ? (num_wid * 22 + 2) : 0;
+2485:                     let req_h = 26 + slots_h + widgets_h + multiline_extra_h + 4;
+2486: 
+2487:                     if (this.widgets_up) {
+2488:                         req_h = 26 + 22 + 6 + slots_h + 28 + 4;
+2489:                     }
+2490: 
+2491:                     if (num_wid === 0) {
+2492:                         req_h = 26 + slots_h + 4;
+2493:                     }
+2494: 
+2495:                     if (node_name === "Color Picker") {
+2496:                         const num_colors = (this.properties && this.properties.colors && Array.isArray(this.properties.colors)) ? this.properties.colors.length : 1;
+2497:                         req_w = Math.max(req_w, 210);
+2498:                         req_h = 30 + num_colors * 22 + 4;
+2499:                         return [req_w, req_h];
+2500:                     }
+2501: 
+2502:                     return [req_w, req_h];
+2503:                 };
+2504: 
+2505:                 this.updateMultilineSize = function() {
+2506:                     const sz = this.computeSize();
+2507:                     this.size = [Math.max(this.size ? this.size[0] : 250, sz[0]), sz[1]];
+2508:                 };
+2509: 
+2510:                 let initial_size = this.computeSize ? this.computeSize() : [200, 100];
+2511:                 this.size = [initial_size[0], initial_size[1]];
+2512:                 this.title_color = "#FFFFFF";
+2513: 
+2514:                 this.onConfigure = function(info) {
+2515:                     let calc_size = this.computeSize ? this.computeSize() : [200, 100];
+2516:                     this.size = [
+2517:                         Math.max(calc_size[0], Number(this.size ? (this.size[0] || this.size["0"] || calc_size[0]) : calc_size[0])),
+2518:                         Math.max(calc_size[1], Number(this.size ? (this.size[1] || this.size["1"] || calc_size[1]) : calc_size[1]))
+2519:                     ];
+2520:                     if (this.widgets) {
+2521:                         for (let i = 0; i < this.widgets.length; ++i) {
+2522:                             let w = this.widgets[i];
+2523:                             if (w.property && this.properties[w.property] !== undefined) {
+2524:                                 w.value = this.properties[w.property];
+2525:                             }
+2526:                         }
+2527:                     }
+2528:                     if (info.inputs) {
+2529:                         let current_inputs = this.inputs ? this.inputs.length : 0;
+2530:                         for (let i = current_inputs; i < info.inputs.length; ++i) {
+2531:                             this.addInput(info.inputs[i].name, info.inputs[i].type);
+2532:                         }
+2533:                     }
+2534:                 };
+2535: 
+2536:                 (definition.inputs || []).forEach((input_name, input_index) => {
+2537:                     let input_type = "data";
+2538:                     if (is_system) {
+2539:                         if (node_kind === "output" && input_index === 0) input_type = "bucle";
+2540:                         else if (node_kind === "max_loop" && input_index === 0) input_type = "bucle";
+2541:                         else if (node_kind === "set_vars" && input_index === 0) input_type = "bucle";
+2542:                     }
+2543:                     this.addInput(input_name, input_type);
+2544:                 });
+2545: 
+2546:                 (definition.outputs || []).forEach((output_name, output_index) => {
+2547:                     let output_type = "data";
+2548:                     if (is_system && output_index === 0) {
+2549:                         if (node_kind === "main_loop") output_type = "bucle";
+2550:                         else if (node_kind === "max_loop") output_type = "bucle";
+2551:                         else if (node_kind === "set_vars") output_type = "bucle";
+2552:                     }
+2553:                     this.addOutput(output_name, output_type);
+2554:                 });
+2555: 
+2556:                 if (!is_system) {
+2557:                     this.addOutput("Dato", "data");
+2558:                 }
+2559: 
+2560:                 if (node_name === "Color Picker") {
+2561:                     setupColorPickerNode(this);
+2562:                 } else if (node_name === "Tag Dinámico" || definition.node_kind === "tag_master") {
+2563:                     (definition.widgets || []).forEach(widget => {
+2564:                         const property = widget.property;
+2565:                         const initialValue = this.properties[property] !== undefined ? this.properties[property] : (widget.default || "");
+2566:                         const callback = value => { this.properties[property] = value; };
+2567:                         let created_widget = null;
+2568:                         if (widget.type === "combo") {
+2569:                             created_widget = this.addWidget("combo", widget.name, initialValue, callback, { values: widget.values || [] });
+2570:                         } else {
+2571:                             created_widget = this.addWidget("text", widget.name, initialValue, callback);
+2572:                         }
+2573:                         if (created_widget) created_widget.property = property;
+2574:                     });
+2575:                     setupTagMasterNode(this);
+2576:                 } else if (node_name === "Memoria" || node_name === "Variables/Memoria") {
+2577:                     (definition.widgets || []).forEach(widget => {
+2578:                         const property = widget.property;
+2579:                         const initialValue = this.properties[property] !== undefined ? this.properties[property] : (widget.default || "");
+2580:                         const callback = value => { this.properties[property] = value; };
+2581:                         let created_widget = null;
+2582:                         if (widget.type === "combo") {
+2583:                             created_widget = this.addWidget("combo", widget.name, initialValue, callback, { values: widget.values || [] });
+2584:                         } else {
+2585:                             created_widget = this.addWidget("text", widget.name, initialValue, callback);
+2586:                         }
+2587:                         if (created_widget) created_widget.property = property;
+2588:                     });
+2589:                     setupMemoriaNode(this);
+2590:                 } else if (node_name === "Random Dinámico" || node_name === "Math/Random Dinámico") {
+2591:                     (definition.widgets || []).forEach(widget => {
+2592:                         const property = widget.property;
+2593:                         const initialValue = this.properties[property] !== undefined ? this.properties[property] : (widget.default || "");
+2594:                         const callback = value => { this.properties[property] = value; };
+2595:                         let created_widget = null;
+2596:                         if (widget.type === "combo") {
+2597:                             created_widget = this.addWidget("combo", widget.name, initialValue, callback, { values: widget.values || [] });
+2598:                         } else {
+2599:                             created_widget = this.addWidget("text", widget.name, initialValue, callback);
+2600:                         }
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

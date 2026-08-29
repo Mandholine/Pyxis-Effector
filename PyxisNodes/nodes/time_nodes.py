@@ -35,25 +35,13 @@ def _eval_val(val, context, default=0.0):
     if not val_str:
         return default
     try:
-        return float(val_str)
-    except (ValueError, TypeError):
+        from node_engine import _eval_num_expr
+        return float(_eval_num_expr(val_str, context, default=default))
+    except Exception:
         pass
     try:
-        eval_globals = {"math": math, "__builtins__": {}}
-        from decorators import NODE_REGISTRY
-        for k, v in NODE_REGISTRY.items():
-            fn_name = v.__name__
-            eval_globals[fn_name] = lambda *args, _fn=v, _ctx=context: _fn(_ctx, *args)
-        eval_locals = dict(context) if isinstance(context, dict) else {}
-        unit = context.get('active_unit') if isinstance(context, dict) else None
-        if unit:
-            eval_locals.setdefault('syl', unit)
-            eval_locals.setdefault('unit', unit)
-            eval_locals.setdefault('i', getattr(unit, 'i', 1))
-            eval_locals.setdefault('n', getattr(unit, 'n', 1))
-        res = eval(val_str, eval_globals, eval_locals)
-        return float(res)
-    except Exception:
+        return float(val_str)
+    except (ValueError, TypeError):
         return default
 
 
@@ -236,7 +224,7 @@ def time_ipol(context, dur=1000, points="0, 100", accel=1.0):
     
     pts_str = str(points).strip()
     try:
-        raw_vals = [float(x.strip()) for x in pts_str.split(',') if x.strip()]
+        raw_vals = [float(_eval_val(x.strip(), context, 0.0)) for x in pts_str.split(',') if x.strip()]
     except Exception:
         raw_vals = [0.0, 100.0]
     if len(raw_vals) < 2:

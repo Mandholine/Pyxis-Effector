@@ -197,12 +197,15 @@ class PyxisAPI:
         self._cached_preview_base_info = None
         self._load_and_cache_preview_base()
 
-        # Purga automática de temporales (> 72h) en segundo plano (0ms de impacto en arranque)
+        import threading
+        self._clip_lock = threading.RLock()
+
+        # Purga automática de temporales (> 72h) y de archivos corruptos en segundo plano
         try:
-            import threading
             threading.Thread(target=self.cleanup_temp_files, kwargs={"max_age_hours": 72}, daemon=True).start()
+            threading.Thread(target=self._purge_corrupted_bg_media, daemon=True).start()
         except Exception as e:
-            print(f"[Pyxis] Error al iniciar hilo de purga de temporales: {e}", flush=True)
+            print(f"[Pyxis] Error al iniciar hilos de mantenimiento en segundo plano: {e}", flush=True)
 
     def release_lock(self):
         """
@@ -1739,7 +1742,54 @@ class PyxisAPI:
         return line_str
 
     @staticmethod
-    def _clean_and_resolve_media_path(raw_path, base_ass_path=None):
+    def _is_valid_mp4(filepath):
+        """Valida que un archivo MP4 existe, tiene tamaño suficiente y cuenta con átomos válidos (ftyp y moov)."""
+        if not filepath or not os.path.isfile(filepath):
+            return False
+        try:
+            size = os.path.getsize(filepath)
+            if size < 128:
+                return False
+            with open(filepath, 'rb') as f:
+                header = f.read(64)
+                if b'ftyp' not in header and b'moov' not in header:
+                    return False
+                # Verificar moov en faststart (primeros 2MB)
+                f.seek(0)
+                chunk_start = f.read(min(size, 2 * 1024 * 1024))
+                if b'moov' in chunk_start:
+                    return True
+                # Verificar moov al final del archivo (últimos 2MB)
+                if size > 2 * 1024 * 1024:
+                    f.seek(max(0, size - 2 * 1024 * 1024))
+                    chunk_end = f.read(2 * 1024 * 1024)
+                    if b'moov' in chunk_end:
+                        return True
+            return False
+        except Exception:
+            return False
+
+    def _purge_corrupted_bg_media(self):
+        """Limpia en segundo plano archivos MP4 corruptos o incompletos en bg_media."""
+        try:
+            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+            bg_media_dir = os.path.join(appdata_dir, "PyxisNodes", "bg_media")
+            if os.path.isdir(bg_media_dir):
+                for fname in os.listdir(bg_media_dir):
+                    if fname.endswith(".mp4"):
+                        fpath = os.path.join(bg_media_dir, fname)
+                        if fname.endswith(".tmp.mp4") or ".tmp_" in fname:
+                            try: os.remove(fpath)
+                            except Exception: pass
+                        elif not self._is_valid_mp4(fpath):
+                            print(f"[Pyxis Smart Cache] Purgando archivo corrupto detectado en bg_media: {fname}", flush=True)
+                            try: os.remove(fpath)
+                            except Exception: pass
+        except Exception:
+            pass
+
+    @staticmethod
+    def _clean_and_resolve_media_path(raw_path, base_ass_path=None, script_file=None):
         """Limpia prefijos de proyectos Aegisub (?video:, ?audio:, etc.) y resuelve rutas relativas/absolutas."""
         if not raw_path:
             return None
@@ -1764,6 +1814,14 @@ class PyxisAPI:
         if os.path.isfile(p):
             return os.path.abspath(p)
 
+        # 1. Intentar resolver relativo a script_file (el ASS original de Aegisub)
+        if script_file and os.path.exists(script_file):
+            script_dir = os.path.dirname(os.path.abspath(script_file))
+            rel = os.path.join(script_dir, p)
+            if os.path.isfile(rel):
+                return os.path.abspath(rel)
+
+        # 2. Intentar resolver relativo a base_ass_path
         if base_ass_path and os.path.exists(base_ass_path):
             ass_dir = os.path.dirname(os.path.abspath(base_ass_path))
             rel = os.path.join(ass_dir, p)
@@ -1776,146 +1834,173 @@ class PyxisAPI:
         """Garantiza la presencia del clip de previsualización con vídeo y audio sincronizados en %APPDATA%/PyxisNodes/bg_media/.
         Si is_export es False (vista desde el nodo), se utiliza preset 'fast', crf '21' y deblocking reducido ('-1:-1').
         Si is_export es True (exportación de clip/video), se mantiene la máxima calidad con preset 'ultrafast' y crf '18'."""
-        try:
-            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
-            bg_media_dir = os.path.join(appdata_dir, "PyxisNodes", "bg_media")
-            os.makedirs(bg_media_dir, exist_ok=True)
+        if not hasattr(self, "_clip_lock"):
+            import threading
+            self._clip_lock = threading.RLock()
 
-            res_x = int(info.get("res_x", 1280))
-            res_y = int(info.get("res_y", 720))
-            res_x = max(2, res_x - (res_x % 2))
-            res_y = max(2, res_y - (res_y % 2))
-            fps = float(info.get("fps") or 23.976)
-            clip_start_sec = float(info.get("clip_start_sec", 0.0))
-            clip_dur_sec = float(info.get("clip_duration_sec", 15.0))
-            real_video = info.get("real_video_file")
-            real_audio = info.get("real_audio_file")
-            dummy_info = info.get("dummy_info") or {}
-            color_hex = str(dummy_info.get("color_hex") or "969696").lower()
+        with self._clip_lock:
+            try:
+                appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                bg_media_dir = os.path.join(appdata_dir, "PyxisNodes", "bg_media")
+                os.makedirs(bg_media_dir, exist_ok=True)
 
-            ffmpeg_exe = self._find_ffmpeg()
-            import subprocess
-            creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
+                res_x = int(info.get("res_x", 1280))
+                res_y = int(info.get("res_y", 720))
+                res_x = max(2, res_x - (res_x % 2))
+                res_y = max(2, res_y - (res_y % 2))
+                fps = float(info.get("fps") or 23.976)
+                clip_start_sec = float(info.get("clip_start_sec", 0.0))
+                clip_dur_sec = float(info.get("clip_duration_sec", 15.0))
+                real_video = info.get("real_video_file")
+                real_audio = info.get("real_audio_file")
+                dummy_info = info.get("dummy_info") or {}
+                color_hex = str(dummy_info.get("color_hex") or "969696").lower()
 
-            # Diferenciación: Exportación (alta calidad) vs Vista en Nodo (rápido, crf 21, preset fast, deblock reducido)
-            if is_export:
-                clip_prefix = "export_bg"
-                v_preset = "ultrafast"
-                v_crf = "18"
-                deblock_args = []
-            else:
-                clip_prefix = "preview_bg"
-                v_preset = "fast"
-                v_crf = "21"
-                deblock_args = ["-deblock", "-1:-1"]
+                ffmpeg_exe = self._find_ffmpeg()
+                import subprocess
+                creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
 
-            import hashlib
-            v_mtime = os.path.getmtime(real_video) if (real_video and os.path.isfile(real_video)) else 0
-            v_size = os.path.getsize(real_video) if (real_video and os.path.isfile(real_video)) else 0
-            a_mtime = os.path.getmtime(real_audio) if (real_audio and os.path.isfile(real_audio)) else 0
-            a_size = os.path.getsize(real_audio) if (real_audio and os.path.isfile(real_audio)) else 0
+                # Diferenciación: Exportación (alta calidad) vs Vista en Nodo (rápido, crf 21, preset fast, deblock reducido)
+                if is_export:
+                    clip_prefix = "export_bg"
+                    v_preset = "ultrafast"
+                    v_crf = "18"
+                    deblock_args = []
+                else:
+                    clip_prefix = "preview_bg"
+                    v_preset = "fast"
+                    v_crf = "21"
+                    deblock_args = ["-deblock", "-1:-1"]
 
-            key_src = (
-                f"v:{real_video}:{v_mtime}:{v_size}|"
-                f"a:{real_audio}:{a_mtime}:{a_size}|"
-                f"{clip_start_sec:.3f}:{clip_dur_sec:.3f}:{res_x}x{res_y}:{fps:.2f}:{color_hex}|"
-                f"mode:{clip_prefix}:{v_preset}:{v_crf}"
-            )
-            hash_16 = hashlib.sha256(key_src.encode("utf-8")).hexdigest()[:16]
-            clip_type = "real" if real_video else ("audio" if real_audio else "dummy")
-            clip_filename = f"{clip_prefix}_{clip_type}_{hash_16}_{res_x}x{res_y}_{clip_start_sec:.2f}s_{clip_dur_sec:.2f}s.mp4"
-            clip_path = os.path.join(bg_media_dir, clip_filename)
+                import hashlib
+                v_mtime = os.path.getmtime(real_video) if (real_video and os.path.isfile(real_video)) else 0
+                v_size = os.path.getsize(real_video) if (real_video and os.path.isfile(real_video)) else 0
+                a_mtime = os.path.getmtime(real_audio) if (real_audio and os.path.isfile(real_audio)) else 0
+                a_size = os.path.getsize(real_audio) if (real_audio and os.path.isfile(real_audio)) else 0
 
-            if os.path.exists(clip_path) and os.path.getsize(clip_path) > 1024:
-                return clip_path
+                key_src = (
+                    f"v:{real_video}:{v_mtime}:{v_size}|"
+                    f"a:{real_audio}:{a_mtime}:{a_size}|"
+                    f"{clip_start_sec:.3f}:{clip_dur_sec:.3f}:{res_x}x{res_y}:{fps:.2f}:{color_hex}|"
+                    f"mode:{clip_prefix}:{v_preset}:{v_crf}"
+                )
+                hash_16 = hashlib.sha256(key_src.encode("utf-8")).hexdigest()[:16]
+                clip_type = "real" if real_video else ("audio" if real_audio else "dummy")
+                clip_filename = f"{clip_prefix}_{clip_type}_{hash_16}_{res_x}x{res_y}_{clip_start_sec:.2f}s_{clip_dur_sec:.2f}s.mp4"
+                clip_path = os.path.join(bg_media_dir, clip_filename)
 
-            v_codec = ["-c:v", "libx264", "-preset", v_preset, "-crf", v_crf]
-            if deblock_args:
-                v_codec.extend(deblock_args)
+                if os.path.exists(clip_path):
+                    if self._is_valid_mp4(clip_path):
+                        return clip_path
+                    else:
+                        print(f"[Pyxis Smart Cache Purge] Archivo MP4 corrupto o incompleto detectado: {clip_path}. Eliminando...", flush=True)
+                        try:
+                            os.remove(clip_path)
+                        except Exception:
+                            pass
 
-            # Caso 1: Vídeo Real + Audio Real (Mismo archivo)
-            if real_video and os.path.isfile(real_video) and (not real_audio or real_audio == real_video):
-                cmd = [
-                    ffmpeg_exe, "-y",
-                    "-ss", f"{clip_start_sec:.3f}",
-                    "-t", f"{clip_dur_sec:.3f}",
-                    "-i", real_video,
-                    "-avoid_negative_ts", "make_zero",
-                    *v_codec,
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-movflags", "+faststart",
-                    clip_path
-                ]
-            # Caso 2: Vídeo Real + Audio Real (Archivos Diferentes)
-            elif real_video and os.path.isfile(real_video) and real_audio and os.path.isfile(real_audio):
-                cmd = [
-                    ffmpeg_exe, "-y",
-                    "-ss", f"{clip_start_sec:.3f}",
-                    "-t", f"{clip_dur_sec:.3f}",
-                    "-i", real_video,
-                    "-ss", f"{clip_start_sec:.3f}",
-                    "-t", f"{clip_dur_sec:.3f}",
-                    "-i", real_audio,
-                    "-map", "0:v:0",
-                    "-map", "1:a:0",
-                    "-avoid_negative_ts", "make_zero",
-                    *v_codec,
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-shortest",
-                    "-movflags", "+faststart",
-                    clip_path
-                ]
-            # Caso 3: Fondo Dummy + Audio Real
-            elif real_audio and os.path.isfile(real_audio):
-                cmd = [
-                    ffmpeg_exe, "-y",
-                    "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={clip_dur_sec:.3f}",
-                    "-ss", f"{clip_start_sec:.3f}",
-                    "-t", f"{clip_dur_sec:.3f}",
-                    "-i", real_audio,
-                    "-map", "0:v:0",
-                    "-map", "1:a:0",
-                    "-avoid_negative_ts", "make_zero",
-                    *v_codec,
-                    "-tune", "stillimage",
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-shortest",
-                    "-movflags", "+faststart",
-                    clip_path
-                ]
-            # Caso 4: Fondo Dummy + Audio Silencio (Fallback)
-            else:
-                cmd = [
-                    ffmpeg_exe, "-y",
-                    "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={clip_dur_sec:.3f}",
-                    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                    *v_codec,
-                    "-tune", "stillimage",
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac",
-                    "-b:a", "64k",
-                    "-shortest",
-                    "-movflags", "+faststart",
-                    clip_path
-                ]
+                import threading
+                import time
+                temp_clip = f"{clip_path}.tmp_{os.getpid()}_{threading.get_ident()}_{int(time.time()*1000)}.mp4"
 
-            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=creationflags)
-            if proc.returncode == 0 and os.path.exists(clip_path):
-                print(f"[Pyxis Smart Cache] Clip {clip_prefix} generado ({clip_type}): {clip_filename} ({clip_dur_sec:.2f}s)", flush=True)
-                return clip_path
-            else:
-                print(f"[Pyxis FFmpeg Clip Error] {proc.stderr}", flush=True)
+                v_codec = ["-c:v", "libx264", "-preset", v_preset, "-crf", v_crf]
+                if deblock_args:
+                    v_codec.extend(deblock_args)
 
-        except Exception as e:
-            print(f"[Pyxis Error in _ensure_preview_media_clip] {e}", flush=True)
+                # Caso 1: Vídeo Real + Audio Real (Mismo archivo)
+                if real_video and os.path.isfile(real_video) and (not real_audio or real_audio == real_video):
+                    cmd = [
+                        ffmpeg_exe, "-y",
+                        "-ss", f"{clip_start_sec:.3f}",
+                        "-t", f"{clip_dur_sec:.3f}",
+                        "-i", real_video,
+                        "-avoid_negative_ts", "make_zero",
+                        *v_codec,
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-movflags", "+faststart",
+                        temp_clip
+                    ]
+                # Caso 2: Vídeo Real + Audio Real (Archivos Diferentes)
+                elif real_video and os.path.isfile(real_video) and real_audio and os.path.isfile(real_audio):
+                    cmd = [
+                        ffmpeg_exe, "-y",
+                        "-ss", f"{clip_start_sec:.3f}",
+                        "-t", f"{clip_dur_sec:.3f}",
+                        "-i", real_video,
+                        "-ss", f"{clip_start_sec:.3f}",
+                        "-t", f"{clip_dur_sec:.3f}",
+                        "-i", real_audio,
+                        "-map", "0:v:0",
+                        "-map", "1:a:0",
+                        "-avoid_negative_ts", "make_zero",
+                        *v_codec,
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-shortest",
+                        "-movflags", "+faststart",
+                        temp_clip
+                    ]
+                # Caso 3: Fondo Dummy + Audio Real
+                elif real_audio and os.path.isfile(real_audio):
+                    cmd = [
+                        ffmpeg_exe, "-y",
+                        "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={clip_dur_sec:.3f}",
+                        "-ss", f"{clip_start_sec:.3f}",
+                        "-t", f"{clip_dur_sec:.3f}",
+                        "-i", real_audio,
+                        "-map", "0:v:0",
+                        "-map", "1:a:0",
+                        "-avoid_negative_ts", "make_zero",
+                        *v_codec,
+                        "-tune", "stillimage",
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-shortest",
+                        "-movflags", "+faststart",
+                        temp_clip
+                    ]
+                # Caso 4: Fondo Dummy + Audio Silencio (Fallback)
+                else:
+                    cmd = [
+                        ffmpeg_exe, "-y",
+                        "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={clip_dur_sec:.3f}",
+                        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                        *v_codec,
+                        "-tune", "stillimage",
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac",
+                        "-b:a", "64k",
+                        "-shortest",
+                        "-movflags", "+faststart",
+                        temp_clip
+                    ]
 
-        return None
+                proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=creationflags)
+                if proc.returncode == 0 and os.path.exists(temp_clip) and self._is_valid_mp4(temp_clip):
+                    try:
+                        os.replace(temp_clip, clip_path)
+                        print(f"[Pyxis Smart Cache] Clip {clip_prefix} generado ({clip_type}): {clip_filename} ({clip_dur_sec:.2f}s)", flush=True)
+                        return clip_path
+                    except Exception as e_mv:
+                        print(f"[Pyxis Smart Cache Error moving clip] {e_mv}", flush=True)
+                        if os.path.exists(clip_path) and self._is_valid_mp4(clip_path):
+                            return clip_path
+                else:
+                    print(f"[Pyxis FFmpeg Clip Error] {proc.stderr}", flush=True)
+                    if os.path.exists(temp_clip):
+                        try:
+                            os.remove(temp_clip)
+                        except Exception:
+                            pass
+
+            except Exception as e:
+                print(f"[Pyxis Error in _ensure_preview_media_clip] {e}", flush=True)
+
+            return None
 
     def _matches_output_node(self, node, target_ids, all_salida_nodes=None):
         if not node:
@@ -1989,6 +2074,15 @@ class PyxisAPI:
             s_clean = str(target_output_id).strip()
             if s_clean: target_ids.append(s_clean)
 
+        if not payload:
+            try:
+                s_json = self.get_session_graph()
+                if s_json:
+                    import json
+                    payload = json.loads(s_json)
+            except Exception:
+                payload = None
+
         graph_data = self._normalize_graph(payload) if payload else {}
         nodes_dict = graph_data.get("nodes", {}) or {}
         if isinstance(nodes_dict, list):
@@ -2013,8 +2107,6 @@ class PyxisAPI:
                     st_name = str(props.get('style', '') or props.get('estilo', '')).strip()
                     if st_name:
                         target_styles.add(st_name)
-        elif not all_salida_nodes:
-            use_all_lines = True
 
         if use_style_lines:
             for d in dialogues:
@@ -2097,7 +2189,7 @@ class PyxisAPI:
                     et = d.get('end_time')
                     if (st is None or et is None) and 'raw' in d:
                         raw = str(d.get('raw', ''))
-                        if raw.startswith('Dialogue:') or raw.startswith('Dialogue :'):
+                        if raw.startswith('Dialogue:') or raw.startswith('Dialogue :') or raw.startswith('Comment:') or raw.startswith('Comment :'):
                             fields = raw.split(',', 9)
                             if len(fields) >= 3:
                                 st = self._parse_ass_time(fields[1])
@@ -2162,13 +2254,14 @@ class PyxisAPI:
             dummy_info = getattr(parsed, 'dummy_info', {}) or {}
             fps = dummy_info.get("fps") or (1000.0 / frame_dur if frame_dur > 0 else 23.976)
 
+            script_file = getattr(parsed, 'script_file', None)
             real_video = None
             if not is_dummy_video:
-                real_video = self._clean_and_resolve_media_path(video_file, self.temp_ass)
+                real_video = self._clean_and_resolve_media_path(video_file, self.temp_ass, script_file=script_file)
 
             real_audio = None
             if not is_dummy_audio:
-                real_audio = self._clean_and_resolve_media_path(audio_file, self.temp_ass)
+                real_audio = self._clean_and_resolve_media_path(audio_file, self.temp_ass, script_file=script_file)
 
             if not real_audio and real_video:
                 real_audio = real_video
@@ -2262,17 +2355,38 @@ class PyxisAPI:
             print(f"[Pyxis Error in _load_and_cache_aegisub_source] {e}", flush=True)
             return {"has_aegisub": False, "source": "aegisub"}
 
+    def _ensure_fallback_dummy_url(self):
+        try:
+            fallback_info = {
+                "res_x": 1280,
+                "res_y": 720,
+                "fps": 23.976,
+                "clip_start_sec": 0.0,
+                "clip_duration_sec": 10.0,
+                "real_video_file": None,
+                "real_audio_file": None,
+                "dummy_info": {"color_hex": "303030"}
+            }
+            clip_path = self._ensure_preview_media_clip(fallback_info)
+            if clip_path and os.path.exists(clip_path) and self._is_valid_mp4(clip_path):
+                import urllib.parse
+                quoted_path = urllib.parse.quote(clip_path)
+                return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
+        except Exception as e:
+            print(f"[Pyxis Fallback Dummy Error] {e}", flush=True)
+        return ""
+
     def get_preview_video_data_url(self, source="base", target_output_id=None, payload=None):
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
             clip_path = info.get("clip_path") or self._ensure_preview_media_clip(info)
-            if clip_path and os.path.exists(clip_path):
+            if clip_path and os.path.exists(clip_path) and self._is_valid_mp4(clip_path):
                 import urllib.parse
                 quoted_path = urllib.parse.quote(clip_path)
                 return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
         except Exception as e:
             print(f"[Pyxis Error getting preview video URL] {e}", flush=True)
-        return "/bg_media/preview_bg_15s_23.98fps.mp4"
+        return self._ensure_fallback_dummy_url()
 
     def get_preview_audio_data_url(self, source="base", target_output_id=None, payload=None):
         try:

@@ -342,8 +342,16 @@ function launch_Pyxis(subs, sel, act)
     local sel_map = {}
     for _, idx in ipairs(sel) do sel_map[idx] = true end
 
-    -- 1. Crear una "Huella Digital" del estado actual (Estilos, Líneas y Selección)
-    local current_sub_state = ""
+    local project_props = (aegisub.project_properties and aegisub.project_properties()) or {}
+    local audio_file = project_props.audio_file or ""
+    local video_file = project_props.video_file or ""
+    if audio_file == "?video" and video_file ~= "" then
+        audio_file = video_file
+    end
+    local script_file = (aegisub.file_name and aegisub.file_name()) or ""
+
+    -- 1. Crear una "Huella Digital" del estado actual (Estilos, Líneas, Selección y Medios)
+    local current_sub_state = "v:" .. video_file .. "|a:" .. audio_file .. "|s:" .. script_file .. "|"
     for i = 1, styles.n do
         current_sub_state = current_sub_state .. build_style_line(styles[i])
     end
@@ -378,14 +386,11 @@ function launch_Pyxis(subs, sel, act)
 
         file:write("[Script Info]\nScriptType: v4.00+\n")
         file:write("PlayResX: " .. tostring(meta.res_x or 1280) .. "\nPlayResY: " .. tostring(meta.res_y or 720) .. "\n\n")
-        local project_props = (aegisub.project_properties and aegisub.project_properties()) or {}
-        local audio_file = project_props.audio_file or ""
-        local video_file = project_props.video_file or ""
-        if audio_file == "?video" and video_file ~= "" then
-            audio_file = video_file
-        end
 
         file:write("[Pyxis Config]\nFrameDuration: 41.708\n")
+        if script_file ~= "" then
+            file:write("ScriptFile: " .. tostring(script_file) .. "\n")
+        end
         if audio_file ~= "" then
             file:write("AudioFile: " .. tostring(audio_file) .. "\n")
         end

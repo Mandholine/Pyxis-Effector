@@ -180,7 +180,7 @@
             "nodes.categories.Variables": "Variables",
             "nodes.categories.System": "Sistema",
             "nodes.categories.Functions": "Funciones",
-            "nodes.categories.Shape": "Formas",
+            "nodes.categories.Shape": "Shape",
             "nodes.categories.Time": "Tiempo",
             "nodes.categories.Audio": "Audio",
             "nodes.categories.Math": "Mates",
@@ -207,7 +207,7 @@
             "nodes.titles.Particles": "Partículas",
             "nodes.titles.IMG to Pixels": "Imagen a Partículas",
             "nodes.titles.IMG to pixels": "Imagen a Partículas",
-            "nodes.titles.IMG to Shape": "Imagen a Forma",
+            "nodes.titles.IMG to Shape": "Imagen a Shape",
             "nodes.titles.Text to Shape": "Text to Shape",
             "nodes.titles.Polar to Cartesian": "Polares a Cartesiana",
             "nodes.titles.Tag Oscillator": "Tag Oscilador",
@@ -236,7 +236,7 @@
             "nodes.titles.MultiTag": "MultiTag",
             "nodes.titles.MultiRandom": "MultiRandom",
             "nodes.titles.Math": "Mates",
-            "nodes.titles.Text": "String",
+            "nodes.titles.Text": "Texto",
             "nodes.titles.String": "String",
 
             // --- Slots (Entradas / Salidas) ---
@@ -275,8 +275,8 @@
             "nodes.slots.Order": "Orden",
             "nodes.slots.Output Type": "Tipo Salida",
             "nodes.slots.Piece": "Pieza",
-            "nodes.slots.Shape": "Forma",
-            "nodes.slots.Shape / Text": "Forma / Texto",
+            "nodes.slots.Shape": "Shape",
+            "nodes.slots.Shape / Text": "Shape / Texto",
             "nodes.slots.Bleed": "Sangrado",
             "nodes.slots.Angle": "Ángulo",
             "nodes.slots.Angle (°)": "Ángulo (°)",
@@ -611,7 +611,7 @@
             "nodes.titles.MultiTag": "MultiTag",
             "nodes.titles.MultiRandom": "MultiRandom",
             "nodes.titles.Math": "Math",
-            "nodes.titles.Text": "String",
+            "nodes.titles.Text": "Text",
             "nodes.titles.String": "String",
 
             // --- Slots (Inputs / Outputs) ---

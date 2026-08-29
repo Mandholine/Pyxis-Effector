@@ -74,7 +74,8 @@ DUMMY_AUDIO_REGEX = re.compile(r"^dummy-audio:silence", re.IGNORECASE)
 class ASSParseResult(tuple):
     """Tupla de 5 elementos compatible con (styles, dialogues, res_x, res_y, frame_dur) con atributos enriquecidos."""
     def __new__(cls, styles, dialogues, res_x, res_y, frame_dur, audio_file="", video_file="",
-                video_ar=0.0, video_pos=0, dummy_info=None, is_dummy_video=False, is_dummy_audio=False):
+                video_ar=0.0, video_pos=0, dummy_info=None, is_dummy_video=False, is_dummy_audio=False,
+                script_file=""):
         obj = super().__new__(cls, (styles, dialogues, res_x, res_y, frame_dur))
         obj.styles = styles
         obj.dialogues = dialogues
@@ -88,6 +89,7 @@ class ASSParseResult(tuple):
         obj.dummy_info = dummy_info or {}
         obj.is_dummy_video = is_dummy_video
         obj.is_dummy_audio = is_dummy_audio
+        obj.script_file = script_file
         return obj
 
 
@@ -101,6 +103,7 @@ class ASSParser:
         frame_dur: Optional[float] = None
         audio_file: str = ""
         video_file: str = ""
+        script_file: str = ""
         video_ar: float = 0.0
         video_pos: int = 0
         dummy_info: Dict[str, Any] = {}
@@ -147,6 +150,8 @@ class ASSParser:
                         audio_file = line.split(':', 1)[1].strip()
                     elif line.startswith('VideoFile:'):
                         video_file = line.split(':', 1)[1].strip()
+                    elif line.startswith('ScriptFile:'):
+                        script_file = line.split(':', 1)[1].strip()
                 elif in_garbage:
                     if line.startswith('Audio File:'):
                         audio_file = line.split(':', 1)[1].strip()
@@ -194,7 +199,7 @@ class ASSParser:
                             }
                         except Exception:
                             pass
-                    elif line.startswith('Dialogue:'):
+                    elif line.startswith('Dialogue:') or line.startswith('Comment:'):
                         dialogues.append({'raw': line, 'metrics': current_metrics})
                         current_metrics = None
         except Exception:
@@ -248,7 +253,7 @@ class ASSParser:
         return ASSParseResult(
             styles, dialogues, final_res_x, final_res_y, final_frame_dur,
             audio_file, video_file, video_ar, video_pos, dummy_info,
-            is_dummy_video, is_dummy_audio
+            is_dummy_video, is_dummy_audio, script_file
         )
 
 
@@ -261,7 +266,7 @@ class KaraokeProcessor:
     def process_line(self, raw_line: str, style: StyleDict,
                      metrics: Optional[MetricsDict] = None) -> Optional[PyxisLine]:
         match = re.match(
-            r'Dialogue:\s*(\d+),([^,]+),([^,]+),([^,]*),([^,]*),(\-?\d+),(\-?\d+),(\-?\d+),([^,]*),(.*)',
+            r'(?:Dialogue|Comment):\s*(\d+),([^,]+),([^,]+),([^,]*),([^,]*),(\-?\d+),(\-?\d+),(\-?\d+),([^,]*),(.*)',
             raw_line
         )
         if not match:

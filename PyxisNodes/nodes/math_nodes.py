@@ -19,67 +19,30 @@
 
 import math
 import random
+import re
 from decorators import pyxis_node, NODE_REGISTRY
 
 
 def _eval_num(val, context=None, default=0.0):
-    if val is None:
+    if val is None or val == "":
         return float(default)
     if isinstance(val, (int, float)):
         return float(val)
-    
+
     s_val = str(val).strip()
-    if not s_val:
-        return float(default)
-    
-    s_val = s_val.replace(',', '.')
-    
-    try:
-        return float(s_val)
-    except (ValueError, TypeError):
-        pass
-    
-    ctx_dict = dict(context or {})
-    if s_val in ctx_dict:
-        try:
-            return float(ctx_dict[s_val])
-        except (ValueError, TypeError):
-            pass
-            
-    if '.' in s_val:
-        try:
-            parts = s_val.split('.')
-            if parts[0] in ctx_dict:
-                curr = ctx_dict[parts[0]]
-                for p in parts[1:]:
-                    if isinstance(curr, dict):
-                        curr = curr.get(p)
-                    else:
-                        curr = getattr(curr, p, None)
-                if curr is not None:
-                    return float(curr)
-        except Exception:
-            pass
+    if re.match(r"^[+-]?\d+,\d+$", s_val):
+        s_val = s_val.replace(',', '.')
 
     try:
-        eval_scope = {}
-        for k, v in ctx_dict.items():
-            if isinstance(k, str) and k.isidentifier():
-                eval_scope[k] = v
-        if "syl" in eval_scope and "sili" not in eval_scope:
-            eval_scope["sili"] = eval_scope["syl"]
-        
-        math_fns = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
-        eval_scope.update(math_fns)
-        eval_scope.update({"abs": abs, "min": min, "max": max, "round": round, "int": int, "float": float})
-        
-        s_eval = s_val.replace("^", "**")
-        res = eval(s_eval, {"__builtins__": None}, eval_scope)
-        return float(res)
+        from node_engine import _eval_num_expr
+        return float(_eval_num_expr(s_val, context, default=default))
     except Exception:
         pass
 
-    return float(default)
+    try:
+        return float(s_val.replace(',', '.'))
+    except Exception:
+        return float(default)
 
 
 def eval_math_node(context=None, **kwargs):
@@ -484,6 +447,7 @@ NODE_REGISTRY["MultiRandom"] = math_random_master
 
 
 def math_polar(context, x=0, y=0, angle=0, radius=0):
+    import math
     from node_engine import _eval_num_expr
     x0 = _eval_num_expr(x, context, 0.0)
     y0 = _eval_num_expr(y, context, 0.0)
@@ -494,23 +458,74 @@ def math_polar(context, x=0, y=0, angle=0, radius=0):
     res_x = x0 + r * math.cos(rad)
     res_y = y0 + r * math.sin(rad)
 
-    fmt_x = int(res_x) if res_x.is_integer() else round(res_x, 2)
-    fmt_y = int(res_y) if res_y.is_integer() else round(res_y, 2)
+    fmt_x = int(res_x) if float(res_x).is_integer() else round(res_x, 2)
+    fmt_y = int(res_y) if float(res_y).is_integer() else round(res_y, 2)
 
     return f"\\pos({fmt_x},{fmt_y})"
 
 
-def math_bezier_node(context, p0="0,0", p1="50,100", p2="150,100", p3="200,0", t=0.5, mode="Cúbica 2D"):
+def math_bezier_node(context, p0="0,0", p1="50,100", p2="150,100", p3="200,0", t=0.5, subdivs=100, mode="Cúbica 2D"):
+    import math
     from node_engine import _eval_num_expr
     ft = float(_eval_num_expr(t, context, 0.5))
     ft = max(0.0, min(1.0, ft))
+    n_subdivs = max(0, min(2000, int(float(_eval_num_expr(subdivs, context, 100)))))
 
-    def parse_pt(pt_str, default=(0.0, 0.0)):
-        try:
-            parts = str(pt_str).split(",")
+    def parse_pt(pt_val, default=(0.0, 0.0)):
+        if isinstance(pt_val, (list, tuple)) and len(pt_val) >= 2:
+            return float(_eval_num_expr(pt_val[0], context, default[0])), float(_eval_num_expr(pt_val[1], context, default[1]))
+        s = str(pt_val).strip()
+        depth = 0
+        split_idx = -1
+        for i, ch in enumerate(s):
+            if ch in '([{':
+                depth += 1
+            elif ch in ')]}':
+                depth -= 1
+            elif ch == ',' and depth == 0:
+                split_idx = i
+                break
+        if split_idx != -1:
+            part0 = s[:split_idx].strip()
+            part1 = s[split_idx+1:].strip()
+            return float(_eval_num_expr(part0, context, default[0])), float(_eval_num_expr(part1, context, default[1]))
+        elif ' ' in s and depth == 0:
+            parts = s.split(None, 1)
             return float(_eval_num_expr(parts[0], context, default[0])), float(_eval_num_expr(parts[1], context, default[1]))
-        except:
+        try:
+            v = float(_eval_num_expr(s, context, default[0]))
+            return v, v
+        except Exception:
             return default
+
+    def _sample_polyline_arc_length(pts, progress_t):
+        if pts is None or len(pts) == 0:
+            return 0.0, 0.0
+        if len(pts) == 1:
+            return float(pts[0][0]), float(pts[0][1])
+        seg_lens = []
+        total_len = 0.0
+        for k in range(len(pts) - 1):
+            d = math.hypot(pts[k+1][0] - pts[k][0], pts[k+1][1] - pts[k][1])
+            seg_lens.append(d)
+            total_len += d
+        if total_len <= 1e-9:
+            return float(pts[0][0]), float(pts[0][1])
+        target_d = progress_t * total_len
+        accum = 0.0
+        chosen_idx = len(pts) - 2
+        frac = 0.0
+        for k, slen in enumerate(seg_lens):
+            if accum + slen >= target_d:
+                chosen_idx = k
+                frac = (target_d - accum) / slen if slen > 0 else 0.0
+                break
+            accum += slen
+        pA = pts[chosen_idx]
+        pB = pts[chosen_idx + 1]
+        cur_x = pA[0] + frac * (pB[0] - pA[0])
+        cur_y = pA[1] + frac * (pB[1] - pA[1])
+        return cur_x, cur_y
 
     x0, y0 = parse_pt(p0, (0.0, 0.0))
     x1, y1 = parse_pt(p1, (50.0, 100.0))
@@ -518,14 +533,42 @@ def math_bezier_node(context, p0="0,0", p1="50,100", p2="150,100", p3="200,0", t
     x3, y3 = parse_pt(p3, (200.0, 0.0))
 
     u = 1.0 - ft
-    bx = (u**3)*x0 + 3*(u**2)*ft*x1 + 3*u*(ft**2)*x2 + (ft**3)*x3
-    by = (u**3)*y0 + 3*(u**2)*ft*y1 + 3*u*(ft**2)*y2 + (ft**3)*y3
-
-    fmt_x = round(bx, 2)
-    fmt_y = round(by, 2)
-
     m = str(mode).strip().lower()
+    if any(k in m for k in ("cuad", "quad")):
+        if n_subdivs >= 2:
+            pts = []
+            for j in range(n_subdivs + 1):
+                s = j / float(n_subdivs)
+                us = 1.0 - s
+                px = us * us * x0 + 2.0 * us * s * x1 + s * s * x2
+                py = us * us * y0 + 2.0 * us * s * y1 + s * s * y2
+                pts.append((px, py))
+            bx, by = _sample_polyline_arc_length(pts, ft)
+        else:
+            bx = u * u * x0 + 2.0 * u * ft * x1 + ft * ft * x2
+            by = u * u * y0 + 2.0 * u * ft * y1 + ft * ft * y2
+    else:
+        if n_subdivs >= 2:
+            pts = []
+            for j in range(n_subdivs + 1):
+                s = j / float(n_subdivs)
+                us = 1.0 - s
+                px = (us**3)*x0 + 3*(us**2)*s*x1 + 3*us*(s**2)*x2 + (s**3)*x3
+                py = (us**3)*y0 + 3*(us**2)*s*y1 + 3*us*(s**2)*y2 + (s**3)*y3
+                pts.append((px, py))
+            bx, by = _sample_polyline_arc_length(pts, ft)
+        else:
+            bx = (u**3)*x0 + 3*(u**2)*ft*x1 + 3*u*(ft**2)*x2 + (ft**3)*x3
+            by = (u**3)*y0 + 3*(u**2)*ft*y1 + 3*u*(ft**2)*y2 + (ft**3)*y3
+
+    rbx = round(float(bx), 2)
+    rby = round(float(by), 2)
+    fmt_x = int(rbx) if rbx.is_integer() else rbx
+    fmt_y = int(rby) if rby.is_integer() else rby
+
     if m in ("spline", "assdraw", "trazado assdraw", "b"):
+        if "cuadr" in m:
+            return f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(y2,2)} {round(x2,2)} {round(y2,2)}"
         return f"b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(y2,2)} {round(x3,2)} {round(y3,2)}"
 
     return f"\\pos({fmt_x},{fmt_y})"

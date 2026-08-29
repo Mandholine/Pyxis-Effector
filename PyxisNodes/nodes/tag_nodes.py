@@ -250,11 +250,37 @@ def node_condicionador(context, condicion=True, si_verdadero="", si_falso=""):
             cond_bool = False
         else:
             try:
+                import math
                 eval_scope = dict(context or {})
+                if "line" in eval_scope and "l" not in eval_scope:
+                    eval_scope["l"] = eval_scope["line"]
+                if "active_unit" in eval_scope and eval_scope["active_unit"]:
+                    u = eval_scope["active_unit"]
+                    eval_scope.setdefault("syl", getattr(u, "syl", u))
+                    eval_scope.setdefault("char", getattr(u, "char", None))
+                    eval_scope.setdefault("word", getattr(u, "word", None))
+                    eval_scope.setdefault("line", getattr(u, "line", None))
+                    if "l" not in eval_scope:
+                        eval_scope["l"] = eval_scope.get("line")
                 if "syl" in eval_scope and "sili" not in eval_scope:
                     eval_scope["sili"] = eval_scope["syl"]
+                if "fx" not in eval_scope:
+                    from node_engine import FxContext
+                    eval_scope["fx"] = FxContext(eval_scope)
+
+                math_fns = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
+                eval_globals = {"math": math, "__builtins__": {
+                    "abs": abs, "min": min, "max": max, "round": round, "int": int, "float": float, "bool": bool, "len": len, "str": str
+                }}
+                eval_globals.update(math_fns)
+
+                from nodes.math_nodes import math_random_master
+                eval_scope["R"] = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="R", min_val=min_v, max_val=max_v, step=step_v)
+                eval_scope["Rs"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rs", min_val=min_v, max_val=max_v)
+                eval_scope["Rc"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rc", min_val=min_v, max_val=max_v)
+
                 v_eval = v.replace("^", "**")
-                res = eval(v_eval, {"__builtins__": None}, eval_scope)
+                res = eval(v_eval, eval_globals, eval_scope)
                 cond_bool = bool(res)
             except Exception:
                 cond_bool = len(v) > 0

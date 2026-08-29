@@ -62,8 +62,9 @@ def text_replace(context, text="", search="", replace=""):
 def text_substring(context, text="", start=0, length=10):
     st = _get_text(context, text)
     try:
-        s = int(float(start)) if str(start).strip() != "" else 0
-        l = int(float(length)) if str(length).strip() != "" else len(st)
+        from node_engine import _eval_num_expr
+        s = int(_eval_num_expr(start, context, 0.0)) if str(start).strip() != "" else 0
+        l = int(_eval_num_expr(length, context, float(len(st)))) if str(length).strip() != "" else len(st)
         return st[s:s+l]
     except Exception:
         return st
@@ -218,10 +219,11 @@ def eval_text_node(context=None, **kwargs):
     # 5. Subcadena
     elif op_clean in ("subcadena", "substring", "sub"):
         try:
+            from node_engine import _eval_num_expr
             st_val = kwargs.get("Start", kwargs.get("inicio", kwargs.get("start", 0)))
             len_val = kwargs.get("Longitud", kwargs.get("longitud", kwargs.get("length", len(raw_text))))
-            s = int(float(st_val)) if str(st_val).strip() != "" else 0
-            l = int(float(len_val)) if str(len_val).strip() != "" else len(raw_text)
+            s = int(_eval_num_expr(st_val, ctx, 0.0)) if str(st_val).strip() != "" else 0
+            l = int(_eval_num_expr(len_val, ctx, float(len(raw_text)))) if str(len_val).strip() != "" else len(raw_text)
             return raw_text[s:s+l]
         except Exception:
             return raw_text

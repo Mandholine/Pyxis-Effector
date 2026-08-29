@@ -112,8 +112,8 @@ system_node(
 # -----------------------------------------------------------------------------
 system_node(
     "Functions", "Interpolator", node_kind="data", color="#8B5CF6",
-    inputs=["Iterator", "Total", "V1", "V2"], outputs=["Data"],
-    properties={"mode": "Linear", "iterador": "i", "total": "N", "v1": "0", "v2": "1"},
+    inputs=["Iterator", "Total", "Accel", "V1", "V2"], outputs=["Data"],
+    properties={"iterador": "i", "total": "N", "accel": "1.0", "v1": "0", "v2": "1"},
     widgets=[]
 )
 
@@ -121,17 +121,17 @@ system_node(
 # NODOS DE RAÍZ (DIRECTOS EN MENÚ PRINCIPAL "ADD NODE")
 # -----------------------------------------------------------------------------
 system_node(
-    "", "String", node_kind="data", 
-    inputs=[], outputs=["String"], color="#4B4B4B",
-    properties={"valor": ""},
-    widgets=[{"type": "text", "name": "Text", "property": "valor"}]
-)
-
-system_node(
     "", "Text", node_kind="text", color="#0F766E",
     inputs=["Text"], outputs=["Out"],
     properties={"operacion": "Strip Tags"},
     widgets=[]
+)
+
+system_node(
+    "", "String", node_kind="data", 
+    inputs=[], outputs=["String"], color="#4B4B4B",
+    properties={"valor": ""},
+    widgets=[{"type": "text", "name": "Text", "property": "valor"}]
 )
 
 system_node(
@@ -250,7 +250,7 @@ system_node(
 system_node(
     "Time", "Time Ipol", node_kind="data", color="#2563EB",
     inputs=["Duration (ms)", "Points / Values", "Acceleration"], outputs=["Data"],
-    properties={"dur": "syl.duration", "points": "0, 100", "accel": "1.0", "mode": "Linear"},
+    properties={"dur": "syl.duration", "points": "0, 100", "accel": "1.0"},
     widgets=[]
 )
 
@@ -322,17 +322,10 @@ system_node(
 # -----------------------------------------------------------------------------
 system_node(
     "Functions", "Bezier Curve", node_kind="data", color="#8B5CF6",
-    inputs=["P0", "P1", "P2", "P3", "t"],
+    inputs=["P0", "P1", "P2", "P3", "t", "Subdivs"],
     outputs=["\\pos", "X", "Y", "Tan", "Norm", "Spline"],
-    properties={"p0": "0,0", "p1": "50,100", "p2": "150,100", "p3": "200,0", "t": "0.5", "modo": "Cúbica 2D"},
-    widgets=[
-        {"type": "combo", "name": "Modo:", "property": "modo", "values": ["Cuadrática 2D", "Cúbica 2D", "Trazado ASSdraw", "Velocidad Constante t", "Tangente & Normal"]},
-        {"type": "text", "name": "P0:", "property": "p0"},
-        {"type": "text", "name": "P1:", "property": "p1"},
-        {"type": "text", "name": "P2:", "property": "p2"},
-        {"type": "text", "name": "P3:", "property": "p3"},
-        {"type": "text", "name": "t:", "property": "t"}
-    ]
+    properties={"p0": "0,0", "p1": "50,100", "p2": "150,100", "p3": "200,0", "t": "0.5", "subdivs": "100", "modo": "Cúbica 2D"},
+    widgets=[]
 )
 
 system_node(
