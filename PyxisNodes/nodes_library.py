@@ -288,9 +288,9 @@ system_node(
 
 system_node(
     "Shape", "Shape Manipulator", node_kind="data", color="#5B2C6F",
-    inputs=["Shape / Texto", "Scale X", "Scale Y", "Factor (t)", "Anchor"],
+    inputs=["Shape / Texto", "Scale X", "Scale Y", "Angle", "Offset X", "Offset Y", "Border Offset", "Anchor"],
     outputs=["Shape"],
-    properties={"shape": "", "scale_x": "100", "scale_y": "100", "angle": "0", "offset_x": "0", "offset_y": "0", "offset_border": "2.0", "factor": "100", "t": "1.0", "anchor": "center", "mode": "Escalar"},
+    properties={"shape": "", "scale_x": "100", "scale_y": "100", "angle": "0", "offset_x": "0", "offset_y": "0", "offset_border": "0.0", "anchor": "center", "mode": "Escalar"},
     widgets=[]
 )
 
@@ -298,15 +298,7 @@ system_node(
     "Shape", "Shape Transform", node_kind="data", color="#7D3C98",
     inputs=["Shape / Texto", "Factor (t)", "Ratio", "Anchor"],
     outputs=["Shape"],
-    properties={"shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "target_box": "", "anchor": "center"},
-    widgets=[]
-)
-
-system_node(
-    "Shape", "Shape Stroke", node_kind="data", color="#7D3C98",
-    inputs=["Shape / Texto", "Width (px)", "Cap"],
-    outputs=["Shape Out", "Width"],
-    properties={"shape": "", "width": "4.0", "join_mode": "Round", "cap_mode": "Round", "miter_limit": "2.0"},
+    properties={"shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "anchor": "center"},
     widgets=[]
 )
 
@@ -323,14 +315,6 @@ system_node(
     inputs=["Shape / Text", "Progress (t)", "Start (t)", "Subdivs"],
     outputs=["Shape Out", "\\pos Tag", "Angle (\\frz)", "Length", "Tip X", "Tip Y"],
     properties={"shape": "", "progress": "1.0", "start_t": "0.0", "modo": "Global (Continuo)", "invert": "0", "subdivs": "30"},
-    widgets=[]
-)
-
-system_node(
-    "Shape", "Shape Stroke", node_kind="data", color="#7D3C98",
-    inputs=["Shape / Text", "Width (px)"],
-    outputs=["Shape Out", "Width"],
-    properties={"shape": "", "width": "4.0", "join_mode": "Round", "cap_mode": "Round", "miter_limit": "2.0"},
     widgets=[]
 )
 
@@ -357,14 +341,6 @@ system_node(
     inputs=["P0", "P1", "P2", "P3", "t", "Subdivs"],
     outputs=["\\pos", "X", "Y", "Tan", "Norm", "Spline"],
     properties={"p0": "0,0", "p1": "50,100", "p2": "150,100", "p3": "200,0", "t": "0.5", "subdivs": "100", "modo": "Cúbica 2D"},
-    widgets=[]
-)
-
-system_node(
-    "Functions", "Text on Path", node_kind="data", color="#8B5CF6",
-    inputs=["Path (Shape)", "Offset (px)", "Normal Off (px)", "Angle Off (°)", "Subdivs"],
-    outputs=["Tag", "\\pos", "\\frz", "X", "Y", "Tan"],
-    properties={"shape": "", "modo": "Center", "offset": "0", "normal_offset": "0", "angle_offset": "0", "t": "0.5", "subdivs": "30"},
     widgets=[]
 )
 

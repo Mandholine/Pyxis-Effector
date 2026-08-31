@@ -359,6 +359,35 @@ class PyxisDaemonServer:
             if not found_hwnd:
                 return False
 
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                ico_path = os.path.join(script_dir, "web", "icon.ico")
+                if os.path.exists(ico_path):
+                    from ctypes import wintypes
+                    WM_SETICON = 0x0080
+                    ICON_SMALL = 0
+                    ICON_BIG = 1
+                    LR_LOADFROMFILE = 0x0010
+                    IMAGE_ICON = 1
+
+                    user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+                    user32.LoadImageW.restype = wintypes.HANDLE
+
+                    sm_cx = user32.GetSystemMetrics(49) or 16
+                    sm_cy = user32.GetSystemMetrics(50) or 16
+                    big_cx = user32.GetSystemMetrics(11) or 32
+                    big_cy = user32.GetSystemMetrics(12) or 32
+
+                    h_icon_big = user32.LoadImageW(None, ico_path, IMAGE_ICON, big_cx, big_cy, LR_LOADFROMFILE)
+                    h_icon_small = user32.LoadImageW(None, ico_path, IMAGE_ICON, sm_cx, sm_cy, LR_LOADFROMFILE)
+
+                    if h_icon_big:
+                        user32.SendMessageW(found_hwnd, WM_SETICON, ICON_BIG, h_icon_big)
+                    if h_icon_small:
+                        user32.SendMessageW(found_hwnd, WM_SETICON, ICON_SMALL, h_icon_small)
+            except Exception:
+                pass
+
             SW_MAXIMIZE = 3
             SW_SHOW = 5
             SW_RESTORE = 9

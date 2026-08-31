@@ -1284,7 +1284,7 @@ class GraphEngine:
             data_port_idx = 1
             for i, input_obj in enumerate(inputs_list):
                 input_name = input_obj.get("name", "")
-                if input_name in ["Flow In", "In (bucle)", "Loop / Domain", "bucle"]:
+                if input_name in ["Loop In", "In (bucle)", "Loop / Domain", "bucle", "Loop", "Bucle", "Bucle In"]:
                     continue
                 val = self.get_input_value(node, i, context)
                 if val == "":
@@ -3556,15 +3556,19 @@ class GraphEngine:
 
         if total_estimated_lines < 2000:
             complexity = "Baja"
+            complexity_key = "low"
             complexity_color = "#34d399"
         elif total_estimated_lines < 15000:
             complexity = "Normal"
+            complexity_key = "normal"
             complexity_color = "#60a5fa"
         elif total_estimated_lines < 50000:
             complexity = "Alta"
+            complexity_key = "high"
             complexity_color = "#fbbf24"
         else:
             complexity = "Extrema"
+            complexity_key = "extreme"
             complexity_color = "#f87171"
 
         return {
@@ -3576,6 +3580,7 @@ class GraphEngine:
             "has_scripts": has_scripts,
             "has_audio": has_audio,
             "complexity": complexity,
+            "complexity_key": complexity_key,
             "complexity_color": complexity_color,
             "is_heavy": total_estimated_lines >= 30000
         }
@@ -3617,6 +3622,7 @@ class GraphEngine:
 
                 nid_str = str(n.get('id', ''))
                 nid_int = n.get('id')
+                node_title = str(n.get('title') or '').strip()
                 props = n.get('properties', {}) or {}
                 out_id = str(props.get('output_id') or props.get('salida_id') or '').strip()
                 queue_id = str(props.get('queue_id') or '').strip()
@@ -3628,6 +3634,8 @@ class GraphEngine:
                     return True
                 if nid_int is not None and nid_int in numeric_targets:
                     return True
+                if node_title and node_title in target_ids:
+                    return True
 
                 if out_id and (out_id in target_ids or (_to_int_or_default(out_id, None) in numeric_targets)):
                     return True
@@ -3636,10 +3644,19 @@ class GraphEngine:
 
                 if n in all_salida_nodes:
                     idx_1based = all_salida_nodes.index(n) + 1
-                    if idx_1based in numeric_targets or f"Salida {idx_1based}".lower() in (x.lower() for x in target_ids) or f"Salida_{idx_1based}".lower() in (x.lower() for x in target_ids):
+                    if (str(idx_1based) in target_ids or 
+                        idx_1based in numeric_targets or 
+                        f"Salida {idx_1based}" in target_ids or 
+                        f"Salida_{idx_1based}" in target_ids or 
+                        f"Salida {idx_1based}".lower() in (x.lower() for x in target_ids) or 
+                        f"Salida_{idx_1based}".lower() in (x.lower() for x in target_ids) or
+                        f"Output {idx_1based}" in target_ids or 
+                        f"Output_{idx_1based}" in target_ids or 
+                        f"Output {idx_1based}".lower() in (x.lower() for x in target_ids) or 
+                        f"Output_{idx_1based}".lower() in (x.lower() for x in target_ids)):
                         return True
 
-                if 'default' in target_ids and (not out_id or out_id.lower() == 'default'):
+                if 'default' in target_ids and (not out_id or out_id == 'default'):
                     return True
 
                 return False

@@ -71,6 +71,83 @@ import webview
 
 PYXIS_ENGINE_VERSION = "1.0.5"
 
+if sys.platform == "win32":
+    try:
+        import ctypes
+        my_app_id = "Mandholine.Pyxis.NodeEngine.1.0.5"
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
+    except Exception:
+        pass
+
+
+def _apply_pyxis_window_icon(hwnd=None):
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        ico_path = os.path.join(script_dir, "web", "icon.ico")
+        if not os.path.exists(ico_path):
+            png_path = os.path.join(script_dir, "web", "icon.png")
+            if os.path.exists(png_path):
+                try:
+                    from PIL import Image
+                    im = Image.open(png_path).convert("RGBA")
+                    sizes = [(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (24, 24), (16, 16)]
+                    resized_list = [im.resize(s, Image.Resampling.LANCZOS) for s in sizes]
+                    resized_list[0].save(ico_path, format="ICO", sizes=sizes, append_images=resized_list[1:])
+                except Exception:
+                    pass
+
+        if not os.path.exists(ico_path):
+            return
+
+        if not hwnd:
+            my_pid = os.getpid()
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            def enum_cb(h, l):
+                nonlocal hwnd
+                lp = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(h, ctypes.byref(lp))
+                if lp.value == my_pid:
+                    length = user32.GetWindowTextLengthW(h)
+                    if length > 0:
+                        buff = ctypes.create_unicode_buffer(length + 1)
+                        user32.GetWindowTextW(h, buff, length + 1)
+                        if "Pyxis" in buff.value or "Engine" in buff.value:
+                            hwnd = h
+                            return False
+                return True
+            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+
+        if hwnd:
+            WM_SETICON = 0x0080
+            ICON_SMALL = 0
+            ICON_BIG = 1
+            LR_LOADFROMFILE = 0x0010
+            IMAGE_ICON = 1
+
+            user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+            user32.LoadImageW.restype = wintypes.HANDLE
+
+            sm_cx = user32.GetSystemMetrics(49) or 16
+            sm_cy = user32.GetSystemMetrics(50) or 16
+            big_cx = user32.GetSystemMetrics(11) or 32
+            big_cy = user32.GetSystemMetrics(12) or 32
+
+            h_icon_big = user32.LoadImageW(None, ico_path, IMAGE_ICON, big_cx, big_cy, LR_LOADFROMFILE)
+            h_icon_small = user32.LoadImageW(None, ico_path, IMAGE_ICON, sm_cx, sm_cy, LR_LOADFROMFILE)
+
+            if h_icon_big:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, h_icon_big)
+            if h_icon_small:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_icon_small)
+    except Exception as e:
+        print(f"[Pyxis Apply Icon Error] {e}", flush=True)
+
 
 def _setup_windows_job_object():
     """Asocia el proceso de Python a un Job Object de Windows con JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
@@ -178,6 +255,21 @@ def _atomic_write(path, data):
                     pass
 
 
+def _to_int_or_default(value, default=None):
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    try:
+        s = str(value).strip()
+        if not s:
+            return default
+        return int(float(s))
+    except Exception:
+        return default
+
+
+
 class PyxisAPI:
     def __init__(self, temp_ass, result_file, session_file, aegisub_version="unknown", lock_file=None):
         self.temp_ass = temp_ass
@@ -194,9 +286,6 @@ class PyxisAPI:
         self.templates_dir = self.user_templates_dir
         self._store = None
         self._active_engine = None
-        self._active_preview_engine = None
-        self._active_hardsub_engine = None
-        self._active_hardsub_proc = None
         self._cached_preview_base_info = None
         self._load_and_cache_preview_base()
 
@@ -1405,41 +1494,6 @@ class PyxisAPI:
         abort_global_multiprocessing()
         return {"success": True, "cancelled": True}
 
-    def cancel_preview(self, node_id=None):
-        """Cancela de forma inmediata la generación activa de previsualización."""
-        print(f"[Pyxis] Cancelación de previsualización solicitada (nodo: {node_id}).", flush=True)
-        if getattr(self, '_active_preview_engine', None) is not None:
-            try:
-                self._active_preview_engine.is_cancelled = True
-                if getattr(self._active_preview_engine, 'shared_cancel_flag', None) is not None:
-                    self._active_preview_engine.shared_cancel_flag.value = True
-            except Exception as e:
-                print(f"[Pyxis Cancel Preview Warning] {e}", flush=True)
-            self._active_preview_engine = None
-        return {"success": True, "cancelled": True}
-
-    def cancel_hardsub(self, node_id=None):
-        """Cancela de forma inmediata la exportación/renderizado de vídeo Hardsub con FFmpeg."""
-        print(f"[Pyxis] Cancelación de exportación Hardsub solicitada (nodo: {node_id}).", flush=True)
-        if getattr(self, '_active_hardsub_engine', None) is not None:
-            try:
-                self._active_hardsub_engine.is_cancelled = True
-                if getattr(self._active_hardsub_engine, 'shared_cancel_flag', None) is not None:
-                    self._active_hardsub_engine.shared_cancel_flag.value = True
-            except Exception:
-                pass
-            self._active_hardsub_engine = None
-
-        if getattr(self, '_active_hardsub_proc', None) is not None:
-            try:
-                if self._active_hardsub_proc.poll() is None:
-                    self._active_hardsub_proc.kill()
-            except Exception as e:
-                print(f"[Pyxis Cancel FFmpeg Warning] {e}", flush=True)
-            self._active_hardsub_proc = None
-
-        return {"success": True, "cancelled": True}
-
     def complete_and_hide(self):
         """Oculta la ventana de PyWebView o apaga el servidor una vez completada la retención visual en la UI."""
         self.release_lock()
@@ -1447,25 +1501,6 @@ class PyxisAPI:
         config = self.get_user_config()
         is_daemon = config.get("daemon_mode", True)
         if is_daemon and webview.windows:
-            try:
-                import ctypes
-                user32 = ctypes.windll.user32
-                my_pid = os.getpid()
-                found_hwnd = None
-                WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-                def enum_cb(h, l):
-                    nonlocal found_hwnd
-                    lp = ctypes.c_ulong()
-                    user32.GetWindowThreadProcessId(h, ctypes.byref(lp))
-                    if lp.value == my_pid:
-                        found_hwnd = h
-                        return False
-                    return True
-                user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-                if found_hwnd:
-                    user32.ShowWindow(found_hwnd, 0)
-            except Exception:
-                pass
             try:
                 webview.windows[0].hide()
             except Exception:
@@ -2085,6 +2120,7 @@ class PyxisAPI:
 
         nid_str = str(node.get('id', ''))
         nid_int = node.get('id')
+        node_title = str(node.get('title') or '').strip()
         props = node.get('properties', {}) or {}
         out_id = str(props.get('output_id') or props.get('salida_id') or '').strip()
         queue_id = str(props.get('queue_id') or '').strip()
@@ -2096,19 +2132,15 @@ class PyxisAPI:
             except (ValueError, TypeError):
                 pass
 
-        def _safe_int(val):
-            try:
-                return int(float(str(val).strip()))
-            except Exception:
-                return None
-
         if nid_str in target_strs:
             return True
         if nid_int is not None and nid_int in numeric_targets:
             return True
-        if out_id and (out_id in target_strs or (_safe_int(out_id) in numeric_targets)):
+        if node_title and node_title in target_strs:
             return True
-        if queue_id and (queue_id in target_strs or (_safe_int(queue_id) in numeric_targets)):
+        if out_id and (out_id in target_strs or (_to_int_or_default(out_id, None) in numeric_targets)):
+            return True
+        if queue_id and (queue_id in target_strs or (_to_int_or_default(queue_id, None) in numeric_targets)):
             return True
         if 'default' in (x.lower() for x in target_strs) and (not out_id or out_id.lower() == 'default'):
             return True
@@ -2117,8 +2149,14 @@ class PyxisAPI:
             idx_1based = all_salida_nodes.index(node) + 1
             if (str(idx_1based) in target_strs or 
                 idx_1based in numeric_targets or 
+                f"Salida {idx_1based}" in target_strs or 
+                f"Salida_{idx_1based}" in target_strs or
                 f"Salida {idx_1based}".lower() in (x.lower() for x in target_strs) or 
-                f"Salida_{idx_1based}".lower() in (x.lower() for x in target_strs)):
+                f"Salida_{idx_1based}".lower() in (x.lower() for x in target_strs) or
+                f"Output {idx_1based}" in target_strs or 
+                f"Output_{idx_1based}" in target_strs or
+                f"Output {idx_1based}".lower() in (x.lower() for x in target_strs) or 
+                f"Output_{idx_1based}".lower() in (x.lower() for x in target_strs)):
                 return True
 
         return False
@@ -3010,19 +3048,7 @@ class PyxisAPI:
                 if len(output_id_list) > 0:
                     engine = GraphEngine(graph_data, res_x, res_y, frame_dur, default_audio_source=default_audio)
                     engine.target_output_id = output_id_list
-                    self._active_preview_engine = engine
-                    try:
-                        generated_lines = engine.process(
-                            dialogues,
-                            styles,
-                            check_cancel_callback=lambda: getattr(engine, 'is_cancelled', False)
-                        )
-                    finally:
-                        if self._active_preview_engine is engine:
-                            self._active_preview_engine = None
-
-                    if getattr(engine, 'is_cancelled', False):
-                        return {"success": False, "cancelled": True, "message": "Previsualización cancelada"}
+                    generated_lines = engine.process(dialogues, styles)
                     self.log_player_event(f"GraphEngine targets={output_id_list} (Res {res_x}x{res_y}) produced {len(generated_lines)} lines")
 
                 with open(ass_path, "r", encoding="utf-8-sig", errors="ignore") as f:
@@ -3231,7 +3257,7 @@ class PyxisAPI:
 
             import subprocess
             creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
-            proc = subprocess.Popen(
+            proc = subprocess.run(
                 cmd,
                 cwd=temp_dir,
                 stdout=subprocess.PIPE,
@@ -3239,21 +3265,9 @@ class PyxisAPI:
                 text=True,
                 creationflags=creationflags
             )
-            self._active_hardsub_proc = proc
-            stdout, stderr = "", ""
-            try:
-                stdout, stderr = proc.communicate()
-            finally:
-                self._active_hardsub_proc = None
-
             if proc.returncode != 0:
-                if proc.returncode in [-9, 1, 15, 255] or getattr(self, '_hardsub_cancelled', False):
-                    if save_path and os.path.exists(save_path):
-                        try: os.remove(save_path)
-                        except OSError: pass
-                    return {"success": False, "cancelled": True, "message": "Exportación cancelada por el usuario"}
-                err_msg = stderr[-400:] if stderr else f"Exit code {proc.returncode}"
-                print(f"[Pyxis FFmpeg Hardsub Error] code {proc.returncode}:\n{stderr}", flush=True)
+                err_msg = proc.stderr[-400:] if proc.stderr else f"Exit code {proc.returncode}"
+                print(f"[Pyxis FFmpeg Hardsub Error] code {proc.returncode}:\n{proc.stderr}", flush=True)
                 return {"success": False, "error": f"FFmpeg error: {err_msg}"}
 
             import base64
@@ -3353,15 +3367,27 @@ def main():
             background_color="#121212",
         )
 
-        if isinstance(saved_win_state, dict):
-            api._saved_window_state = dict(saved_win_state)
-            if saved_win_state.get("maximized"):
-                def _on_window_shown():
-                    try:
-                        window.maximize()
-                    except Exception:
-                        pass
-                window.events.shown += _on_window_shown
+        def _on_window_shown():
+            try:
+                _apply_pyxis_window_icon()
+            except Exception:
+                pass
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                ico_path = os.path.join(script_dir, "web", "icon.ico")
+                if os.path.exists(ico_path) and hasattr(window, "native") and window.native:
+                    import clr
+                    clr.AddReference("System.Drawing")
+                    import System.Drawing
+                    window.native.Icon = System.Drawing.Icon(ico_path)
+            except Exception:
+                pass
+            if isinstance(saved_win_state, dict) and saved_win_state.get("maximized"):
+                try:
+                    window.maximize()
+                except Exception:
+                    pass
+        window.events.shown += _on_window_shown
 
         def on_window_maximized():
             if not hasattr(api, "_saved_window_state") or not isinstance(api._saved_window_state, dict):
@@ -3391,105 +3417,105 @@ def main():
 
         def on_closing():
             if getattr(api, "_is_handling_closing", False):
-                return True
+                return False
             api._is_handling_closing = True
 
-            # Abortar y cancelar cualquier proceso en ejecución inmediatamente
             try:
-                api.cancel_generation()
-            except Exception:
-                pass
-
-            # Liberar siempre de forma prioritaria el lock de la sesión activa
-            try:
-                api.release_lock()
-            except Exception:
-                pass
-
-            # Capturar formato y dimensiones actuales de la ventana de forma robusta
-            try:
-                import ctypes
-                from ctypes import wintypes
-                user32 = ctypes.windll.user32
-                my_pid = os.getpid()
-                found_hwnd = None
-                WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-                def enum_cb(h, l):
-                    nonlocal found_hwnd
-                    lp = ctypes.c_ulong()
-                    user32.GetWindowThreadProcessId(h, ctypes.byref(lp))
-                    if lp.value == my_pid:
-                        length = user32.GetWindowTextLengthW(h)
-                        if length > 0:
-                            buff = ctypes.create_unicode_buffer(length + 1)
-                            user32.GetWindowTextW(h, buff, length + 1)
-                            if "Pyxis" in buff.value or "Engine" in buff.value:
-                                found_hwnd = h
-                                return False
-                    return True
-                user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-                if not found_hwnd:
-                    found_hwnd = user32.FindWindowW(None, window.title)
-
-                if found_hwnd:
-                    is_maximized = bool(user32.IsZoomed(found_hwnd))
-                    rect = wintypes.RECT()
-                    user32.GetWindowRect(found_hwnd, ctypes.byref(rect))
-                    w = rect.right - rect.left
-                    h = rect.bottom - rect.top
-                    win_state = {
-                        "maximized": is_maximized,
-                        "width": w,
-                        "height": h,
-                        "x": rect.left,
-                        "y": rect.top
-                    }
-                    api._saved_window_state = win_state
-                    cfg_path = api._get_config_path()
-                    if os.path.exists(cfg_path):
-                        with open(cfg_path, "r", encoding="utf-8") as f:
-                            saved_cfg = json.load(f)
-                        if isinstance(saved_cfg, dict):
-                            saved_cfg["window_state"] = win_state
-                            with open(cfg_path, "w", encoding="utf-8") as f:
-                                json.dump(saved_cfg, f, indent=2)
-            except Exception:
-                pass
-
-            config = api.get_user_config()
-            is_daemon = config.get("daemon_mode", True)
-
-            if is_daemon:
-                # Ocultar inmediatamente vía Win32 para no bloquear el mensaje WM_CLOSE ni la UI
-                if found_hwnd:
-                    try:
-                        import ctypes
-                        ctypes.windll.user32.ShowWindow(found_hwnd, 0)  # SW_HIDE
-                    except Exception:
-                        pass
-
-                def _deferred_daemon_suspend():
-                    import time
-                    time.sleep(0.05)
-                    try:
-                        window.hide()
-                    except Exception:
-                        pass
-                    try:
-                        window.evaluate_js("if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.suspendForDaemon === 'function') window.PyxisNodePlayerManager.suspendForDaemon();")
-                    except Exception:
-                        pass
-                    api._is_handling_closing = False
-
-                threading.Thread(target=_deferred_daemon_suspend, daemon=True).start()
-                return False
-            else:
+                # Abortar y cancelar cualquier proceso en ejecución inmediatamente
                 try:
-                    api.shutdown_daemon()
+                    api.cancel_generation()
                 except Exception:
                     pass
-                from node_engine import abort_global_multiprocessing
-                abort_global_multiprocessing()
+
+                # Liberar siempre de forma prioritaria el lock de la sesión activa
+                try:
+                    api.release_lock()
+                except Exception:
+                    pass
+
+                # Capturar formato y dimensiones actuales de la ventana de forma robusta
+                found_hwnd = None
+                try:
+                    import ctypes
+                    from ctypes import wintypes
+                    user32 = ctypes.windll.user32
+                    my_pid = os.getpid()
+                    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+                    def enum_cb(h, l):
+                        nonlocal found_hwnd
+                        lp = ctypes.c_ulong()
+                        user32.GetWindowThreadProcessId(h, ctypes.byref(lp))
+                        if lp.value == my_pid:
+                            length = user32.GetWindowTextLengthW(h)
+                            if length > 0:
+                                buff = ctypes.create_unicode_buffer(length + 1)
+                                user32.GetWindowTextW(h, buff, length + 1)
+                                if "Pyxis" in buff.value or "Engine" in buff.value:
+                                    found_hwnd = h
+                                    return False
+                        return True
+                    user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+                    if not found_hwnd:
+                        found_hwnd = user32.FindWindowW(None, window.title)
+
+                    if found_hwnd:
+                        is_maximized = bool(user32.IsZoomed(found_hwnd))
+                        rect = wintypes.RECT()
+                        user32.GetWindowRect(found_hwnd, ctypes.byref(rect))
+                        w = rect.right - rect.left
+                        h = rect.bottom - rect.top
+                        win_state = {
+                            "maximized": is_maximized,
+                            "width": w,
+                            "height": h,
+                            "x": rect.left,
+                            "y": rect.top
+                        }
+                        api._saved_window_state = win_state
+                        cfg_path = api._get_config_path()
+                        if os.path.exists(cfg_path):
+                            with open(cfg_path, "r", encoding="utf-8") as f:
+                                saved_cfg = json.load(f)
+                            if isinstance(saved_cfg, dict):
+                                saved_cfg["window_state"] = win_state
+                                with open(cfg_path, "w", encoding="utf-8") as f:
+                                    json.dump(saved_cfg, f, indent=2)
+                except Exception as e:
+                    print(f"[Pyxis Window State Save Error] {e}", flush=True)
+
+                config = api.get_user_config()
+                is_daemon = config.get("daemon_mode", True)
+
+                if is_daemon:
+                    # En modo daemon: ocultar la ventana inmediatamente a nivel de Win32 para no bloquear el bucle de mensajes
+                    if found_hwnd:
+                        try:
+                            user32.ShowWindow(found_hwnd, 0)  # 0 = SW_HIDE
+                        except Exception:
+                            pass
+
+                    # Ejecutar suspensión de reproductores en hilo secundario asíncrono para evitar deadlocks en el despachador de WebView2
+                    def _async_daemon_cleanup():
+                        try:
+                            window.evaluate_js("if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.suspendForDaemon === 'function') window.PyxisNodePlayerManager.suspendForDaemon();")
+                        except Exception:
+                            pass
+                    import threading
+                    threading.Thread(target=_async_daemon_cleanup, daemon=True).start()
+
+                    api._is_handling_closing = False
+                    return False
+                else:
+                    try:
+                        api.shutdown_daemon()
+                    except Exception:
+                        pass
+                    from node_engine import abort_global_multiprocessing
+                    abort_global_multiprocessing()
+                    api._is_handling_closing = False
+                    return True
+            except Exception as e:
+                print(f"[Pyxis on_closing Error] {e}", flush=True)
                 api._is_handling_closing = False
                 return True
 

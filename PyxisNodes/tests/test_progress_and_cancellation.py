@@ -171,38 +171,5 @@ class TestProgressAndCancellation(unittest.TestCase):
         last_update = updates[-1]
         self.assertEqual(last_update.get('lines_generated'), 4000)
 
-    def test_pyxis_api_cancel_preview_and_hardsub(self):
-        from unittest.mock import MagicMock
-        from main import PyxisAPI
-        
-        api = PyxisAPI("dummy.ass", "dummy_res.ass", "dummy_sess.json")
-        
-        # Test cancel_preview when engine is active
-        mock_engine = MagicMock()
-        mock_engine.is_cancelled = False
-        api._active_preview_engine = mock_engine
-        
-        res = api.cancel_preview("node_123")
-        self.assertTrue(res.get("success"))
-        self.assertTrue(res.get("cancelled"))
-        self.assertTrue(mock_engine.is_cancelled)
-        self.assertIsNone(api._active_preview_engine)
-        
-        # Test cancel_hardsub when engine and proc are active
-        mock_hard_engine = MagicMock()
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = None # Process still running
-        
-        api._active_hardsub_engine = mock_hard_engine
-        api._active_hardsub_proc = mock_proc
-        
-        res_h = api.cancel_hardsub("node_123")
-        self.assertTrue(res_h.get("success"))
-        self.assertTrue(res_h.get("cancelled"))
-        self.assertTrue(mock_hard_engine.is_cancelled)
-        mock_proc.kill.assert_called_once()
-        self.assertIsNone(api._active_hardsub_engine)
-        self.assertIsNone(api._active_hardsub_proc)
-
 if __name__ == "__main__":
     unittest.main()

@@ -1067,8 +1067,7 @@
                 const wX = promptMargin * scale;
                 
                 if (isSalidaNode) {
-                    const isQueueOrder = (widget && widget.name && String(widget.name).includes("Order")) || (title && String(title).includes("Order"));
-                    const minSalidaBoxW = isQueueOrder ? 92 : 75;
+                    const minSalidaBoxW = 75;
                     const promptVal = (widget && widget.value !== undefined && widget.value !== null)
                         ? String(widget.value)
                         : (value !== undefined && value !== null ? String(value) : "");
@@ -1178,8 +1177,7 @@
                 
                 let nextW = widgetW;
                 if (isSalidaNode) {
-                    const isQueueOrder = (widget && widget.name && String(widget.name).includes("Order")) || (title && String(title).includes("Order"));
-                    const minSalidaBoxW = isQueueOrder ? 92 : 75;
+                    const minSalidaBoxW = 75;
                     const promptVal = overlay.value || (widget ? widget.name || title || "" : title || "");
                     const tw = (typeof getExactTextWidth === "function") ? getExactTextWidth(promptVal, "bold 11px Consolas, monospace") : (promptVal.length * 6.0);
                     const calcW = Math.max(minSalidaBoxW, Math.ceil(tw + 25));
@@ -1698,19 +1696,48 @@
             const badge = document.getElementById("est-complexity-badge");
             const alertBox = document.getElementById("est-alert-msg");
 
-            if (linesVal) linesVal.innerText = (data.estimated_lines || 0).toLocaleString() + " lín";
-            if (inputsVal) inputsVal.innerText = (data.input_lines || 0) + " lín";
-            if (unitsVal) unitsVal.innerText = (data.base_units || 0) + " u";
+            const unitLin = window.t ? window.t("estimation.unit_lines") : "lín";
+            const unitU = window.t ? window.t("estimation.unit_units") : "u";
+
+            if (linesVal) linesVal.innerText = (data.estimated_lines || 0).toLocaleString() + " " + unitLin;
+            if (inputsVal) inputsVal.innerText = (data.input_lines || 0) + " " + unitLin;
+            if (unitsVal) unitsVal.innerText = (data.base_units || 0) + " " + unitU;
             if (badge) {
-                badge.innerText = data.complexity || "Normal";
+                let badgeText = data.complexity || "Normal";
+                const compStr = String(data.complexity_key || data.complexity || "").toLowerCase();
+                if (window.t) {
+                    if (compStr === "baja" || compStr === "low") {
+                        badgeText = window.t("estimation.complexity_low");
+                    } else if (compStr === "normal" || compStr === "media" || compStr === "medium" || compStr === "med") {
+                        badgeText = window.t("estimation.complexity_normal");
+                    } else if (compStr === "alta" || compStr === "high") {
+                        badgeText = window.t("estimation.complexity_high");
+                    } else if (compStr === "extrema" || compStr === "extreme") {
+                        badgeText = window.t("estimation.complexity_extreme");
+                    }
+                }
+                badge.innerText = badgeText;
                 badge.style.color = data.complexity_color || "#60a5fa";
                 badge.style.borderColor = (data.complexity_color || "#60a5fa") + "66";
                 badge.style.background = (data.complexity_color || "#60a5fa") + "22";
             }
             if (alertBox) {
                 alertBox.style.display = data.is_heavy ? "block" : "none";
+                if (window.t) {
+                    alertBox.innerText = window.t("estimation.heavy_alert");
+                }
             }
         }
+
+        window.addEventListener("pyxis:languageChanged", () => {
+            if (_lastEstimationData) {
+                updateEstimationUI(_lastEstimationData);
+            }
+            const codeModal = document.getElementById("pyxis-code-editor-modal");
+            if (codeModal && codeModal.style.display !== "none") {
+                refreshCodeTemplatesDropdown();
+            }
+        });
 
         let isHoveringGenerateBtn = false;
 
@@ -1719,7 +1746,7 @@
             if (!isGenerating) return;
             const label = document.getElementById("btn-generate-label");
             if (hovering) {
-                if (label && !cancelRequested) label.innerText = "Detener";
+                if (label && !cancelRequested) label.innerText = window.t ? window.t("topbar.stop") : "Detener";
             }
         }
 
@@ -1804,21 +1831,23 @@
                 const displayVal = Math.min(99, Math.floor(currentP));
                 if (progressBar) progressBar.style.width = displayVal + "%";
                 if (label) {
+                    const unitLin = window.t ? window.t("estimation.unit_lines") : "lín";
                     if (cancelRequested) {
-                        label.innerText = "Deteniendo...";
+                        label.innerText = window.t ? window.t("topbar.stopping") : "Deteniendo...";
                     } else if (isHoveringGenerateBtn) {
-                        label.innerText = "Detener";
+                        label.innerText = window.t ? window.t("topbar.stop") : "Detener";
                     } else if (displayLines > 0) {
                         const lStr = Math.floor(displayLines).toLocaleString();
                         if (currentProgressSpeed > 0) {
-                            label.innerText = `${lStr} lín (${displayVal}%) • ${currentProgressSpeed.toLocaleString()} l/s`;
+                            label.innerText = `${lStr} ${unitLin} (${displayVal}%) • ${currentProgressSpeed.toLocaleString()} l/s`;
                         } else {
-                            label.innerText = `${lStr} lín (${displayVal}%)`;
+                            label.innerText = `${lStr} ${unitLin} (${displayVal}%)`;
                         }
                     } else if (currentProgressPhase) {
                         label.innerText = `${currentProgressPhase} (${displayVal}%)`;
                     } else {
-                        label.innerText = `Generando... ${displayVal}%`;
+                        const genText = window.t ? window.t("topbar.generating") : "Generando...";
+                        label.innerText = `${genText} ${displayVal}%`;
                     }
                 }
             }, 25);
@@ -3827,6 +3856,28 @@
             if (!node.properties) node.properties = {};
             if (!node.properties.tag_type) node.properties.tag_type = "pos";
             node.widgets_up = true;
+
+            node.computeSize = function() {
+                const props = this.properties || node.properties || {};
+                const tagKey = (props.tag_type || "pos").toLowerCase();
+                const tagDef = TAG_DEFINITIONS[tagKey] || { params: ["Value"] };
+                const reqParams = tagDef.params || ["Value"];
+                
+                let base_w = 210;
+                let text_req_w = 0;
+                for (const p in props) {
+                    if (p === "tag_type") continue;
+                    const val = String(props[p] || "");
+                    if (val.length > 0) {
+                        const tw = getExactTextWidth(val, "bold 11px Consolas, monospace");
+                        if (tw > text_req_w) text_req_w = tw;
+                    }
+                }
+                const right_space = getNodeRightReserve(this);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 28));
+                return [Math.max(base_w, 22 + boxW + right_space), 11 + reqParams.length * 23 + 42];
+            };
+
             node.updateTagInputs = updateTagInputs;
 
             function updateTagInputs() {
@@ -3900,8 +3951,7 @@
                         const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
                         node.properties[paramName] = cleanVal;
                         if (node.computeSize) {
-                            const sz = node.computeSize();
-                            node.size[0] = Math.max(node.size[0], sz[0]);
+                            node.size = node.computeSize();
                         }
                         if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     });
@@ -3934,35 +3984,6 @@
                     openTagGridPicker(n, w, event);
                 };
             }
-
-            node.computeSize = function() {
-                const tagKey = (node.properties.tag_type || "pos").toLowerCase();
-                const tagDef = TAG_DEFINITIONS[tagKey] || { params: ["Value"] };
-                const reqParams = tagDef.params || ["Value"];
-                
-                let base_w = 210;
-                let text_req_w = 0;
-                if (node.properties) {
-                    for (const p in node.properties) {
-                        if (p === "tag_type") continue;
-                        const val = String(node.properties[p] || "");
-                        if (val.length > 0) {
-                            const tw = getExactTextWidth(val, "bold 11px monospace");
-                            if (tw > text_req_w) text_req_w = tw;
-                        }
-                    }
-                }
-                let max_out_w = 0;
-                (node.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-                const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
-                return [Math.max(base_w, 22 + boxW + right_space), 11 + reqParams.length * 23 + 42];
-            };
 
             const oldMouseDown = node.onMouseDown;
             node.onMouseDown = function(e, local_pos, canvas) {
@@ -4101,6 +4122,28 @@
             if (node.properties.valor === undefined) node.properties.valor = "";
             if (node.properties.default === undefined) node.properties.default = "";
             node.widgets_up = true;
+
+            node.computeSize = function() {
+                const props = this.properties || node.properties || {};
+                const modo = props.modo || "Remember (Guardar)";
+                const isRemember = modo.includes("Remember") || modo.includes("Guardar");
+                const reqInputs = isRemember ? ["Key", "Value"] : ["Key", "Default"];
+                
+                let base_w = 235;
+                let text_req_w = 0;
+                for (const p in props) {
+                    if (p === "modo") continue;
+                    const val = String(props[p] || "");
+                    if (val.length > 0) {
+                        const tw = getExactTextWidth(val, "bold 11px Consolas, monospace");
+                        if (tw > text_req_w) text_req_w = tw;
+                    }
+                }
+                const right_space = getNodeRightReserve(this);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 28));
+                return [Math.max(base_w, 22 + boxW + right_space), 11 + reqInputs.length * 23 + 12];
+            };
+
             node.updateTagInputs = updateMemoriaInputs;
 
             function updateMemoriaInputs() {
@@ -4206,35 +4249,6 @@
                         }
                     }
                 }
-            };
-
-            node.computeSize = function() {
-                const modo = node.properties.modo || "Remember (Guardar)";
-                const isRemember = modo.includes("Remember") || modo.includes("Guardar");
-                const reqInputs = isRemember ? ["Key", "Value"] : ["Key", "Default"];
-                
-                let base_w = 235;
-                let text_req_w = 0;
-                if (node.properties) {
-                    for (const p in node.properties) {
-                        if (p === "modo") continue;
-                        const val = String(node.properties[p] || "");
-                        if (val.length > 0) {
-                            const tw = getExactTextWidth(val, "bold 11px monospace");
-                            if (tw > text_req_w) text_req_w = tw;
-                        }
-                    }
-                }
-                let max_out_w = 0;
-                (node.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-                const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
-                return [Math.max(base_w, 22 + boxW + right_space), 11 + reqInputs.length * 23 + 12];
             };
 
             const oldDraw = node.onDrawForeground;
@@ -4343,6 +4357,36 @@
             if (node.properties.options === undefined) node.properties.options = "A, B, C";
             if (node.properties.counter === undefined) node.properties.counter = "";
             node.widgets_up = true;
+
+            node.computeSize = function() {
+                const props = this.properties || node.properties || {};
+                const modo = props.modo || "R";
+                let reqInputs = ["Min", "Max", "Step"];
+                if (modo === "Re") {
+                    reqInputs = ["Options"];
+                } else if (modo === "Rfake") {
+                    reqInputs = ["Min", "Max", "Counter (i/j)"];
+                } else if (modo === "Rcolor" || modo === "Rcol") {
+                    reqInputs = ["Color Min", "Color Max"];
+                } else if (modo === "Rbool") {
+                    reqInputs = ["Probability (%)"];
+                }
+                
+                let base_w = 210;
+                let text_req_w = 0;
+                for (const p in props) {
+                    if (p === "modo") continue;
+                    const val = String(props[p] || "");
+                    if (val.length > 0) {
+                        const tw = getExactTextWidth(val, "bold 11px Consolas, monospace");
+                        if (tw > text_req_w) text_req_w = tw;
+                    }
+                }
+                const right_space = getNodeRightReserve(this);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 28));
+                return [Math.max(base_w, 22 + boxW + right_space), 11 + reqInputs.length * 23 + 42];
+            };
+
             node.updateTagInputs = updateRandomInputs;
 
             function updateRandomInputs() {
@@ -4485,43 +4529,6 @@
                         }
                     }
                 }
-            };
-
-            node.computeSize = function() {
-                const modo = node.properties.modo || "R";
-                let reqInputs = ["Min", "Max", "Step"];
-                if (modo === "Re") {
-                    reqInputs = ["Options"];
-                } else if (modo === "Rfake") {
-                    reqInputs = ["Min", "Max", "Counter (i/j)"];
-                } else if (modo === "Rcolor" || modo === "Rcol") {
-                    reqInputs = ["Color Min", "Color Max"];
-                } else if (modo === "Rbool") {
-                    reqInputs = ["Probability (%)"];
-                }
-                
-                let base_w = 210;
-                let text_req_w = 0;
-                if (node.properties) {
-                    for (const p in node.properties) {
-                        if (p === "modo") continue;
-                        const val = String(node.properties[p] || "");
-                        if (val.length > 0) {
-                            const tw = getExactTextWidth(val, "bold 11px monospace");
-                            if (tw > text_req_w) text_req_w = tw;
-                        }
-                    }
-                }
-                let max_out_w = 0;
-                (node.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-                const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
-                return [Math.max(base_w, 22 + boxW + right_space), 11 + reqInputs.length * 23 + 42];
             };
 
             const oldDraw = node.onDrawForeground;
@@ -4684,6 +4691,22 @@
             if (node.properties.si_falso === undefined) node.properties.si_falso = "";
             node.widgets_up = true;
 
+            node.computeSize = function() {
+                let base_w = 195;
+                let text_req_w = 0;
+                const props = this.properties || node.properties || {};
+                for (const p in props) {
+                    const val = String(props[p] || "");
+                    if (val.length > 0) {
+                        const tw = getExactTextWidth(val, "bold 11px Consolas, monospace");
+                        if (tw > text_req_w) text_req_w = tw;
+                    }
+                }
+                const right_space = getNodeRightReserve(this);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 28));
+                return [Math.max(base_w, 22 + boxW + right_space), 11 + 3 * 23 + 12];
+            };
+
             function updateCondicionadorInputs() {
                 const reqInputs = ["Condition", "If True", "If False"];
 
@@ -4770,30 +4793,6 @@
                 if (node.setDirtyCanvas && node.graph) node.setDirtyCanvas(true, true);
             }
 
-            node.computeSize = function() {
-                let base_w = 195;
-                let text_req_w = 0;
-                if (node.properties) {
-                    for (const p in node.properties) {
-                        const val = String(node.properties[p] || "");
-                        if (val.length > 0) {
-                            const tw = getExactTextWidth(val, "bold 11px monospace");
-                            if (tw > text_req_w) text_req_w = tw;
-                        }
-                    }
-                }
-                let max_out_w = 0;
-                (node.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-                const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
-                return [Math.max(base_w, 22 + boxW + right_space), 11 + 3 * 23 + 12];
-            };
-
             const oldDraw = node.onDrawForeground;
             node.onDrawForeground = function(ctx) {
                 if (oldDraw) oldDraw.call(this, ctx);
@@ -4832,7 +4831,7 @@
                 const count = Math.max(1, parseInt(node.properties.inputs_count, 10) || 2);
                 node.properties.inputs_count = count;
 
-                const reqInputs = ["Flow In"];
+                const reqInputs = ["Loop In"];
                 for (let i = 1; i <= count; i++) {
                     reqInputs.push("In" + i);
                 }
@@ -4860,15 +4859,15 @@
                     while (node.inputs.length < reqInputs.length) {
                         const idx = node.inputs.length;
                         const pName = reqInputs[idx];
-                        const pType = (pName === "Flow In") ? "bucle" : "data";
+                        const pType = (pName === "Loop In") ? "bucle" : "data";
                         node.addInput(pName, pType);
                     }
 
                     reqInputs.forEach((paramName, idx) => {
                         const inputSlot = node.inputs[idx];
                         inputSlot.name = paramName;
-                        inputSlot.type = (paramName === "Flow In") ? "bucle" : "data";
-                        inputSlot.label = (paramName === "Flow In") ? "Flow In" : " ";
+                        inputSlot.type = (paramName === "Loop In") ? "bucle" : "data";
+                        inputSlot.label = (paramName === "Loop In") ? "Loop In" : " ";
                         if (idx === 0) {
                             inputSlot.pos = [10, 18];
                         } else {
@@ -4884,11 +4883,14 @@
                             }
                         }
                     });
+                } else if (node.inputs && node.inputs[0]) {
+                    node.inputs[0].name = "Loop In";
+                    node.inputs[0].label = "Loop In";
                 }
 
                 if (!node.outputs || node.outputs.length < 2) {
                     node.outputs = [
-                        { name: "Flow Out", type: "bucle", links: null },
+                        { name: "Loop Out", type: "bucle", links: null },
                         { name: "Result", type: "data", links: null }
                     ];
                 }
@@ -4935,20 +4937,13 @@
                         if (p === "script" || p === "lenguaje" || p === "inputs_count") continue;
                         const val = String(node.properties[p] || "");
                         if (val.length > 0) {
-                            const tw = getExactTextWidth(val, "bold 11px monospace");
+                            const tw = getExactTextWidth(val, "bold 11px Consolas, monospace");
                             if (tw > text_req_w) text_req_w = tw;
                         }
                     }
                 }
-                let max_out_w = 0;
-                (node.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-                const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
+                const right_space = getNodeRightReserve(node);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 28));
                 const contentH = 34 + count * 23 + 52;
                 return [Math.max(base_w, 22 + boxW + right_space), contentH];
             };
@@ -4964,9 +4959,9 @@
 
                 if (this.inputs) {
                     this.inputs.forEach((inp, idx) => {
-                        if (inp.name === "Flow In") {
+                        if (inp.name === "Loop In") {
                             inp.pos = [10, 18];
-                            inp.label = "Flow In";
+                            inp.label = "Loop In";
                         } else {
                             inp.label = " ";
                             inp.pos = [10, 34 + (idx - 1) * 23 + 9];
@@ -5491,18 +5486,22 @@
             const currentLang = (node && node.properties && node.properties.lenguaje === "Lua") ? "Lua" : "Python";
 
             const userTemplates = loadStoredUserTemplates();
-            let html = `<option value="">-- Seleccionar plantilla --</option>`;
+            const selectText = window.t ? window.t("code_editor.select_template") : "-- Seleccionar plantilla --";
+            let html = `<option value="">${escapeHtml(selectText)}</option>`;
+
+            const exampleGroupLabel = window.t ? window.t("code_editor.example_group", { lang: currentLang }) : `Plantilla de Ejemplo (${currentLang})`;
+            const defaultTplName = window.t ? window.t(`code_editor.${currentLang.toLowerCase()}_default_tpl_name`) : `${currentLang}: Alternar colores por índice de sílaba`;
 
             if (currentLang === "Python") {
                 html += `
-                    <optgroup label="Plantilla de Ejemplo (Python)">
-                        <option value="python_default">Python: Alternar colores por índice de sílaba</option>
+                    <optgroup label="${escapeHtml(exampleGroupLabel)}">
+                        <option value="python_default">${escapeHtml(defaultTplName)}</option>
                     </optgroup>
                 `;
             } else {
                 html += `
-                    <optgroup label="Plantilla de Ejemplo (Lua)">
-                        <option value="lua_default">Lua: Alternar colores por índice de sílaba</option>
+                    <optgroup label="${escapeHtml(exampleGroupLabel)}">
+                        <option value="lua_default">${escapeHtml(defaultTplName)}</option>
                     </optgroup>
                 `;
             }
@@ -5514,7 +5513,8 @@
             });
 
             if (userKeys.length > 0) {
-                html += `<optgroup label="Mis Plantillas (${currentLang})">`;
+                const myTemplatesLabel = window.t ? window.t("code_editor.my_templates_group", { lang: currentLang }) : `Mis Plantillas (${currentLang})`;
+                html += `<optgroup label="${escapeHtml(myTemplatesLabel)}">`;
                 userKeys.forEach(key => {
                     const tpl = userTemplates[key];
                     const name = tpl.name || key;
@@ -5539,15 +5539,16 @@
             }
 
             if (!code || !code.trim()) {
-                alert("El editor de código está vacío. Escribe algo antes de guardarlo como plantilla.");
+                alert(window.t ? window.t("code_editor.alert_empty") : "El editor de código está vacío. Escribe algo antes de guardarlo como plantilla.");
                 return;
             }
 
             const node = window.__active_code_script_node;
             const currentLang = (node && node.properties && node.properties.lenguaje) ? node.properties.lenguaje : "Python";
 
-            const defaultName = `${currentLang}: Mi Plantilla Personalizada`;
-            const name = prompt("Introduce un nombre para la nueva plantilla (" + currentLang + "):", defaultName);
+            const defaultName = window.t ? window.t("code_editor.default_new_template_name", { lang: currentLang }) : `${currentLang}: Mi Plantilla Personalizada`;
+            const promptMsg = window.t ? window.t("code_editor.prompt_name", { lang: currentLang }) : `Introduce un nombre para la nueva plantilla (${currentLang}):`;
+            const name = prompt(promptMsg, defaultName);
             if (!name || !name.trim()) return;
 
             const tplKey = "user_tpl_" + Date.now();
@@ -5566,7 +5567,7 @@
         function deleteCustomCodeTemplate() {
             const select = document.getElementById("pyxis-code-template-select");
             if (!select || !select.value) {
-                alert("Por favor selecciona primero una de tus plantillas personalizadas en la lista para poder eliminarla.");
+                alert(window.t ? window.t("code_editor.alert_select_to_delete") : "Por favor selecciona primero una de tus plantillas personalizadas en la lista para poder eliminarla.");
                 return;
             }
 
@@ -5574,12 +5575,13 @@
             const userTemplates = loadStoredUserTemplates();
 
             if (!userTemplates[tplKey]) {
-                alert("Las plantillas de ejemplo del sistema no se pueden eliminar. Solo puedes eliminar tus plantillas personalizadas.");
+                alert(window.t ? window.t("code_editor.alert_cannot_delete_builtin") : "Las plantillas de ejemplo del sistema no se pueden eliminar. Solo puedes eliminar tus plantillas personalizadas.");
                 return;
             }
 
             const tplName = userTemplates[tplKey].name || "esta plantilla";
-            const confirmed = confirm(`¿Estás seguro de que deseas eliminar permanentemente la plantilla "${tplName}"?`);
+            const confirmMsg = window.t ? window.t("code_editor.confirm_delete", { name: tplName }) : `¿Estás seguro de que deseas eliminar permanentemente la plantilla "${tplName}"?`;
+            const confirmed = confirm(confirmMsg);
             if (!confirmed) return;
 
             delete userTemplates[tplKey];
@@ -5781,14 +5783,18 @@
         function applyCodeTemplate(tplKey) {
             if (!tplKey) return;
 
+            const isEn = window.PyxisI18n && window.PyxisI18n.getCurrentLanguage && window.PyxisI18n.getCurrentLanguage() === "en";
+            const pyComment = isEn ? "# Toggle ASS colors by syllable index (odd/even)" : "# Alternar colores ASS por índice de sílaba (impar/par)";
+            const luaComment = isEn ? "-- Toggle ASS colors by syllable index (odd/even)" : "-- Alternar colores ASS por índice de sílaba (impar/par)";
+
             const builtInTpls = {
                 "python_default": {
                     lang: "Python",
-                    code: "# Alternar colores ASS por índice de sílaba (impar/par)\nif syl.i % 2 == 1:\n    result = in1 if in1 else '&H0000FF&'\nelse:\n    result = in2 if in2 else '&H00FFFF&'"
+                    code: `${pyComment}\nif syl.i % 2 == 1:\n    result = in1 if in1 else '&H0000FF&'\nelse:\n    result = in2 if in2 else '&H00FFFF&'`
                 },
                 "lua_default": {
                     lang: "Lua",
-                    code: "-- Alternar colores ASS por índice de sílaba (impar/par)\nif syl.i % 2 == 1 then\n    result = (in1 and in1 ~= '') and in1 or '&H0000FF&'\nelse\n    result = (in2 and in2 ~= '') and in2 or '&H00FFFF&'\nend"
+                    code: `${luaComment}\nif syl.i % 2 == 1 then\n    result = (in1 and in1 ~= '') and in1 or '&H0000FF&'\nelse\n    result = (in2 and in2 ~= '') and in2 or '&H00FFFF&'\nend`
                 }
             };
 
@@ -5872,6 +5878,23 @@
             return "..." + sub;
         }
 
+        function getNodeRightReserve(node) {
+            if (!node) return 20;
+            const isSalidaNode = !!(node.title === "Output" || node.title === "Salida" || (node.type && (String(node.type).includes("Output") || String(node.type).includes("Salida"))));
+            if (isSalidaNode) {
+                return 95;
+            }
+            let max_out_w = 0;
+            const outputs = node.outputs || [];
+            outputs.forEach(out => {
+                if (out.name) {
+                    const ow = getExactTextWidth(out.name, "10px sans-serif");
+                    if (ow > max_out_w) max_out_w = ow;
+                }
+            });
+            return max_out_w > 0 ? Math.ceil(max_out_w + 38) : 20;
+        }
+
         function getInlineBoxWidth(node, widget, titleName, propertyName, width) {
             const propKey = propertyName || (widget ? widget.property : null);
             const curVal = String((node && node.properties && propKey && node.properties[propKey] !== undefined)
@@ -5879,52 +5902,34 @@
                 : (widget && widget.value !== undefined ? widget.value : ""));
             const nodeW = (node && node.size && node.size[0]) ? node.size[0] : (width || 200);
 
-            const isFormatDinamico = node && (node.type === "Dynamic Format" || node.type === "Dynamic Format" || (node.title && String(node.title).includes("Format Din")));
+            const isFormatDinamico = node && (node.type === "Dynamic Format" || (node.title && String(node.title).includes("Format Din")));
             if (isFormatDinamico) {
                 return Math.max(80, nodeW - 24);
             }
 
             const isSalidaNode = !!(node && (node.title === "Output" || node.title === "Salida" || (node.type && (String(node.type).includes("Output") || String(node.type).includes("Salida")))));
-
             const margin = 22;
-            const dispText = curVal.length > 0 ? curVal : ((widget ? widget.name : titleName) || "");
+            const rightReserve = getNodeRightReserve(node);
 
-            let max_out_w = 0;
-            if (node && node.outputs) {
-                node.outputs.forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-            }
-            const rightReserve = max_out_w > 0 ? (max_out_w + 38) : 20;
-
-            let valToMeasure = dispText;
+            let dispText = curVal.length > 0 ? curVal : ((widget ? widget.name : titleName) || "");
             const isPathProp = isFilePathPropOrVal(propKey, curVal);
             const isCompactProp = isCompactTextPropOrVal(propKey, curVal);
             if (curVal.length > 0 && isPathProp) {
                 const parts = curVal.replace(/\\/g, "/").split("/");
-                valToMeasure = ".../" + (parts[parts.length - 1] || curVal);
+                dispText = ".../" + (parts[parts.length - 1] || curVal);
             } else if (curVal.length > 0 && isCompactProp) {
-                valToMeasure = curVal.length > 10 ? (curVal.substring(0, 10) + "...") : curVal;
+                dispText = curVal.length > 10 ? (curVal.substring(0, 10) + "...") : curVal;
             }
-            let textWidth = getExactTextWidth(valToMeasure, "bold 11px Consolas, monospace");
+            
+            let textWidth = getExactTextWidth(dispText, "bold 11px Consolas, monospace");
             if (isPathProp || isCompactProp) {
                 textWidth = Math.min(65, textWidth);
             }
-            // Para Salida: mínimos estables según el campo para evitar encogimientos y saltos (75px Queue ID, 92px Queue Order)
-            // textWidth + 6px (izq) + 10px (der gracia) + 3px (bordes) + 6px (respiro de cursor) = textWidth + 25
-            if (isSalidaNode) {
-                const isQueueOrder = (propKey === "queue_order" || (titleName && String(titleName).includes("Order")) || (widget && widget.name && String(widget.name).includes("Order")));
-                const minSalidaBoxW = isQueueOrder ? 92 : 75;
-                const calcW = Math.max(minSalidaBoxW, Math.ceil(textWidth + 25));
-                const maxW = Math.max(minSalidaBoxW, nodeW - margin - rightReserve);
-                return Math.min(maxW, calcW);
-            }
 
-            const calcW = Math.max(65, Math.ceil(textWidth + 36));
-            const maxW = Math.max(50, nodeW - margin - rightReserve);
+            const minBoxW = isSalidaNode ? 75 : 65;
+            // 8px padding izq + 3px bordes + 17px margen/cursor = 28px
+            const calcW = Math.max(minBoxW, Math.ceil(textWidth + 28));
+            const maxW = Math.max(minBoxW, nodeW - margin - rightReserve);
             return Math.min(maxW, calcW);
         }
 
@@ -5944,7 +5949,7 @@
                 : (widget.value !== undefined ? widget.value : ""));
 
             const drawY = (widget.last_y !== undefined) ? widget.last_y : ((widget.y !== undefined) ? widget.y : 11);
-            const isFormatDinamico = node && (node.type === "Dynamic Format" || node.type === "Dynamic Format" || (node.title && String(node.title).includes("Format Din")));
+            const isFormatDinamico = node && (node.type === "Dynamic Format" || (node.title && String(node.title).includes("Format Din")));
             const margin = isFormatDinamico ? 12 : 22;
             const wHeight = 18;
 
@@ -5965,7 +5970,7 @@
 
             const isSalidaNode = !!(node && (node.title === "Output" || node.title === "Salida" || (node.type && (String(node.type).includes("Output") || String(node.type).includes("Salida")))));
             const initialPadLeft = isSalidaNode ? Math.max(2, Math.round(6 * scale)) : Math.max(4, Math.round(8 * scale));
-            const initialPadRight = isSalidaNode ? Math.max(2, Math.round(10 * scale)) : Math.max(2, Math.round(6 * scale));
+            const initialPadRight = isSalidaNode ? Math.max(2, Math.round(8 * scale)) : Math.max(2, Math.round(6 * scale));
 
             const inputEl = document.createElement("input");
             inputEl.id = "pyxis-inline-text-editor";
@@ -5983,7 +5988,6 @@
             inputEl.style.border = (1.5 * scale) + "px solid #8b5cf6";
             inputEl.style.color = "#a7f3d0";
             inputEl.style.font = "bold " + Math.max(9, Math.round(11 * scale)) + "px Consolas, monospace";
-            // Padding exacto: 6px izq y 10px der para Salida; 8px izq y 6px der para otros
             inputEl.style.padding = "0 " + initialPadRight + "px 0 " + initialPadLeft + "px";
             inputEl.style.lineHeight = (screenH - 3 * scale) + "px";
             inputEl.style.zIndex = "100000";
@@ -5992,27 +5996,23 @@
             inputEl.style.textAlign = "left";
             inputEl.style.boxShadow = "0 0 10px rgba(139, 92, 246, 0.6)";
             inputEl.style.overflow = "hidden";
-            inputEl.style.scrollBehavior = "auto";
-
-            if (!isSalidaNode) {
-                inputEl.onscroll = function() {
-                    if (inputEl.scrollWidth <= inputEl.clientWidth + 2) inputEl.scrollLeft = 0;
-                };
-            }
 
             document.body.appendChild(inputEl);
             setTimeout(() => {
                 inputEl.focus();
                 inputEl.setSelectionRange(0, inputEl.value.length);
-                if (!isSalidaNode && inputEl.scrollWidth <= inputEl.clientWidth + 2) inputEl.scrollLeft = 0;
             }, 10);
 
             inputEl.oninput = function() {
                 const cleanVal = String(inputEl.value || "").replace(/[\r\n]+/g, " ");
                 if (node.properties && propKey) node.properties[propKey] = cleanVal;
-                widget.value = cleanVal;
-                if (node.computeSize && !node.resizable && !(node.flags && node.flags.resizable)) {
-                    node.size = node.computeSize();
+                if (widget) widget.value = cleanVal;
+
+                if (typeof node.computeSize === "function") {
+                    const minSz = node.computeSize();
+                    if (minSz && Array.isArray(minSz)) {
+                        node.size = [minSz[0], minSz[1]];
+                    }
                 }
 
                 if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
@@ -6036,25 +6036,23 @@
                 inputEl.style.border = (1.5 * newScale) + "px solid #8b5cf6";
                 inputEl.style.font = "bold " + Math.max(9, Math.round(11 * newScale)) + "px Consolas, monospace";
                 const curPadLeft = isSalidaNode ? Math.max(2, Math.round(6 * newScale)) : Math.max(4, Math.round(8 * newScale));
-                const curPadRight = isSalidaNode ? Math.max(2, Math.round(10 * newScale)) : Math.max(2, Math.round(6 * newScale));
+                const curPadRight = isSalidaNode ? Math.max(2, Math.round(8 * newScale)) : Math.max(2, Math.round(6 * newScale));
                 inputEl.style.padding = "0 " + curPadRight + "px 0 " + curPadLeft + "px";
                 inputEl.style.lineHeight = (newScreenH - 3 * newScale) + "px";
-                if (!isSalidaNode && inputEl.scrollWidth <= inputEl.clientWidth + 2) inputEl.scrollLeft = 0;
             };
 
-            if (!isSalidaNode) {
-                inputEl.onkeyup = function() {
-                    if (inputEl.scrollWidth <= inputEl.clientWidth + 2) inputEl.scrollLeft = 0;
-                };
-            }
+            inputEl.onkeyup = function() {};
 
             function saveAndClose() {
                 if (widget) delete widget._is_inline_editing;
                 const cleanVal = String(inputEl.value || "").replace(/[\r\n]+/g, " ");
                 if (node.properties && propKey) node.properties[propKey] = cleanVal;
                 widget.value = cleanVal;
-                if (node.computeSize && !node.resizable && !(node.flags && node.flags.resizable)) {
-                    node.size = node.computeSize();
+                if (typeof node.computeSize === "function") {
+                    const minSz = node.computeSize();
+                    if (minSz && Array.isArray(minSz)) {
+                        node.size = [minSz[0], minSz[1]];
+                    }
                 }
                 if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                 if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
@@ -7673,7 +7671,11 @@
                     if (node.properties) {
                         node.properties[propKey] = cleanVal;
                     }
-                    if (node.computeSize) node.size = node.computeSize();
+                    if (node.computeSize) {
+                        const sz = node.computeSize();
+                        node.size[0] = Math.max(node.size[0], sz[0]);
+                        node.size[1] = Math.max(node.size[1], sz[1]);
+                    }
                     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                 });
@@ -8162,19 +8164,12 @@ remainingOldInputs.forEach(unmatchedInp => {
                 for (let i = 1; i <= count; i++) {
                     const val = String(this.properties["In" + i] || "");
                     if (val.length > 0) {
-                        const tw = getExactTextWidth(val, "bold 11px monospace");
+                        const tw = getExactTextWidth(val, "bold 11px Consolas, monospace");
                         if (tw > text_req_w) text_req_w = tw;
                     }
                 }
-                let max_out_w = 0;
-                (this.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-                const right_space = max_out_w > 0 ? (max_out_w + 38) : 16;
-                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
+                const right_space = getNodeRightReserve(this);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 28));
                 const reqH = 30 + count * 23 + 8;
                 return [Math.max(base_w, 22 + boxW + right_space), reqH];
             };
@@ -8648,8 +8643,8 @@ function setupDynamicInlineNode(node) {
 
                 const titleText = String(this.title || this.type || "");
                 const titleW = getExactTextWidth(titleText, "bold 12px sans-serif");
-                const boxW = Math.max(50, Math.ceil(max_input_w + 36));
-                const right_space = max_output_w > 0 ? (max_output_w + 28) : 14;
+                const boxW = Math.max(50, Math.ceil(max_input_w + 28));
+                const right_space = getNodeRightReserve(this);
                 const minBaseW = (titleText === "Math" || (this.type && this.type.includes("Math"))) ? 165 : 175;
 
                 const hasLoopFooter = (
@@ -8994,20 +8989,13 @@ function setupDynamicInlineNode(node) {
                     ["x", "y", "angle", "radius"].forEach(k => {
                         const val = String(node.properties[k] || "");
                         if (val.length > 0) {
-                            const tw = getExactTextWidth(val, "bold 11px monospace");
+                            const tw = getExactTextWidth(val, "bold 11px Consolas, monospace");
                             if (tw > text_req_w) text_req_w = tw;
                         }
                     });
                 }
-                let max_out_w = 0;
-                (node.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-                const right_space = max_out_w > 0 ? (max_out_w + 38) : 20;
-                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
+                const right_space = getNodeRightReserve(this);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 28));
                 return [Math.max(base_w, 22 + boxW + right_space), 115];
             };
 
@@ -9100,7 +9088,15 @@ function setupDynamicInlineNode(node) {
 
             const minW = 480;
             node.computeSize = function() {
-                const curW = (this.size && this.size[0]) ? Math.max(this.size[0], minW) : 520;
+                let text_req_w = 0;
+                const props = this.properties || node.properties || {};
+                const val = String(props.salida_ids || "");
+                if (val.length > 0) {
+                    text_req_w = getExactTextWidth(val, "bold 11px Consolas, monospace");
+                }
+                const boxW = Math.max(120, Math.ceil(text_req_w + 36));
+                const reqW = Math.max(minW, 22 + boxW + 40);
+                const curW = (this.size && this.size[0]) ? Math.max(this.size[0], reqW) : reqW;
                 const curAspect = (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio) 
                     ? window.PyxisPreviewConfig.aspect_ratio 
                     : (this.preview_aspect_ratio || (16 / 9));
@@ -9470,7 +9466,11 @@ function setupDynamicInlineNode(node) {
             const w = node.addWidget("text", "Value", curVal, function(val) {
                 const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
                 node.properties[propKey] = cleanVal;
-                if (node.computeSize) node.size = node.computeSize();
+                if (node.computeSize) {
+                    const sz = node.computeSize();
+                    node.size[0] = Math.max(node.size[0], sz[0]);
+                    node.size[1] = Math.max(node.size[1], sz[1]);
+                }
                 if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
             });
@@ -9480,18 +9480,11 @@ function setupDynamicInlineNode(node) {
             setupSingleLineTextWidget(node, w, "Value", propKey);
 
             node.computeSize = function() {
-                const valStr = String(this.properties && this.properties[propKey] !== undefined ? this.properties[propKey] : "");
+                const props = this.properties || node.properties || {};
+                const valStr = String(props[propKey] !== undefined ? props[propKey] : "");
                 const textWidth = getExactTextWidth(valStr || "0", "bold 11px Consolas, monospace");
-                const boxW = Math.max(65, Math.ceil(textWidth + 36));
-                
-                let max_out_w = 0;
-                (this.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-                const right_space = max_out_w > 0 ? (max_out_w + 38) : 20;
+                const boxW = Math.max(65, Math.ceil(textWidth + 28));
+                const right_space = getNodeRightReserve(this);
                 const req_w = Math.max(140, 22 + boxW + right_space);
                 const req_h = 52;
                 return [req_w, req_h];
@@ -9551,7 +9544,9 @@ function setupDynamicInlineNode(node) {
             const w = node.addWidget("text", "Offset (ms)", curVal, function(val) {
                 const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
                 node.properties.offset = cleanVal;
-                if (node.computeSize) node.size = node.computeSize();
+                if (node.computeSize) {
+                    node.size = node.computeSize();
+                }
                 if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
             });
@@ -9561,11 +9556,11 @@ function setupDynamicInlineNode(node) {
             setupSingleLineTextWidget(node, w, "Offset (ms)", "offset");
 
             node.computeSize = function() {
-                const valStr = String(this.properties && this.properties.offset !== undefined ? this.properties.offset : "100");
+                const props = this.properties || node.properties || {};
+                const valStr = String(props.offset !== undefined ? props.offset : "100");
                 const textWidth = getExactTextWidth(valStr, "bold 11px Consolas, monospace");
-                const boxW = Math.max(65, Math.ceil(textWidth + 36));
-                let max_out_w = getExactTextWidth("Time (ms)", "10px sans-serif");
-                const right_space = max_out_w + 38;
+                const boxW = Math.max(65, Math.ceil(textWidth + 28));
+                const right_space = getNodeRightReserve(this);
                 return [Math.max(175, 22 + boxW + right_space), 46];
             };
 
@@ -9596,7 +9591,9 @@ function setupDynamicInlineNode(node) {
                     this.inputs[0].label = " ";
                     this.inputs[0].pos = [10, 20];
                 }
-                if (this.computeSize) this.size = this.computeSize();
+                if (this.computeSize) {
+                    node.size = node.computeSize();
+                }
                 if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
             };
 
@@ -9618,7 +9615,9 @@ function setupDynamicInlineNode(node) {
             const w = node.addWidget("text", "ASS Time", curVal, function(val) {
                 const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
                 node.properties.ass_time = cleanVal;
-                if (node.computeSize) node.size = node.computeSize();
+                if (node.computeSize) {
+                    node.size = node.computeSize();
+                }
                 if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
             });
@@ -9628,11 +9627,11 @@ function setupDynamicInlineNode(node) {
             setupSingleLineTextWidget(node, w, "ASS Time", "ass_time");
 
             node.computeSize = function() {
-                const valStr = String(this.properties && this.properties.ass_time !== undefined ? this.properties.ass_time : "0:00:00.00");
+                const props = this.properties || node.properties || {};
+                const valStr = String(props.ass_time !== undefined ? props.ass_time : "0:00:00.00");
                 const textWidth = getExactTextWidth(valStr, "bold 11px Consolas, monospace");
-                const boxW = Math.max(75, Math.ceil(textWidth + 36));
-                let max_out_w = getExactTextWidth("Time (ms)", "10px sans-serif");
-                const right_space = max_out_w + 38;
+                const boxW = Math.max(75, Math.ceil(textWidth + 28));
+                const right_space = getNodeRightReserve(this);
                 return [Math.max(195, 22 + boxW + right_space), 46];
             };
 
@@ -9655,7 +9654,9 @@ function setupDynamicInlineNode(node) {
                 if (this.widgets && this.widgets[0] && this.properties && this.properties.ass_time !== undefined) {
                     this.widgets[0].value = String(this.properties.ass_time);
                 }
-                if (this.computeSize) this.size = this.computeSize();
+                if (this.computeSize) {
+                    node.size = node.computeSize();
+                }
                 if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
             };
 
@@ -9683,7 +9684,9 @@ function setupDynamicInlineNode(node) {
             const w = node.addWidget("text", "ASS Time", curVal, function(val) {
                 const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
                 node.properties.time = cleanVal;
-                if (node.computeSize) node.size = node.computeSize();
+                if (node.computeSize) {
+                    node.size = node.computeSize();
+                }
                 if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
             });
@@ -9693,11 +9696,11 @@ function setupDynamicInlineNode(node) {
             setupSingleLineTextWidget(node, w, "ASS Time", "time");
 
             node.computeSize = function() {
-                const valStr = String(this.properties && this.properties.time !== undefined ? this.properties.time : "0:00:00.00");
+                const props = this.properties || node.properties || {};
+                const valStr = String(props.time !== undefined ? props.time : "0:00:00.00");
                 const textWidth = getExactTextWidth(valStr, "bold 11px Consolas, monospace");
-                const boxW = Math.max(75, Math.ceil(textWidth + 36));
-                let max_out_w = getExactTextWidth("ASS Time", "10px sans-serif");
-                const right_space = max_out_w + 38;
+                const boxW = Math.max(75, Math.ceil(textWidth + 28));
+                const right_space = getNodeRightReserve(this);
                 return [Math.max(200, 22 + boxW + right_space), 46];
             };
 
@@ -9728,7 +9731,165 @@ function setupDynamicInlineNode(node) {
                     this.inputs[0].label = " ";
                     this.inputs[0].pos = [10, 20];
                 }
-                if (this.computeSize) this.size = this.computeSize();
+                if (this.computeSize) {
+                    node.size = node.computeSize();
+                }
+                if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+            };
+
+            if (node.computeSize) node.size = node.computeSize();
+        }
+
+        function setupGetVarNode(node) {
+            if (!node) return;
+            if (!node.properties) node.properties = {};
+            if (node.properties.var_name === undefined) node.properties.var_name = "j";
+
+            node.widgets_up = true;
+            if (!node.outputs || node.outputs.length === 0) {
+                node.outputs = [{ name: "Data", type: "data" }];
+            }
+
+            node.widgets = [];
+            const curVal = String(node.properties.var_name !== undefined ? node.properties.var_name : "j");
+            const w = node.addWidget("text", "Name", curVal, function(val) {
+                const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
+                node.properties.var_name = cleanVal;
+                if (node.computeSize) {
+                    node.size = node.computeSize();
+                }
+                if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+            });
+            w.property = "var_name";
+            w.y = 11;
+            w.last_y = 11;
+            setupSingleLineTextWidget(node, w, "Name", "var_name");
+
+            node.computeSize = function() {
+                const props = this.properties || node.properties || {};
+                const valStr = String(props.var_name !== undefined ? props.var_name : "j");
+                const textWidth = getExactTextWidth(valStr, "bold 11px Consolas, monospace");
+                const boxW = Math.max(50, Math.ceil(textWidth + 28));
+                const right_space = getNodeRightReserve(this);
+                return [Math.max(135, 22 + boxW + right_space), 46];
+            };
+
+            const oldDraw = node.onDrawForeground;
+            node.onDrawForeground = function(ctx) {
+                if (oldDraw) oldDraw.call(this, ctx);
+                if (this.flags && this.flags.collapsed) return;
+                if (this.widgets && this.widgets[0]) {
+                    this.widgets[0].y = 11;
+                    this.widgets[0].last_y = 11;
+                }
+                if (this.outputs && this.outputs[0]) {
+                    this.outputs[0].pos = [this.size[0] - 10, 20];
+                }
+            };
+
+            const oldConfigure = node.onConfigure;
+            node.onConfigure = function(info) {
+                if (oldConfigure) oldConfigure.call(this, info);
+                if (this.widgets && this.widgets[0] && this.properties && this.properties.var_name !== undefined) {
+                    this.widgets[0].value = String(this.properties.var_name);
+                }
+                if (this.computeSize) {
+                    node.size = node.computeSize();
+                }
+                if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+            };
+
+            if (node.computeSize) node.size = node.computeSize();
+        }
+
+        function setupDuracionNode(node) {
+            if (!node) return;
+            if (!node.properties) node.properties = {};
+            if (node.properties.start_time === undefined) node.properties.start_time = "line.start_time";
+            if (node.properties.end_time === undefined) node.properties.end_time = "line.end_time";
+
+            node.widgets_up = true;
+            if (!node.inputs || node.inputs.length < 2) {
+                node.inputs = [
+                    { name: "Start Time (ms)", type: "data", label: " ", pos: [10, 20] },
+                    { name: "End Time (ms)", type: "data", label: " ", pos: [10, 43] }
+                ];
+            } else {
+                node.inputs[0].label = " "; node.inputs[0].pos = [10, 20];
+                node.inputs[1].label = " "; node.inputs[1].pos = [10, 43];
+            }
+            if (!node.outputs || node.outputs.length === 0) {
+                node.outputs = [{ name: "Duration (ms)", type: "data" }];
+            }
+
+            node.widgets = [];
+            const valStart = String(node.properties.start_time);
+            const valEnd = String(node.properties.end_time);
+
+            const wStart = node.addWidget("text", "Start Time (ms)", valStart, function(val) {
+                const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
+                node.properties.start_time = cleanVal;
+                if (node.computeSize) {
+                    node.size = node.computeSize();
+                }
+                if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+            });
+            wStart.property = "start_time";
+            wStart.y = 11; wStart.last_y = 11;
+            setupSingleLineTextWidget(node, wStart, "Start Time (ms)", "start_time");
+
+            const wEnd = node.addWidget("text", "End Time (ms)", valEnd, function(val) {
+                const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
+                node.properties.end_time = cleanVal;
+                if (node.computeSize) {
+                    node.size = node.computeSize();
+                }
+                if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+            });
+            wEnd.property = "end_time";
+            wEnd.y = 34; wEnd.last_y = 34;
+            setupSingleLineTextWidget(node, wEnd, "End Time (ms)", "end_time");
+
+            node.computeSize = function() {
+                const props = this.properties || node.properties || {};
+                const valS = String(props.start_time || "");
+                const valE = String(props.end_time || "");
+                const tw = Math.max(getExactTextWidth(valS, "bold 11px Consolas, monospace"), getExactTextWidth(valE, "bold 11px Consolas, monospace"));
+                const boxW = Math.max(85, Math.ceil(tw + 28));
+                const right_space = getNodeRightReserve(this);
+                return [Math.max(235, 22 + boxW + right_space), 68];
+            };
+
+            const oldDraw = node.onDrawForeground;
+            node.onDrawForeground = function(ctx) {
+                if (oldDraw) oldDraw.call(this, ctx);
+                if (this.flags && this.flags.collapsed) return;
+                if (this.widgets) {
+                    if (this.widgets[0]) { this.widgets[0].y = 11; this.widgets[0].last_y = 11; }
+                    if (this.widgets[1]) { this.widgets[1].y = 34; this.widgets[1].last_y = 34; }
+                }
+                if (this.inputs && this.inputs[0]) { this.inputs[0].label = " "; this.inputs[0].pos = [10, 20]; }
+                if (this.inputs && this.inputs[1]) { this.inputs[1].label = " "; this.inputs[1].pos = [10, 43]; }
+                if (this.outputs && this.outputs[0]) { this.outputs[0].pos = [this.size[0] - 10, 32]; }
+            };
+
+            const oldConfigure = node.onConfigure;
+            node.onConfigure = function(info) {
+                if (oldConfigure) oldConfigure.call(this, info);
+                if (this.widgets) {
+                    if (this.widgets[0] && this.properties.start_time !== undefined) this.widgets[0].value = String(this.properties.start_time);
+                    if (this.widgets[1] && this.properties.end_time !== undefined) this.widgets[1].value = String(this.properties.end_time);
+                }
+                if (this.inputs && this.inputs[0]) { this.inputs[0].label = " "; this.inputs[0].pos = [10, 20]; }
+                if (this.inputs && this.inputs[1]) { this.inputs[1].label = " "; this.inputs[1].pos = [10, 43]; }
+                if (this.computeSize) {
+                    const sz = this.computeSize();
+                    this.size[0] = Math.max(this.size[0], sz[0]);
+                    this.size[1] = Math.max(this.size[1], sz[1]);
+                }
                 if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
             };
 
@@ -9741,6 +9902,16 @@ function setupDynamicInlineNode(node) {
             if (node.properties.Formato === undefined) node.properties.Formato = "%s";
             node.properties.expandable = true;
             node.widgets_up = true;
+
+            node.computeSize = function() {
+                const props = this.properties || node.properties || {};
+                const valStr = String(props.Formato !== undefined ? props.Formato : "%s");
+                const textWidth = getExactTextWidth(valStr, "bold 11px Consolas, monospace");
+                const boxW = Math.max(80, Math.ceil(textWidth + 36));
+                const count = (this.inputs || node.inputs) ? (this.inputs || node.inputs).length : 1;
+                const reqH = 56 + count * 22 + 10;
+                return [Math.max(180, boxW + 24), reqH];
+            };
 
             node.updateFormatDinamicoInputs = function(targetCount) {
                 let count = targetCount;
@@ -9796,7 +9967,11 @@ function setupDynamicInlineNode(node) {
                 const w = this.addWidget("text", "Formato", curVal, value => {
                     const cleanVal = String(value || "").replace(/[\r\n]+/g, " ");
                     this.properties.Formato = cleanVal;
-                    if (this.computeSize) this.size = this.computeSize();
+                    if (this.computeSize) {
+                        const sz = this.computeSize();
+                        this.size[0] = Math.max(this.size[0], sz[0]);
+                        this.size[1] = Math.max(this.size[1], sz[1]);
+                    }
                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                     if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                 });
@@ -9808,15 +9983,6 @@ function setupDynamicInlineNode(node) {
                 if (this.computeSize) {
                     this.size = this.computeSize();
                 }
-            };
-
-            node.computeSize = function() {
-                const valStr = String(this.properties && this.properties.Formato !== undefined ? this.properties.Formato : "%s");
-                const textWidth = getExactTextWidth(valStr, "bold 11px Consolas, monospace");
-                const boxW = Math.max(80, Math.ceil(textWidth + 36));
-                const count = this.inputs ? this.inputs.length : 1;
-                const reqH = 56 + count * 22 + 10;
-                return [Math.max(180, boxW + 24), reqH];
             };
 
             node.onMouseDown = function(e, local_pos, canvas) {
@@ -9936,156 +10102,6 @@ function setupDynamicInlineNode(node) {
             };
 
             node.updateFormatDinamicoInputs();
-        }
-
-        function setupGetVarNode(node) {
-            if (!node) return;
-            if (!node.properties) node.properties = {};
-            if (node.properties.var_name === undefined) node.properties.var_name = "j";
-
-            node.widgets_up = true;
-            if (!node.outputs || node.outputs.length === 0) {
-                node.outputs = [{ name: "Data", type: "data" }];
-            }
-
-            node.widgets = [];
-            const curVal = String(node.properties.var_name !== undefined ? node.properties.var_name : "j");
-            const w = node.addWidget("text", "Name", curVal, function(val) {
-                const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
-                node.properties.var_name = cleanVal;
-                if (node.computeSize) node.size = node.computeSize();
-                if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
-                if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
-            });
-            w.property = "var_name";
-            w.y = 11;
-            w.last_y = 11;
-            setupSingleLineTextWidget(node, w, "Name", "var_name");
-
-            node.computeSize = function() {
-                const valStr = String(this.properties && this.properties.var_name !== undefined ? this.properties.var_name : "j");
-                const textWidth = getExactTextWidth(valStr, "bold 11px Consolas, monospace");
-                const boxW = Math.max(50, Math.ceil(textWidth + 36));
-                let max_out_w = getExactTextWidth("Data", "10px sans-serif");
-                const right_space = max_out_w + 38;
-                return [Math.max(135, 22 + boxW + right_space), 46];
-            };
-
-            const oldDraw = node.onDrawForeground;
-            node.onDrawForeground = function(ctx) {
-                if (oldDraw) oldDraw.call(this, ctx);
-                if (this.flags && this.flags.collapsed) return;
-                if (this.widgets && this.widgets[0]) {
-                    this.widgets[0].y = 11;
-                    this.widgets[0].last_y = 11;
-                }
-                if (this.outputs && this.outputs[0]) {
-                    this.outputs[0].pos = [this.size[0] - 10, 20];
-                }
-            };
-
-            const oldConfigure = node.onConfigure;
-            node.onConfigure = function(info) {
-                if (oldConfigure) oldConfigure.call(this, info);
-                if (this.widgets && this.widgets[0] && this.properties && this.properties.var_name !== undefined) {
-                    this.widgets[0].value = String(this.properties.var_name);
-                }
-                if (this.computeSize) this.size = this.computeSize();
-                if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
-            };
-
-            if (node.computeSize) node.size = node.computeSize();
-        }
-
-        function setupDuracionNode(node) {
-            if (!node) return;
-            if (!node.properties) node.properties = {};
-            if (node.properties.start_time === undefined) node.properties.start_time = "line.start_time";
-            if (node.properties.end_time === undefined) node.properties.end_time = "line.end_time";
-
-            node.widgets_up = true;
-            if (!node.inputs || node.inputs.length < 2) {
-                node.inputs = [
-                    { name: "Start Time (ms)", type: "data", label: " ", pos: [10, 20] },
-                    { name: "End Time (ms)", type: "data", label: " ", pos: [10, 43] }
-                ];
-            } else {
-                node.inputs[0].label = " "; node.inputs[0].pos = [10, 20];
-                node.inputs[1].label = " "; node.inputs[1].pos = [10, 43];
-            }
-            if (!node.outputs || node.outputs.length === 0) {
-                node.outputs = [{ name: "Duration (ms)", type: "data" }];
-            }
-
-            node.widgets = [];
-            const valStart = String(node.properties.start_time);
-            const valEnd = String(node.properties.end_time);
-
-            const wStart = node.addWidget("text", "Start Time (ms)", valStart, function(val) {
-                const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
-                node.properties.start_time = cleanVal;
-                if (node.computeSize) node.size = node.computeSize();
-                if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
-                if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
-            });
-            wStart.property = "start_time";
-            wStart.y = 11; wStart.last_y = 11;
-            setupSingleLineTextWidget(node, wStart, "Start Time (ms)", "start_time");
-
-            const wEnd = node.addWidget("text", "End Time (ms)", valEnd, function(val) {
-                const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
-                node.properties.end_time = cleanVal;
-                if (node.computeSize) node.size = node.computeSize();
-                if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
-                if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
-            });
-            wEnd.property = "end_time";
-            wEnd.y = 34; wEnd.last_y = 34;
-            setupSingleLineTextWidget(node, wEnd, "End Time (ms)", "end_time");
-
-            node.computeSize = function() {
-                const valS = String(this.properties ? (this.properties.start_time || "") : "");
-                const valE = String(this.properties ? (this.properties.end_time || "") : "");
-                const tw = Math.max(getExactTextWidth(valS, "bold 11px Consolas, monospace"), getExactTextWidth(valE, "bold 11px Consolas, monospace"));
-                const boxW = Math.max(85, Math.ceil(tw + 36));
-                let max_out_w = getExactTextWidth("Duration (ms)", "10px sans-serif");
-                const right_space = max_out_w + 38;
-                return [Math.max(235, 22 + boxW + right_space), 68];
-            };
-
-            const oldDraw = node.onDrawForeground;
-            node.onDrawForeground = function(ctx) {
-                if (oldDraw) oldDraw.call(this, ctx);
-                if (this.flags && this.flags.collapsed) return;
-                if (this.widgets && this.widgets.length >= 2) {
-                    this.widgets[0].y = 11; this.widgets[0].last_y = 11;
-                    this.widgets[1].y = 34; this.widgets[1].last_y = 34;
-                }
-                if (this.inputs && this.inputs.length >= 2) {
-                    this.inputs[0].label = " "; this.inputs[0].pos = [10, 20];
-                    this.inputs[1].label = " "; this.inputs[1].pos = [10, 43];
-                }
-                if (this.outputs && this.outputs[0]) {
-                    this.outputs[0].pos = [this.size[0] - 10, 43];
-                }
-            };
-
-            const oldConfigure = node.onConfigure;
-            node.onConfigure = function(info) {
-                if (oldConfigure) oldConfigure.call(this, info);
-                if (this.widgets && this.widgets.length >= 2 && this.properties) {
-                    if (this.properties.start_time !== undefined) this.widgets[0].value = String(this.properties.start_time);
-                    if (this.properties.end_time !== undefined) this.widgets[1].value = String(this.properties.end_time);
-                }
-                if (this.inputs && this.inputs.length >= 2) {
-                    this.inputs[0].label = " "; this.inputs[0].pos = [10, 20];
-                    this.inputs[1].label = " "; this.inputs[1].pos = [10, 43];
-                }
-                if (this.computeSize) this.size = this.computeSize();
-                if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
-            };
-
-            if (node.computeSize) node.size = node.computeSize();
         }
 
         // --- EDITOR IN-SITU CON AUTOCOMPLETADO Y CRECIMIENTO DINÁMICO EN CANVAS (DEFINE VARS) ---
@@ -10758,15 +10774,8 @@ function setupDynamicInlineNode(node) {
                         }
                     });
                 }
-                let max_out_w = 0;
-                (this.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-                const right_space = max_out_w > 0 ? (max_out_w + 38) : 20;
-                const boxW = Math.max(65, Math.ceil(text_req_w + 36));
+                const right_space = getNodeRightReserve(this);
+                const boxW = Math.max(65, Math.ceil(text_req_w + 28));
                 const req_h = isFBF ? 144 : 96;
                 return [Math.max(base_w, 22 + boxW + right_space), req_h];
             };
@@ -10924,6 +10933,22 @@ function setupDynamicInlineNode(node) {
                 { name: "Queue Order", type: "data", label: " " }
             ];
 
+            node.computeSize = function() {
+                let base_w = 200;
+                let text_req_w = 0;
+                const props = this.properties || node.properties || {};
+                ["queue_id", "queue_order"].forEach(k => {
+                    const val = String(props[k] || "");
+                    if (val.length > 0) {
+                        const tw = getExactTextWidth(val, "bold 11px Consolas, monospace");
+                        if (tw > text_req_w) text_req_w = tw;
+                    }
+                });
+                const rightReserve = getNodeRightReserve(this);
+                const boxW = Math.max(75, Math.ceil(text_req_w + 28));
+                return [Math.max(base_w, 22 + boxW + rightReserve), 198];
+            };
+
             function updateSalidaInputs() {
                 if (!node.inputs) node.inputs = [];
                 reqInputs.forEach((req, idx) => {
@@ -10942,7 +10967,9 @@ function setupDynamicInlineNode(node) {
                 const w1 = node.addWidget("text", "Queue ID", curQueueId, function(val) {
                     const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
                     node.properties.queue_id = cleanVal;
-                    if (node.computeSize) node.size = node.computeSize();
+                    if (node.computeSize) {
+                        node.size = node.computeSize();
+                    }
                     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                 });
@@ -10955,7 +10982,9 @@ function setupDynamicInlineNode(node) {
                 const w2 = node.addWidget("text", "Queue Order", curQueueOrder, function(val) {
                     const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
                     node.properties.queue_order = cleanVal;
-                    if (node.computeSize) node.size = node.computeSize();
+                    if (node.computeSize) {
+                        node.size = node.computeSize();
+                    }
                     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                 });
@@ -10976,23 +11005,6 @@ function setupDynamicInlineNode(node) {
                 }
                 if (node.setDirtyCanvas && node.graph) node.setDirtyCanvas(true, true);
             }
-
-            node.computeSize = function() {
-                let base_w = 200;
-                let text_req_w = 0;
-                if (node.properties) {
-                    ["queue_id", "queue_order"].forEach(k => {
-                        const val = String(node.properties[k] || "");
-                        if (val.length > 0) {
-                            const tw = getExactTextWidth(val, "bold 11px Consolas, monospace");
-                            if (tw > text_req_w) text_req_w = tw;
-                        }
-                    });
-                }
-                // Casilla dinámica: 6px izq + 10px der gracia + 3px bordes + 6px respiro cursor = 25px
-                const boxW = Math.max(92, Math.ceil(text_req_w + 25));
-                return [Math.max(base_w, 22 + boxW + 20), 198];
-            };
 
             const oldDraw = node.onDrawForeground;
             node.onDrawForeground = function(ctx) {
@@ -11280,6 +11292,21 @@ function setupDynamicInlineNode(node) {
                 { name: "End Time", default: "", property: "end_time" }
             ];
 
+            node.computeSize = function() {
+                let max_input_w = 0;
+                const props = this.properties || node.properties || {};
+                reqInputs.forEach(spec => {
+                    const val = String(props[spec.property] !== undefined ? props[spec.property] : spec.default);
+                    const tw = getExactTextWidth(val || spec.name, "bold 11px Consolas, monospace");
+                    if (tw > max_input_w) max_input_w = tw;
+                });
+                const neededBoxW = Math.max(65, Math.ceil(max_input_w + 36));
+                const rightReserve = 110;
+                const req_w = Math.max(225, 22 + neededBoxW + rightReserve);
+                const req_h = Math.max(207, 11 + reqInputs.length * 23 + 4);
+                return [req_w, req_h];
+            };
+
             function updateWaveformInputs() {
                 const oldInputs = node.inputs ? [...node.inputs] : [];
                 node.inputs = [];
@@ -11318,7 +11345,11 @@ function setupDynamicInlineNode(node) {
                     const w = node.addWidget("text", spec.name, curVal, function(val) {
                         const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
                         node.properties[spec.property] = cleanVal;
-                        if (node.computeSize) node.size = node.computeSize();
+                        if (node.computeSize) {
+                            const sz = node.computeSize();
+                            node.size[0] = Math.max(node.size[0], sz[0]);
+                            node.size[1] = Math.max(node.size[1], sz[1]);
+                        }
                         if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                         if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                     });
@@ -11333,20 +11364,6 @@ function setupDynamicInlineNode(node) {
                 }
                 if (node.setDirtyCanvas && node.graph) node.setDirtyCanvas(true, true);
             }
-
-            node.computeSize = function() {
-                let max_input_w = 0;
-                reqInputs.forEach(spec => {
-                    const val = String(this.properties[spec.property] || spec.default);
-                    const tw = getExactTextWidth(val || spec.name, "bold 11px Consolas, monospace");
-                    if (tw > max_input_w) max_input_w = tw;
-                });
-                const neededBoxW = Math.max(65, Math.ceil(max_input_w + 36));
-                const rightReserve = 110;
-                const req_w = Math.max(225, 22 + neededBoxW + rightReserve);
-                const req_h = Math.max(207, 11 + reqInputs.length * 23 + 4);
-                return [req_w, req_h];
-            };
 
             const oldMouseDown = node.onMouseDown;
             node.onMouseDown = function(e, local_pos, canvas) {
@@ -13146,12 +13163,12 @@ function setupDynamicInlineNode(node) {
                                     const lines = text.split('\n');
                                     let max_line_tw = 0;
                                     lines.forEach(l => {
-                                        const tw = getExactTextWidth(l, "bold 11px monospace");
+                                        const tw = getExactTextWidth(l, "bold 11px Consolas, monospace");
                                         if (tw > max_line_tw) max_line_tw = tw;
                                     });
                                     if (max_line_tw > 0) {
-                                        const right_space = max_out_label_len > 0 ? (max_out_label_len * 7.5 + 38) : 16;
-                                        const boxW = Math.max(65, Math.ceil(max_line_tw + 36));
+                                        const right_space = getNodeRightReserve(this);
+                                        const boxW = Math.max(65, Math.ceil(max_line_tw + 28));
                                         req_w = Math.max(req_w, 22 + boxW + right_space);
                                     }
                                     if (propKey === "variables" && lines.length > 1) {
@@ -13170,12 +13187,12 @@ function setupDynamicInlineNode(node) {
                                     const lines = wText.split('\n');
                                     let max_line_tw = 0;
                                     lines.forEach(l => {
-                                        const tw = getExactTextWidth(l, "bold 11px monospace");
+                                        const tw = getExactTextWidth(l, "bold 11px Consolas, monospace");
                                         if (tw > max_line_tw) max_line_tw = tw;
                                     });
                                     if (max_line_tw > 0) {
-                                        const right_space = max_out_label_len > 0 ? (max_out_label_len * 7.5 + 38) : 16;
-                                        const boxW = Math.max(65, Math.ceil(max_line_tw + 36));
+                                        const right_space = getNodeRightReserve(this);
+                                        const boxW = Math.max(65, Math.ceil(max_line_tw + 28));
                                         req_w = Math.max(req_w, 22 + boxW + right_space);
                                     }
                                 }
@@ -13245,7 +13262,7 @@ function setupDynamicInlineNode(node) {
                         else if (node_kind === "max_loop" && input_index === 0) input_type = "bucle";
                         else if (node_kind === "set_vars" && input_index === 0) input_type = "bucle";
                         else if (node_kind === "code_script" && input_index === 0) input_type = "bucle";
-                        else if (input_name === "Flow In" || input_name === "Loop / Domain" || input_name === "In (bucle)") input_type = "bucle";
+                        else if (input_name === "Loop In" || input_name === "Loop / Domain" || input_name === "In (bucle)" || input_name === "Loop" || input_name === "Bucle") input_type = "bucle";
                     }
                     this.addInput(input_name, input_type);
                 });
@@ -13257,7 +13274,7 @@ function setupDynamicInlineNode(node) {
                         else if (node_kind === "max_loop") output_type = "bucle";
                         else if (node_kind === "set_vars") output_type = "bucle";
                         else if (node_kind === "code_script") output_type = "bucle";
-                        else if (output_name === "Flow Out" || output_name === "Loop") output_type = "bucle";
+                        else if (output_name === "Loop Out" || output_name === "Loop" || output_name === "Bucle") output_type = "bucle";
                     }
                     this.addOutput(output_name, output_type);
                 });
@@ -13527,7 +13544,7 @@ function setupDynamicInlineNode(node) {
                     ]
                 },
                 "Script Code": {
-                    "node_kind": "code_script", "inputs": ["Flow In", "In1", "In2"], "outputs": ["Flow Out", "Result"], "color": "#3B82F6",
+                    "node_kind": "code_script", "inputs": ["Loop In", "In1", "In2"], "outputs": ["Loop Out", "Result"], "color": "#3B82F6",
                     "properties": { "lenguaje": "Python", "script": "result = 'Hello Pyxis ' + str(in1 if in1 else syl.text)", "inputs_count": 2 }
                 }
             },
@@ -14881,7 +14898,7 @@ function setupDynamicInlineNode(node) {
 
                 function parseAndPushString(strVal) {
                     if (!strVal) return;
-                    const items = String(strVal).split(/[,;\n\r\t]+/).map(s => s.trim()).filter(Boolean);
+                    const items = String(strVal).split(',').map(s => s.trim()).filter(Boolean);
                     items.forEach(item => {
                         if (!connectedOutputIds.includes(item)) {
                             connectedOutputIds.push(item);
@@ -14906,6 +14923,9 @@ function setupDynamicInlineNode(node) {
                         
                         if (customId && !connectedOutputIds.includes(customId)) {
                             connectedOutputIds.push(customId);
+                        }
+                        if (targetNode.title && targetNode.title.trim() && !connectedOutputIds.includes(targetNode.title.trim())) {
+                            connectedOutputIds.push(targetNode.title.trim());
                         }
                         const numId = String(targetNode.id);
                         if (!connectedOutputIds.includes(numId)) {
@@ -14997,6 +15017,9 @@ function setupDynamicInlineNode(node) {
                             : "";
                         if (customId && !connectedOutputIds.includes(customId)) {
                             connectedOutputIds.push(customId);
+                        }
+                        if (targetNode.title && targetNode.title.trim() && !connectedOutputIds.includes(targetNode.title.trim())) {
+                            connectedOutputIds.push(targetNode.title.trim());
                         }
                         const numId = String(targetNode.id);
                         if (!connectedOutputIds.includes(numId)) {

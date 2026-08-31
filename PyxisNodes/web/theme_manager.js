@@ -35,12 +35,11 @@
         if (name === "Main Loop" || name === "MaxLoop" || name === "Module") return "Loops";
         if (name === "Output" || name === "Previewer" || name === "Benchmark Math" || name === "Script Code" || name === "Cód Script") return "System";
         if (name === "Define Vars" || name === "Get Var" || name === "Memory" || name === "Sys Var") return "Variables";
-        if (name === "Text on Path" || name === "Texto en trazado" || name === "Bezier Curve" || name === "Interpolator" || name === "Conditioner" || name === "Color Gradient") return "Functions";
         if (name === "String" || name === "Concatenate" || name === "Dynamic Format") return "String";
-        if (name === "Text" || (name.startsWith("Text ") && name !== "Text on Path")) return "Text";
+        if (name === "Text" || name.startsWith("Text ")) return "Text";
         if (name === "MultiTag" || name === "Tag Oscillator") return "Tags";
         if (name === "Math" || name === "Number" || name === "Number" || name === "Color Picker" || name === "MultiRandom") return "Math";
-        if (name === "Shapes Library" || name === "Shape Slicer" || name === "Shape Transform" || name === "Shape Stroke" || name === "Concentric Borders" || name === "IMG to Shape") return "Shape";
+        if (name === "Shapes Library" || name === "Shape Slicer" || name === "Shape Transform" || name === "Concentric Borders" || name === "IMG to Shape") return "Shape";
         if (name === "Audio Modulator" || name === "Audio Waveform") return "Audio";
         if (name === "Lead In" || name === "Lead Out" || name === "Middle 1" || name === "Middle 2" || name === "Loop 1" || name === "Loop 2" || name === "Time Ipol" || name === "Synced Time" || name === "Offset" || name === "Duración" || name === "Parse ASS Time" || name === "Format ASS Time") return "Time";
         if (name === "Particles" || name === "IMG to pixels") return "Particles";
@@ -444,14 +443,27 @@
         if (existing) existing.remove();
 
         const activeThemeBeforeEdit = currentTheme;
-        const isEditingActiveTheme = Boolean(themeIdToEdit && themeIdToEdit === currentTheme);
 
-        const baseTheme = THEMES[themeIdToEdit] || THEMES[currentTheme] || DEFAULT_THEMES.teal;
-        let editingTheme = JSON.parse(JSON.stringify(baseTheme));
-        if (editingTheme.isDefault) {
+        let editingTheme;
+        if (themeIdToEdit && customThemes[themeIdToEdit]) {
+            // Editar tema personalizado existente
+            editingTheme = JSON.parse(JSON.stringify(customThemes[themeIdToEdit]));
+        } else if (themeIdToEdit && DEFAULT_THEMES[themeIdToEdit]) {
+            // Clonar preset predefinido
+            const basePreset = DEFAULT_THEMES[themeIdToEdit];
+            editingTheme = JSON.parse(JSON.stringify(basePreset));
             editingTheme.id = "custom_" + Date.now();
-            editingTheme.name = baseTheme.name + " (Copia)";
-            editingTheme.desc = "Tema personalizado basado en " + baseTheme.name;
+            editingTheme.name = (basePreset.name || "Tema") + " (Copia)";
+            editingTheme.desc = "Tema personalizado basado en " + (basePreset.name || "Tema");
+            editingTheme.isCustom = true;
+            delete editingTheme.isDefault;
+        } else {
+            // Crear nuevo tema desde cero con valores por defecto (Default/Teal)
+            const defaultBase = DEFAULT_THEMES.teal || Object.values(DEFAULT_THEMES)[0];
+            editingTheme = JSON.parse(JSON.stringify(defaultBase));
+            editingTheme.id = "custom_" + Date.now();
+            editingTheme.name = window.t ? window.t("theme_editor.new_theme_default_name") : "Mi Tema Personalizado";
+            editingTheme.desc = window.t ? window.t("theme_editor.new_theme_desc") : "Tema personalizado";
             editingTheme.isCustom = true;
             delete editingTheme.isDefault;
         }
@@ -471,7 +483,7 @@
                         <input type="color" class="pyxis-color-native-input" value="${hex}" ${dataAttrs}>
                     </div>
                     <input type="text" class="pyxis-color-hex-text" value="${hex}" maxlength="7" ${dataAttrs} spellcheck="false">
-                    <button type="button" class="pyxis-color-pro-btn" title="Selector avanzado HSV/RGB" ${dataAttrs}>
+                    <button type="button" class="pyxis-color-pro-btn" title="${window.t ? window.t("theme_editor.pro_picker_tooltip") : "Selector avanzado HSV/RGB"}" ${dataAttrs}>
                         <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg>
                     </button>
                 </div>
@@ -494,119 +506,119 @@
         let uiPickersHtml = `
             <div class="theme-editor-cat-card" style="grid-column: 1 / -1;">
                 <div class="theme-editor-cat-header">
-                    <span class="theme-editor-cat-title">Acento Primario (Botones, Resplandores y Destacados)</span>
+                    <span class="theme-editor-cat-title">${window.t ? window.t("theme_editor.accent_primary_title") : "Acento Primario (Botones, Resplandores y Destacados)"}</span>
                     <div class="theme-editor-cat-badge" id="ui-badge-pri" style="background: linear-gradient(135deg, ${priStartVal} 0%, ${priEndVal} 100%);">
                         <span class="cat-badge-dot" style="background:#ffffff;"></span>
-                        <span>Botón / Acento</span>
+                        <span>${window.t ? window.t("theme_editor.badge_btn_accent") : "Botón / Acento"}</span>
                     </div>
                 </div>
                 <div class="theme-editor-cat-body">
                     <div class="theme-editor-cat-col">
-                        <span class="theme-editor-col-lbl">Inicio:</span>
-                        ${createColorFieldHtml("accentPrimary", priStartVal, "", "", "Acento Primario (Inicio)")}
+                        <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.start_color") : "Inicio:"}</span>
+                        ${createColorFieldHtml("accentPrimary", priStartVal, "", "", window.t ? window.t("theme_editor.field_pri_start") : "Acento Primario (Inicio)")}
                     </div>
-                    <button type="button" class="pyxis-cat-swap-btn" id="btn-swap-pri" title="Intercambiar inicio y fin">
+                    <button type="button" class="pyxis-cat-swap-btn" id="btn-swap-pri" title="${window.t ? window.t("theme_editor.swap_colors") : "Intercambiar inicio y fin"}">
                         <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                     </button>
                     <div class="theme-editor-cat-col">
-                        <span class="theme-editor-col-lbl">Fin (Degradado):</span>
-                        ${createColorFieldHtml("accentPrimaryEnd", priEndVal, "", "", "Acento Primario (Fin / Degradado)")}
+                        <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.end_gradient") : "Fin (Degradado):"}</span>
+                        ${createColorFieldHtml("accentPrimaryEnd", priEndVal, "", "", window.t ? window.t("theme_editor.field_pri_end") : "Acento Primario (Fin / Degradado)")}
                     </div>
                 </div>
             </div>
 
             <div class="theme-editor-cat-card" style="grid-column: 1 / -1;">
                 <div class="theme-editor-cat-header">
-                    <span class="theme-editor-cat-title">Cables y Conexiones de Nodos</span>
+                    <span class="theme-editor-cat-title">${window.t ? window.t("theme_editor.wires_title") : "Cables y Conexiones de Nodos"}</span>
                     <div class="theme-editor-cat-badge" id="ui-badge-sec" style="background: ${secStartVal}; box-shadow: 0 0 10px ${secGlowVal};">
                         <span class="cat-badge-dot" style="background:#ffffff; box-shadow: 0 0 4px ${secGlowVal};"></span>
-                        <span>Cables / Enlaces</span>
+                        <span>${window.t ? window.t("theme_editor.badge_wires") : "Cables / Enlaces"}</span>
                     </div>
                 </div>
                 <div class="theme-editor-cat-body">
                     <div class="theme-editor-cat-col">
-                        <span class="theme-editor-col-lbl">Color del Cable:</span>
-                        ${createColorFieldHtml("accentSecondary", secStartVal, "", "", "Color del Cable (Línea Principal)")}
+                        <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.wire_color") : "Color del Cable:"}</span>
+                        ${createColorFieldHtml("accentSecondary", secStartVal, "", "", window.t ? window.t("theme_editor.field_wire") : "Color del Cable (Línea Principal)")}
                     </div>
-                    <button type="button" class="pyxis-cat-swap-btn" id="btn-swap-sec" title="Intercambiar color del cable y resplandor">
+                    <button type="button" class="pyxis-cat-swap-btn" id="btn-swap-sec" title="${window.t ? window.t("theme_editor.swap_sec_tooltip") : "Intercambiar color del cable y resplandor"}">
                         <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                     </button>
                     <div class="theme-editor-cat-col">
-                        <span class="theme-editor-col-lbl">Resplandor (Glow):</span>
-                        ${createColorFieldHtml("accentSecondaryGlow", secGlowVal, "", "", "Color del Resplandor (Glow)")}
+                        <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.glow_color") : "Resplandor (Glow):"}</span>
+                        ${createColorFieldHtml("accentSecondaryGlow", secGlowVal, "", "", window.t ? window.t("theme_editor.field_glow") : "Color del Resplandor (Glow)")}
                     </div>
                 </div>
             </div>
 
             <div class="theme-editor-cat-card" style="grid-column: 1 / -1;">
                 <div class="theme-editor-cat-header">
-                    <span class="theme-editor-cat-title">Fondo del Cuerpo de Tarjetas y Nodos</span>
+                    <span class="theme-editor-cat-title">${window.t ? window.t("theme_editor.node_bg_title") : "Fondo del Cuerpo de Tarjetas y Nodos"}</span>
                     <div class="theme-editor-cat-badge" id="ui-badge-nodebg" style="background: linear-gradient(180deg, ${nodeBgStartVal} 0%, ${nodeBgEndVal} 100%);">
                         <span class="cat-badge-dot" style="background:#ffffff;"></span>
-                        <span>Cuerpo de Nodo</span>
+                        <span>${window.t ? window.t("theme_editor.badge_node_body") : "Cuerpo de Nodo"}</span>
                     </div>
                 </div>
                 <div class="theme-editor-cat-body">
                     <div class="theme-editor-cat-col">
-                        <span class="theme-editor-col-lbl">Inicio (Superior):</span>
-                        ${createColorFieldHtml("nodeStart", nodeBgStartVal, "", "", "Fondo de Tarjeta (Inicio)")}
+                        <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.top_start") : "Inicio (Superior):"}</span>
+                        ${createColorFieldHtml("nodeStart", nodeBgStartVal, "", "", window.t ? window.t("theme_editor.field_node_start") : "Fondo de Tarjeta (Inicio)")}
                     </div>
-                    <button type="button" class="pyxis-cat-swap-btn" id="btn-swap-nodebg" title="Intercambiar inicio y fin">
+                    <button type="button" class="pyxis-cat-swap-btn" id="btn-swap-nodebg" title="${window.t ? window.t("theme_editor.swap_colors") : "Intercambiar inicio y fin"}">
                         <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                     </button>
                     <div class="theme-editor-cat-col">
-                        <span class="theme-editor-col-lbl">Fin (Inferior):</span>
-                        ${createColorFieldHtml("nodeEnd", nodeBgEndVal, "", "", "Fondo de Tarjeta (Fin)")}
+                        <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.bottom_end") : "Fin (Inferior):"}</span>
+                        ${createColorFieldHtml("nodeEnd", nodeBgEndVal, "", "", window.t ? window.t("theme_editor.field_node_end") : "Fondo de Tarjeta (Fin)")}
                     </div>
                 </div>
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">Fondo del Canvas</span>
-                    <span class="theme-editor-item-sub">Superficie de trabajo</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.canvas_bg") : "Fondo del Canvas"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.canvas_bg_sub") : "Superficie de trabajo"}</span>
                 </div>
-                ${createColorFieldHtml("canvasBg", canvasBgVal, "", "", "Fondo del Canvas")}
+                ${createColorFieldHtml("canvasBg", canvasBgVal, "", "", window.t ? window.t("theme_editor.canvas_bg") : "Fondo del Canvas")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">Fondo de Paneles</span>
-                    <span class="theme-editor-item-sub">Barras laterales y modales</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.panel_bg") : "Fondo de Paneles"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.panel_bg_sub") : "Barras laterales y modales"}</span>
                 </div>
-                ${createColorFieldHtml("panelBg", panelBgVal, "", "", "Fondo de Paneles")}
+                ${createColorFieldHtml("panelBg", panelBgVal, "", "", window.t ? window.t("theme_editor.panel_bg") : "Fondo de Paneles")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">Barra Superior</span>
-                    <span class="theme-editor-item-sub">Top bar de herramientas</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.topbar_bg") : "Barra Superior"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.topbar_bg_sub") : "Top bar de herramientas"}</span>
                 </div>
-                ${createColorFieldHtml("topbarBg", topbarBgVal, "", "", "Fondo de Barra Superior")}
+                ${createColorFieldHtml("topbarBg", topbarBgVal, "", "", window.t ? window.t("theme_editor.topbar_bg") : "Fondo de Barra Superior")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">Fondo de Entradas</span>
-                    <span class="theme-editor-item-sub">Inputs y cajas de texto</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.input_bg") : "Fondo de Entradas"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.input_bg_sub") : "Inputs y cajas de texto"}</span>
                 </div>
-                ${createColorFieldHtml("inputBg", inputBgVal, "", "", "Fondo de Entradas e Inputs")}
+                ${createColorFieldHtml("inputBg", inputBgVal, "", "", window.t ? window.t("theme_editor.input_bg") : "Fondo de Entradas e Inputs")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">Texto Principal</span>
-                    <span class="theme-editor-item-sub">Títulos y valores</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.text_main") : "Texto Principal"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.text_main_sub") : "Títulos y valores"}</span>
                 </div>
-                ${createColorFieldHtml("textMain", textMainVal, "", "", "Texto Principal")}
+                ${createColorFieldHtml("textMain", textMainVal, "", "", window.t ? window.t("theme_editor.text_main") : "Texto Principal")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">Texto Secundario</span>
-                    <span class="theme-editor-item-sub">Etiquetas y notas</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.text_muted") : "Texto Secundario"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.text_muted_sub") : "Etiquetas y notas"}</span>
                 </div>
-                ${createColorFieldHtml("textMuted", textMutedVal, "", "", "Texto Secundario")}
+                ${createColorFieldHtml("textMuted", textMutedVal, "", "", window.t ? window.t("theme_editor.text_muted") : "Texto Secundario")}
             </div>
         `;
 
@@ -615,26 +627,26 @@
                 <div class="global-cat-info">
                     <span class="global-cat-title">
                         <svg class="svg-icon" viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--accent-primary);"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-                        Homogeneizar Todos los Nodos
+                        ${window.t ? window.t("theme_editor.homogenize_title") : "Homogeneizar Todos los Nodos"}
                     </span>
-                    <span class="global-cat-desc">Asigna el mismo color o degradado a todos los 13 tipos de nodos con un solo clic.</span>
+                    <span class="global-cat-desc">${window.t ? window.t("theme_editor.homogenize_desc") : "Asigna el mismo color o degradado a todos los 13 tipos de nodos con un solo clic."}</span>
                 </div>
                 <div class="global-cat-controls">
-                    <div class="pyxis-color-field" title="Color Inicio Global">
+                    <div class="pyxis-color-field" title="${window.t ? window.t("theme_editor.global_cat_start_tooltip") : "Color Inicio Global"}">
                         <div class="pyxis-color-chip" id="global-cat-chip-col" style="background-color: #8B5CF6;">
                             <input type="color" class="pyxis-color-native-input" id="global-cat-native-col" value="#8B5CF6">
                         </div>
                         <input type="text" class="pyxis-color-hex-text" id="global-cat-col-inp" value="#8B5CF6" maxlength="7" spellcheck="false">
                     </div>
-                    <div class="pyxis-color-field" title="Color Fin / Degradado Global">
+                    <div class="pyxis-color-field" title="${window.t ? window.t("theme_editor.global_cat_end_tooltip") : "Color Fin / Degradado Global"}">
                         <div class="pyxis-color-chip" id="global-cat-chip-grad" style="background-color: #6366F1;">
                             <input type="color" class="pyxis-color-native-input" id="global-cat-native-grad" value="#6366F1">
                         </div>
                         <input type="text" class="pyxis-color-hex-text" id="global-cat-grad-inp" value="#6366F1" maxlength="7" spellcheck="false">
                     </div>
-                    <button type="button" class="pyxis-btn pyxis-btn-primary" id="btn-apply-all-categories" title="Aplicar a todas las categorías">
+                    <button type="button" class="pyxis-btn pyxis-btn-primary" id="btn-apply-all-categories" title="${window.t ? window.t("theme_editor.apply_all_tooltip") : "Aplicar a todas las categorías"}">
                         <svg class="svg-icon" viewBox="0 0 24 24" style="width:14px;height:14px;stroke-width:2.5;fill:none;"><polyline points="20 6 9 17 4 12"/></svg>
-                        <span>Aplicar a Todos</span>
+                        <span>${window.t ? window.t("theme_editor.apply_all") : "Aplicar a Todos"}</span>
                     </button>
                 </div>
             </div>
@@ -644,26 +656,29 @@
             const catData = (editingTheme.categories && editingTheme.categories[cat]) || { color: "#3b82f6", gradientEnd: "#1d4ed8" };
             const col = (typeof catData === "object" ? catData.color : catData) || "#3b82f6";
             const grad = (typeof catData === "object" ? (catData.gradientEnd || col) : col) || "#1d4ed8";
+            const catTitle = window.PyxisI18n ? window.PyxisI18n.getCategoryTitle(cat) : cat;
+            const startTooltip = window.t ? window.t("theme_editor.cat_start_tooltip", { cat: catTitle }) : `Color inicial para ${catTitle}`;
+            const endTooltip = window.t ? window.t("theme_editor.cat_end_tooltip", { cat: catTitle }) : `Gradiente/Borde para ${catTitle}`;
             categoryPickersHtml += `
                 <div class="theme-editor-cat-card" data-cat="${cat}">
                     <div class="theme-editor-cat-header">
-                        <span class="theme-editor-cat-title">${cat}</span>
+                        <span class="theme-editor-cat-title">${catTitle}</span>
                         <div class="theme-editor-cat-badge" id="cat-badge-${cat}" style="background: linear-gradient(90deg, ${col} 0%, ${grad} 100%);">
                             <span class="cat-badge-dot"></span>
-                            <span>${cat}</span>
+                            <span>${catTitle}</span>
                         </div>
                     </div>
                     <div class="theme-editor-cat-body">
                         <div class="theme-editor-cat-col">
-                            <span class="theme-editor-col-lbl">Inicio:</span>
-                            ${createColorFieldHtml(`cat_${cat}_col`, col, cat, "color", `Color inicial para ${cat}`)}
+                            <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.start_color") : "Inicio:"}</span>
+                            ${createColorFieldHtml(`cat_${cat}_col`, col, cat, "color", startTooltip)}
                         </div>
-                        <button type="button" class="pyxis-cat-swap-btn" data-swap-cat="${cat}" title="Intercambiar colores">
+                        <button type="button" class="pyxis-cat-swap-btn" data-swap-cat="${cat}" title="${window.t ? window.t("theme_editor.swap_cat_tooltip") : "Intercambiar colores"}">
                             <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                         </button>
                         <div class="theme-editor-cat-col">
-                            <span class="theme-editor-col-lbl">Fin:</span>
-                            ${createColorFieldHtml(`cat_${cat}_grad`, grad, cat, "gradientEnd", `Gradiente/Borde para ${cat}`)}
+                            <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.bottom_end") : "Fin:"}</span>
+                            ${createColorFieldHtml(`cat_${cat}_grad`, grad, cat, "gradientEnd", endTooltip)}
                         </div>
                     </div>
                 </div>
@@ -675,7 +690,7 @@
                 <div class="pyxis-modal-header">
                     <div class="pyxis-modal-title">
                         <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg>
-                        <span>Editor de Colores & Temas Personalizados</span>
+                        <span>${window.t ? window.t("theme_editor.modal_title") : "Editor de Colores y Temas Personalizados"}</span>
                     </div>
                     <button class="pyxis-modal-close" id="btn-close-theme-editor">
                         <svg class="svg-icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -685,13 +700,13 @@
                 <!-- Nombre y Plantilla Base -->
                 <div style="display: flex; gap: 12px; margin-bottom: 14px;">
                     <div style="flex: 1;">
-                        <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">Nombre del Tema:</label>
+                        <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">${window.t ? window.t("theme_editor.name") : "Nombre del Tema:"}</label>
                         <input type="text" id="theme-edit-name" value="${editingTheme.name}" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%; box-sizing: border-box; outline: none;">
                     </div>
                     <div style="width: 210px;">
-                        <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">Cargar Plantilla Base:</label>
+                        <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">${window.t ? window.t("theme_editor.load_base_preset") : "Cargar Plantilla Base:"}</label>
                         <select id="theme-edit-preset-select" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%; outline: none; cursor: pointer;">
-                            <option value="">-- Seleccionar Base --</option>
+                            <option value="">${window.t ? window.t("theme_editor.select_base") : "-- Seleccionar Base --"}</option>
                             ${Object.keys(DEFAULT_THEMES).map(k => `<option value="${k}">${DEFAULT_THEMES[k].name}</option>`).join('')}
                         </select>
                     </div>
@@ -701,7 +716,7 @@
                 <div class="theme-editor-mock-container">
                     <div class="theme-editor-mock-title">
                         <svg class="svg-icon" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                        <span>VISTA PREVIA</span>
+                        <span>${window.t ? window.t("theme_editor.preview") : "VISTA PREVIA"}</span>
                     </div>
                     <div class="theme-editor-mock-canvas" id="theme-mock-canvas" style="background-color: ${editingTheme.canvasBg || '#0d0f12'};">
                         <div class="theme-mock-node" id="theme-mock-node" style="background-color: ${editingTheme.nodeBgGradient ? editingTheme.nodeBgGradient.start : '#141a17'};">
@@ -714,10 +729,10 @@
                             </div>
                             <div class="theme-mock-node-body" id="theme-mock-body" style="color: ${textMainVal};">
                                 <div class="mock-slot-row">
-                                    <span style="display: inline-flex; align-items: center; gap: 4px;"><span class="mock-slot-dot" style="background: ${priStartVal}; box-shadow: 0 0 8px ${priStartVal};"></span> Entrada ASS</span>
-                                    <span style="display: inline-flex; align-items: center; gap: 4px;">Salida <span class="mock-slot-dot out" id="theme-mock-slot-out" style="background: ${secStartVal}; box-shadow: 0 0 8px ${secGlowVal};"></span></span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;"><span class="mock-slot-dot" style="background: ${priStartVal}; box-shadow: 0 0 8px ${priStartVal};"></span> ${window.t ? window.t("theme_editor.preview_input") : "Entrada ASS"}</span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">${window.t ? window.t("theme_editor.preview_output") : "Salida"} <span class="mock-slot-dot out" id="theme-mock-slot-out" style="background: ${secStartVal}; box-shadow: 0 0 8px ${secGlowVal};"></span></span>
                                 </div>
-                                <button type="button" class="mock-widget-btn" id="theme-mock-widget-btn" style="background: linear-gradient(135deg, ${priStartVal} 0%, ${priEndVal} 100%);">Ejecutar Acción</button>
+                                <button type="button" class="mock-widget-btn" id="theme-mock-widget-btn" style="background: linear-gradient(135deg, ${priStartVal} 0%, ${priEndVal} 100%);">${window.t ? window.t("theme_editor.preview_action") : "Ejecutar Acción"}</button>
                             </div>
                         </div>
                         <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
@@ -726,14 +741,14 @@
                                     <path id="theme-mock-wire" d="M 0 20 C 70 20, 90 20, 160 20" fill="none" stroke="${secStartVal}" stroke-width="3.5" stroke-linecap="round" style="filter: drop-shadow(0 0 6px ${secGlowVal});"/>
                                 </svg>
                             </div>
-                            <span style="font-size: 11px; color: var(--text-muted);">Los cambios se reflejan en tiempo real tanto en esta tarjeta como en el canvas y los botones de Pyxis.</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("theme_editor.preview_hint") : "Los cambios se reflejan en tiempo real tanto en esta tarjeta como en el canvas y los botones de Pyxis."}</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="pyxis-theme-tabs">
-                    <button class="pyxis-theme-tab active" data-tab="tab-ui-colors">Colores de Interfaz & Canvas (UI)</button>
-                    <button class="pyxis-theme-tab" data-tab="tab-cat-colors">Cabeceras y Categorías de Nodos</button>
+                    <button class="pyxis-theme-tab active" data-tab="tab-ui-colors">${window.t ? window.t("theme_editor.tab_ui") : "Colores de Interfaz y Canvas (UI)"}</button>
+                    <button class="pyxis-theme-tab" data-tab="tab-cat-colors">${window.t ? window.t("theme_editor.tab_categories") : "Cabeceras y Categorías de Nodos"}</button>
                 </div>
 
                 <div class="pyxis-theme-editor-content">
@@ -752,26 +767,26 @@
 
                 <div class="pyxis-modal-actions" style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; gap: 8px;">
-                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-export" title="Exportar archivo de tema a disco">
+                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-export" title="${window.t ? window.t("theme_editor.export_tooltip") : "Exportar archivo de tema a disco"}">
                             <svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                            <span>Exportar Archivo</span>
+                            <span>${window.t ? window.t("theme_editor.export_btn") : "Exportar Archivo"}</span>
                         </button>
-                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-import" title="Importar archivo de tema desde disco">
+                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-import" title="${window.t ? window.t("theme_editor.import_tooltip") : "Importar archivo de tema desde disco"}">
                             <svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                            <span>Importar Archivo</span>
+                            <span>${window.t ? window.t("theme_editor.import_btn") : "Importar Archivo"}</span>
                         </button>
                         ${editingTheme.isCustom ? `
-                            <button class="pyxis-btn pyxis-btn-danger" id="btn-theme-delete" title="Eliminar tema personalizado">
+                            <button class="pyxis-btn pyxis-btn-danger" id="btn-theme-delete" title="${window.t ? window.t("theme_editor.delete_tooltip") : "Eliminar tema personalizado"}">
                                 <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                <span>Eliminar</span>
+                                <span>${window.t ? window.t("theme_editor.delete_btn") : "Eliminar"}</span>
                             </button>
                         ` : ''}
                     </div>
                     <div style="display: flex; gap: 8px;">
-                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-cancel">Cancelar</button>
+                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-cancel">${window.t ? window.t("theme_editor.cancel") : "Cancelar"}</button>
                         <button class="pyxis-btn pyxis-btn-primary" id="btn-theme-save">
                             <svg class="svg-icon" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                            <span>Guardar Tema</span>
+                            <span>${window.t ? window.t("theme_editor.save") : "Guardar Tema"}</span>
                         </button>
                     </div>
                 </div>
@@ -1200,11 +1215,12 @@
         const delBtn = modal.querySelector("#btn-theme-delete");
         if (delBtn) {
             delBtn.onclick = function() {
+                const themeName = editingTheme.name || "";
                 showPyxisConfirm({
-                    title: "Eliminar Tema Personalizado",
-                    message: `¿Estás seguro de que deseas eliminar permanentemente el tema <strong>"${editingTheme.name}"</strong>? Esta acción no se puede deshacer.`,
-                    confirmText: "Eliminar Tema",
-                    cancelText: "Cancelar",
+                    title: window.t ? window.t("theme_editor.delete_confirm_title") : "Eliminar Tema Personalizado",
+                    message: window.t ? window.t("theme_editor.delete_confirm_msg", { name: themeName }) : `¿Estás seguro de que deseas eliminar permanentemente el tema <strong>"${themeName}"</strong>? Esta acción no se puede deshacer.`,
+                    confirmText: window.t ? window.t("theme_editor.delete_theme_btn") : "Eliminar Tema",
+                    cancelText: window.t ? window.t("common.cancel") : "Cancelar",
                     isDanger: true,
                     onConfirm: async () => {
                         await deleteCustomTheme(editingTheme.id);
@@ -1235,19 +1251,13 @@
         // Guardar
         modal.querySelector("#btn-theme-save").onclick = async function() {
             updateLivePreview();
-            const shouldApply = isEditingActiveTheme;
-            await saveCustomTheme(editingTheme, shouldApply);
-            if (!shouldApply) {
-                applyTheme(activeThemeBeforeEdit);
-            }
+            await saveCustomTheme(editingTheme, true);
             modal.remove();
             await openSettingsModal();
             if (window.showPyxisToast) {
-                const toastKey = shouldApply ? "toast.theme_saved_applied" : "toast.theme_saved";
-                const fallbackMsg = shouldApply
-                    ? `Theme "${editingTheme.name}" saved and applied`
-                    : `Theme "${editingTheme.name}" saved to list`;
-                const toastMsg = window.t ? window.t(toastKey, { name: editingTheme.name }) : fallbackMsg;
+                const toastMsg = window.t
+                    ? window.t("toast.theme_saved_applied", { name: editingTheme.name })
+                    : `Theme "${editingTheme.name}" saved and applied`;
                 window.showPyxisToast(toastMsg, "success", 2600);
             }
         };
@@ -1288,9 +1298,9 @@
                             <div class="pyxis-theme-row-info">
                                 <div class="pyxis-theme-row-name">
                                     <span>${t.name}</span>
-                                    <span class="pyxis-theme-badge-custom">Personalizado</span>
+                                    <span class="pyxis-theme-badge-custom">${window.t ? window.t("settings.badge_custom") : "Personalizado"}</span>
                                 </div>
-                                <div class="pyxis-theme-row-desc">${t.desc || 'Tema personalizado guardado'}</div>
+                                <div class="pyxis-theme-row-desc">${t.desc || (window.t ? window.t("settings.empty_custom_desc") : 'Tema personalizado guardado')}</div>
                             </div>
                         </div>
                         <div class="pyxis-theme-row-right">
@@ -1298,11 +1308,11 @@
                                 ${swatches.map(c => `<div class="pyxis-theme-swatch" style="background:${c}"></div>`).join('')}
                             </div>
                             <div class="pyxis-theme-row-actions">
-                                <button type="button" class="pyxis-theme-action-btn btn-edit-theme" data-theme-id="${t.id}" title="Editar este tema">
+                                <button type="button" class="pyxis-theme-action-btn btn-edit-theme" data-theme-id="${t.id}" title="${window.t ? window.t("settings.edit_theme") : "Editar este tema"}">
                                     <svg class="svg-icon" viewBox="0 0 24 24" style="width:12px;height:12px;"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                                    <span>Editar</span>
+                                    <span>${window.t ? window.t("common.edit") : "Editar"}</span>
                                 </button>
-                                <button type="button" class="pyxis-theme-action-btn delete btn-delete-theme" data-theme-id="${t.id}" title="Eliminar este tema">
+                                <button type="button" class="pyxis-theme-action-btn delete btn-delete-theme" data-theme-id="${t.id}" title="${window.t ? window.t("settings.delete_theme") : "Eliminar este tema"}">
                                     <svg class="svg-icon" viewBox="0 0 24 24" style="width:12px;height:12px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                 </button>
                             </div>
@@ -1311,7 +1321,7 @@
                 `;
             }).join('');
         } else {
-            customListHtml = `<div class="pyxis-theme-empty-state">No tienes temas personalizados guardados todavía. Pulsa "+ Crear Nuevo Tema" para diseñar el tuyo.</div>`;
+            customListHtml = `<div class="pyxis-theme-empty-state">${window.t ? window.t("settings.empty_custom_themes") : "No tienes temas personalizados guardados todavía. Pulsa \"+ Crear Nuevo Tema\" para diseñar el tuyo."}</div>`;
         }
 
         // 2. Temas Predefinidos (Oficiales)
@@ -1480,7 +1490,7 @@
                 </div>
 
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
-                    <button class="pyxis-btn pyxis-btn-secondary" id="btn-clean-temp-cache" style="font-size: 12px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;" title="Elimina archivos temporales y fragmentos de caché con más de 72 horas sin afectar fondos ni configuraciones">
+                    <button class="pyxis-btn pyxis-btn-secondary" id="btn-clean-temp-cache" style="font-size: 12px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;" title="${window.t ? window.t("settings.clean_temp_tooltip") : "Elimina archivos temporales y fragmentos de caché con más de 72 horas sin afectar fondos ni configuraciones"}">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
                         <span>${window.t ? window.t("settings.clean_temp") : "Limpiar Temporales (> 72h)"}</span>
                     </button>
@@ -1516,10 +1526,10 @@
                 const themeId = this.getAttribute("data-theme-id");
                 const tName = customThemes[themeId] ? customThemes[themeId].name : "este tema";
                 showPyxisConfirm({
-                    title: "Eliminar Tema Personalizado",
-                    message: `¿Estás seguro de que deseas eliminar permanentemente el tema <strong>"${tName}"</strong>? Esta acción no se puede deshacer.`,
-                    confirmText: "Eliminar Tema",
-                    cancelText: "Cancelar",
+                    title: window.t ? window.t("theme_editor.delete_confirm_title") : "Eliminar Tema Personalizado",
+                    message: window.t ? window.t("theme_editor.delete_confirm_msg", { name: tName }) : `¿Estás seguro de que deseas eliminar permanentemente el tema <strong>"${tName}"</strong>? Esta acción no se puede deshacer.`,
+                    confirmText: window.t ? window.t("theme_editor.delete_theme_btn") : "Eliminar Tema",
+                    cancelText: window.t ? window.t("common.cancel") : "Cancelar",
                     isDanger: true,
                     onConfirm: async () => {
                         await deleteCustomTheme(themeId);
@@ -1537,7 +1547,7 @@
         if (openEditorBtn) {
             openEditorBtn.onclick = function() {
                 modal.remove();
-                openThemeEditorModal(currentTheme);
+                openThemeEditorModal();
             };
         }
 

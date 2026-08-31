@@ -295,8 +295,8 @@ def code_script_master(context, script="", lenguaje="Python", **inputs_map):
 # Registro del nodo del sistema Híbrido
 system_node(
     "System", "Script Code", node_kind="step", color="#3B82F6",
-    inputs=["Flow In", "In1", "In2"],
-    outputs=["Flow Out", "Result"],
+    inputs=["Loop In", "In1", "In2"],
+    outputs=["Loop Out", "Result"],
     properties={
         "lenguaje": "Python",
         "script": "result = 'Hello Pyxis ' + str(in1 if in1 else syl.text)",

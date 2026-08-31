@@ -50,6 +50,7 @@ ffi.cdef[[
     int ShellExecuteA(void* hwnd, const char* lpOperation, const char* lpFile, const char* lpParameters, const char* lpDirectory, int nShowCmd);
     uint32_t GetCurrentProcessId(void);
     bool AllowSetForegroundWindow(uint32_t dwProcessId);
+    bool CreateDirectoryA(const char* lpPathName, void* lpSecurityAttributes);
 
     void* InternetOpenA(const char* lpszAgent, uint32_t dwAccessType, const char* lpszProxy, const char* lpszProxyBypass, uint32_t dwFlags);
     void* InternetConnectA(void* hInternet, const char* lpszServerName, uint16_t nServerPort, const char* lpszUsername, const char* lpszPassword, uint32_t dwService, uint32_t dwFlags, uintptr_t dwContext);
@@ -117,10 +118,22 @@ local function join_path(a, b)
 end
 
 local function ensure_dir(path)
-    if package.config:sub(1,1) == "\\" then
-        os.execute('mkdir "' .. path .. '" >NUL 2>NUL')
+    if not path or path == "" then return end
+    if kernel32 and kernel32.CreateDirectoryA then
+        local current = ""
+        for part in path:gmatch("[^\\/]+") do
+            if current == "" and (path:sub(2,2) == ":" or path:sub(1,2) == "\\\\") then
+                current = part
+            else
+                current = (current == "" and part) or (current .. "\\" .. part)
+                kernel32.CreateDirectoryA(current, nil)
+            end
+        end
     else
-        os.execute('mkdir -p "' .. path .. '"')
+        pcall(function()
+            local lfs = require("lfs")
+            if lfs and lfs.mkdir then lfs.mkdir(path) end
+        end)
     end
 end
 

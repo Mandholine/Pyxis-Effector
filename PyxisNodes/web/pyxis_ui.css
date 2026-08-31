@@ -568,7 +568,7 @@ body {
 /* Primary Button (Listo / Guardar) with Glowing Gradient Hover */
 .pyxis-btn-primary {
     background: var(--accent-gradient) !important;
-    color: var(--text-inverse) !important;
+    color: var(--text-main) !important;
     border: none !important;
     font-weight: 700 !important;
     box-shadow: 0 4px 14px var(--accent-glow);
@@ -576,7 +576,7 @@ body {
 
 .pyxis-btn-primary:hover {
     background: var(--accent-gradient) !important;
-    color: var(--text-inverse) !important;
+    color: var(--text-main) !important;
     filter: brightness(1.18) !important;
     box-shadow: 0 0 22px var(--accent-glow) !important;
 }
@@ -752,7 +752,7 @@ body {
 .btn-generate {
     position: relative;
     background: var(--accent-gradient);
-    color: var(--text-inverse);
+    color: var(--text-main) !important;
     border: none;
     padding: 7px 18px;
     height: 36px;
@@ -774,6 +774,7 @@ body {
 .btn-generate:hover {
     filter: brightness(1.15);
     box-shadow: 0 0 22px var(--accent-glow);
+    color: var(--text-main) !important;
 }
 
 .btn-progress-fill {
@@ -3489,7 +3490,7 @@ body.pyxis-resizing-active .pyxis-floating-resizer {
     font-size: 12px !important;
     font-weight: 700 !important;
     font-family: var(--font-sans, sans-serif) !important;
-    color: #ffffff !important;
+    color: var(--text-main) !important;
     white-space: nowrap !important;
     flex-shrink: 0 !important;
     cursor: pointer !important;
@@ -3508,15 +3509,15 @@ body.pyxis-resizing-active .pyxis-floating-resizer {
 }
 
 .theme-editor-global-cat-banner #btn-apply-all-categories span {
-    color: #ffffff !important;
+    color: var(--text-main) !important;
     white-space: nowrap !important;
     display: inline-block !important;
     line-height: 1 !important;
 }
 
 .theme-editor-global-cat-banner #btn-apply-all-categories svg {
-    color: #ffffff !important;
-    stroke: #ffffff !important;
+    color: var(--text-main) !important;
+    stroke: var(--text-main) !important;
     flex-shrink: 0 !important;
 }
 

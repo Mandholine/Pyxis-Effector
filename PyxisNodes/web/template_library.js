@@ -105,13 +105,14 @@
         var confirm_overlay = document.createElement("div");
         confirm_overlay.className = "pyxis-template-overlay";
         confirm_overlay.style.zIndex = "2100";
-        confirm_btn_text = confirm_btn_text || "Aceptar";
+        confirm_btn_text = confirm_btn_text || (window.t ? window.t("common.confirm") : "Aceptar");
+        var cancel_btn_text = window.t ? window.t("common.cancel") : "Cancelar";
         confirm_overlay.innerHTML = `
             <div class="pyxis-template-dialog" style="width: 440px;">
                 <h2 style="color: #ef4444;">${title}</h2>
                 <div style="margin: 12px 0 20px; line-height: 1.5; font-size: 14px; color: var(--text-main);">${text}</div>
                 <div class="pyxis-template-actions" style="justify-content: flex-end;">
-                    <button class="pyxis-btn" id="pyxis-confirm-cancel">Cancelar</button>
+                    <button class="pyxis-btn" id="pyxis-confirm-cancel">${cancel_btn_text}</button>
                     <button class="pyxis-btn pyxis-btn-danger" id="pyxis-confirm-ok">${confirm_btn_text}</button>
                 </div>
             </div>`;
@@ -185,9 +186,18 @@
         selected_template_id = null;
     }
 
-    function show_message(container, message) {
+    function show_message(container, message, type) {
         var error = container.querySelector(".pyxis-template-error");
-        if (error) error.innerText = message || "";
+        if (error) {
+            error.innerText = message || "";
+            if (type === "success") {
+                error.style.color = "var(--accent-primary, #10b981)";
+            } else if (type === "info") {
+                error.style.color = "var(--text-muted, #9ca3af)";
+            } else {
+                error.style.color = "#ef4444";
+            }
+        }
     }
 
     function save_template_with_id(name, comment, template_id) {
@@ -232,18 +242,18 @@
             var name = save_modal.querySelector("#pyxis-save-name").value.trim();
             var comment = save_modal.querySelector("#pyxis-save-comment").value.trim();
             if (!name) {
-                show_message(save_modal, "Escribe un nombre para la plantilla.");
+                show_message(save_modal, window.t ? window.t("library.prompt_name_required") : "Escribe un nombre para la plantilla.");
                 return;
             }
 
             var serialized = graph.serialize();
             if (!serialized || !Array.isArray(serialized.nodes) || serialized.nodes.length === 0) {
-                show_message(save_modal, "El grafo actual está vacío. No se puede guardar una plantilla vacía.");
+                show_message(save_modal, window.t ? window.t("library.empty_graph_warning") : "El grafo actual está vacío. No se puede guardar una plantilla vacía.");
                 return;
             }
 
             this.disabled = true;
-            this.innerText = "Guardando...";
+            this.innerText = window.t ? window.t("common.saving") : "Guardando...";
             try {
                 var meta = await save_template_with_id(name, comment, target_template_id);
                 save_modal.remove();
@@ -252,8 +262,8 @@
                 }
             } catch (error) {
                 this.disabled = false;
-                this.innerText = "Guardar";
-                show_message(save_modal, "No se pudo guardar la plantilla.");
+                this.innerText = window.t ? window.t("common.save") : "Guardar";
+                show_message(save_modal, window.t ? window.t("library.error_save") : "No se pudo guardar la plantilla.");
                 console.error(error);
             }
         };
@@ -326,14 +336,14 @@
 
     function open_save_dialog(on_save_success) {
         if (!graph_ready()) {
-            alert("El lienzo de nodos no está listo.");
+            alert(window.t ? window.t("library.canvas_not_ready") : "El lienzo de nodos no está listo.");
             return;
         }
         sync_graph_widgets();
 
         var serialized = graph.serialize();
         if (!serialized || !Array.isArray(serialized.nodes) || serialized.nodes.length === 0) {
-            alert("El grafo actual está vacío. No se puede guardar un template vacío.");
+            alert(window.t ? window.t("library.empty_graph_warning") : "El grafo actual está vacío. No se puede guardar un template vacío.");
             return;
         }
 
@@ -370,7 +380,7 @@
                         on_save_success(meta);
                     }
                 } catch (err) {
-                    alert("Error al sobrescribir el template.");
+                    alert(window.t ? window.t("library.error_overwrite") : "Error al sobrescribir el template.");
                 }
             };
             choice_modal.querySelector("#pyxis-save-as-disk").onclick = function () {
@@ -458,10 +468,10 @@
                     <div class="pyxis-template-meta"></div>
                 </div>`;
 
-            row.querySelector(".name-text").innerText = item.name || "Sin nombre";
-            row.querySelector(".pyxis-template-comment").innerText = item.comment || "Sin comentario";
+            row.querySelector(".name-text").innerText = item.name || (window.t ? window.t("library.unnamed") : "Sin nombre");
+            row.querySelector(".pyxis-template-comment").innerText = item.comment || (window.t ? window.t("library.no_comment") : "Sin comentario");
             row.querySelector(".pyxis-template-meta").innerText =
-                (item.node_count || 0) + " nodos · " + (item.updated_at || item.created_at || "");
+                (item.node_count || 0) + " " + (window.t ? window.t("library.nodes_count") : "nodos") + " · " + (item.updated_at || item.created_at || "");
 
             row.querySelector(".pyxis-template-star").onclick = async function (e) {
                 e.stopPropagation();
@@ -505,18 +515,18 @@
                 <div class="pyxis-template-toolbar">
                     <input id="pyxis-template-search" placeholder="${window.t ? window.t("library.search_placeholder") : "Buscar por nombre o comentario..."}">
                     <select id="pyxis-template-sort">
-                        <option value="updated_desc">${window.t ? window.t("library.sort_updated_desc", null, "Fecha (más reciente)") : "Fecha (más reciente)"}</option>
-                        <option value="updated_asc">${window.t ? window.t("library.sort_updated_asc", null, "Fecha (más antiguo)") : "Fecha (más antiguo)"}</option>
-                        <option value="name_asc">${window.t ? window.t("library.sort_name_asc", null, "Nombre (A-Z)") : "Nombre (A-Z)"}</option>
-                        <option value="name_desc">${window.t ? window.t("library.sort_name_desc", null, "Nombre (Z-A)") : "Nombre (Z-A)"}</option>
-                        <option value="nodes_desc">${window.t ? window.t("library.sort_nodes_desc", null, "Nodos (mayor a menor)") : "Nodos (mayor a menor)"}</option>
-                        <option value="nodes_asc">${window.t ? window.t("library.sort_nodes_asc", null, "Nodos (menor a mayor)") : "Nodos (menor a mayor)"}</option>
+                        <option value="updated_desc">${window.t ? window.t("library.sort_updated_desc") : "Fecha (más reciente)"}</option>
+                        <option value="updated_asc">${window.t ? window.t("library.sort_updated_asc") : "Fecha (más antiguo)"}</option>
+                        <option value="name_asc">${window.t ? window.t("library.sort_name_asc") : "Nombre (A-Z)"}</option>
+                        <option value="name_desc">${window.t ? window.t("library.sort_name_desc") : "Nombre (Z-A)"}</option>
+                        <option value="nodes_desc">${window.t ? window.t("library.sort_nodes_desc") : "Nodos (mayor a menor)"}</option>
+                        <option value="nodes_asc">${window.t ? window.t("library.sort_nodes_asc") : "Nodos (menor a mayor)"}</option>
                     </select>
-                    <button class="pyxis-btn" id="pyxis-template-import" title="${window.t ? window.t("library.import_tooltip", null, "Importar plantilla desde archivo") : "Importar plantilla desde archivo"}">
+                    <button class="pyxis-btn" id="pyxis-template-import" title="${window.t ? window.t("library.import_tooltip") : "Importar plantilla desde archivo (.json)"}">
                         <svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        <span>${window.t ? window.t("library.import", null, "Importar") : "Importar"}</span>
+                        <span>${window.t ? window.t("library.import") : "Importar"}</span>
                     </button>
-                    <button class="pyxis-btn pyxis-btn-icon" id="pyxis-template-refresh" title="${window.t ? window.t("library.refresh_tooltip", null, "Refrescar biblioteca") : "Refrescar biblioteca"}">
+                    <button class="pyxis-btn pyxis-btn-icon" id="pyxis-template-refresh" title="${window.t ? window.t("library.refresh_tooltip") : "Refrescar biblioteca"}">
                         <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                     </button>
                 </div>
@@ -524,8 +534,8 @@
                 <div class="pyxis-template-error"></div>
                 <div class="pyxis-template-actions">
                     <button class="pyxis-btn pyxis-btn-danger" id="pyxis-template-delete" style="display:none;">${window.t ? window.t("common.delete") : "Eliminar"}</button>
-                    <button class="pyxis-btn" id="pyxis-template-duplicate" style="display:none;">${window.t ? window.t("library.duplicate", null, "Duplicar") : "Duplicar"}</button>
-                    <button class="pyxis-btn" id="pyxis-template-export" style="display:none;">${window.t ? window.t("library.export") : "Exportar"}</button>
+                    <button class="pyxis-btn" id="pyxis-template-duplicate" style="display:none;" title="${window.t ? window.t("library.duplicate_tooltip") : "Duplicar plantilla seleccionada"}">${window.t ? window.t("library.duplicate") : "Duplicar"}</button>
+                    <button class="pyxis-btn" id="pyxis-template-export" style="display:none;" title="${window.t ? window.t("library.export_tooltip") : "Exportar plantilla seleccionada como archivo .json"}">${window.t ? window.t("library.export") : "Exportar"}</button>
                     <span style="flex:1;"></span>
                     <button class="pyxis-btn" id="pyxis-library-close">${window.t ? window.t("common.close") : "Cerrar"}</button>
                     <button class="pyxis-btn pyxis-btn-primary" id="pyxis-template-load">${window.t ? window.t("library.load") : "Cargar Plantilla"}</button>
@@ -548,7 +558,7 @@
                 if (dup_btn) dup_btn.style.display = selected_template_id ? "inline-block" : "none";
                 if (exp_btn) exp_btn.style.display = selected_template_id ? "inline-block" : "none";
             } catch (error) {
-                show_message(modal, "No se pudo leer la biblioteca.");
+                show_message(modal, window.t ? window.t("library.read_error") : "No se pudo leer la biblioteca.");
                 console.error(error);
             }
         };
@@ -564,9 +574,10 @@
                 if (imported) {
                     selected_template_id = imported.template_id;
                     await refresh();
+                    show_message(modal, window.t ? window.t("library.import_success") : "Template importado correctamente.", "success");
                 }
             } catch (err) {
-                show_message(modal, err.message || "Error al importar el template.");
+                show_message(modal, err.message || (window.t ? window.t("library.import_error") : "Error al importar el template."), "error");
             }
         };
 
@@ -575,12 +586,12 @@
             try {
                 var ok = await window.pywebview.api.export_template(selected_template_id);
                 if (ok) {
-                    show_message(modal, "Template exportado correctamente.");
+                    show_message(modal, window.t ? window.t("library.export_success") : "Template exportado correctamente.", "success");
                 } else {
-                    show_message(modal, "Exportación cancelada.");
+                    show_message(modal, window.t ? window.t("library.export_cancelled") : "Exportación cancelada.", "info");
                 }
             } catch (err) {
-                show_message(modal, "Error al exportar template: " + (err.message || err));
+                show_message(modal, (window.t ? window.t("library.export_error") : "Error al exportar template: ") + (err.message || err), "error");
             }
         };
 
@@ -590,8 +601,8 @@
             if (!item) return;
 
             show_confirm_dialog(
-                "¿Duplicar template?",
-                `Se creará una copia independiente del template "${item.name}".`,
+                window.t ? window.t("library.duplicate_confirm_title") : "¿Duplicar template?",
+                window.t ? window.t("library.duplicate_confirm_msg", { name: item.name }) : `Se creará una copia independiente del template "${item.name}".`,
                 async function () {
                     try {
                         var doc = await window.pywebview.api.load_template(selected_template_id);
@@ -602,12 +613,13 @@
                         );
                         selected_template_id = copy_meta.template_id;
                         await refresh();
+                        show_message(modal, window.t ? window.t("library.duplicate_success") : "Template duplicado correctamente.", "success");
                     } catch (err) {
-                        show_message(modal, "No se pudo duplicar el template.");
+                        show_message(modal, window.t ? window.t("library.error_duplicate") : "No se pudo duplicar el template.", "error");
                     }
                 },
                 null,
-                "Duplicar"
+                window.t ? window.t("library.duplicate") : "Duplicar"
             );
         };
 
@@ -617,8 +629,8 @@
             if (!item) return;
 
             show_confirm_dialog(
-                "¿Eliminar template?",
-                `¿Estás seguro de que deseas eliminar permanentemente "${item.name}"? Esta acción no se puede deshacer.`,
+                window.t ? window.t("library.delete_confirm_title") : "¿Eliminar template?",
+                window.t ? window.t("library.delete_confirm_msg", { name: item.name }) : `¿Estás seguro de que deseas eliminar permanentemente "${item.name}"? Esta acción no se puede deshacer.`,
                 async function () {
                     try {
                         var deletedId = selected_template_id;
@@ -634,22 +646,22 @@
                         selected_template_id = null;
                         await refresh();
                     } catch (err) {
-                        show_message(modal, "No se pudo eliminar el template.");
+                        show_message(modal, window.t ? window.t("library.error_delete") : "No se pudo eliminar el template.");
                     }
                 },
                 null,
-                "Eliminar"
+                window.t ? window.t("common.delete") : "Eliminar"
             );
         };
 
         modal.querySelector("#pyxis-template-load").onclick = function () {
             if (!selected_template_id) {
-                show_message(modal, "Selecciona un template.");
+                show_message(modal, window.t ? window.t("library.select_template_prompt") : "Selecciona un template.");
                 return;
             }
             var btn = this;
             btn.disabled = true;
-            btn.innerText = "Cargando...";
+            btn.innerText = window.t ? window.t("common.loading") : "Cargando...";
 
             async function proceed_with_load() {
                 try {
@@ -661,24 +673,24 @@
 
                     if (check.unknown && check.unknown.length > 0) {
                         show_confirm_dialog(
-                            "Nodos desconocidos detectados",
-                            `El template contiene tipos de nodos que no están registrados en el entorno actual: <strong>${check.unknown.join(", ")}</strong>.<br><br>¿Deseas cargarlo de todos modos? Se podrían perder conexiones o provocar comportamientos inesperados.`,
+                            window.t ? window.t("library.unknown_nodes_title") : "Nodos desconocidos detectados",
+                            window.t ? window.t("library.unknown_nodes_msg", { nodes: check.unknown.join(", ") }) : `El template contiene tipos de nodos que no están registrados en el entorno actual: <strong>${check.unknown.join(", ")}</strong>.<br><br>¿Deseas cargarlo de todos modos? Se podrían perder conexiones o provocar comportamientos inesperados.`,
                             function () {
                                 do_load_graph(result);
                             },
                             function () {
                                 btn.disabled = false;
-                                btn.innerText = "Cargar";
+                                btn.innerText = window.t ? window.t("library.load_btn", null, "Cargar") : "Cargar";
                             },
-                            "Cargar de todos modos"
+                            window.t ? window.t("library.load_anyway") : "Cargar de todos modos"
                         );
                     } else {
                         do_load_graph(result);
                     }
                 } catch (error) {
                     btn.disabled = false;
-                    btn.innerText = "Cargar";
-                    show_message(modal, error.message || "No se pudo cargar el template.");
+                    btn.innerText = window.t ? window.t("library.load_btn", null, "Cargar") : "Cargar";
+                    show_message(modal, error.message || (window.t ? window.t("library.error_load") : "No se pudo cargar el template."));
                     console.error(error);
                 }
             }
@@ -724,7 +736,7 @@
                 show_unsaved_changes_dialog(
                     function () {
                         btn.disabled = false;
-                        btn.innerText = "Cargar";
+                        btn.innerText = window.t ? window.t("library.load_btn", null, "Cargar") : "Cargar";
                         open_save_dialog(async function () {
                             await proceed_with_load();
                         });
@@ -735,7 +747,7 @@
                             await proceed_with_load();
                         } else {
                             btn.disabled = false;
-                            btn.innerText = "Cargar";
+                            btn.innerText = window.t ? window.t("library.load_btn", null, "Cargar") : "Cargar";
                         }
                     },
                     async function () {
@@ -743,7 +755,7 @@
                     },
                     function () {
                         btn.disabled = false;
-                        btn.innerText = "Cargar";
+                        btn.innerText = window.t ? window.t("library.load_btn", null, "Cargar") : "Cargar";
                     }
                 );
             } else {
@@ -755,18 +767,18 @@
 
     async function open_save_as_dialog() {
         if (!graph_ready()) {
-            alert("El lienzo de nodos no está listo.");
+            alert(window.t ? window.t("library.canvas_not_ready") : "El lienzo de nodos no está listo.");
             return false;
         }
         if (!api_ready()) {
-            alert("La API pywebview no está disponible en este momento.");
+            alert(window.t ? window.t("library.api_not_ready") : "La API pywebview no está disponible en este momento.");
             return false;
         }
         sync_graph_widgets();
 
         var serialized = graph.serialize();
         if (!serialized || !Array.isArray(serialized.nodes) || serialized.nodes.length === 0) {
-            alert("El grafo actual está vacío. No se puede guardar un template vacío.");
+            alert(window.t ? window.t("library.empty_graph_warning") : "El grafo actual está vacío. No se puede guardar un template vacío.");
             return false;
         }
 
@@ -782,7 +794,7 @@
             }
             return false;
         } catch (err) {
-            alert("Error al guardar como archivo: " + (err.message || err));
+            alert((window.t ? window.t("library.error_save_disk") : "Error al guardar como archivo: ") + (err.message || err));
             return false;
         }
     }
