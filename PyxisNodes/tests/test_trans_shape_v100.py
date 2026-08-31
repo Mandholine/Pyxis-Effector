@@ -15,11 +15,11 @@
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
 # tests/test_trans_shape_v100.py
-"""Pruebas unitarias completas para el nodo Trans. Shape (Offsetting real de contornos PyClipperOffset y modos de anclaje)."""
+"""Pruebas unitarias completas para el nodo Shape Manipulator (Offsetting real de contornos PyClipperOffset y modos de anclaje)."""
 
 import unittest
 from models import PyxisLine, PyxisUnit
-from nodes.shape_nodes import shape_transform
+from nodes.shape_nodes import shape_manipulator
 from node_engine import GraphEngine
 
 
@@ -36,34 +36,34 @@ class TestTransShapeV100(unittest.TestCase):
 
     def test_anchor_modes(self):
         """Verifica los modos de anclaje: center, topleft, absolute, original."""
-        res_center = shape_transform(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="center")
+        res_center = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="center")
         self.assertTrue(res_center.startswith("m -50 -50"))
 
-        res_topleft = shape_transform(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="topleft")
+        res_topleft = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="topleft")
         self.assertTrue(res_topleft.startswith("m 0 0"))
 
-        res_abs = shape_transform(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="absolute")
+        res_abs = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="absolute")
         self.assertTrue(res_abs.startswith("m 150 250"))
 
-        res_orig = shape_transform(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="original")
+        res_orig = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="original")
         self.assertTrue(res_orig.startswith("m 0 0"))
 
     def test_real_shape_offsetting(self):
         """Verifica la expansión (+10px) y contracción (-10px) de contornos usando PyClipperOffset."""
-        res_plus = shape_transform(self.context, drawing=self.sq, offset_border=10.0, mode="topleft")
+        res_plus = shape_manipulator(self.context, drawing=self.sq, offset_border=10.0, mode="topleft")
         self.assertIn("l", res_plus)
         self.assertNotIn("[Err", res_plus)
 
-        res_minus = shape_transform(self.context, drawing=self.sq, offset_border=-10.0, mode="topleft")
+        res_minus = shape_manipulator(self.context, drawing=self.sq, offset_border=-10.0, mode="topleft")
         self.assertTrue(res_minus.startswith("m 80 80"))
 
     def test_full_node_execution(self):
-        """Verifica la evaluación del nodo Trans. Shape a través de GraphEngine."""
+        """Verifica la evaluación del nodo Shape Manipulator a través de GraphEngine."""
         graph = {
             'nodes': [
                 {
                     'id': 1,
-                    'type': 'Shape/Shape Transform',
+                    'type': 'Shape/Shape Manipulator',
                     'properties': {
                         'shape': self.sq,
                         'scale_x': '1.5',
@@ -84,6 +84,66 @@ class TestTransShapeV100(unittest.TestCase):
         res = engine.evaluate_data_node(1, self.context, output_slot_index=0)
         self.assertIsInstance(res, str)
         self.assertTrue(res.startswith("m "))
+
+    def test_scale_with_t_interpolation(self):
+        """Verifica la interpolación de escala con Factor (t)."""
+        # Con t=0.0 -> escala 1.0 (original: 100x100 -> m -50 -50 l 50 -50 l 50 50 l -50 50)
+        res_t0 = shape_manipulator(self.context, drawing=self.sq, scale_x=2.0, scale_y=2.0, t=0.0, mode="center")
+        self.assertTrue(res_t0.startswith("m -50 -50"))
+
+        # Con t=0.5 -> escala 1.5 (150x150 -> m -75 -75)
+        res_t05 = shape_manipulator(self.context, drawing=self.sq, scale_x=2.0, scale_y=2.0, t=0.5, mode="center")
+        self.assertTrue(res_t05.startswith("m -75 -75"))
+
+        # Con t=1.0 -> escala 2.0 (200x200 -> m -100 -100)
+        res_t1 = shape_manipulator(self.context, drawing=self.sq, scale_x=2.0, scale_y=2.0, t=1.0, mode="center")
+        self.assertTrue(res_t1.startswith("m -100 -100"))
+
+    def test_rotate_with_t_interpolation(self):
+        """Verifica la interpolación de rotación con Factor (t)."""
+        # Con t=0.0 -> rotación 0°
+        res_t0 = shape_manipulator(self.context, drawing=self.sq, rot=90.0, t=0.0, mode="center")
+        self.assertTrue(res_t0.startswith("m -50 -50"))
+
+        # Con t=1.0 -> rotación 90°
+        res_t1 = shape_manipulator(self.context, drawing=self.sq, rot=90.0, t=1.0, mode="center")
+        self.assertTrue(res_t1.startswith("m 50 -50"))
+
+    def test_border_with_t_interpolation(self):
+        """Verifica la interpolación de grosor de bordes (offset) con Factor (t)."""
+        # Con t=0.0 -> offset 0px
+        res_t0 = shape_manipulator(self.context, drawing=self.sq, offset_border=10.0, t=0.0, mode="topleft")
+        self.assertTrue(res_t0.startswith("m 0 0"))
+
+        # Con t=1.0 -> offset 10px
+        res_t1 = shape_manipulator(self.context, drawing=self.sq, offset_border=10.0, t=1.0, mode="topleft")
+        self.assertIn("l", res_t1)
+        self.assertNotEqual(res_t0, res_t1)
+
+    def test_position_with_t_interpolation(self):
+        """Verifica la interpolación de traslación con Factor (t)."""
+        # Con t=0.0 -> offset 0
+        res_t0 = shape_manipulator(self.context, drawing=self.sq, offset_x=100.0, offset_y=50.0, t=0.0, mode="topleft")
+        self.assertTrue(res_t0.startswith("m 0 0"))
+
+        # Con t=0.5 -> offset x=50, y=25
+        res_t05 = shape_manipulator(self.context, drawing=self.sq, offset_x=100.0, offset_y=50.0, t=0.5, mode="topleft")
+        self.assertTrue(res_t05.startswith("m 50 25"))
+
+        # Con t=1.0 -> offset x=100, y=50
+        res_t1 = shape_manipulator(self.context, drawing=self.sq, offset_x=100.0, offset_y=50.0, t=1.0, mode="topleft")
+        self.assertTrue(res_t1.startswith("m 100 50"))
+
+    def test_bordes_and_deformar_anchor_modes(self):
+        """Verifica los modos de anclaje (center, topleft, absolute) en Bordes y Deformar."""
+        # Bordes con center vs topleft
+        res_bordes_center = shape_manipulator(self.context, drawing=self.sq, offset_border=5.0, mode="center")
+        res_bordes_topleft = shape_manipulator(self.context, drawing=self.sq, offset_border=5.0, mode="topleft")
+        self.assertNotEqual(res_bordes_center, res_bordes_topleft)
+
+        # Deformar con absolute
+        res_def_abs = shape_manipulator(self.context, drawing=self.sq, scale_x=1.5, scale_y=1.5, mode="absolute")
+        self.assertIn("m 125 225", res_def_abs)
 
 
 if __name__ == '__main__':

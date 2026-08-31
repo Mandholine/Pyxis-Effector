@@ -164,13 +164,14 @@ def shape_flor_sakura_3t(context):
 # -----------------------------------------------------------------------------
 import math
 
-def shape_transform(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offset_x=0.0, offset_y=0.0, offset_border=0.0, mode="center"):
-    """Aplica escala, rotación, desplazamiento y offsetting de contorno vectorial real (PyClipperOffset) a un dibujo vectorial ASS (m ...).
+def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offset_x=0.0, offset_y=0.0, offset_border=0.0, mode="center", t=1.0):
+    """Aplica manipulaciones afines elementales (escala, rotación, desplazamiento, offsetting) a un dibujo vectorial ASS (m ...).
+    Soporta Factor (t) para interpolación paramétrica fluida (0.0 -> 1.0).
     Modos de alineación:
       - 'center': Centra el shape alrededor de (0,0).
       - 'topleft': Alinea el 0,0 a la esquina superior izquierda del bounding box.
       - 'absolute': Escribe el shape centrado y le suma la posición absoluta del contexto (fx.pos_x, fx.pos_y) listo para clips.
-      - 'original': Conserva las coordenadas originales del dibujo antes del transform.
+      - 'original': Conserva las coordenadas originales del dibujo antes de la manipulación.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
@@ -193,8 +194,12 @@ def shape_transform(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offs
         if v_shp and v_shp.strip():
             raw_shp = v_shp
 
-    try: delta = float(offset_border) if (offset_border is not None and offset_border != "") else 0.0
-    except: delta = 0.0
+    try: t_val = float(t) if (t is not None and t != "") else 1.0
+    except: t_val = 1.0
+
+    try: raw_delta = float(offset_border) if (offset_border is not None and offset_border != "") else 0.0
+    except: raw_delta = 0.0
+    delta = raw_delta * t_val
 
     if abs(delta) > 0.0001:
         from clipper_engine import ClipperEngine
@@ -202,16 +207,22 @@ def shape_transform(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offs
         if off_shp and off_shp.strip():
             raw_shp = off_shp
 
-    try: sx = float(scale_x) if scale_x != "" else 1.0
-    except: sx = 1.0
-    try: sy = float(scale_y) if scale_y != "" else 1.0
-    except: sy = 1.0
-    try: angle = float(rot) if rot != "" else 0.0
-    except: angle = 0.0
-    try: tx = float(offset_x) if offset_x != "" else 0.0
-    except: tx = 0.0
-    try: ty = float(offset_y) if offset_y != "" else 0.0
-    except: ty = 0.0
+    try: raw_sx = float(scale_x) if scale_x != "" else 1.0
+    except: raw_sx = 1.0
+    try: raw_sy = float(scale_y) if scale_y != "" else 1.0
+    except: raw_sy = 1.0
+    try: raw_angle = float(rot) if rot != "" else 0.0
+    except: raw_angle = 0.0
+    try: raw_tx = float(offset_x) if offset_x != "" else 0.0
+    except: raw_tx = 0.0
+    try: raw_ty = float(offset_y) if offset_y != "" else 0.0
+    except: raw_ty = 0.0
+
+    sx = 1.0 + (raw_sx - 1.0) * t_val
+    sy = 1.0 + (raw_sy - 1.0) * t_val
+    angle = raw_angle * t_val
+    tx = raw_tx * t_val
+    ty = raw_ty * t_val
 
     mode_str = str(mode or "center").strip().lower()
 
@@ -302,9 +313,946 @@ def shape_transform(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offs
 
     return " ".join(out_tokens) + " "
 
-# -----------------------------------------------------------------------------
-# BORDES CONCÉNTRICOS (shape.borders / shape.filled_borders)
-# -----------------------------------------------------------------------------
+
+
+
+# =============================================================================
+# CACHE & NORMALIZACIÓN DE CONTORNOS (PARIDAD NEWKARA 2PX INTERSECT)
+# =============================================================================
+_SHAPE_NORMALIZED_CACHE = {}
+_MAX_SHAPE_CACHE_SIZE = 1000
+
+
+def _compute_convex_hull(points):
+    """Calcula la envolvente convexa 2D (Convex Hull) de un conjunto de puntos
+    usando el algoritmo Monotone Chain (equivalente a ke.shape.point.toconvex en NewKara).
+    Retorna la lista de vértices en orden horario/antihorario del polígono convexo.
+    """
+    pts = sorted(list({(round(float(p[0]), 4), round(float(p[1]), 4)) for p in points}))
+    if len(pts) <= 2:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 1e-7:
+            lower.pop()
+        lower.append(p)
+
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 1e-7:
+            upper.pop()
+        upper.append(p)
+
+    return lower[:-1] + upper[:-1]
+
+
+def _normalize_shape_to_polyline_2px(shape_str, step=2.0):
+    """Subdivide y normaliza una forma ASS (incluyendo rectas y curvas Bézier 'b')
+    en una polilínea de segmentos rectos discretizados cada `step` píxeles (default 2px).
+    Utiliza una caché en memoria para O(1) de tiempo en llamadas sucesivas en bucles.
+    Retorna un diccionario con:
+      - 'segments': [((x1, y1), (x2, y2)), ...]
+      - 'points': [(cmd, (x, y)), ...]
+      - 'centroid': (cx, cy)
+      - 'bounds': (min_x, max_x, min_y, max_y, w, h)
+      - 'convex_hull': [(hx, hy), ...]
+      - 'hull_segments': [((hx1, hy1), (hx2, hy2)), ...]
+      - 'contours': [[(x, y), ...], ...]
+    """
+    cache_key = (shape_str, float(step))
+    if cache_key in _SHAPE_NORMALIZED_CACHE:
+        return _SHAPE_NORMALIZED_CACHE[cache_key]
+
+    tokens = shape_str.strip().split()
+    if not tokens:
+        res = {
+            'segments': [], 'points': [], 'centroid': (0.0, 0.0),
+            'bounds': (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            'convex_hull': [], 'hull_segments': [], 'contours': []
+        }
+        return res
+
+    cmds = []
+    i = 0
+    curr_cmd = 'm'
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok.isalpha() and tok.lower() in ('m', 'l', 'b', 's', 'p', 'c'):
+            curr_cmd = tok.lower()
+            i += 1
+            continue
+        try:
+            x = float(tok)
+            if i + 1 < len(tokens):
+                y = float(tokens[i + 1])
+                cmds.append((curr_cmd, (x, y)))
+                i += 2
+                continue
+        except ValueError:
+            pass
+        i += 1
+
+    poly_pts = []
+    contours = []
+    curr_contour = []
+    curr_pt = None
+    c_idx = 0
+    while c_idx < len(cmds):
+        cmd, pt = cmds[c_idx]
+        if cmd == 'm':
+            if curr_contour:
+                contours.append(curr_contour)
+                curr_contour = []
+            poly_pts.append(('m', pt))
+            curr_contour.append(pt)
+            curr_pt = pt
+            c_idx += 1
+        elif cmd == 'l':
+            if curr_pt:
+                d = math.hypot(pt[0] - curr_pt[0], pt[1] - curr_pt[1])
+                steps = max(1, int(math.ceil(d / step)))
+                for s in range(1, steps + 1):
+                    f = s / float(steps)
+                    ix = curr_pt[0] + (pt[0] - curr_pt[0]) * f
+                    iy = curr_pt[1] + (pt[1] - curr_pt[1]) * f
+                    poly_pts.append(('l', (ix, iy)))
+                    curr_contour.append((ix, iy))
+            else:
+                poly_pts.append(('l', pt))
+                curr_contour.append(pt)
+            curr_pt = pt
+            c_idx += 1
+        elif cmd == 'b':
+            if curr_pt and c_idx + 2 < len(cmds):
+                p0 = curr_pt
+                p1 = cmds[c_idx][1]
+                p2 = cmds[c_idx + 1][1]
+                p3 = cmds[c_idx + 2][1]
+                chord = math.hypot(p3[0] - p0[0], p3[1] - p0[1])
+                poly_len = (math.hypot(p1[0] - p0[0], p1[1] - p0[1]) +
+                            math.hypot(p2[0] - p1[0], p2[1] - p1[1]) +
+                            math.hypot(p3[0] - p2[0], p3[1] - p2[1]))
+                est_len = (chord + poly_len) / 2.0
+                steps = max(4, int(math.ceil(est_len / step)))
+                for s in range(1, steps + 1):
+                    st = s / float(steps)
+                    omt = 1.0 - st
+                    bx = (omt**3 * p0[0] + 3 * omt**2 * st * p1[0] +
+                          3 * omt * st**2 * p2[0] + st**3 * p3[0])
+                    by = (omt**3 * p0[1] + 3 * omt**2 * st * p1[1] +
+                          3 * omt * st**2 * p2[1] + st**3 * p3[1])
+                    poly_pts.append(('l', (bx, by)))
+                    curr_contour.append((bx, by))
+                curr_pt = p3
+                c_idx += 3
+            else:
+                poly_pts.append(('l', pt))
+                curr_contour.append(pt)
+                curr_pt = pt
+                c_idx += 1
+        else:
+            poly_pts.append((cmd, pt))
+            curr_contour.append(pt)
+            curr_pt = pt
+            c_idx += 1
+
+    if curr_contour:
+        contours.append(curr_contour)
+
+    segments = []
+    for cnt in contours:
+        if len(cnt) >= 2:
+            for k in range(len(cnt) - 1):
+                segments.append((cnt[k], cnt[k + 1]))
+            if math.hypot(cnt[-1][0] - cnt[0][0], cnt[-1][1] - cnt[0][1]) > 1e-4:
+                segments.append((cnt[-1], cnt[0]))
+
+    all_raw_pts = [p[1] for p in poly_pts if p[1]]
+    if all_raw_pts:
+        xs = [p[0] for p in all_raw_pts]
+        ys = [p[1] for p in all_raw_pts]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        w = max_x - min_x
+        h = max_y - min_y
+        cx = (min_x + max_x) / 2.0
+        cy = (min_y + max_y) / 2.0
+        hull = _compute_convex_hull(all_raw_pts)
+        hull_segments = []
+        if len(hull) >= 2:
+            for k in range(len(hull) - 1):
+                hull_segments.append((hull[k], hull[k + 1]))
+            hull_segments.append((hull[-1], hull[0]))
+    else:
+        min_x = max_x = min_y = max_y = w = h = cx = cy = 0.0
+        hull = []
+        hull_segments = []
+
+    res = {
+        'segments': segments,
+        'points': poly_pts,
+        'centroid': (cx, cy),
+        'bounds': (min_x, max_x, min_y, max_y, w, h),
+        'convex_hull': hull,
+        'hull_segments': hull_segments,
+        'contours': contours
+    }
+
+    if len(_SHAPE_NORMALIZED_CACHE) >= _MAX_SHAPE_CACHE_SIZE:
+        _SHAPE_NORMALIZED_CACHE.clear()
+    _SHAPE_NORMALIZED_CACHE[cache_key] = res
+    return res
+
+
+def _ray_intersect_segments(ro, angle_deg, segments):
+    """Calcula la distancia de intersección desde el origen polar `ro` (centroide)
+    en dirección `angle_deg` (coordenadas estándar de dibujo ASS) con la lista de segmentos 2D.
+    Retorna la distancia de la intersección más lejana a lo largo del rayo positivo.
+    """
+    rad = math.radians(angle_deg)
+    rx = math.cos(rad)
+    ry = -math.sin(rad)  # ASS coord: Y crece hacia abajo
+    cx, cy = ro
+    best_t = None
+    for (x1, y1), (x2, y2) in segments:
+        vx = x2 - x1
+        vy = y2 - y1
+        det = rx * vy - ry * vx
+        if abs(det) < 1e-9:
+            continue
+        dx = x1 - cx
+        dy = y1 - cy
+        t = (dx * vy - dy * vx) / det
+        u = (dx * ry - dy * rx) / det
+        if t > 1e-4 and -1e-5 <= u <= 1.0 + 1e-5:
+            if best_t is None or t > best_t:
+                best_t = t
+    return best_t
+
+
+def _reduce_collinear_cmds(cmds, eps_angle=1.0):
+    """Elimina puntos colineales redundantes consecutivos (__red() en NewKara)."""
+    if len(cmds) < 3:
+        return cmds
+    res = [cmds[0]]
+    for i in range(1, len(cmds) - 1):
+        prev_cmd, p_prev = res[-1]
+        curr_cmd, p_curr = cmds[i]
+        next_cmd, p_next = cmds[i + 1]
+        if curr_cmd == 'l' and next_cmd == 'l' and prev_cmd in ('m', 'l'):
+            if isinstance(p_prev, (list, tuple)) and isinstance(p_curr, (list, tuple)) and isinstance(p_next, (list, tuple)):
+                a1 = math.degrees(math.atan2(p_curr[1] - p_prev[1], p_curr[0] - p_prev[0])) % 360
+                a2 = math.degrees(math.atan2(p_next[1] - p_curr[1], p_next[0] - p_curr[0])) % 360
+                diff = abs(a1 - a2)
+                if diff > 180: diff = 360 - diff
+                if diff < eps_angle:
+                    continue
+        res.append((curr_cmd, p_curr))
+    res.append(cmds[-1])
+    return res
+
+
+def _format_shape_cmds(cmds, anchor="center", context=None):
+    """Aplica el sistema de anclaje de Pyxis y serializa comandos a cadena ASSDraw."""
+    if not cmds:
+        return ""
+    all_x = []
+    all_y = []
+    for cmd, pt in cmds:
+        if pt is not None:
+            if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                for k in range(0, len(pt), 2):
+                    all_x.append(pt[k])
+                    all_y.append(pt[k + 1])
+
+    if not all_x:
+        return ""
+
+    min_x, max_x = min(all_x), max(all_x)
+    min_y, max_y = min(all_y), max(all_y)
+    cx = (min_x + max_x) / 2.0
+    cy = (min_y + max_y) / 2.0
+
+    anchor_str = str(anchor or "center").strip().lower()
+    if anchor_str in ("original", "raw", "0"):
+        off_x, off_y = 0.0, 0.0
+    elif anchor_str in ("topleft", "top_left", "7"):
+        off_x, off_y = -min_x, -min_y
+    elif anchor_str in ("topright", "top_right", "9"):
+        off_x, off_y = -max_x, -min_y
+    elif anchor_str in ("bottomleft", "bottom_left", "1"):
+        off_x, off_y = -min_x, -max_y
+    elif anchor_str in ("bottomright", "bottom_right", "3"):
+        off_x, off_y = -max_x, -max_y
+    elif anchor_str in ("absolute", "absoluto", "clip"):
+        pos_x, pos_y = 0.0, 0.0
+        if isinstance(context, dict):
+            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', 0.0))))
+            except: pos_x = 0.0
+            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', 0.0))))
+            except: pos_y = 0.0
+        off_x, off_y = pos_x - cx, pos_y - cy
+    else:  # "center", "centro", "5" (default)
+        off_x, off_y = -cx, -cy
+
+    out_tokens = []
+    last_cmd = None
+    for cmd, pt in cmds:
+        if pt is None:
+            out_tokens.append(cmd)
+            last_cmd = cmd
+            continue
+        if cmd != last_cmd:
+            out_tokens.append(cmd)
+            last_cmd = cmd
+        for k in range(0, len(pt), 2):
+            fx = pt[k] + off_x
+            fy = pt[k + 1] + off_y
+            if abs(fx) < 1e-9: fx = 0.0
+            if abs(fy) < 1e-9: fy = 0.0
+            fmt_x = int(fx) if fx.is_integer() else round(fx, 2)
+            fmt_y = int(fy) if fy.is_integer() else round(fy, 2)
+            out_tokens.append(str(fmt_x))
+            out_tokens.append(str(fmt_y))
+
+    return " ".join(out_tokens) + " "
+
+
+# =============================================================================
+# MODOS DE TRANSFORMACIÓN (100% PARIDAD CON NEWKARA LIBRARY)
+# =============================================================================
+
+def _shape_inflate(drawing, t=0.5, ratio=1.0, mode="circle", anchor="center", context=None):
+    """Aplica deformación morfológica radial (esferificación/abombamiento) a un dibujo ASS.
+    Paridad 100% con ke.shape.inflated en newkara_library.lua.
+    Modo 'circle': infla radialmente hacia una circunferencia circunscrita.
+    Modo 'ellipse': infla radialmente hacia una elipse circunscrita adaptada al aspecto del bounding box.
+    """
+    if not drawing or not isinstance(drawing, str):
+        return ""
+    try: t_val = float(t) if t != "" else 0.5
+    except: t_val = 0.5
+    try: ratio_val = float(ratio) if ratio != "" else 1.0
+    except: ratio_val = 1.0
+
+    anchor_str = str(anchor or "center").strip().lower()
+    if abs(t_val) < 1e-5 and abs(ratio_val - 1.0) < 1e-5 and anchor_str in ("original", "raw", "0"):
+        return drawing
+
+    # Normalización con subdivisión de rectas y curvas Bézier (split=4px)
+    norm_src = _normalize_shape_to_polyline_2px(drawing, step=4.0)
+    if not norm_src['points']:
+        return drawing
+
+    mode_str = str(mode or "circle").strip().lower()
+    is_circle = mode_str in ("circle", "circulo")
+
+    # En Lua: self = self:ratio(ratio):redraw(split)
+    scaled_contours = []
+    for cnt in norm_src['contours']:
+        s_cnt = [(p[0] * ratio_val, p[1]) for p in cnt]
+        scaled_contours.append(s_cnt)
+
+    EPSILON = 1e-6
+    transformed_cmds = []
+
+    for cnt in scaled_contours:
+        if not cnt:
+            continue
+        xs = [p[0] for p in cnt]
+        ys = [p[1] for p in cnt]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        w = max(1e-4, max_x - min_x)
+        h = max(1e-4, max_y - min_y)
+        cx = (min_x + max_x) / 2.0
+        cy = (min_y + max_y) / 2.0
+
+        diameter = math.sqrt((w * w + h * h) / 2.0)
+        r1 = (diameter if is_circle else w) * math.sqrt(2.0) / 2.0
+        r2 = (diameter if is_circle else h) * math.sqrt(2.0) / 2.0
+
+        for i, (px, py) in enumerate(cnt):
+            cmd = 'm' if i == 0 else 'l'
+            dx = px - cx
+            dy = py - cy
+            dist = math.hypot(dx, dy)
+            if dist > EPSILON:
+                ang = math.atan2(dy, dx)
+                _cos = math.cos(ang)
+                _sin = math.sin(ang)
+                denom = math.sqrt(r2 * r2 * _cos * _cos + r1 * r1 * _sin * _sin)
+                radius = (r1 * r2) / denom if denom > EPSILON else r1
+                ux = dx / dist
+                uy = dy / dist
+                new_dist = dist * (1.0 - t_val) + radius * t_val
+                nx = cx + ux * new_dist
+                ny = cy + uy * new_dist
+                transformed_cmds.append((cmd, (nx, ny)))
+            else:
+                transformed_cmds.append((cmd, (px, py)))
+
+    red_cmds = _reduce_collinear_cmds(transformed_cmds)
+    return _format_shape_cmds(red_cmds, anchor=anchor, context=context)
+
+
+def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, t=1.0, anchor="center", context=None):
+    """Aplica cizallamiento 2D / inclinación planar angular (Skew) a un dibujo ASS.
+    Paridad con ke.shape.oblique y shape.oblique de Effector-utils.
+    Soporta Factor (t) para animación paramétrica fluida (0.0 -> 1.0).
+    x' = x + (y - ref_y) * tan(rad(angle_x * t))
+    y' = y + (x - ref_x) * tan(rad(angle_y * t))
+    """
+    if not drawing or not isinstance(drawing, str):
+        return ""
+    tokens = drawing.strip().split()
+    if not tokens:
+        return ""
+
+    coords = []
+    for tok in tokens:
+        try: coords.append(float(tok))
+        except ValueError: pass
+    if not coords or len(coords) < 2:
+        return drawing
+
+    xs = coords[0::2]
+    ys = coords[1::2]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    cx = (min_x + max_x) / 2.0
+    cy = (min_y + max_y) / 2.0
+
+    try: t_val = float(t) if (t is not None and t != "") else 1.0
+    except: t_val = 1.0
+
+    try: raw_ax = float(angle_x) if angle_x != "" else 0.0
+    except: raw_ax = 0.0
+    try: raw_ay = float(angle_y) if angle_y != "" else 0.0
+    except: raw_ay = 0.0
+
+    ax = raw_ax * t_val
+    ay = raw_ay * t_val
+
+    anchor_str = str(anchor or "center").strip().lower()
+    if abs(ax) < 1e-5 and abs(ay) < 1e-5 and anchor_str in ("original", "raw", "0"):
+        return drawing
+
+    ax = max(-89.9, min(89.9, ax))
+    ay = max(-89.9, min(89.9, ay))
+    tan_x = math.tan(math.radians(ax))
+    tan_y = math.tan(math.radians(ay))
+
+    if anchor_str in ("original", "raw", "0"):
+        ref_x, ref_y = 0.0, 0.0
+    elif anchor_str in ("topleft", "top_left", "7"):
+        ref_x, ref_y = min_x, min_y
+    elif anchor_str in ("topright", "top_right", "9"):
+        ref_x, ref_y = max_x, min_y
+    elif anchor_str in ("bottomleft", "bottom_left", "1"):
+        ref_x, ref_y = min_x, max_y
+    elif anchor_str in ("bottomright", "bottom_right", "3"):
+        ref_x, ref_y = max_x, max_y
+    elif anchor_str in ("absolute", "absoluto", "clip"):
+        ref_x, ref_y = cx, cy
+    else:  # "center"
+        ref_x, ref_y = cx, cy
+
+    cmds = []
+    i = 0
+    curr_cmd = 'm'
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok.isalpha() and tok.lower() in ('m', 'l', 'b', 's', 'p', 'c'):
+            curr_cmd = tok.lower()
+            i += 1
+            continue
+        try:
+            x_val = float(tok)
+            if i + 1 < len(tokens):
+                y_val = float(tokens[i + 1])
+                nx = x_val + (y_val - ref_y) * tan_x
+                ny = y_val + (x_val - ref_x) * tan_y
+                cmds.append((curr_cmd, (nx, ny)))
+                i += 2
+                continue
+        except ValueError:
+            pass
+        i += 1
+
+    return _format_shape_cmds(cmds, anchor=anchor, context=context)
+
+
+def _shape_round_corners(drawing, radius=10.0, t=1.0, mode="Round", anchor="center", context=None):
+    """Redondea o bisela esquinas poliédricas de un contorno ASS.
+    Paridad 100% con ke.shape.roundout de newkara_library.lua.
+    Soporta Factor (t) para animación paramétrica fluida (0.0 -> 1.0).
+    """
+    if not drawing or not isinstance(drawing, str):
+        return ""
+    try: t_val = float(t) if (t is not None and t != "") else 1.0
+    except: t_val = 1.0
+    try: raw_rad = float(radius) if radius != "" else 10.0
+    except: raw_rad = 10.0
+    rad = raw_rad * t_val
+
+    anchor_str = str(anchor or "center").strip().lower()
+    if abs(rad) < 1e-5 and anchor_str in ("original", "raw", "0"):
+        return drawing
+
+    tokens = drawing.strip().split()
+    if not tokens:
+        return ""
+
+    contours = []
+    curr_contour = []
+    curr_cmd = 'm'
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok.isalpha() and tok.lower() in ('m', 'l', 'b', 's', 'p', 'c'):
+            curr_cmd = tok.lower()
+            i += 1
+            if curr_cmd == 'm' and curr_contour:
+                contours.append(curr_contour)
+                curr_contour = []
+            continue
+        try:
+            x = float(tok)
+            if i + 1 < len(tokens):
+                y = float(tokens[i + 1])
+                curr_contour.append((curr_cmd, (x, y)))
+                i += 2
+                continue
+        except ValueError:
+            pass
+        i += 1
+    if curr_contour:
+        contours.append(curr_contour)
+
+    mode_str = str(mode or "Round").strip().lower()
+    is_bevel = mode_str in ("bevel", "bisel", "chaflan")
+    negative = rad < 0
+    abs_rad = abs(rad)
+
+    def get_t(p0, p1, p2, r):
+        d1 = math.hypot(p0[0] - p1[0], p0[1] - p1[1])
+        d2 = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+        dmin = min(d1, d2)
+        if dmin < 1e-6:
+            return 0.0, 0.0
+        eff_r = min(r, 0.40 * dmin)
+        return eff_r / d1, eff_r / d2
+
+    def ipol(p_from, p_to, t_ipol):
+        return (p_from[0] + (p_to[0] - p_from[0]) * t_ipol, p_from[1] + (p_to[1] - p_from[1]) * t_ipol)
+
+    def reflect_pt(p, p1, p2):
+        v = (p2[0] - p1[0], p2[1] - p1[1])
+        w = (p[0] - p1[0], p[1] - p1[1])
+        norm2 = v[0]**2 + v[1]**2
+        if norm2 < 1e-9:
+            return p
+        t_proj = (w[0] * v[0] + w[1] * v[1]) / norm2
+        proj = (p1[0] + v[0] * t_proj, p1[1] + v[1] * t_proj)
+        return (2.0 * proj[0] - p[0], 2.0 * proj[1] - p[1])
+
+    rounded_cmds = []
+    for contour in contours:
+        if len(contour) < 3:
+            rounded_cmds.extend(contour)
+            continue
+
+        raw_pts = [c[1] for c in contour]
+        is_closed = True
+        if math.hypot(raw_pts[0][0] - raw_pts[-1][0], raw_pts[0][1] - raw_pts[-1][1]) < 1e-4:
+            raw_pts.pop()
+
+        n = len(raw_pts)
+        if n < 3:
+            rounded_cmds.extend(contour)
+            continue
+
+        if is_closed:
+            t0_0, t1_0 = get_t(raw_pts[-1], raw_pts[0], raw_pts[1], abs_rad)
+            start_pt = ipol(raw_pts[0], raw_pts[1], t1_0)
+            rounded_cmds.append(('m', start_pt))
+
+            for j in range(1, n):
+                p_prev = raw_pts[j - 1]
+                p_curr = raw_pts[j]
+                p_next = raw_pts[(j + 1) % n]
+                t0, t1 = get_t(p_prev, p_curr, p_next, abs_rad)
+                p1 = ipol(p_curr, p_prev, t0)
+                rounded_cmds.append(('l', p1))
+
+                if is_bevel:
+                    p2 = ipol(p_curr, p_next, t1)
+                    rounded_cmds.append(('l', p2))
+                else:
+                    p2 = ipol(p_curr, p_prev, 0.42 * t0)
+                    p3 = ipol(p_curr, p_next, 0.42 * t1)
+                    p4 = ipol(p_curr, p_next, t1)
+                    if negative:
+                        p2 = reflect_pt(p2, p1, p4)
+                        p3 = reflect_pt(p3, p1, p4)
+                    rounded_cmds.append(('b', (p2[0], p2[1], p3[0], p3[1], p4[0], p4[1])))
+
+            # Close back to start_pt
+            p_prev = raw_pts[-1]
+            p_curr = raw_pts[0]
+            p_next = raw_pts[1]
+            t0, t1 = get_t(p_prev, p_curr, p_next, abs_rad)
+            p1 = ipol(p_curr, p_prev, t0)
+            rounded_cmds.append(('l', p1))
+            if is_bevel:
+                rounded_cmds.append(('l', start_pt))
+            else:
+                p2 = ipol(p_curr, p_prev, 0.42 * t0)
+                p3 = ipol(p_curr, p_next, 0.42 * t1)
+                if negative:
+                    p2 = reflect_pt(p2, p1, start_pt)
+                    p3 = reflect_pt(p3, p1, start_pt)
+                rounded_cmds.append(('b', (p2[0], p2[1], p3[0], p3[1], start_pt[0], start_pt[1])))
+        else:
+            rounded_cmds.append(('m', raw_pts[0]))
+            for j in range(1, n - 1):
+                p_prev = raw_pts[j - 1]
+                p_curr = raw_pts[j]
+                p_next = raw_pts[j + 1]
+                t0, t1 = get_t(p_prev, p_curr, p_next, abs_rad)
+                p1 = ipol(p_curr, p_prev, t0)
+                rounded_cmds.append(('l', p1))
+                if is_bevel:
+                    p2 = ipol(p_curr, p_next, t1)
+                    rounded_cmds.append(('l', p2))
+                else:
+                    p2 = ipol(p_curr, p_prev, 0.42 * t0)
+                    p3 = ipol(p_curr, p_next, 0.42 * t1)
+                    p4 = ipol(p_curr, p_next, t1)
+                    if negative:
+                        p2 = reflect_pt(p2, p1, p4)
+                        p3 = reflect_pt(p3, p1, p4)
+                    rounded_cmds.append(('b', (p2[0], p2[1], p3[0], p3[1], p4[0], p4[1])))
+            rounded_cmds.append(('l', raw_pts[-1]))
+
+    return _format_shape_cmds(rounded_cmds, anchor=anchor, context=context)
+
+
+def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="center", context=None):
+    """Deforma y curva un dibujo vectorial ASS a lo largo de una spline directriz o arco paramétrico.
+    Paridad 100% con ke.shape.flexor de newkara_library.lua.
+    """
+    if not drawing or not isinstance(drawing, str):
+        return ""
+    try: t_val = float(t) if t != "" else 1.0
+    except: t_val = 1.0
+    try: bend_val = float(bend) if bend != "" else 30.0
+    except: bend_val = 30.0
+
+    anchor_str = str(anchor or "center").strip().lower()
+    if abs(t_val) < 1e-4 and anchor_str in ("original", "raw", "0"):
+        return drawing
+
+    norm_src = _normalize_shape_to_polyline_2px(drawing, step=4.0)
+    if not norm_src['points']:
+        return drawing
+
+    min_x, max_x, min_y, max_y, w, h = norm_src['bounds']
+    w = max(1.0, w)
+    h = max(1.0, h)
+    cx, cy = norm_src['centroid']
+
+    curve_str = str(curve or "").strip()
+    is_custom_curve = curve_str.lower().startswith("m ") or curve_str.lower().startswith("m-") or curve_str.lower().startswith("m0")
+
+    if is_custom_curve:
+        norm_guide = _normalize_shape_to_polyline_2px(curve_str, step=2.0)
+        guide_pts = [p[1] for p in norm_guide['points'] if p[1]]
+    else:
+        arch_h = (w * 0.4 * math.sin(math.radians(bend_val))) if abs(bend_val) <= 180 else (bend_val * 0.5)
+        p0 = (min_x, cy)
+        p1 = (min_x + w * 0.25, cy - arch_h * 1.3)
+        p2 = (max_x - w * 0.25, cy - arch_h * 1.3)
+        p3 = (max_x, cy)
+        guide_pts = []
+        for step in range(0, 31):
+            st = step / 30.0
+            omt = 1.0 - st
+            bx = omt**3 * p0[0] + 3 * omt**2 * st * p1[0] + 3 * omt * st**2 * p2[0] + st**3 * p3[0]
+            by = omt**3 * p0[1] + 3 * omt**2 * st * p1[1] + 3 * omt * st**2 * p2[1] + st**3 * p3[1]
+            guide_pts.append((bx, by))
+
+    if not guide_pts or len(guide_pts) < 2:
+        return drawing
+
+    cum_lens = [0.0]
+    total_len = 0.0
+    for si in range(1, len(guide_pts)):
+        total_len += math.hypot(guide_pts[si][0] - guide_pts[si - 1][0], guide_pts[si][1] - guide_pts[si - 1][1])
+        cum_lens.append(total_len)
+
+    def eval_guide(u):
+        target = max(0.0, min(1.0, u)) * total_len
+        si = 0
+        while si < len(cum_lens) - 1 and cum_lens[si + 1] < target:
+            si += 1
+        seg = cum_lens[si + 1] - cum_lens[si]
+        f = (target - cum_lens[si]) / seg if seg > 1e-6 else 0.0
+        p_a = guide_pts[si]
+        p_b = guide_pts[si + 1]
+        px = p_a[0] + (p_b[0] - p_a[0]) * f
+        py = p_a[1] + (p_b[1] - p_a[1]) * f
+        ang = math.atan2(p_b[1] - p_a[1], p_b[0] - p_a[0])
+        return px, py, ang
+
+    axis_lower = str(axis or "x").strip().lower()
+    transformed_cmds = []
+
+    for cmd, pt in norm_src['points']:
+        x_val, y_val = pt
+        if axis_lower == "y":
+            u = (y_val - min_y) / h
+            v = x_val - cx
+            c_px, c_py, c_ang = eval_guide(u)
+            norm_ang = c_ang + math.pi / 2.0
+            fx = c_px + v * math.cos(norm_ang)
+            fy = c_py + v * math.sin(norm_ang)
+        else:
+            u = (x_val - min_x) / w
+            v = y_val - cy
+            c_px, c_py, c_ang = eval_guide(u)
+            norm_ang = c_ang + math.pi / 2.0
+            fx = c_px + v * math.cos(norm_ang)
+            fy = c_py + v * math.sin(norm_ang)
+
+        final_x = x_val * (1.0 - t_val) + fx * t_val
+        final_y = y_val * (1.0 - t_val) + fy * t_val
+        transformed_cmds.append((cmd, (final_x, final_y)))
+
+    red_cmds = _reduce_collinear_cmds(transformed_cmds)
+    return _format_shape_cmds(red_cmds, anchor=anchor, context=context)
+
+
+def _shape_distort(drawing, target_shape="", t=1.0, anchor="center", context=None):
+    """Deforma un dibujo vectorial ASS hacia el contorno morfológico de una forma objetivo.
+    Paridad 100% con ke.shape.distort + inconvex + inboundary de newkara_library.lua.
+    Utiliza la normalización a 2px en caché para intersección de rayos polares de alta precisión.
+    """
+    if not drawing or not isinstance(drawing, str):
+        return ""
+    if not target_shape or not isinstance(target_shape, str) or not target_shape.strip():
+        return drawing
+
+    try: t_val = float(t) if t != "" else 1.0
+    except: t_val = 1.0
+
+    anchor_str = str(anchor or "center").strip().lower()
+    if abs(t_val) < 1e-4 and anchor_str in ("original", "raw", "0"):
+        return drawing
+
+    # 1. Forma origen normalizada (step=4.0)
+    norm_src = _normalize_shape_to_polyline_2px(drawing, step=4.0)
+    if not norm_src['points']:
+        return drawing
+
+    # 2. Forma objetivo normalizada a 2px para intersección precisa (en caché)
+    norm_tgt = _normalize_shape_to_polyline_2px(target_shape, step=2.0)
+    if not norm_tgt['segments']:
+        return drawing
+
+    s_cx, s_cy = norm_src['centroid']
+    s_min_x, s_max_x, s_min_y, s_max_y, s_w, s_h = norm_src['bounds']
+    t_min_x, t_max_x, t_min_y, t_max_y, t_w, t_h = norm_tgt['bounds']
+    t_cx, t_cy = norm_tgt['centroid']
+
+    # Escalar y alinear segmentos objetivo a las dimensiones de la fuente
+    scale_x = (s_w / t_w) if t_w > 1e-4 else 1.0
+    scale_y = (s_h / t_h) if t_h > 1e-4 else 1.0
+
+    tgt_aligned_segs = []
+    for (x1, y1), (x2, y2) in norm_tgt['segments']:
+        nx1 = s_cx + (x1 - t_cx) * scale_x
+        ny1 = s_cy + (y1 - t_cy) * scale_y
+        nx2 = s_cx + (x2 - t_cx) * scale_x
+        ny2 = s_cy + (y2 - t_cy) * scale_y
+        tgt_aligned_segs.append(((nx1, ny1), (nx2, ny2)))
+
+    src_hull_segs = norm_src['hull_segments']
+    if not src_hull_segs:
+        src_hull_segs = norm_src['segments']
+
+    transformed_cmds = []
+    for cmd, (px, py) in norm_src['points']:
+        dx = px - s_cx
+        dy = py - s_cy
+        dist = math.hypot(dx, dy)
+        if dist < 1e-4:
+            transformed_cmds.append((cmd, (px, py)))
+            continue
+
+        # Coordenadas polares respecto al centroide (ASS Y abajo)
+        angle = math.degrees(math.atan2(-dy, dx)) % 360.0
+
+        # radius1: Intersección con el casco convexo de origen (inconvex en Lua)
+        r1 = _ray_intersect_segments((s_cx, s_cy), angle, src_hull_segs) or dist
+
+        # radius2: Intersección con el contorno normalizado a 2px del objetivo (inboundary en Lua)
+        r2 = _ray_intersect_segments((s_cx, s_cy), angle, tgt_aligned_segs)
+        if r2 is None:
+            r2 = _ray_intersect_segments((s_cx, s_cy), (360.0 - angle) % 360.0, tgt_aligned_segs)
+        if r2 is None or r1 < 1e-4:
+            r2 = r1
+
+        # Deformación polar: newdist = dis + (dis * r2 / r1 - dis) * t
+        ratio = r2 / r1 if r1 > 1e-4 else 1.0
+        new_dist = dist + (dist * ratio - dist) * t_val
+
+        rad = math.radians(angle)
+        nx = s_cx + new_dist * math.cos(rad)
+        ny = s_cy - new_dist * math.sin(rad)
+        transformed_cmds.append((cmd, (nx, ny)))
+
+    red_cmds = _reduce_collinear_cmds(transformed_cmds)
+    return _format_shape_cmds(red_cmds, anchor=anchor, context=context)
+
+
+def _shape_tensor(drawing, target_box="", t=1.0, anchor="center", context=None):
+    """Aplica deformación bilineal / superficie tensorial (Coons Patch) respecto a una caja o contorno objetivo.
+    Paridad 100% con ke.shape.tensor de newkara_library.lua.
+    """
+    if not drawing or not isinstance(drawing, str):
+        return ""
+    try: t_val = float(t) if t != "" else 1.0
+    except: t_val = 1.0
+
+    norm_src = _normalize_shape_to_polyline_2px(drawing, step=4.0)
+    if not norm_src['points']:
+        return drawing
+
+    min_x, max_x, min_y, max_y, sw, sh = norm_src['bounds']
+    sw = max(1.0, sw)
+    sh = max(1.0, sh)
+
+    tgt_str = str(target_box or "").strip()
+    if not tgt_str:
+        return drawing
+
+    norm_tgt = _normalize_shape_to_polyline_2px(tgt_str, step=2.0)
+    t_min_x, t_max_x, t_min_y, t_max_y, ow, oh = norm_tgt['bounds']
+    ow = max(1.0, ow)
+    oh = max(1.0, oh)
+
+    p_tl = (t_min_x, t_min_y)
+    p_tr = (t_max_x, t_min_y)
+    p_br = (t_max_x, t_max_y)
+    p_bl = (t_min_x, t_max_y)
+
+    transformed_cmds = []
+    for cmd, (px, py) in norm_src['points']:
+        u = (px - min_x) / sw
+        v = (py - min_y) / sh
+        pt_x = p_tl[0] + (p_tr[0] - p_tl[0]) * u
+        pt_y = p_tl[1] + (p_tr[1] - p_tl[1]) * u
+        pb_x = p_bl[0] + (p_br[0] - p_bl[0]) * u
+        pb_y = p_bl[1] + (p_br[1] - p_bl[1]) * u
+        pl_x = p_tl[0] + (p_bl[0] - p_tl[0]) * v
+        pl_y = p_tl[1] + (p_bl[1] - p_tl[1]) * v
+        pr_x = p_tr[0] + (p_br[0] - p_tr[0]) * v
+        pr_y = p_tr[1] + (p_br[1] - p_tr[1]) * v
+
+        vert_x = (pt_x + (pb_x - pt_x) * v) * (sw / ow)
+        vert_y = (pt_y + (pb_y - pt_y) * v) * (sw / ow)
+        hori_x = (pl_x + (pr_x - pl_x) * u) * (sh / oh)
+        hori_y = (pl_y + (pr_y - pl_y) * u) * (sh / oh)
+
+        nx = px + (hori_x - px) * t_val
+        ny = py + (vert_y - py) * t_val
+        transformed_cmds.append((cmd, (nx, ny)))
+
+    red_cmds = _reduce_collinear_cmds(transformed_cmds)
+    return _format_shape_cmds(red_cmds, anchor=anchor, context=context)
+
+
+def shape_transform(context, drawing="", mode="Inflate", t=0.5, ratio=1.0, inflate_mode="Circle", anchor="center", angle_x=0.0, angle_y=0.0, radius=10.0, corner_mode="Round", curve=None, bend_t=1.0, axis="x", target_shape="", target_box="", **kwargs):
+    """Aplica transformaciones geométricas avanzadas a un dibujo vectorial ASS o texto.
+    Modos soportados con 100% de paridad con NewKara Library:
+      - 'Inflate': Deformación morfológica radial (esferificación/abombamiento) hacia círculo o elipse.
+      - 'Skew': Cizallamiento o inclinación planar 2D en X e Y.
+      - 'Round Corners': Redondeo (arcos Bézier) o biselado (chaflán) de esquinas poliédricas.
+      - 'Flexor': Curvado y deformación a lo largo de una spline directriz o arco paramétrico.
+      - 'Distort': Deformación polar hacia el contorno de una forma objetivo (morphing con 2px intersect).
+      - 'Tensor': Deformación tensorial bilineal tipo Coons Patch respecto a los 4 lados de una caja objetivo.
+    """
+    raw_shp = resolve_shape_value(drawing, context)
+    if not raw_shp:
+        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
+        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+        raw_shp = getattr(unit, 'text_stripped', getattr(unit, 'text', '')) or getattr(line, 'text_stripped', getattr(line, 'text', ''))
+
+    if not raw_shp:
+        return ""
+
+    if not raw_shp.lower().startswith("m ") and not raw_shp.lower().startswith("m-") and not raw_shp.lower().startswith("m0"):
+        from font_vector_engine import FontVectorEngine
+        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
+        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+        styleref = getattr(line, 'styleref', None) if line else None
+        if not styleref and unit:
+            styleref = getattr(unit, 'styleref', None)
+            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
+                styleref = getattr(unit.line, 'styleref', None)
+        fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
+        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
+        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
+        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
+        v_shp = FontVectorEngine.text_to_shape(raw_shp, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
+        if v_shp and v_shp.strip():
+            raw_shp = v_shp
+
+    mode_clean = str(mode or "Inflate").strip().lower()
+    if "inflate" in mode_clean or "inflar" in mode_clean:
+        t_inf = kwargs.get("t", t)
+        return _shape_inflate(raw_shp, t=t_inf, ratio=ratio, mode=inflate_mode, anchor=anchor, context=context)
+    elif "skew" in mode_clean or "cizall" in mode_clean or "inclin" in mode_clean or "oblique" in mode_clean:
+        ax = angle_x if angle_x != 0.0 else kwargs.get("angle_x", 0.0)
+        ay = angle_y if angle_y != 0.0 else kwargs.get("angle_y", 0.0)
+        t_skew = kwargs.get("t", t)
+        return _shape_skew(raw_shp, angle_x=ax, angle_y=ay, t=t_skew, anchor=anchor, context=context)
+    elif "round" in mode_clean or "redond" in mode_clean or "corner" in mode_clean or "esquina" in mode_clean:
+        r_val = radius if radius != 10.0 else kwargs.get("radius", 10.0)
+        c_mode = corner_mode if corner_mode else kwargs.get("corner_mode", "Round")
+        t_rnd = kwargs.get("t", t)
+        return _shape_round_corners(raw_shp, radius=r_val, t=t_rnd, mode=c_mode, anchor=anchor, context=context)
+    elif "flex" in mode_clean or "curv" in mode_clean or "bend" in mode_clean:
+        c_curve = curve if curve is not None else kwargs.get("curve", "30")
+        b_t = bend_t if bend_t != 1.0 else kwargs.get("bend_t", kwargs.get("t", t))
+        b_bend = kwargs.get("bend", 30.0)
+        try:
+            if isinstance(c_curve, (int, float)) or (isinstance(c_curve, str) and not c_curve.strip().lower().startswith("m")):
+                b_bend = float(c_curve)
+        except:
+            pass
+        ax = axis if axis else kwargs.get("axis", "x")
+        return _shape_flexor(raw_shp, curve=c_curve, t=b_t, bend=b_bend, axis=ax, anchor=anchor, context=context)
+    elif "distort" in mode_clean or "deform" in mode_clean or "morph" in mode_clean:
+        tgt = target_shape if target_shape else kwargs.get("target_shape", "")
+        tgt = resolve_shape_value(tgt, context)
+        t_morph = kwargs.get("t", t)
+        return _shape_distort(raw_shp, target_shape=tgt, t=t_morph, anchor=anchor, context=context)
+    elif "tensor" in mode_clean:
+        tgt_b = target_box if target_box else kwargs.get("target_box", kwargs.get("target_shape", ""))
+        tgt_b = resolve_shape_value(tgt_b, context)
+        t_ten = kwargs.get("t", t)
+        return _shape_tensor(raw_shp, target_box=tgt_b, t=t_ten, anchor=anchor, context=context)
+
+    return raw_shp
+
 def shape_concentric_borders_node(
     context,
     shape="",
@@ -584,6 +1532,8 @@ def clip_gradient_node(context, num_clips="5", angle="0", padding="4", overlap="
 
 
 from decorators import NODE_REGISTRY
+NODE_REGISTRY["Shape/Shape Manipulator"] = shape_manipulator
+NODE_REGISTRY["Shape Manipulator"] = shape_manipulator
 NODE_REGISTRY["Shape/Shape Transform"] = shape_transform
 NODE_REGISTRY["Shape Transform"] = shape_transform
 NODE_REGISTRY["Shape/Concentric Borders"] = shape_concentric_borders_node
@@ -815,3 +1765,901 @@ def eval_shapes_lib_node(context=None, **kwargs):
 
 NODE_REGISTRY["Shape/Shapes Library"] = eval_shapes_lib_node
 NODE_REGISTRY["Shapes Library"] = eval_shapes_lib_node
+
+
+# -----------------------------------------------------------------------------
+# CORTE PARAMÉTRICO POR LONGITUD DE ARCO (Shape Cut / Write-on / Trim Paths)
+# -----------------------------------------------------------------------------
+
+def parse_assdraw_segments(shape_str):
+    """Parsea comandos ASSdraw (m, l, b, c) en una lista de contornos con segmentos estructurados."""
+    if not shape_str or not str(shape_str).strip():
+        return []
+
+    tokens = str(shape_str).strip().split()
+    contours = []
+    current_segments = []
+    current_start = None
+    current_pt = None
+    current_cmd = None
+    i = 0
+    n = len(tokens)
+
+    while i < n:
+        tok = tokens[i]
+        tok_lower = tok.lower()
+
+        if tok_lower in ('m', 'l', 'b', 'c'):
+            current_cmd = tok_lower
+            i += 1
+            if current_cmd == 'c':
+                if current_start and current_pt:
+                    dx = current_start[0] - current_pt[0]
+                    dy = current_start[1] - current_pt[1]
+                    if math.hypot(dx, dy) > 0.001:
+                        current_segments.append({
+                            'type': 'l',
+                            'p0': current_pt,
+                            'p1': current_start
+                        })
+                        current_pt = current_start
+                continue
+
+        if current_cmd == 'm':
+            if i + 1 < n:
+                try:
+                    x, y = float(tokens[i]), float(tokens[i + 1])
+                    if current_segments and current_start:
+                        contours.append({
+                            'start': current_start,
+                            'segments': current_segments
+                        })
+                    current_start = (x, y)
+                    current_pt = (x, y)
+                    current_segments = []
+                    current_cmd = 'l'  # Repetición implícita de coordenadas tras 'm' se convierte en 'l'
+                    i += 2
+                except ValueError:
+                    i += 1
+            else:
+                i += 1
+
+        elif current_cmd == 'l':
+            if i + 1 < n:
+                try:
+                    x, y = float(tokens[i]), float(tokens[i + 1])
+                    if current_pt is None:
+                        current_start = (x, y)
+                        current_pt = (x, y)
+                    else:
+                        p1 = (x, y)
+                        current_segments.append({
+                            'type': 'l',
+                            'p0': current_pt,
+                            'p1': p1
+                        })
+                        current_pt = p1
+                    i += 2
+                except ValueError:
+                    i += 1
+            else:
+                i += 1
+
+        elif current_cmd == 'b':
+            if i + 5 < n:
+                try:
+                    x1, y1 = float(tokens[i]), float(tokens[i + 1])
+                    x2, y2 = float(tokens[i + 2]), float(tokens[i + 3])
+                    x3, y3 = float(tokens[i + 4]), float(tokens[i + 5])
+                    if current_pt is None:
+                        current_start = (x1, y1)
+                        current_pt = (x1, y1)
+                    p0 = current_pt
+                    current_segments.append({
+                        'type': 'b',
+                        'p0': p0,
+                        'p1': (x1, y1),
+                        'p2': (x2, y2),
+                        'p3': (x3, y3)
+                    })
+                    current_pt = (x3, y3)
+                    i += 6
+                except ValueError:
+                    i += 1
+            else:
+                i += 1
+        else:
+            i += 1
+
+    if current_segments and current_start:
+        contours.append({
+            'start': current_start,
+            'segments': current_segments
+        })
+
+    return contours
+
+
+def _eval_bezier_pt(p0, p1, p2, p3, u):
+    """Evalúa un punto en una curva Bézier cúbica para el parámetro u in [0, 1]."""
+    om = 1.0 - u
+    om2 = om * om
+    om3 = om2 * om
+    u2 = u * u
+    u3 = u2 * u
+    x = om3 * p0[0] + 3.0 * om2 * u * p1[0] + 3.0 * om * u2 * p2[0] + u3 * p3[0]
+    y = om3 * p0[1] + 3.0 * om2 * u * p1[1] + 3.0 * om * u2 * p2[1] + u3 * p3[1]
+    return (x, y)
+
+
+def _eval_bezier_tangent(p0, p1, p2, p3, u):
+    """Evalúa el vector tangente (dx, dy) de una curva Bézier cúbica en u."""
+    om = 1.0 - u
+    om2 = om * om
+    u2 = u * u
+    dx = 3.0 * om2 * (p1[0] - p0[0]) + 6.0 * om * u * (p2[0] - p1[0]) + 3.0 * u2 * (p3[0] - p2[0])
+    dy = 3.0 * om2 * (p1[1] - p0[1]) + 6.0 * om * u * (p2[1] - p1[1]) + 3.0 * u2 * (p3[1] - p2[1])
+    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+        dx = p3[0] - p0[0]
+        dy = p3[1] - p0[1]
+    return (dx, dy)
+
+
+def _segment_arc_length(seg, subdivs=30):
+    """Calcula la longitud de arco real de un segmento (línea o Bézier cúbica)."""
+    stype = seg['type']
+    if stype == 'l':
+        p0, p1 = seg['p0'], seg['p1']
+        length = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+        return length, [0.0, length], [p0, p1]
+    elif stype == 'b':
+        p0, p1, p2, p3 = seg['p0'], seg['p1'], seg['p2'], seg['p3']
+        sub = max(5, int(subdivs))
+        chord_lens = [0.0]
+        chord_pts = [p0]
+        accum = 0.0
+        prev_p = p0
+        for step in range(1, sub + 1):
+            u = step / float(sub)
+            cur_p = _eval_bezier_pt(p0, p1, p2, p3, u)
+            accum += math.hypot(cur_p[0] - prev_p[0], cur_p[1] - prev_p[1])
+            chord_lens.append(accum)
+            chord_pts.append(cur_p)
+            prev_p = cur_p
+        return accum, chord_lens, chord_pts
+    return 0.0, [0.0], [seg.get('p0', (0.0, 0.0))]
+
+
+def _map_dist_to_bezier_u(dist, chord_lens, sub):
+    """Mapea una distancia acumulada a un parámetro analítico u in [0, 1] en una curva Bézier."""
+    tot = chord_lens[-1]
+    if tot <= 1e-9 or dist <= 0.0:
+        return 0.0
+    if dist >= tot:
+        return 1.0
+
+    # Búsqueda de intervalo en la tabla de cuerdas
+    for i in range(len(chord_lens) - 1):
+        d0 = chord_lens[i]
+        d1 = chord_lens[i + 1]
+        if d0 <= dist <= d1:
+            seg_len = d1 - d0
+            fraction = (dist - d0) / seg_len if seg_len > 1e-9 else 0.0
+            u0 = i / float(sub)
+            u1 = (i + 1) / float(sub)
+            return u0 + fraction * (u1 - u0)
+    return 1.0
+
+
+def de_casteljau_split(seg, u):
+    """Subdivide un segmento en u in [0, 1] usando de Casteljau.
+    Retorna: (seg_izq, seg_der, punto_corte, tangente_dx_dy).
+    """
+    u = max(0.0, min(1.0, float(u)))
+    stype = seg['type']
+
+    if stype == 'l':
+        p0, p1 = seg['p0'], seg['p1']
+        x = p0[0] + u * (p1[0] - p0[0])
+        y = p0[1] + u * (p1[1] - p0[1])
+        split_p = (x, y)
+        dx = p1[0] - p0[0]
+        dy = p1[1] - p0[1]
+        left_seg = {'type': 'l', 'p0': p0, 'p1': split_p}
+        right_seg = {'type': 'l', 'p0': split_p, 'p1': p1}
+        return left_seg, right_seg, split_p, (dx, dy)
+
+    elif stype == 'b':
+        p0, p1, p2, p3 = seg['p0'], seg['p1'], seg['p2'], seg['p3']
+        # Nivel 1
+        b01 = (p0[0] * (1.0 - u) + p1[0] * u, p0[1] * (1.0 - u) + p1[1] * u)
+        b12 = (p1[0] * (1.0 - u) + p2[0] * u, p1[1] * (1.0 - u) + p2[1] * u)
+        b23 = (p2[0] * (1.0 - u) + p3[0] * u, p2[1] * (1.0 - u) + p3[1] * u)
+        # Nivel 2
+        b012 = (b01[0] * (1.0 - u) + b12[0] * u, b01[1] * (1.0 - u) + b12[1] * u)
+        b123 = (b12[0] * (1.0 - u) + b23[0] * u, b12[1] * (1.0 - u) + b23[1] * u)
+        # Nivel 3 (punto en la curva)
+        b0123 = (b012[0] * (1.0 - u) + b123[0] * u, b012[1] * (1.0 - u) + b123[1] * u)
+
+        dx, dy = _eval_bezier_tangent(p0, p1, p2, p3, u)
+        left_seg = {'type': 'b', 'p0': p0, 'p1': b01, 'p2': b012, 'p3': b0123}
+        right_seg = {'type': 'b', 'p0': b0123, 'p1': b123, 'p2': b23, 'p3': p3}
+        return left_seg, right_seg, b0123, (dx, dy)
+
+    p0 = seg.get('p0', (0.0, 0.0))
+    return seg, seg, p0, (1.0, 0.0)
+
+
+def _cut_segment_interval(seg, u_start, u_end, subdivs=30):
+    """Recorta un segmento manteniendo únicamente la sección [u_start, u_end]."""
+    u_start = max(0.0, min(1.0, float(u_start)))
+    u_end = max(0.0, min(1.0, float(u_end)))
+
+    if u_start >= u_end:
+        p0 = seg.get('p0', (0.0, 0.0))
+        return None, p0, (1.0, 0.0)
+
+    cur_seg = seg
+    tip_p = cur_seg.get('p1' if cur_seg['type'] == 'l' else 'p3', (0.0, 0.0))
+    tan = (1.0, 0.0)
+
+    # 1. Cortar extremo superior u_end
+    if u_end < 0.999999:
+        left_s, _, tip_p, tan = de_casteljau_split(cur_seg, u_end)
+        cur_seg = left_s
+    else:
+        _, _, tip_p, tan = de_casteljau_split(cur_seg, 1.0)
+
+    # 2. Cortar extremo inferior u_start
+    if u_start > 0.000001:
+        u_eff = u_start / u_end if u_end > 1e-9 else 0.0
+        _, right_s, _, _ = de_casteljau_split(cur_seg, u_eff)
+        cur_seg = right_s
+
+    return cur_seg, tip_p, tan
+
+
+def _format_num(val):
+    """Formatea números flotantes de manera compacta para ASSdraw."""
+    f = float(val)
+    if f.is_integer():
+        return str(int(f))
+    return f"{f:.2f}".rstrip('0').rstrip('.')
+
+
+# -----------------------------------------------------------------------------
+# SHAPE WALKER / RECORREDOR (Corte Paramétrico por Longitud de Arco / Trim Paths)
+# -----------------------------------------------------------------------------
+
+def parse_assdraw_segments(shape_str):
+    """Parsea comandos ASSdraw (m, l, b, c) en una lista de contornos con segmentos estructurados."""
+    if not shape_str or not str(shape_str).strip():
+        return []
+
+    tokens = str(shape_str).strip().split()
+    contours = []
+    current_contour = None
+    curr_pt = [0.0, 0.0]
+    idx = 0
+    num_tokens = len(tokens)
+
+    while idx < num_tokens:
+        cmd = tokens[idx].lower()
+        if cmd == 'm':
+            if idx + 2 < num_tokens:
+                try:
+                    px = float(tokens[idx + 1])
+                    py = float(tokens[idx + 2])
+                    curr_pt = [px, py]
+                    current_contour = {
+                        'start': (px, py),
+                        'segments': []
+                    }
+                    contours.append(current_contour)
+                    idx += 3
+                except ValueError:
+                    idx += 1
+            else:
+                idx += 1
+        elif cmd == 'l':
+            idx += 1
+            while idx + 1 < num_tokens and not tokens[idx].isalpha():
+                try:
+                    px = float(tokens[idx])
+                    py = float(tokens[idx + 1])
+                    if current_contour is None:
+                        current_contour = {'start': (curr_pt[0], curr_pt[1]), 'segments': []}
+                        contours.append(current_contour)
+                    current_contour['segments'].append({
+                        'type': 'l',
+                        'p0': (curr_pt[0], curr_pt[1]),
+                        'p1': (px, py)
+                    })
+                    curr_pt = [px, py]
+                    idx += 2
+                except ValueError:
+                    break
+        elif cmd in ('b', 'c'):
+            idx += 1
+            while idx + 5 < num_tokens and not tokens[idx].isalpha():
+                try:
+                    p1 = (float(tokens[idx]), float(tokens[idx + 1]))
+                    p2 = (float(tokens[idx + 2]), float(tokens[idx + 3]))
+                    p3 = (float(tokens[idx + 4]), float(tokens[idx + 5]))
+                    if current_contour is None:
+                        current_contour = {'start': (curr_pt[0], curr_pt[1]), 'segments': []}
+                        contours.append(current_contour)
+                    current_contour['segments'].append({
+                        'type': 'b',
+                        'p0': (curr_pt[0], curr_pt[1]),
+                        'p1': p1,
+                        'p2': p2,
+                        'p3': p3
+                    })
+                    curr_pt = [p3[0], p3[1]]
+                    idx += 6
+                except ValueError:
+                    break
+        else:
+            idx += 1
+
+    return contours
+
+
+def shape_walker_core(shape_str, progress=1.0, start_t=0.0, mode="Global", invert=False, subdivs=30):
+    """Núcleo de recorrido paramétrico vectorial por longitud de arco para ASSdraw.
+    
+    Parámetros:
+      - shape_str: Código vectorial ASSdraw (m ...).
+      - progress: Progreso de finalización (0.0 a 1.0).
+      - start_t: Progreso de inicio (0.0 a 1.0).
+      - mode: 'Global' (Continuo en todos los contornos) o 'Por Contorno' (Paralelo por glifo/trazo).
+      - invert: Invierte el sentido del recorte.
+      - subdivs: Pasos de resolución para integración Bézier.
+    
+    Retorna: (ass_draw_out, tip_x, tip_y, angle_deg, current_length, total_length)
+    """
+    contours = parse_assdraw_segments(shape_str)
+    if not contours:
+        return "", 0.0, 0.0, 0.0, 0.0, 0.0
+
+    sub = max(5, int(subdivs))
+
+    # Pre-calcular longitudes de cada contorno y de cada segmento
+    contour_data = []
+    total_shape_len = 0.0
+
+    for c in contours:
+        c_len = 0.0
+        seg_info = []
+        for s in c['segments']:
+            s_len, chord_lens, chord_pts = _segment_arc_length(s, subdivs=sub)
+            seg_info.append({
+                'seg': s,
+                'len': s_len,
+                'chord_lens': chord_lens,
+                'chord_pts': chord_pts,
+                'start_dist': c_len,
+                'end_dist': c_len + s_len
+            })
+            c_len += s_len
+        contour_data.append({
+            'start_pt': c['start'],
+            'total_len': c_len,
+            'segments': seg_info
+        })
+        total_shape_len += c_len
+
+    if total_shape_len <= 1e-9:
+        p0 = contours[0]['start']
+        return f"m {_format_num(p0[0])} {_format_num(p0[1])} ", p0[0], p0[1], 0.0, 0.0, 0.0
+
+    # Normalizar rangos [t0, t1]
+    t0 = max(0.0, min(1.0, float(start_t)))
+    t1 = max(0.0, min(1.0, float(progress)))
+
+    if invert:
+        # Invertir progreso: el trazado comienza desde el final
+        t0_eff = 1.0 - t1
+        t1_eff = 1.0 - t0
+        t0, t1 = t0_eff, t1_eff
+
+    if t0 >= t1:
+        return "", 0.0, 0.0, 0.0, 0.0, total_shape_len
+
+    mode_str = str(mode).strip().lower()
+    is_per_contour = "contorno" in mode_str or "paralel" in mode_str or "glyph" in mode_str or "letter" in mode_str
+
+    out_tokens = []
+    tip_pt = (0.0, 0.0)
+    tip_tangent = (1.0, 0.0)
+    current_cut_len = 0.0
+
+    if not is_per_contour:
+        # MODO GLOBAL (Continuo)
+        target_d0 = t0 * total_shape_len
+        target_d1 = t1 * total_shape_len
+        global_accum = 0.0
+
+        for c_idx, c_obj in enumerate(contour_data):
+            c_start_d = global_accum
+            c_end_d = global_accum + c_obj['total_len']
+            global_accum = c_end_d
+
+            if c_end_d <= target_d0 or c_start_d >= target_d1 or c_obj['total_len'] <= 1e-9:
+                continue
+
+            local_d0 = max(0.0, target_d0 - c_start_d)
+            local_d1 = min(c_obj['total_len'], target_d1 - c_start_d)
+
+            first_pt_written = False
+            for s_info in c_obj['segments']:
+                s_d0 = s_info['start_dist']
+                s_d1 = s_info['end_dist']
+                s_len = s_info['len']
+
+                if s_d1 <= local_d0 or s_d0 >= local_d1 or s_len <= 1e-9:
+                    continue
+
+                in_s_d0 = max(0.0, local_d0 - s_d0)
+                in_s_d1 = min(s_len, local_d1 - s_d0)
+
+                if s_info['seg']['type'] == 'l':
+                    u_s = in_s_d0 / s_len if s_len > 1e-9 else 0.0
+                    u_e = in_s_d1 / s_len if s_len > 1e-9 else 1.0
+                else:
+                    u_s = _map_dist_to_bezier_u(in_s_d0, s_info['chord_lens'], sub)
+                    u_e = _map_dist_to_bezier_u(in_s_d1, s_info['chord_lens'], sub)
+
+                cut_s, s_tip, s_tan = _cut_segment_interval(s_info['seg'], u_s, u_e, subdivs=sub)
+                if cut_s:
+                    tip_pt = s_tip
+                    tip_tangent = s_tan
+                    current_cut_len += (in_s_d1 - in_s_d0)
+
+                    if not first_pt_written:
+                        p_start = cut_s['p0']
+                        out_tokens.append(f"m {_format_num(p_start[0])} {_format_num(p_start[1])}")
+                        first_pt_written = True
+
+                    if cut_s['type'] == 'l':
+                        p1 = cut_s['p1']
+                        out_tokens.append(f"l {_format_num(p1[0])} {_format_num(p1[1])}")
+                    elif cut_s['type'] == 'b':
+                        p1, p2, p3 = cut_s['p1'], cut_s['p2'], cut_s['p3']
+                        out_tokens.append(f"b {_format_num(p1[0])} {_format_num(p1[1])} {_format_num(p2[0])} {_format_num(p2[1])} {_format_num(p3[0])} {_format_num(p3[1])}")
+
+    else:
+        # MODO POR CONTORNO (Paralelo)
+        for c_idx, c_obj in enumerate(contour_data):
+            c_len = c_obj['total_len']
+            if c_len <= 1e-9:
+                continue
+
+            local_d0 = t0 * c_len
+            local_d1 = t1 * c_len
+
+            first_pt_written = False
+            for s_info in c_obj['segments']:
+                s_d0 = s_info['start_dist']
+                s_d1 = s_info['end_dist']
+                s_len = s_info['len']
+
+                if s_d1 <= local_d0 or s_d0 >= local_d1 or s_len <= 1e-9:
+                    continue
+
+                in_s_d0 = max(0.0, local_d0 - s_d0)
+                in_s_d1 = min(s_len, local_d1 - s_d0)
+
+                if s_info['seg']['type'] == 'l':
+                    u_s = in_s_d0 / s_len if s_len > 1e-9 else 0.0
+                    u_e = in_s_d1 / s_len if s_len > 1e-9 else 1.0
+                else:
+                    u_s = _map_dist_to_bezier_u(in_s_d0, s_info['chord_lens'], sub)
+                    u_e = _map_dist_to_bezier_u(in_s_d1, s_info['chord_lens'], sub)
+
+                cut_s, s_tip, s_tan = _cut_segment_interval(s_info['seg'], u_s, u_e, subdivs=sub)
+                if cut_s:
+                    tip_pt = s_tip
+                    tip_tangent = s_tan
+                    current_cut_len += (in_s_d1 - in_s_d0)
+
+                    if not first_pt_written:
+                        p_start = cut_s['p0']
+                        out_tokens.append(f"m {_format_num(p_start[0])} {_format_num(p_start[1])}")
+                        first_pt_written = True
+
+                    if cut_s['type'] == 'l':
+                        p1 = cut_s['p1']
+                        out_tokens.append(f"l {_format_num(p1[0])} {_format_num(p1[1])}")
+                    elif cut_s['type'] == 'b':
+                        p1, p2, p3 = cut_s['p1'], cut_s['p2'], cut_s['p3']
+                        out_tokens.append(f"b {_format_num(p1[0])} {_format_num(p1[1])} {_format_num(p2[0])} {_format_num(p2[1])} {_format_num(p3[0])} {_format_num(p3[1])}")
+
+    final_shape = (" ".join(out_tokens) + " ") if out_tokens else ""
+    angle_deg = math.degrees(math.atan2(tip_tangent[1], tip_tangent[0])) % 360.0
+
+    return final_shape, tip_pt[0], tip_pt[1], angle_deg, current_cut_len, total_shape_len
+
+
+def shape_walker_node(
+    context=None,
+    shape="",
+    progress=1.0,
+    start_t=0.0,
+    mode="Global (Continuo)",
+    invert=False,
+    subdivs=30
+):
+    r"""Nodo Shape Walker / Recorredor (Corte Paramétrico por Longitud de Arco / Write-on).
+    Soporta entradas como Código ASSdraw o Texto plano auto-vectorizado.
+    Retorna tupla: (Shape Out, \pos Tag, Angle (\frz), Length, Tip X, Tip Y).
+    """
+    from node_engine import _eval_num_expr
+
+    unit = context.get('active_unit') if isinstance(context, dict) else None
+    if not unit and isinstance(context, dict):
+        unit = context.get('char') or context.get('syl') or context.get('word')
+    line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+    if not line and unit and hasattr(unit, 'line'):
+        line = getattr(unit, 'line', None)
+
+    shp_val = resolve_shape_value(shape, context)
+
+    # Si la entrada shape está vacía o es por defecto, tomar el objeto activo del Main Loop (char / syl / word / line)
+    if not shp_val:
+        shp_val = getattr(unit, 'shape_drawing', getattr(unit, 'shape', getattr(unit, 'drawing', ''))) if unit else ''
+        if not shp_val and line:
+            shp_val = getattr(line, 'shape_drawing', getattr(line, 'shape', getattr(line, 'drawing', '')))
+        if not shp_val and unit:
+            shp_val = getattr(unit, 'text_stripped', getattr(unit, 'text', ''))
+        if not shp_val and line:
+            shp_val = getattr(line, 'text_stripped', getattr(line, 'text', ''))
+
+    # Si es texto plano o un glifo, vectorizar automáticamente con FontVectorEngine
+    if shp_val and not shp_val.lower().startswith("m ") and not shp_val.lower().startswith("m-") and not shp_val.lower().startswith("m0"):
+        from font_vector_engine import FontVectorEngine
+        styleref = getattr(line, 'styleref', None) if line else None
+        if not styleref and unit:
+            styleref = getattr(unit, 'styleref', None)
+            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
+                styleref = getattr(unit.line, 'styleref', None)
+
+        fn = str(getattr(styleref, 'fontname', 'Arial')) if (styleref and getattr(styleref, 'fontname', None)) else "Arial"
+        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
+        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
+        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
+        sc_x = float(getattr(styleref, 'scale_x', 100.0)) if styleref else 100.0
+        sc_y = float(getattr(styleref, 'scale_y', 100.0)) if styleref else 100.0
+
+        raw_text_src = getattr(unit, 'text', '') or getattr(line, 'raw_text', '') or getattr(line, 'text', '')
+        if raw_text_src:
+            fn_m = re.search(r'\\fn([^\\}]+)', raw_text_src)
+            if fn_m: fn = fn_m.group(1).strip()
+            fs_m = re.search(r'\\fs(\d+)', raw_text_src)
+            if fs_m: fs = int(fs_m.group(1))
+            fscx_m = re.search(r'\\fscx(\d+(?:\.\d+)?)', raw_text_src)
+            if fscx_m: sc_x = float(fscx_m.group(1))
+            fscy_m = re.search(r'\\fscy(\d+(?:\.\d+)?)', raw_text_src)
+            if fscy_m: sc_y = float(fscy_m.group(1))
+            b_m = re.search(r'\\b([01])', raw_text_src)
+            if b_m: b_val = (b_m.group(1) == '1')
+            i_m = re.search(r'\\i([01])', raw_text_src)
+            if i_m: i_val = (i_m.group(1) == '1')
+
+        v_shp = FontVectorEngine.text_to_shape(shp_val, font_name=fn, font_size=fs, bold=b_val, italic=i_val, scale_x=sc_x, scale_y=sc_y)
+        if v_shp and v_shp.strip():
+            shp_val = v_shp
+
+    p_val = _eval_num_expr(progress, context, 1.0)
+    s_val = _eval_num_expr(start_t, context, 0.0)
+    sub_val = int(_eval_num_expr(subdivs, context, 30.0))
+
+    inv_str = str(invert).strip().lower()
+    inv_bool = inv_str in ("1", "true", "yes", "si", "sí", "invertido", "invert")
+
+    mode_str = str(mode).strip()
+
+    final_shp, tx, ty, angle, cut_len, _ = shape_walker_core(
+        shp_val,
+        progress=p_val,
+        start_t=s_val,
+        mode=mode_str,
+        invert=inv_bool,
+        subdivs=sub_val
+    )
+
+    pos_str = f"\\pos({tx:.2f},{ty:.2f})".rstrip('0').rstrip('.') if (tx != 0 or ty != 0) else ""
+
+    return final_shp, pos_str, round(angle, 2), round(cut_len, 2), round(tx, 2), round(ty, 2)
+
+
+NODE_REGISTRY["Shape/Shape Walker"] = shape_walker_node
+NODE_REGISTRY["Shape Walker"] = shape_walker_node
+
+
+def shape_stroke_node(
+    context=None,
+    shape="",
+    width=4.0,
+    join_mode="Round",
+    cap_mode="Round",
+    miter_limit=2.0
+):
+    """Nodo Shape Stroke / Trazo con Grosor (Paridad 100% con ke.shape.line / shape:offset).
+    Convierte cualquier línea, spline abierta o contorno cerrado en un polígono ASSDraw cerrado con grosor real.
+    """
+    from node_engine import _eval_num_expr
+    from clipper_engine import ClipperEngine
+
+    unit = context.get('active_unit') if isinstance(context, dict) else None
+    if not unit and isinstance(context, dict):
+        unit = context.get('char') or context.get('syl') or context.get('word')
+    line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+    if not line and unit and hasattr(unit, 'line'):
+        line = getattr(unit, 'line', None)
+
+    shp_val = resolve_shape_value(shape, context)
+
+    # Si no se proporciona forma, fallback al texto de la unidad activa
+    if not shp_val:
+        shp_val = getattr(unit, 'shape_drawing', getattr(unit, 'shape', getattr(unit, 'drawing', ''))) if unit else ''
+        if not shp_val and line:
+            shp_val = getattr(line, 'shape_drawing', getattr(line, 'shape', getattr(line, 'drawing', '')))
+        if not shp_val and unit:
+            shp_val = getattr(unit, 'text_stripped', getattr(unit, 'text', ''))
+        if not shp_val and line:
+            shp_val = getattr(line, 'text_stripped', getattr(line, 'text', ''))
+
+    # Si es texto plano o un glifo, vectorizar con FontVectorEngine
+    if shp_val and not shp_val.lower().startswith("m ") and not shp_val.lower().startswith("m-") and not shp_val.lower().startswith("m0"):
+        from font_vector_engine import FontVectorEngine
+        styleref = getattr(line, 'styleref', None) if line else None
+        if not styleref and unit:
+            styleref = getattr(unit, 'styleref', None)
+            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
+                styleref = getattr(unit.line, 'styleref', None)
+
+        fn = str(getattr(styleref, 'fontname', 'Arial')) if (styleref and getattr(styleref, 'fontname', None)) else "Arial"
+        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
+        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
+        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
+        sc_x = float(getattr(styleref, 'scale_x', 100.0)) if styleref else 100.0
+        sc_y = float(getattr(styleref, 'scale_y', 100.0)) if styleref else 100.0
+
+        raw_text_src = getattr(unit, 'text', '') or getattr(line, 'raw_text', '') or getattr(line, 'text', '')
+        if raw_text_src:
+            fn_m = re.search(r'\\fn([^\\}]+)', raw_text_src)
+            if fn_m: fn = fn_m.group(1).strip()
+            fs_m = re.search(r'\\fs(\d+)', raw_text_src)
+            if fs_m: fs = int(fs_m.group(1))
+            fscx_m = re.search(r'\\fscx(\d+(?:\.\d+)?)', raw_text_src)
+            if fscx_m: sc_x = float(fscx_m.group(1))
+            fscy_m = re.search(r'\\fscy(\d+(?:\.\d+)?)', raw_text_src)
+            if fscy_m: sc_y = float(fscy_m.group(1))
+            b_m = re.search(r'\\b([01])', raw_text_src)
+            if b_m: b_val = (b_m.group(1) == '1')
+            i_m = re.search(r'\\i([01])', raw_text_src)
+            if i_m: i_val = (i_m.group(1) == '1')
+
+        v_shp = FontVectorEngine.text_to_shape(shp_val, font_name=fn, font_size=fs, bold=b_val, italic=i_val, scale_x=sc_x, scale_y=sc_y)
+        if v_shp and v_shp.strip():
+            shp_val = v_shp
+
+    if not shp_val or not shp_val.strip():
+        return ""
+
+    w_val = max(0.01, _eval_num_expr(width, context, 4.0))
+    miter_val = max(1.0, _eval_num_expr(miter_limit, context, 2.0))
+    jm_str = str(join_mode).strip()
+    cm_str = str(cap_mode).strip()
+
+    return ClipperEngine.stroke_shape(
+        shp_val,
+        width=w_val,
+        join_mode=jm_str,
+        cap_mode=cm_str,
+        miter_limit=miter_val
+    )
+
+
+NODE_REGISTRY["Shape/Shape Stroke"] = shape_stroke_node
+NODE_REGISTRY["Shape Stroke"] = shape_stroke_node
+NODE_REGISTRY["Shape/Stroke"] = shape_stroke_node
+NODE_REGISTRY["Stroke"] = shape_stroke_node
+
+
+def text_on_path_core(shape_str, context=None, mode="Center", offset=0.0, normal_offset=0.0, angle_offset=0.0, t=0.5, subdivs=30):
+    """Muestreo tipográfico cinético a lo largo de una trayectoria vectorial ASSdraw (Brecha 6: Text on Path).
+    Distribuye proporcionalmente cada carácter, sílaba o palabra según su centro métrico real respecto a la línea.
+    Retorna tupla: (comb_tag, pos_tag, angle_deg, x, y, tangent_str)
+    """
+    unit = context.get('active_unit') if isinstance(context, dict) else None
+    if not unit and isinstance(context, dict):
+        unit = context.get('char') or context.get('syl') or context.get('word')
+    line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+    if not line and unit and hasattr(unit, 'line'):
+        line = getattr(unit, 'line', None)
+
+    contours = parse_assdraw_segments(shape_str)
+    if not contours:
+        fx_x = getattr(unit, 'center', getattr(unit, 'x', getattr(line, 'center', 0.0))) if (unit or line) else 0.0
+        fx_y = getattr(unit, 'middle', getattr(unit, 'y', getattr(line, 'middle', 0.0))) if (unit or line) else 0.0
+        fmt_x = f"{float(fx_x):.2f}".rstrip('0').rstrip('.')
+        fmt_y = f"{float(fx_y):.2f}".rstrip('0').rstrip('.')
+        return f"\\pos({fmt_x},{fmt_y})", f"\\pos({fmt_x},{fmt_y})", 0.0, float(fx_x), float(fx_y), "1.0,0.0"
+
+    sub = max(5, int(subdivs))
+
+    contour_data = []
+    total_shape_len = 0.0
+
+    for c in contours:
+        c_len = 0.0
+        seg_info = []
+        for s in c['segments']:
+            s_len, chord_lens, chord_pts = _segment_arc_length(s, subdivs=sub)
+            seg_info.append({
+                'seg': s,
+                'len': s_len,
+                'chord_lens': chord_lens,
+                'chord_pts': chord_pts,
+                'start_dist': total_shape_len + c_len,
+                'end_dist': total_shape_len + c_len + s_len
+            })
+            c_len += s_len
+        contour_data.append({
+            'start_pt': c['start'],
+            'total_len': c_len,
+            'segments': seg_info
+        })
+        total_shape_len += c_len
+
+    if total_shape_len <= 1e-9:
+        p0 = contours[0]['start']
+        fmt_x = f"{p0[0]:.2f}".rstrip('0').rstrip('.')
+        fmt_y = f"{p0[1]:.2f}".rstrip('0').rstrip('.')
+        return f"\\pos({fmt_x},{fmt_y})", f"\\pos({fmt_x},{fmt_y})", 0.0, float(p0[0]), float(p0[1]), "1.0,0.0"
+
+    line_left = float(getattr(line, 'left', 0.0) or 0.0)
+    line_width = float(getattr(line, 'width', 0.0) or 0.0)
+    if line_width <= 0.0:
+        line_width = float(getattr(unit, 'width', 0.0) or 0.0)
+
+    unit_center_x = float(getattr(unit, 'center', getattr(unit, 'x', line_left + line_width / 2.0)) or (line_left + line_width / 2.0))
+    char_offset_in_line = unit_center_x - line_left
+
+    ci = getattr(unit, 'i', 1)
+    cn = getattr(unit, 'n', getattr(unit, 'total', 1))
+    try: ci = int(ci)
+    except: ci = 1
+    try: cn = int(cn)
+    except: cn = 1
+
+    mode_clean = str(mode or "Center").strip().lower()
+    offset_val = float(offset)
+    normal_off_val = float(normal_offset)
+    angle_off_val = float(angle_offset)
+    t_val = float(t)
+
+    if "left" in mode_clean or "izq" in mode_clean:
+        target_d = offset_val + char_offset_in_line
+    elif "right" in mode_clean or "der" in mode_clean:
+        base_d = total_shape_len - line_width - offset_val
+        target_d = base_d + char_offset_in_line
+    elif "justif" in mode_clean:
+        u = (ci - 1.0) / max(1.0, float(cn - 1.0)) if cn > 1 else 0.5
+        target_d = u * total_shape_len + offset_val
+    elif "prog" in mode_clean or "anim" in mode_clean or "t" in mode_clean:
+        base_d = (total_shape_len - line_width) * t_val + offset_val
+        target_d = base_d + char_offset_in_line
+    else:  # "Center" / Centrado por defecto
+        base_d = (total_shape_len - line_width) / 2.0 + offset_val
+        target_d = base_d + char_offset_in_line
+
+    clamped_d = max(0.0, min(total_shape_len, target_d))
+
+    sampled_pt = (0.0, 0.0)
+    sampled_tan = (1.0, 0.0)
+
+    found = False
+    for c_obj in contour_data:
+        for s_info in c_obj['segments']:
+            s_d0 = s_info['start_dist']
+            s_d1 = s_info['end_dist']
+            s_len = s_info['len']
+            if s_d0 <= clamped_d <= s_d1 or (clamped_d >= total_shape_len - 1e-6 and s_d1 >= total_shape_len - 1e-6):
+                seg = s_info['seg']
+                if s_len <= 1e-9:
+                    sampled_pt = seg['p0']
+                    sampled_tan = (1.0, 0.0)
+                elif seg['type'] == 'l':
+                    u = (clamped_d - s_d0) / s_len
+                    sampled_pt = (
+                        seg['p0'][0] + u * (seg['p1'][0] - seg['p0'][0]),
+                        seg['p0'][1] + u * (seg['p1'][1] - seg['p0'][1])
+                    )
+                    dx = seg['p1'][0] - seg['p0'][0]
+                    dy = seg['p1'][1] - seg['p0'][1]
+                    h = math.hypot(dx, dy)
+                    sampled_tan = (dx / h, dy / h) if h > 1e-9 else (1.0, 0.0)
+                elif seg['type'] == 'b':
+                    in_dist = clamped_d - s_d0
+                    u = _map_dist_to_bezier_u(in_dist, s_info['chord_lens'], sub)
+                    p0, p1, p2, p3 = seg['p0'], seg['p1'], seg['p2'], seg['p3']
+                    sampled_pt = _eval_bezier_pt(p0, p1, p2, p3, u)
+                    d_pt = _eval_bezier_tangent(p0, p1, p2, p3, u)
+                    h = math.hypot(d_pt[0], d_pt[1])
+                    sampled_tan = (d_pt[0] / h, d_pt[1] / h) if h > 1e-9 else (1.0, 0.0)
+                found = True
+                break
+        if found:
+            break
+
+    if not found and contour_data and contour_data[0]['segments']:
+        first_seg = contour_data[0]['segments'][0]['seg']
+        sampled_pt = first_seg['p0']
+        sampled_tan = (1.0, 0.0)
+
+    # Vector normal perpendicular: N = (-T_y, T_x)
+    norm_x = -sampled_tan[1]
+    norm_y = sampled_tan[0]
+
+    final_x = sampled_pt[0] + norm_x * normal_off_val
+    final_y = sampled_pt[1] + norm_y * normal_off_val
+
+    base_angle = math.degrees(math.atan2(sampled_tan[1], sampled_tan[0]))
+    final_angle = (base_angle + angle_off_val) % 360.0
+
+    fmt_x = f"{final_x:.2f}".rstrip('0').rstrip('.')
+    fmt_y = f"{final_y:.2f}".rstrip('0').rstrip('.')
+    fmt_ang = f"{final_angle:.2f}".rstrip('0').rstrip('.')
+
+    comb_tag = f"\\pos({fmt_x},{fmt_y})\\frz{fmt_ang}"
+    pos_tag = f"\\pos({fmt_x},{fmt_y})"
+    tan_str = f"{sampled_tan[0]:.4f},{sampled_tan[1]:.4f}"
+
+    return comb_tag, pos_tag, round(final_angle, 2), round(final_x, 2), round(final_y, 2), tan_str
+
+
+def text_on_path_node(
+    context=None,
+    shape="",
+    mode="Center",
+    offset=0.0,
+    normal_offset=0.0,
+    angle_offset=0.0,
+    t=0.5,
+    subdivs=30
+):
+    """Nodo Functions/Text on Path (Texto en trazado).
+    Distribuye cinéticamente caracteres, sílabas o palabras sobre una trayectoria ASSDraw.
+    Retorna tupla: (Combined Tag, \\pos Tag, Angle (\\frz), X, Y, Tangente)
+    """
+    from node_engine import _eval_num_expr
+    shp_val = resolve_shape_value(shape, context)
+
+    m_str = str(mode or "Center").strip()
+    off_val = _eval_num_expr(offset, context, 0.0)
+    norm_off = _eval_num_expr(normal_offset, context, 0.0)
+    ang_off = _eval_num_expr(angle_offset, context, 0.0)
+    t_val = _eval_num_expr(t, context, 0.5)
+    sub_val = int(_eval_num_expr(subdivs, context, 30.0))
+
+    return text_on_path_core(
+        shp_val,
+        context=context,
+        mode=m_str,
+        offset=off_val,
+        normal_offset=norm_off,
+        angle_offset=ang_off,
+        t=t_val,
+        subdivs=sub_val
+    )
+
+
+NODE_REGISTRY["Functions/Text on Path"] = text_on_path_node
+NODE_REGISTRY["Text on Path"] = text_on_path_node
+NODE_REGISTRY["Functions/Texto en trazado"] = text_on_path_node
+NODE_REGISTRY["Texto en trazado"] = text_on_path_node
+

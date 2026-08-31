@@ -15,7 +15,7 @@
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
 # PyxisNodes/tests/test_text_node_v104.py
-"""Pruebas unitarias completas para el Nodo Maestro Text v1.0.4."""
+"""Pruebas unitarias completas para el Nodo Maestro Text v1.0.5."""
 
 import unittest
 from nodes.text_nodes import eval_text_node, text_to_shape_node

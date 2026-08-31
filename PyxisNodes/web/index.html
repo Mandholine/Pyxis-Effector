@@ -41,11 +41,34 @@
     <link rel="shortcut icon" href="icon.png">
 </head>
 <body>
-    <!-- Glassmorphic Startup Loading Overlay -->
+    <!-- Cosmic Startup Loading Overlay: Deep Nebula, Focused Gas & Slowly Rotating Stars -->
     <div id="pyxis-loading-overlay">
-        <div class="pyxis-loader-spinner"></div>
-        <div class="pyxis-loader-title">Pyxis Node Engine</div>
-        <div class="pyxis-loader-status" id="pyxis-loader-status-text">Inicializando puente IPC de Python...</div>
+        <div class="pyxis-cosmic-universe">
+            <!-- Capa de nebulosa profunda con alto desenfoque -->
+            <div class="pyxis-nebula-deep">
+                <div class="pyxis-nebula-cloud cloud-1"></div>
+                <div class="pyxis-nebula-cloud cloud-2"></div>
+                <div class="pyxis-nebula-cloud cloud-3"></div>
+                <div class="pyxis-nebula-cloud cloud-4"></div>
+            </div>
+            <!-- Capa de filamentos de gas más enfocados -->
+            <div class="pyxis-gas-upper">
+                <div class="pyxis-gas-filament gas-1"></div>
+                <div class="pyxis-gas-filament gas-2"></div>
+                <div class="pyxis-gas-filament gas-3"></div>
+            </div>
+            <!-- Partículas blancas de estrellas girando lentamente -->
+            <div class="pyxis-starfield starfield-slow">
+                <div class="pyxis-stars-layer stars-layer-1"></div>
+                <div class="pyxis-stars-layer stars-layer-2"></div>
+                <div class="pyxis-stars-layer stars-layer-3"></div>
+            </div>
+        </div>
+        <div class="pyxis-loader-content">
+            <img src="loadingB.gif" class="pyxis-loader-gif" alt="Loading..." data-i18n-alt="common.loading">
+            <div class="pyxis-loader-title">Pyxis Node Engine</div>
+            <div class="pyxis-loader-status" id="pyxis-loader-status-text" data-i18n="loader.status">Initializing Python IPC bridge...</div>
+        </div>
     </div>
 
     <!-- Top Bar: Program-level actions -->
@@ -55,7 +78,7 @@
                 <img src="icon.png" class="brand-icon" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover;">
                 <span>PYXIS EFFECTOR</span>
             </div>
-            <span class="brand-badge">v1.0.4</span>
+            <span class="brand-badge">v1.0.5</span>
 
             <!-- Botones de Acción de Programa -->
             <button class="pyxis-btn" id="btn-save-main" onclick="triggerSave()" data-i18n-tooltip="topbar.save_tooltip" data-tooltip="Guardar cambios en la plantilla activa">
@@ -179,8 +202,8 @@
             return [defaultW, defaultH];
         }
 
-        // Toast Notification System (Compact & Elegant)
-        function showPyxisToast(message, type = "success", duration = 2400) {
+        // Toast Notification System (Compact & Elegant with i18n support)
+        function showPyxisToast(message, type = "success", duration = 2400, params = null) {
             let toastContainer = document.getElementById("pyxis-toast-container");
             if (!toastContainer) {
                 toastContainer = document.createElement("div");
@@ -188,6 +211,9 @@
                 toastContainer.style.cssText = "position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 6px; pointer-events: none;";
                 document.body.appendChild(toastContainer);
             }
+
+            const isKey = typeof message === "string" && (message.startsWith("toast.") || message.startsWith("preview.") || message.startsWith("common."));
+            const finalMsg = (window.t && isKey) ? window.t(message, params) : message;
 
             const toast = document.createElement("div");
             let bgColor = "#064e3b";
@@ -218,7 +244,7 @@
             }
 
             toast.style.cssText = `background: ${bgColor}; border: 1px solid ${borderColor}; color: ${textColor}; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; font-family: sans-serif; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.4); pointer-events: auto; opacity: 0; transform: translateY(8px); transition: all 0.2s ease;`;
-            toast.innerHTML = `${iconSvg}<span>${message}</span>`;
+            toast.innerHTML = `${iconSvg}<span ${isKey ? `data-i18n="${message}"` : ""}>${finalMsg}</span>`;
             
             toastContainer.appendChild(toast);
 
@@ -305,7 +331,7 @@
 
             const serialized = window.graph.serialize();
             if (!serialized || !Array.isArray(serialized.nodes) || serialized.nodes.length === 0) {
-                showPyxisToast("El grafo está vacío", "warning");
+                showPyxisToast("toast.graph_empty", "warning");
                 return;
             }
 
@@ -333,11 +359,11 @@
                     const btnTop = document.getElementById("btn-quick-save-template");
                     if (btnTop) btnTop.style.display = "none";
                     updateTemplateUIState();
-                    showPyxisToast("Plantilla guardada", "success");
+                    showPyxisToast("toast.template_saved", "success");
                 }
             } catch (err) {
                 console.error("Pyxis: Error al guardar cambios en la plantilla", err);
-                showPyxisToast("Error al guardar plantilla", "error");
+                showPyxisToast("toast.template_save_error", "error");
             }
         }
         window.quickSaveActiveTemplate = quickSaveActiveTemplate;
@@ -412,6 +438,21 @@
         setTimeout(() => canvas.resize(), 50);
 
         window.addEventListener("pyxis:languageChanged", () => {
+            if (window.PyxisI18n && typeof window.PyxisI18n.applyToDOM === "function") {
+                window.PyxisI18n.applyToDOM(document);
+            }
+            if (window.PyxisNodePlayerManager && window.PyxisNodePlayerManager.activePlayers) {
+                for (const nId in window.PyxisNodePlayerManager.activePlayers) {
+                    const p = window.PyxisNodePlayerManager.activePlayers[nId];
+                    if (p && p.node) {
+                        const curSrc = (p.node.properties && p.node.properties.preview_source) || "base";
+                        const hasAegi = (p.hasAegisub !== undefined) ? p.hasAegisub : (window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub);
+                        if (typeof window.PyxisNodePlayerManager.updateSourceButtonUI === "function") {
+                            window.PyxisNodePlayerManager.updateSourceButtonUI(nId, curSrc, hasAegi);
+                        }
+                    }
+                }
+            }
             if (window.graph && window.graph._nodes) {
                 window.graph._nodes.forEach(node => {
                     if (typeof node.computeSize === "function") {
@@ -579,7 +620,7 @@
                 if (isExecuting) return;
                 if (!canUndo()) {
                     if (typeof window.showPyxisToast === "function") {
-                        window.showPyxisToast("Nada que deshacer", "warning");
+                        window.showPyxisToast("toast.nothing_to_undo", "warning");
                     }
                     updateUI();
                     return;
@@ -615,7 +656,7 @@
                         setTimeout(window.PyxisNodePlayerManager.refreshAllPreviews, 100);
                     }
                     if (typeof window.showPyxisToast === "function") {
-                        window.showPyxisToast("Deshecho (Ctrl+Z)", "success");
+                        window.showPyxisToast("toast.undone", "success");
                     }
                 } catch (e) {
                     console.error("Pyxis: Error al deshacer", e);
@@ -633,7 +674,7 @@
                 if (isExecuting) return;
                 if (!canRedo()) {
                     if (typeof window.showPyxisToast === "function") {
-                        window.showPyxisToast("Nada que rehacer", "warning");
+                        window.showPyxisToast("toast.nothing_to_redo", "warning");
                     }
                     updateUI();
                     return;
@@ -669,7 +710,7 @@
                         setTimeout(window.PyxisNodePlayerManager.refreshAllPreviews, 100);
                     }
                     if (typeof window.showPyxisToast === "function") {
-                        window.showPyxisToast("Rehecho (Ctrl+Y)", "success");
+                        window.showPyxisToast("toast.redone", "success");
                     }
                 } catch (e) {
                     console.error("Pyxis: Error al rehacer", e);
@@ -5970,7 +6011,7 @@
                 const cleanVal = String(inputEl.value || "").replace(/[\r\n]+/g, " ");
                 if (node.properties && propKey) node.properties[propKey] = cleanVal;
                 widget.value = cleanVal;
-                if (node.computeSize) {
+                if (node.computeSize && !node.resizable && !(node.flags && node.flags.resizable)) {
                     node.size = node.computeSize();
                 }
 
@@ -6012,7 +6053,7 @@
                 const cleanVal = String(inputEl.value || "").replace(/[\r\n]+/g, " ");
                 if (node.properties && propKey) node.properties[propKey] = cleanVal;
                 widget.value = cleanVal;
-                if (node.computeSize) {
+                if (node.computeSize && !node.resizable && !(node.flags && node.flags.resizable)) {
                     node.size = node.computeSize();
                 }
                 if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
@@ -6125,7 +6166,7 @@
                     { full: "Prime Factorization", short: "Prime" }
                 ]
             },
-            "Shape Transform": {
+            "Shape Manipulator": {
                 propKey: "mode",
                 modes: [
                     { full: "Escalar", short: "Escalar" },
@@ -6133,6 +6174,16 @@
                     { full: "Bordes", short: "Bordes" },
                     { full: "Deformar", short: "Deformar" },
                     { full: "Posición", short: "Posición" }
+                ]
+            },
+            "Shape Transform": {
+                propKey: "mode",
+                modes: [
+                    { full: "Inflate", short: "Inflate" },
+                    { full: "Skew", short: "Skew" },
+                    { full: "Round Corners", short: "Round" },
+                    { full: "Flexor", short: "Flexor" },
+                    { full: "Distort", short: "Distort" }
                 ]
             },
             "IMG to Shape": {
@@ -6345,6 +6396,18 @@
                     { full: "iClip", short: "\\iclip" }
                 ]
             },
+            "Shape Walker": {
+                propKey: "modo",
+                modes: [
+                    { full: "Global (Continuo)", short: "Global" },
+                    { full: "Por Contorno (Paralelo)", short: "Contorno" }
+                ],
+                secondaryPropKey: "invert",
+                secondaryModes: [
+                    { full: "0", short: "Normal" },
+                    { full: "1", short: "Invert" }
+                ]
+            },
             "Clip Gradient": {
                 propKey: "out_mode",
                 modes: [
@@ -6459,12 +6522,22 @@
                         { full: "Sakura 4T", short: "Sakura 4T" },
                         { full: "Sakura 5T", short: "Sakura 5T" },
                         { full: "Sakura 6T", short: "Sakura 6T" },
-                        { full: "Sakura 7T", short: "Sakura 7T" }
+                        { full: "Sakura 7T", short: "Sakura 7T" },
+                        { full: "Sakura 8T", short: "Sakura 8T" },
+                        { full: "Sakura 9T", short: "Sakura 9T" },
+                        { full: "Sakura 10T", short: "Sakura 10T" },
+                        { full: "Sakura 11T", short: "Sakura 11T" },
+                        { full: "Sakura 12T", short: "Sakura 12T" }
                     ],
                     "Nieve": [
-                        { full: "Copo 1T", short: "Copo 1T" },
-                        { full: "Copo 2T", short: "Copo 2T" },
-                        { full: "Copo 3T", short: "Copo 3T" }
+                        { full: "Nieve 1T", short: "Nieve 1T" },
+                        { full: "Nieve 2T", short: "Nieve 2T" },
+                        { full: "Nieve 3T", short: "Nieve 3T" },
+                        { full: "Nieve 4T", short: "Nieve 4T" },
+                        { full: "Nieve 5T", short: "Nieve 5T" },
+                        { full: "Nieve 6T", short: "Nieve 6T" },
+                        { full: "Nieve 7T", short: "Nieve 7T" },
+                        { full: "Nieve 8T", short: "Nieve 8T" }
                     ],
                     "Flores": [
                         { full: "Flor 1T", short: "Flor 1T" },
@@ -6472,37 +6545,15 @@
                         { full: "Flor 3T", short: "Flor 3T" },
                         { full: "Flor 4T", short: "Flor 4T" },
                         { full: "Flor 5T", short: "Flor 5T" },
-                        { full: "Flor 6T", short: "Flor 6T" },
-                        { full: "Flor 7T", short: "Flor 7T" },
-                        { full: "Flor 8T", short: "Flor 8T" },
-                        { full: "Flor 9T", short: "Flor 9T" },
-                        { full: "Flor 10T", short: "Flor 10T" },
-                        { full: "Flor 11T", short: "Flor 11T" },
-                        { full: "Flor 12T", short: "Flor 12T" },
-                        { full: "Flor 13T", short: "Flor 13T" },
-                        { full: "Flor 14T", short: "Flor 14T" },
-                        { full: "Flor 15T", short: "Flor 15T" },
-                        { full: "Flor 16T", short: "Flor 16T" },
-                        { full: "Flor 17T", short: "Flor 17T" },
-                        { full: "Flor 18T", short: "Flor 18T" },
-                        { full: "Flor 19T", short: "Flor 19T" },
-                        { full: "Flor 20T", short: "Flor 20T" },
-                        { full: "Flor 21T", short: "Flor 21T" },
-                        { full: "Flor 22T", short: "Flor 22T" },
-                        { full: "Flor 23T", short: "Flor 23T" },
-                        { full: "Flor 24T", short: "Flor 24T" },
-                        { full: "Flor 25T", short: "Flor 25T" },
-                        { full: "Flor 26T", short: "Flor 26T" },
-                        { full: "Flor 27T", short: "Flor 27T" },
-                        { full: "Flor 28T", short: "Flor 28T" },
-                        { full: "Flor 29T", short: "Flor 29T" }
+                        { full: "Flor 6T", short: "Flor 6T" }
                     ],
                     "Geometria": [
-                        { full: "Cristal 17", short: "Cristal 17" },
-                        { full: "Geom. 10", short: "Geom. 10" },
-                        { full: "Diag. 13R", short: "Diag. 13R" },
-                        { full: "Diag. 13L", short: "Diag. 13L" }
-                    ],
+                        { full: "Espiral", short: "Espiral" },
+                        { full: "Cruz", short: "Cruz" },
+                        { full: "Onda", short: "Onda" },
+                        { full: "Flecha", short: "Flecha" },
+                        { full: "Anillo", short: "Anillo" }
+                    ]
                 }
             },
             "IMG to Shape": {
@@ -6533,7 +6584,10 @@
                 const matches = (key === "Math" ? (title === "Math" || title === "Mates") : 
                                 (key === "Text" ? (title === "Text" || title === "Texto" || (node && (node.type === "Text" || node.type === "Texto"))) : 
                                 (key === "Bezier Curve" ? (title.includes("Bezier") || title.includes("Bézier") || title.includes("Curva") || (node && node.type && String(node.type).includes("Bezier"))) :
-                                (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key))))) || 
+                                (key === "Shape Walker" ? (title.includes("Shape Walker") || title.includes("Recorredor") || (node && node.type && String(node.type).includes("Shape Walker"))) :
+                                (key === "Shape Manipulator" ? (title.includes("Shape Manipulator") || title.includes("Manipulador") || (node && node.type && String(node.type).includes("Shape Manipulator"))) :
+                                (key === "Shape Transform" ? (title.includes("Shape Transform") || title.includes("Trans. Shape") || (node && node.type && String(node.type).includes("Shape Transform"))) :
+                                (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key)))))))) || 
                                 (key.includes("/") && key.split("/").some(k => title.includes(k.trim())));
                 if (matches) {
                     const entry = DYNAMIC_NODE_MODES[key];
@@ -6947,7 +7001,7 @@
                     { name: "Step", default: "45", property: "step" }
                 ]
             },
-            "Shape Transform": {
+            "Shape Manipulator": {
                 "Escalar": [
                     { name: "Shape / Texto", default: "", property: "shape" },
                     { name: "Scale X", default: "100", property: "scale_x" },
@@ -6974,6 +7028,45 @@
                     { name: "Offset X", default: "0", property: "offset_x" },
                     { name: "Offset Y", default: "0", property: "offset_y" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ]
+            },
+            "Shape Transform": {
+                "Inflate": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "0.5", property: "t" },
+                    { name: "Ratio", default: "1.0", property: "ratio" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Skew": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Angle X (°)", default: "0", property: "angle_x" },
+                    { name: "Angle Y (°)", default: "0", property: "angle_y" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Round Corners": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Radius (px)", default: "10.0", property: "radius" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Flexor": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Curve / Angle (°)", default: "30", property: "curve" },
+                    { name: "Factor (t)", default: "1.0", property: "bend_t" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Distort": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Target Shape", default: "", property: "target_shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ]
+            },
+            "Shape Walker": {
+                "DEFAULT": [
+                    { name: "Shape / Text", default: "", property: "shape" },
+                    { name: "Progress (t)", default: "1.0", property: "progress" },
+                    { name: "Start (t)", default: "0.0", property: "start_t" },
+                    { name: "Subdivs", default: "30", property: "subdivs" }
                 ]
             },
             "Color Gradient": {
@@ -7163,8 +7256,7 @@
                 ],
                 "tri": [
                     { name: "Shape", default: "" },
-                    { name: "Width", default: "20" },
-                    { name: "Height", default: "20" },
+                    { name: "Radius", default: "20" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7174,8 +7266,7 @@
                 ],
                 "dia": [
                     { name: "Shape", default: "" },
-                    { name: "Width", default: "20" },
-                    { name: "Height", default: "20" },
+                    { name: "Radius", default: "20" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7185,11 +7276,7 @@
                 ],
                 "ring": [
                     { name: "Shape", default: "" },
-                    { name: "R In", default: "0" },
-                    { name: "R Step", default: "10" },
-                    { name: "R Max", default: "200" },
-                    { name: "Center X", default: "0" },
-                    { name: "Center Y", default: "0" },
+                    { name: "Ring Width", default: "10" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7199,9 +7286,7 @@
                 ],
                 "ray": [
                     { name: "Shape", default: "" },
-                    { name: "Paso (º)", default: "15" },
-                    { name: "Center X", default: "0" },
-                    { name: "Center Y", default: "0" },
+                    { name: "Step Angle", default: "15" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7211,8 +7296,8 @@
                 ],
                 "quad": [
                     { name: "Shape", default: "" },
-                    { name: "Tamaño Min", default: "10" },
-                    { name: "Prob Stop", default: "0.45" },
+                    { name: "Min Size", default: "10" },
+                    { name: "Stop Prob", default: "0.45" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7222,8 +7307,8 @@
                 ],
                 "bez": [
                     { name: "Shape", default: "" },
-                    { name: "Tamaño Grid", default: "20" },
-                    { name: "Amplitud", default: "5" },
+                    { name: "Grid Size", default: "20" },
+                    { name: "Amplitude", default: "1.5" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7233,8 +7318,7 @@
                 ],
                 "voronoi": [
                     { name: "Shape", default: "" },
-                    { name: "Tamaño Celda", default: "20" },
-                    { name: "Jitter", default: "0.8" },
+                    { name: "Cell Size", default: "20" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7244,9 +7328,9 @@
                 ],
                 "ashlar": [
                     { name: "Shape", default: "" },
-                    { name: "Ancho Min", default: "10" },
-                    { name: "Ancho Max", default: "40" },
-                    { name: "Alto Fila", default: "15" },
+                    { name: "Min Width", default: "10" },
+                    { name: "Max Width", default: "40" },
+                    { name: "Row Height", default: "15" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7258,7 +7342,6 @@
                     { name: "Shape", default: "" },
                     { name: "Width", default: "30" },
                     { name: "Height", default: "15" },
-                    { name: "Ratio Desfase", default: "0.5" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7268,8 +7351,8 @@
                 ],
                 "mondrian": [
                     { name: "Shape", default: "" },
-                    { name: "Tamaño Min", default: "12" },
-                    { name: "Prob Stop", default: "0.45" },
+                    { name: "Min Size", default: "12" },
+                    { name: "Stop Prob", default: "0.45" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7279,7 +7362,7 @@
                 ],
                 "herringbone": [
                     { name: "Shape", default: "" },
-                    { name: "Longitud", default: "30" },
+                    { name: "Length", default: "30" },
                     { name: "Thickness", default: "10" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
@@ -7290,7 +7373,7 @@
                 ],
                 "delaunay": [
                     { name: "Shape", default: "" },
-                    { name: "Tamaño Celda", default: "15" },
+                    { name: "Cell Size", default: "15" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7311,9 +7394,9 @@
                 ],
                 "web": [
                     { name: "Shape", default: "" },
-                    { name: "Num Anillos", default: "5" },
-                    { name: "Num Rayos", default: "12" },
-                    { name: "Caos", default: "0.2" },
+                    { name: "Rings", default: "5" },
+                    { name: "Rays", default: "12" },
+                    { name: "Chaos", default: "0.2" },
                     { name: "Center X", default: "0" },
                     { name: "Center Y", default: "0" },
                     { name: "Text Scale", default: "1.0" },
@@ -7355,7 +7438,7 @@
                 ],
                 "jigsaw": [
                     { name: "Shape", default: "" },
-                    { name: "Tamaño Pieza", default: "20" },
+                    { name: "Piece Size", default: "20" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7365,7 +7448,7 @@
                 ],
                 "truchet": [
                     { name: "Shape", default: "" },
-                    { name: "Tamaño Celda", default: "20" },
+                    { name: "Cell Size", default: "20" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7375,9 +7458,9 @@
                 ],
                 "circuit": [
                     { name: "Shape", default: "" },
-                    { name: "Tamaño Celda", default: "20" },
-                    { name: "Grosor Pista", default: "5" },
-                    { name: "Prob Vía", default: "0.2" },
+                    { name: "Cell Size", default: "20" },
+                    { name: "Trace Width", default: "5" },
+                    { name: "Via Prob", default: "0.2" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -7387,11 +7470,11 @@
                 ],
                 "pattern": [
                     { name: "Shape", default: "" },
-                    { name: "Forma String", default: "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0" },
-                    { name: "Tamaño Celda", default: "20" },
-                    { name: "Tamaño Forma", default: "16" },
-                    { name: "Intercalar", default: "false" },
-                    { name: "Modo Positivo", default: "false" },
+                    { name: "Pattern Shape", default: "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0" },
+                    { name: "Cell Size", default: "20" },
+                    { name: "Shape Size", default: "16" },
+                    { name: "Stagger", default: "false" },
+                    { name: "Positive Mode", default: "false" },
                     { name: "Text Scale", default: "1.0" },
                     { name: "Pre-Offset", default: "0" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
@@ -8361,9 +8444,12 @@ function setupDynamicInlineNode(node) {
                                     } else if (isMultiTagNode) {
                                         openTagGridPicker(this, null, e);
                                         return true;
+                                    } else if (modeInfo.isSlicer) {
+                                        // Un solo clic en el botón superior de la barra de título abre la galería de motores
+                                        openMeshGridPicker(this, null, e);
+                                        return true;
                                     } else if (isPickerPill && local_pos[0] >= btnX + btnW - 18) {
-                                        if (modeInfo.isSlicer) openMeshGridPicker(this, null, e);
-                                        else openShapesLibGridPicker(this);
+                                        openShapesLibGridPicker(this);
                                         return true;
                                     } else {
                                         const nextIdx = (modeInfo.currentIdx + 1) % modeInfo.modeList.length;
@@ -8414,7 +8500,7 @@ function setupDynamicInlineNode(node) {
                 if (oldMouseDown) return oldMouseDown.call(this, e, local_pos, canvas);
             };
 
-            // Enable double click on dynamic inline nodes (like Shape Slicer) for specialized pickers
+            // Enable double click on dynamic inline nodes for specialized pickers
             node.onDblClick = function(e, pos) {
                 if (this.title && (String(this.title).includes("Sys Var") || String(this.title).includes("SysVar"))) {
                     openSysVarGridPicker(this, null, e);
@@ -8422,10 +8508,6 @@ function setupDynamicInlineNode(node) {
                 }
                 if (this.title && String(this.title).includes("MultiTag")) {
                     openTagGridPicker(this, null, e);
-                    return true;
-                }
-                if (this.title && String(this.title).includes("Slicer")) {
-                    openMeshGridPicker(this, null, e);
                     return true;
                 }
                 if (this.title && (String(this.title).includes("Shapes Library") || String(this.title).includes("Formas"))) {
@@ -8597,7 +8679,9 @@ function setupDynamicInlineNode(node) {
                 } else if (titleText.includes("Curva") || titleText.includes("Bezier")) {
                     req_w = Math.max(req_w, 235);
                     req_h = Math.max(req_h, 150);
-                } else if (titleText.includes("Clip") || titleText.includes("Shape Transform") || titleText.includes("Ipol") || titleText.includes("Interpolator")) {
+                } else if (titleText.includes("Shape Walker") || titleText.includes("Recorredor")) {
+                    req_w = Math.max(req_w, 235);
+                } else if (titleText.includes("Clip") || titleText.includes("Shape Manipulator") || titleText.includes("Manipulador") || titleText.includes("Shape Transform") || titleText.includes("Trans. Shape") || titleText.includes("Ipol") || titleText.includes("Interpolator")) {
                     req_w = Math.max(req_w, 215);
                 }
 
@@ -9016,10 +9100,14 @@ function setupDynamicInlineNode(node) {
 
             const minW = 480;
             node.computeSize = function() {
+                const curW = (this.size && this.size[0]) ? Math.max(this.size[0], minW) : 520;
+                const curAspect = (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio) 
+                    ? window.PyxisPreviewConfig.aspect_ratio 
+                    : (this.preview_aspect_ratio || (16 / 9));
                 const targetH = typeof calculatePrevisualizadorNodeHeight === "function" 
-                    ? calculatePrevisualizadorNodeHeight(minW, node.preview_aspect_ratio) 
-                    : 310;
-                return [minW, targetH];
+                    ? calculatePrevisualizadorNodeHeight(curW, curAspect) 
+                    : 330;
+                return [curW, targetH];
             };
 
             const targetW = Math.max(node.size ? node.size[0] : 0, 520);
@@ -9030,8 +9118,11 @@ function setupDynamicInlineNode(node) {
 
             node.onResize = function(size) {
                 const w = Math.max(size[0], minW);
+                const curAspect = (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio) 
+                    ? window.PyxisPreviewConfig.aspect_ratio 
+                    : (node.preview_aspect_ratio || (16 / 9));
                 const h = typeof calculatePrevisualizadorNodeHeight === "function" 
-                    ? calculatePrevisualizadorNodeHeight(w, node.preview_aspect_ratio) 
+                    ? calculatePrevisualizadorNodeHeight(w, curAspect) 
                     : 330;
                 size[0] = w;
                 size[1] = h;
@@ -13249,7 +13340,7 @@ function setupDynamicInlineNode(node) {
                     setupImgToPixelsNode(this);
                 } else if (node_name === "MultiRandom" || node_name.includes("MultiRandom")) {
                     setupRandomMasterNode(this);
-                } else if (category === "Audio" || category === "Shape" || (category === "Math" && node_name !== "MultiRandom" && !node_name.includes("MultiRandom")) || node_name.includes("Audio") || node_name === "Math" || node_name === "Text" || node_name.includes("Shape Transform") || node_name.includes("Shape Slicer") || node_name.includes("Bezier") || node_name === "Bezier Curve" || node_name.includes("Curva") || node_name.includes("Particles") || node_name.includes("Bordes") || node_name.includes("Clip") || node_name.includes("Tag Oscillator") || node_name.includes("Oscilador") || node_name.includes("Tag Animado") || node_name.includes("Synced Time") || node_name.includes("Kana") || node_name.includes("Ipol") || node_name.includes("Interpolator") || node_name.includes("Benchmark") || node_name.includes("Gradiente") || node_name.includes("MultiTag") || node_name.includes("Sys Var") || node_name.includes("SysVar") || node_name === "Module" || node_name.includes("Module")) {
+                } else if (category === "Audio" || category === "Shape" || (category === "Math" && node_name !== "MultiRandom" && !node_name.includes("MultiRandom")) || node_name.includes("Audio") || node_name === "Math" || node_name === "Text" || node_name.includes("Shape Manipulator") || node_name.includes("Manipulador") || node_name.includes("Shape Transform") || node_name.includes("Shape Walker") || node_name.includes("Recorredor") || node_name.includes("Shape Slicer") || node_name.includes("Bezier") || node_name === "Bezier Curve" || node_name.includes("Curva") || node_name.includes("Particles") || node_name.includes("Bordes") || node_name.includes("Clip") || node_name.includes("Tag Oscillator") || node_name.includes("Oscilador") || node_name.includes("Tag Animado") || node_name.includes("Synced Time") || node_name.includes("Kana") || node_name.includes("Ipol") || node_name.includes("Interpolator") || node_name.includes("Benchmark") || node_name.includes("Gradiente") || node_name.includes("MultiTag") || node_name.includes("Sys Var") || node_name.includes("SysVar") || node_name === "Module" || node_name.includes("Module")) {
                     setupDynamicInlineNode(this);
                 } else if (node_name === "Offset" || node_name.includes("Offset")) {
                     setupOffsetNode(this);
@@ -13463,9 +13554,14 @@ function setupDynamicInlineNode(node) {
                 }
             },
             "Shape": {
-                "Shape Transform": {
+                "Shape Manipulator": {
                     "node_kind": "data", "inputs": ["Shape / Texto", "Scale X", "Scale Y", "Anchor"], "outputs": ["Shape"], "color": "#5B2C6F",
                     "properties": { "shape": "", "scale_x": "1.0", "scale_y": "1.0", "angle": "0", "offset_x": "0", "offset_y": "0", "offset_border": "2.0", "factor": "1.0", "anchor": "center", "mode": "Escalar" },
+                    "widgets": []
+                },
+                "Shape Transform": {
+                    "node_kind": "data", "inputs": ["Shape / Texto", "Factor (t)", "Ratio", "Anchor"], "outputs": ["Shape"], "color": "#7D3C98",
+                    "properties": { "shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "anchor": "center" },
                     "widgets": []
                 }
             },
@@ -13724,6 +13820,9 @@ function setupDynamicInlineNode(node) {
                             for (const nId in players) {
                                 const p = players[nId];
                                 if (!p) continue;
+                                if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.setPlayerLoading === "function") {
+                                    window.PyxisNodePlayerManager.setPlayerLoading(nId, true, "preview.syncing");
+                                }
                                 if (window.graph) {
                                     const liveNode = window.graph.getNodeById(Number(nId)) || window.graph.getNodeById(nId);
                                     if (liveNode) p.node = liveNode;
@@ -13859,6 +13958,9 @@ function setupDynamicInlineNode(node) {
                                             if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                         }
                                     }
+                                }
+                                if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.setPlayerLoading === "function") {
+                                    window.PyxisNodePlayerManager.setPlayerLoading(nId, false);
                                 }
                             }
                         }
@@ -14271,7 +14373,7 @@ function setupDynamicInlineNode(node) {
                     if (tooltipEl) return;
                     tooltipEl = document.createElement("div");
                     tooltipEl.className = "pyxis-btn-tooltip";
-                    tooltipEl.innerText = tooltipText;
+                    tooltipEl.innerText = typeof tooltipText === "function" ? tooltipText() : tooltipText;
 
                     const rect = el.getBoundingClientRect();
                     tooltipEl.style.position = "fixed";
@@ -14326,8 +14428,8 @@ function setupDynamicInlineNode(node) {
                     const isBase = curSource === "base";
                     const initialHasAegisub = Boolean(window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub);
                     const sourceTip = isBase 
-                        ? "Fuente: Plantilla Base (preview_base.ass) - Clic para cambiar a Aegisub" 
-                        : "Fuente: Archivo Abierto en Aegisub - Clic para cambiar a Base";
+                        ? (window.t ? window.t("preview.source_base_tooltip") : "Source: Base Template (preview_base.ass) - Click to switch to Aegisub") 
+                        : (window.t ? window.t("preview.source_aegisub_tooltip") : "Source: Open File in Aegisub - Click to switch to Base");
 
                     const wrapper = document.createElement('div');
                     wrapper.id = 'pyxis-player-wrapper-' + nodeIdStr;
@@ -14337,21 +14439,21 @@ function setupDynamicInlineNode(node) {
                     headerActions.id = 'pyxis-player-header-' + nodeIdStr;
                     headerActions.className = 'pyxis-node-header-actions';
                     headerActions.innerHTML = `
-                        <button id="btn-source-${nodeIdStr}" class="pyxis-header-icon-btn pyxis-btn-source ${!initialHasAegisub ? 'disabled' : ''}" aria-label="${sourceTip}" ${!initialHasAegisub ? 'disabled' : ''}>
+                        <button id="btn-source-${nodeIdStr}" class="pyxis-header-icon-btn pyxis-btn-source ${!initialHasAegisub ? 'disabled' : ''}" aria-label="${sourceTip}" data-i18n-aria-label="${isBase ? 'preview.source_base_tooltip' : 'preview.source_aegisub_tooltip'}" ${!initialHasAegisub ? 'disabled' : ''}>
                             <img src="${isBase ? 'CD.png' : 'Aegisub_logo.png'}" alt="${curSource}" />
                         </button>
-                        <button id="btn-pin-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="Fijar reproductor en la pantalla">
+                        <button id="btn-pin-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="${window.t ? window.t('preview.pin') : 'Pin player to screen'}" data-i18n-aria-label="preview.pin">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M12 17v5"/>
                                 <path d="M9 2v3l-2 5v3h10v-3l-2-5V2z"/>
                             </svg>
                         </button>
-                        <button id="btn-refresh-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="Actualizar Previsualizador">
+                        <button id="btn-refresh-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="${window.t ? window.t('preview.refresh') : 'Refresh Previewer'}" data-i18n-aria-label="preview.refresh">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
                             </svg>
                         </button>
-                        <button id="btn-hardsub-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="Renderizar Hardsub con FFmpeg">
+                        <button id="btn-hardsub-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="${window.t ? window.t('preview.hardsub') : 'Render Hardsub with FFmpeg'}" data-i18n-aria-label="preview.hardsub">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M4 11v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8H4z"/>
                                 <path d="M4 11V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6H4z"/>
@@ -14368,26 +14470,40 @@ function setupDynamicInlineNode(node) {
 
                     if (btnSource) {
                         btnSource.onclick = () => window.PyxisNodePlayerManager.togglePreviewSource(nodeIdStr);
-                        attachPyxisDelayTooltip(btnSource, sourceTip, 1000);
+                        attachPyxisDelayTooltip(btnSource, () => {
+                            const p = activePlayers[nodeIdStr];
+                            const curSrc = (p && p.node && p.node.properties && p.node.properties.preview_source) || "base";
+                            const k = curSrc === "base" ? "preview.source_base_tooltip" : "preview.source_aegisub_tooltip";
+                            return window.t ? window.t(k) : (curSrc === "base" ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub" : "Source: Open File in Aegisub - Click to switch to Base");
+                        }, 1000);
                     }
                     if (btnPin) {
                         btnPin.onclick = () => window.PyxisNodePlayerManager.togglePinPreview(nodeIdStr);
-                        attachPyxisDelayTooltip(btnPin, "Fijar reproductor en la pantalla", 1000);
+                        attachPyxisDelayTooltip(btnPin, () => (window.t ? window.t("preview.pin") : "Pin player to screen"), 1000);
                     }
                     if (btnRefresh) {
                         btnRefresh.onclick = () => window.PyxisNodePlayerManager.refreshPreview(nodeIdStr);
-                        attachPyxisDelayTooltip(btnRefresh, "Actualizar Previsualizador", 1000);
+                        attachPyxisDelayTooltip(btnRefresh, () => (window.t ? window.t("preview.refresh") : "Refresh Previewer"), 1000);
                     }
                     if (btnHardsub) {
                         btnHardsub.onclick = () => window.PyxisNodePlayerManager.renderHardsub(nodeIdStr);
-                        attachPyxisDelayTooltip(btnHardsub, "Renderizar Hardsub con FFmpeg", 1000);
+                        attachPyxisDelayTooltip(btnHardsub, () => (window.t ? window.t("preview.hardsub") : "Render Hardsub with FFmpeg"), 1000);
                     }
 
                     const box = document.createElement('div');
                     box.id = 'pyxis-artplayer-container-' + nodeIdStr;
                     box.className = 'pyxis-artplayer-box';
 
+                    const loadingBackdrop = document.createElement('div');
+                    loadingBackdrop.id = 'pyxis-player-loading-' + nodeIdStr;
+                    loadingBackdrop.className = 'pyxis-player-loading-backdrop is-loading';
+                    loadingBackdrop.innerHTML = `
+                        <img src="loadingB.gif" class="pyxis-player-loading-gif" alt="${window.t ? window.t('common.loading') : 'Loading...'}" data-i18n-alt="common.loading">
+                        <div class="pyxis-player-loading-text" data-i18n="preview.loading">${window.t ? window.t('preview.loading') : 'Loading preview...'}</div>
+                    `;
+
                     wrapper.appendChild(box);
+                    wrapper.appendChild(loadingBackdrop);
                     layer.appendChild(wrapper);
                     layer.appendChild(headerActions);
 
@@ -14472,6 +14588,7 @@ function setupDynamicInlineNode(node) {
                         artInstance = new Artplayer({
                             container: box,
                             url: videoUrl,
+                            hotkey: false,
                             setting: true,
                             playbackRate: true,
                             fullscreen: false,
@@ -14488,9 +14605,20 @@ function setupDynamicInlineNode(node) {
 
                         artInstance.on('ready', async function() {
                             logPlayer("Artplayer onReady event fired for node: " + nodeIdStr);
+                            if (loadingBackdrop) {
+                                loadingBackdrop.classList.remove('is-loading');
+                            }
                             if (artInstance.template && artInstance.template.$video) {
                                 try {
                                     artInstance.template.$video.crossOrigin = 'anonymous';
+                                    artInstance.template.$video.addEventListener('play', function(e) {
+                                        if (window.PyxisNodePlayerManager && window.PyxisNodePlayerManager.isDaemonSuspended) {
+                                            try { artInstance.pause(); } catch(err) {}
+                                            try { artInstance.template.$video.pause(); } catch(err) {}
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                        }
+                                    });
                                 } catch(e) {}
                             }
                             if (artInstance.template && artInstance.template.$progress) {
@@ -14566,6 +14694,7 @@ function setupDynamicInlineNode(node) {
                         headerActions: headerActions,
                         art: artInstance,
                         jassub: jassubInstance,
+                        loadingBackdrop: loadingBackdrop,
                         node: node,
                         hasRefreshed: false,
                         hasAegisub: hasAegi,
@@ -14613,9 +14742,10 @@ function setupDynamicInlineNode(node) {
             function updateSourceButtonUI(nodeIdStr, source, hasAegisub) {
                 const isBase = source === "base";
                 const iconFile = isBase ? "CD.png" : "Aegisub_logo.png";
-                const tip = isBase
-                    ? "Fuente: Plantilla Base (preview_base.ass) - Clic para cambiar a Aegisub"
-                    : "Fuente: Archivo Abierto en Aegisub - Clic para cambiar a Base";
+                const tipKey = isBase ? "preview.source_base_tooltip" : "preview.source_aegisub_tooltip";
+                const tip = window.t ? window.t(tipKey) : (isBase
+                    ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub"
+                    : "Source: Open File in Aegisub - Click to switch to Base");
 
                 const btnSelectors = ['#btn-source-' + nodeIdStr, '#btn-float-source-' + nodeIdStr];
                 btnSelectors.forEach(sel => {
@@ -14626,13 +14756,18 @@ function setupDynamicInlineNode(node) {
                             img.src = iconFile;
                             img.alt = source;
                         }
+                        btn.setAttribute('data-i18n-aria-label', tipKey);
+                        btn.setAttribute('data-i18n-title', tipKey);
                         btn.setAttribute('aria-label', tip);
                         btn.setAttribute('title', tip);
                         if (!hasAegisub) {
+                            const noAegi = window.t ? window.t("preview.no_aegisub_session") : "No active Aegisub session with subtitles";
                             btn.classList.add('disabled');
                             btn.setAttribute('disabled', 'true');
-                            btn.setAttribute('title', 'No hay sesión activa de Aegisub con subtítulos');
-                            btn.setAttribute('aria-label', 'No hay sesión activa de Aegisub con subtítulos');
+                            btn.setAttribute('data-i18n-title', 'preview.no_aegisub_session');
+                            btn.setAttribute('data-i18n-aria-label', 'preview.no_aegisub_session');
+                            btn.setAttribute('title', noAegi);
+                            btn.setAttribute('aria-label', noAegi);
                         } else {
                             btn.classList.remove('disabled');
                             btn.removeAttribute('disabled');
@@ -14652,7 +14787,7 @@ function setupDynamicInlineNode(node) {
 
                 if (curSource === "base" && !hasAegi) {
                     if (typeof window.showPyxisToast === 'function') {
-                        window.showPyxisToast("No hay archivo activo de Aegisub disponible para previsualizar", "warning");
+                        window.showPyxisToast("toast.no_active_aegisub", "warning");
                     }
                     return;
                 }
@@ -14663,8 +14798,10 @@ function setupDynamicInlineNode(node) {
                 updateSourceButtonUI(nodeIdStr, nextSource, hasAegi);
 
                 if (typeof window.showPyxisToast === 'function') {
-                    const srcLabel = (nextSource === "base") ? "Plantilla Base (preview_base.ass)" : "Archivo Abierto en Aegisub";
-                    window.showPyxisToast("Fuente de Previsualización: " + srcLabel, "source");
+                    const srcLabel = (nextSource === "base") 
+                        ? (window.t ? window.t("preview.source_base_label") : "Base Template") 
+                        : (window.t ? window.t("preview.source_aegisub_label") : "Aegisub");
+                    window.showPyxisToast(window.t ? window.t("toast.preview_source", { source: srcLabel }) : ("Preview Source: " + srcLabel), "source");
                 }
 
                 // Cargar vídeo y subtítulo base de la nueva fuente SIN generar efectos de forma automática
@@ -14697,6 +14834,7 @@ function setupDynamicInlineNode(node) {
                                 }
                             }
                         }
+                        setPlayerLoading(nodeId, true, "preview.switching_source");
                         if (typeof window.pywebview.api.get_preview_video_data_url === 'function') {
                             const newVideoUrl = await window.pywebview.api.get_preview_video_data_url(nextSource, connectedOutputs, serialized);
                             if (newVideoUrl && p.art && p.videoUrl !== newVideoUrl) {
@@ -14729,6 +14867,8 @@ function setupDynamicInlineNode(node) {
                         }
                     } catch (e) {
                         console.error("[Pyxis togglePreviewSource switch media error]", e);
+                    } finally {
+                        setPlayerLoading(nodeId, false);
                     }
                 }
             }
@@ -14881,6 +15021,7 @@ function setupDynamicInlineNode(node) {
                     document.querySelector('#btn-float-refresh-' + nodeId)
                 ].filter(Boolean);
                 refBtns.forEach(b => b.classList.add('is-refreshing'));
+                setPlayerLoading(nodeId, true, "preview.updating");
                 try {
                     if (typeof window.syncWidgetsToProperties === "function") {
                         window.syncWidgetsToProperties();
@@ -14896,7 +15037,7 @@ function setupDynamicInlineNode(node) {
 
                     if (connectedOutputIds.length === 0) {
                         if (typeof window.showPyxisToast === 'function') {
-                            window.showPyxisToast("No hay salidas conectadas o especificadas", "warning");
+                            window.showPyxisToast(window.t ? window.t("preview.no_outputs_warning") : "No outputs connected or specified", "warning");
                         }
                         return;
                     }
@@ -14934,10 +15075,12 @@ function setupDynamicInlineNode(node) {
                     }
 
                     // Si cambió de fuente o si se fuerza reload de vídeo, obtener nueva URL de vídeo
+                    let videoChanged = false;
                     if (typeof window.pywebview.api.get_preview_video_data_url === 'function') {
                         const newVideoUrl = await window.pywebview.api.get_preview_video_data_url(curSource, connectedOutputIds, serialized);
                         if (newVideoUrl && p && p.art) {
                             if (forceVideoReload || p.videoUrl !== newVideoUrl) {
+                                videoChanged = true;
                                 p.videoUrl = newVideoUrl;
                                 try {
                                     await p.art.switchUrl(newVideoUrl);
@@ -14967,10 +15110,10 @@ function setupDynamicInlineNode(node) {
                             await updateJassubTrack(p.jassub, res.content);
                         }
                         if (typeof window.showPyxisToast === 'function') {
-                            window.showPyxisToast("Efecto generado en Previsualizador", "success");
+                            window.showPyxisToast("toast.effect_generated_preview", "success");
                         }
                     }
-                    if (p && p.art) {
+                    if (videoChanged && p && p.art) {
                         try { p.art.seek = 0; } catch (e) {}
                         try { p.art.currentTime = 0; } catch (e) {}
                     }
@@ -14981,6 +15124,7 @@ function setupDynamicInlineNode(node) {
                     console.error("[Pyxis Preview Refresh Error]", err);
                 } finally {
                     refBtns.forEach(b => b.classList.remove('is-refreshing'));
+                    setPlayerLoading(nodeId, false);
                 }
             }
 
@@ -15002,7 +15146,7 @@ function setupDynamicInlineNode(node) {
                     const connectedOutputIds = (p && p.node) ? resolveConnectedOutputsForPreview(p.node) : [];
                     if (connectedOutputIds.length === 0) {
                         if (typeof window.showPyxisToast === 'function') {
-                            window.showPyxisToast("No hay salidas conectadas o especificadas para renderizar", "warning");
+                            window.showPyxisToast(window.t ? window.t("preview.no_outputs_hardsub_warning") : "No outputs connected or specified for rendering", "warning");
                         }
                         return;
                     }
@@ -15014,18 +15158,20 @@ function setupDynamicInlineNode(node) {
                     const res = await window.pywebview.api.render_preview_hardsub(serialized, targetArg, mp4Filename, curSource);
                     if (res && res.cancelled) {
                         if (typeof window.showPyxisToast === 'function') {
-                            window.showPyxisToast("Renderizado de Hardsub cancelado", "warning");
+                            window.showPyxisToast(window.t ? window.t("preview.hardsub_cancelled") : "Hardsub rendering cancelled", "warning");
                         }
                         return;
                     }
                     if (res && (res === true || res.success)) {
                         if (typeof window.showPyxisToast === 'function') {
                             const pathText = res.saved_path ? (" en " + res.saved_path) : "";
-                            window.showPyxisToast("Hardsub renderizado con éxito" + pathText, "success");
+                            const successMsg = window.t ? window.t("preview.hardsub_success") : "Hardsub rendered successfully";
+                            window.showPyxisToast(successMsg + pathText, "success");
                         }
                     } else if (res && res.error) {
                         if (typeof window.showPyxisToast === 'function') {
-                            window.showPyxisToast("Error en Hardsub: " + res.error, "error");
+                            const errorMsg = window.t ? window.t("preview.hardsub_error", { error: res.error }) : ("Hardsub error: " + res.error);
+                            window.showPyxisToast(errorMsg, "error");
                         }
                     }
                 } catch (err) {
@@ -15084,8 +15230,8 @@ function setupDynamicInlineNode(node) {
                     const isBase = curSource === "base";
                     const hasAegi = (p.hasAegisub !== undefined) ? p.hasAegisub : (window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub);
                     const sourceTip = isBase 
-                        ? "Fuente: Plantilla Base (preview_base.ass) - Clic para cambiar a Aegisub" 
-                        : "Fuente: Archivo Abierto en Aegisub - Clic para cambiar a Base";
+                        ? (window.t ? window.t("preview.source_base_tooltip") : "Source: Base Template (preview_base.ass) - Click to switch to Aegisub") 
+                        : (window.t ? window.t("preview.source_aegisub_tooltip") : "Source: Open File in Aegisub - Click to switch to Base");
 
                     let floatHeader = p.wrapper.querySelector('.pyxis-floating-header');
                     if (!floatHeader) {
@@ -15096,23 +15242,23 @@ function setupDynamicInlineNode(node) {
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M12 17v5"/><path d="M9 2v3l-2 5v3h10v-3l-2-5V2z"/>
                                 </svg>
-                                <span>Previsualizador (Fijado)</span>
+                                <span data-i18n="preview.pinned_title">${window.t ? window.t('preview.pinned_title') : 'Previewer (Pinned)'}</span>
                             </div>
                             <div class="pyxis-floating-header-actions">
-                                <button id="btn-float-source-${nodeIdStr}" class="pyxis-header-icon-btn pyxis-btn-source ${!hasAegi ? 'disabled' : ''}" aria-label="${sourceTip}" ${!hasAegi ? 'disabled' : ''}>
+                                <button id="btn-float-source-${nodeIdStr}" class="pyxis-header-icon-btn pyxis-btn-source ${!hasAegi ? 'disabled' : ''}" aria-label="${sourceTip}" data-i18n-aria-label="${isBase ? 'preview.source_base_tooltip' : 'preview.source_aegisub_tooltip'}" ${!hasAegi ? 'disabled' : ''}>
                                     <img src="${isBase ? 'CD.png' : 'Aegisub_logo.png'}" alt="${curSource}" />
                                 </button>
-                                <button id="btn-float-unpin-${nodeIdStr}" class="pyxis-header-icon-btn active" aria-label="Desfijar de la pantalla">
+                                <button id="btn-float-unpin-${nodeIdStr}" class="pyxis-header-icon-btn active" aria-label="${window.t ? window.t('preview.unpin') : 'Unpin player'}" data-i18n-aria-label="preview.unpin">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M12 17v5"/><path d="M9 2v3l-2 5v3h10v-3l-2-5V2z"/>
                                     </svg>
                                 </button>
-                                <button id="btn-float-refresh-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="Actualizar Previsualizador">
+                                <button id="btn-float-refresh-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="${window.t ? window.t('preview.refresh') : 'Refresh Previewer'}" data-i18n-aria-label="preview.refresh">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
                                     </svg>
                                 </button>
-                                <button id="btn-float-hardsub-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="Renderizar Hardsub con FFmpeg">
+                                <button id="btn-float-hardsub-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="${window.t ? window.t('preview.hardsub') : 'Render Hardsub with FFmpeg'}" data-i18n-aria-label="preview.hardsub">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M4 11v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8H4z"/>
                                         <path d="M4 11V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6H4z"/>
@@ -15137,22 +15283,26 @@ function setupDynamicInlineNode(node) {
                         if (bSource) {
                             stopHeaderPointerEvents(bSource);
                             bSource.onclick = (e) => { e.stopPropagation(); togglePreviewSource(nodeIdStr); };
-                            attachPyxisDelayTooltip(bSource, sourceTip, 1000);
+                            attachPyxisDelayTooltip(bSource, () => {
+                                const curSrc = (p && p.node && p.node.properties && p.node.properties.preview_source) || "base";
+                                const k = curSrc === "base" ? "preview.source_base_tooltip" : "preview.source_aegisub_tooltip";
+                                return window.t ? window.t(k) : (curSrc === "base" ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub" : "Source: Open File in Aegisub - Click to switch to Base");
+                            }, 1000);
                         }
                         if (bUnpin) {
                             stopHeaderPointerEvents(bUnpin);
                             bUnpin.onclick = (e) => { e.stopPropagation(); togglePinPreview(nodeIdStr); };
-                            attachPyxisDelayTooltip(bUnpin, "Desfijar reproductor", 1000);
+                            attachPyxisDelayTooltip(bUnpin, () => (window.t ? window.t("preview.unpin") : "Unpin player"), 1000);
                         }
                         if (bRef) {
                             stopHeaderPointerEvents(bRef);
                             bRef.onclick = (e) => { e.stopPropagation(); refreshPreview(nodeIdStr); };
-                            attachPyxisDelayTooltip(bRef, "Actualizar Previsualizador", 1000);
+                            attachPyxisDelayTooltip(bRef, () => (window.t ? window.t("preview.refresh") : "Refresh Previewer"), 1000);
                         }
                         if (bHard) {
                             stopHeaderPointerEvents(bHard);
                             bHard.onclick = (e) => { e.stopPropagation(); renderHardsub(nodeIdStr); };
-                            attachPyxisDelayTooltip(bHard, "Renderizar Hardsub con FFmpeg", 1000);
+                            attachPyxisDelayTooltip(bHard, () => (window.t ? window.t("preview.hardsub") : "Render Hardsub with FFmpeg"), 1000);
                         }
 
                         let isDragging = false;
@@ -15662,6 +15812,83 @@ function setupDynamicInlineNode(node) {
                 });
             }
 
+            function setPlayerLoading(nodeId, isLoading, messageKey = "preview.loading") {
+                const p = activePlayers[String(nodeId)];
+                const backdrop = (p && p.loadingBackdrop) || document.querySelector('#pyxis-player-loading-' + nodeId);
+                if (!backdrop) return;
+                if (isLoading) {
+                    const textEl = backdrop.querySelector('.pyxis-player-loading-text');
+                    if (textEl) {
+                        const key = messageKey || textEl.getAttribute('data-i18n') || "preview.loading";
+                        const isKey = typeof key === "string" && (key.startsWith("preview.") || key.startsWith("common."));
+                        if (isKey) {
+                            textEl.setAttribute('data-i18n', key);
+                            textEl.textContent = window.t ? window.t(key) : key;
+                        } else {
+                            textEl.removeAttribute('data-i18n');
+                            textEl.textContent = key;
+                        }
+                    }
+                    backdrop.classList.add('is-loading');
+                } else {
+                    backdrop.classList.remove('is-loading');
+                }
+            }
+
+            let isDaemonSuspended = false;
+
+            function suspendForDaemon() {
+                isDaemonSuspended = true;
+                try {
+                    Object.keys(activePlayers).forEach(nodeId => {
+                        const p = activePlayers[nodeId];
+                        if (p && p.art) {
+                            try { p.art.pause(); } catch(e) {}
+                            if (p.art.template && p.art.template.$video) {
+                                try {
+                                    p.art.template.$video.pause();
+                                    p.art.template.$video.muted = true;
+                                } catch(e) {}
+                            }
+                        }
+                    });
+                    if ('mediaSession' in navigator) {
+                        navigator.mediaSession.playbackState = "none";
+                        try {
+                            navigator.mediaSession.setActionHandler('play', null);
+                            navigator.mediaSession.setActionHandler('pause', null);
+                            navigator.mediaSession.setActionHandler('stop', null);
+                        } catch(e) {}
+                    }
+                } catch (err) {
+                    console.warn("[Pyxis Player suspendForDaemon warning]", err);
+                }
+            }
+
+            function resumeFromDaemon() {
+                isDaemonSuspended = false;
+                try {
+                    Object.keys(activePlayers).forEach(nodeId => {
+                        const p = activePlayers[nodeId];
+                        if (p && p.art && p.art.template && p.art.template.$video) {
+                            try {
+                                p.art.template.$video.muted = (p.art.volume === 0);
+                            } catch(e) {}
+                        }
+                    });
+                } catch (err) {
+                    console.warn("[Pyxis Player resumeFromDaemon warning]", err);
+                }
+            }
+
+            document.addEventListener("visibilitychange", function() {
+                if (document.hidden) {
+                    suspendForDaemon();
+                } else {
+                    resumeFromDaemon();
+                }
+            });
+
             window.PyxisNodePlayerManager = {
                 updateInNodePlayersPosition: updateInNodePlayersPosition,
                 refreshPreview: refreshPreview,
@@ -15672,6 +15899,10 @@ function setupDynamicInlineNode(node) {
                 togglePinPreview: togglePinPreview,
                 togglePreviewSource: togglePreviewSource,
                 updateSourceButtonUI: updateSourceButtonUI,
+                setPlayerLoading: setPlayerLoading,
+                suspendForDaemon: suspendForDaemon,
+                resumeFromDaemon: resumeFromDaemon,
+                get isDaemonSuspended() { return isDaemonSuspended; },
                 activePlayers: activePlayers
             };
         })();

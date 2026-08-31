@@ -24,7 +24,7 @@ if _pyxis_dir not in sys.path:
 import unittest
 from nodes.tag_nodes import node_gradiente_color
 from nodes.math_nodes import math_polar
-from nodes.shape_nodes import shape_transform
+from nodes.shape_nodes import shape_manipulator
 from node_engine import GraphEngine
 
 class AdvancedNodesTests(unittest.TestCase):
@@ -100,22 +100,22 @@ class AdvancedNodesTests(unittest.TestCase):
         pos_tag = engine.evaluate_data_node(1, ctx, output_slot_index=0)
         self.assertEqual(pos_tag, "\\pos(500,345)")
 
-    def test_shape_transform(self):
+    def test_shape_manipulator(self):
         ctx = {"fx_pos_x": 500, "fx_pos_y": 300}
         square = "m 0 0 l 100 0 l 100 100 l 0 100 "
 
         # 1. Mode 'topleft': Scale 2x, offset +10, +10 -> top-left at (10, 10), corner at (210, 210)
-        t_topleft = shape_transform(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="topleft")
+        t_topleft = shape_manipulator(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="topleft")
         self.assertIn("m 10 10", t_topleft)
         self.assertIn("l 210 210", t_topleft)
 
         # 2. Mode 'center': Center at (0,0), scale 2x (box [-100..100, -100..100]) + offset (10, 10) -> [-90..110, -90..110]
-        t_center = shape_transform(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="center")
+        t_center = shape_manipulator(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="center")
         self.assertIn("m -90 -90", t_center)
         self.assertIn("l 110 110", t_center)
 
         # 3. Mode 'absolute': Bounding box centered and placed at (500+10, 300+10) = (510, 310) -> [-100+510 .. 100+510] = [410..610]
-        t_abs = shape_transform(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="absolute")
+        t_abs = shape_manipulator(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="absolute")
         self.assertIn("m 410 210", t_abs)
         self.assertIn("l 610 410", t_abs)
 
@@ -125,7 +125,7 @@ class AdvancedNodesTests(unittest.TestCase):
             "nodes": [
                 {
                     "id": 1,
-                    "type": "Shape Transform",
+                    "type": "Shape/Shape Manipulator",
                     "properties": {
                         "shape": "m 0 0 l 100 0 l 100 100 l 0 100",
                         "scale_x": "200",

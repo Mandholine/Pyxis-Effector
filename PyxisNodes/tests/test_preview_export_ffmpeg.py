@@ -48,7 +48,7 @@ class TestPreviewExportFFmpeg(unittest.TestCase):
         def fake_run(cmd, *args, **kwargs):
             out_clip = cmd[-1]
             with open(out_clip, "wb") as f:
-                f.write(b"dummy mp4 data" * 100)
+                f.write(b"....ftyp....moov...." + b"dummy mp4 data" * 100)
             proc = MagicMock()
             proc.returncode = 0
             return proc
@@ -90,7 +90,7 @@ class TestPreviewExportFFmpeg(unittest.TestCase):
         def fake_run(cmd, *args, **kwargs):
             out_clip = cmd[-1]
             with open(out_clip, "wb") as f:
-                f.write(b"dummy mp4 data" * 100)
+                f.write(b"....ftyp....moov...." + b"dummy mp4 data" * 100)
             proc = MagicMock()
             proc.returncode = 0
             return proc

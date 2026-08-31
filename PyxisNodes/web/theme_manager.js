@@ -17,7 +17,7 @@
  */
 
 /* =============================================================================
-   Pyxis Theme Manager & Dynamic Node Palette Engine - v1.0.4
+   Pyxis Theme Manager & Dynamic Node Palette Engine - v1.0.5
    Includes: Theme Engine, Interactive Custom Theme Editor & Media Backgrounds
    ============================================================================= */
 (function (window) {
@@ -35,11 +35,12 @@
         if (name === "Main Loop" || name === "MaxLoop" || name === "Module") return "Loops";
         if (name === "Output" || name === "Previewer" || name === "Benchmark Math" || name === "Script Code" || name === "Cód Script") return "System";
         if (name === "Define Vars" || name === "Get Var" || name === "Memory" || name === "Sys Var") return "Variables";
+        if (name === "Text on Path" || name === "Texto en trazado" || name === "Bezier Curve" || name === "Interpolator" || name === "Conditioner" || name === "Color Gradient") return "Functions";
         if (name === "String" || name === "Concatenate" || name === "Dynamic Format") return "String";
-        if (name === "Text" || name.startsWith("Text ")) return "Text";
+        if (name === "Text" || (name.startsWith("Text ") && name !== "Text on Path")) return "Text";
         if (name === "MultiTag" || name === "Tag Oscillator") return "Tags";
         if (name === "Math" || name === "Number" || name === "Number" || name === "Color Picker" || name === "MultiRandom") return "Math";
-        if (name === "Shapes Library" || name === "Shape Slicer" || name === "Shape Transform" || name === "Concentric Borders" || name === "IMG to Shape") return "Shape";
+        if (name === "Shapes Library" || name === "Shape Slicer" || name === "Shape Transform" || name === "Shape Stroke" || name === "Concentric Borders" || name === "IMG to Shape") return "Shape";
         if (name === "Audio Modulator" || name === "Audio Waveform") return "Audio";
         if (name === "Lead In" || name === "Lead Out" || name === "Middle 1" || name === "Middle 2" || name === "Loop 1" || name === "Loop 2" || name === "Time Ipol" || name === "Synced Time" || name === "Offset" || name === "Duración" || name === "Parse ASS Time" || name === "Format ASS Time") return "Time";
         if (name === "Particles" || name === "IMG to pixels") return "Particles";
@@ -1058,7 +1059,7 @@
                     if (gradInp) setFieldColor(gradInp, globGrad);
                 });
                 updateLivePreview();
-                if (window.showPyxisToast) window.showPyxisToast("Color aplicado a todas las categorías", "success", 2000);
+                if (window.showPyxisToast) window.showPyxisToast("toast.color_applied_all_categories", "success", 2000);
             };
         }
 
@@ -1158,7 +1159,7 @@
             if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.export_theme_dialog === "function") {
                 window.pywebview.api.export_theme_dialog(editingTheme).then(res => {
                     if (res && res.success) {
-                        if (window.showPyxisToast) window.showPyxisToast(`Tema exportado exitosamente`, "success", 2600);
+                        if (window.showPyxisToast) window.showPyxisToast("toast.theme_exported", "success", 2600);
                     } else if (res && res.error) {
                         if (window.showPyxisToast) window.showPyxisToast(res.error, "error", 3000);
                     }
@@ -1166,9 +1167,9 @@
             } else {
                 const jsonStr = JSON.stringify(editingTheme, null, 2);
                 navigator.clipboard.writeText(jsonStr).then(() => {
-                    if (window.showPyxisToast) window.showPyxisToast("Tema copiado al portapapeles en formato JSON", "success", 2400);
+                    if (window.showPyxisToast) window.showPyxisToast("toast.theme_copied_clipboard", "success", 2400);
                 }).catch(() => {
-                    if (window.showPyxisToast) window.showPyxisToast("Error al copiar al portapapeles", "error", 2400);
+                    if (window.showPyxisToast) window.showPyxisToast("toast.clipboard_copy_error", "error", 2400);
                 });
             }
         };
@@ -1179,7 +1180,11 @@
                 window.pywebview.api.import_theme_dialog().then(res => {
                     if (res && res.success && res.theme) {
                         saveCustomTheme(res.theme);
-                        if (window.showPyxisToast) window.showPyxisToast(`Tema "${res.theme.name}" importado y activado`, "success", 2600);
+                        if (window.showPyxisToast) {
+                            const name = res.theme.name || "";
+                            const msg = window.t ? window.t("toast.theme_imported_activated", { name }) : `Theme "${name}" imported and activated`;
+                            window.showPyxisToast(msg, "success", 2600);
+                        }
                         modal.remove();
                         openSettingsModal();
                     } else if (res && res.error) {
@@ -1187,7 +1192,7 @@
                     }
                 }).catch(err => console.warn("Pyxis: Error al importar tema", err));
             } else {
-                if (window.showPyxisToast) window.showPyxisToast("La importación de archivos requiere la API de Pyxis", "warning", 3000);
+                if (window.showPyxisToast) window.showPyxisToast("toast.import_requires_api", "warning", 3000);
             }
         };
 
@@ -1205,7 +1210,11 @@
                         await deleteCustomTheme(editingTheme.id);
                         modal.remove();
                         await openSettingsModal();
-                        if (window.showPyxisToast) window.showPyxisToast(`Tema "${editingTheme.name}" eliminado`, "info", 2400);
+                        if (window.showPyxisToast) {
+                            const name = editingTheme.name || "";
+                            const msg = window.t ? window.t("toast.theme_deleted", { name }) : `Theme "${name}" deleted`;
+                            window.showPyxisToast(msg, "info", 2400);
+                        }
                     }
                 });
             };
@@ -1234,9 +1243,11 @@
             modal.remove();
             await openSettingsModal();
             if (window.showPyxisToast) {
-                const toastMsg = shouldApply
-                    ? `Tema "${editingTheme.name}" guardado y aplicado`
-                    : `Tema "${editingTheme.name}" guardado en la lista`;
+                const toastKey = shouldApply ? "toast.theme_saved_applied" : "toast.theme_saved";
+                const fallbackMsg = shouldApply
+                    ? `Theme "${editingTheme.name}" saved and applied`
+                    : `Theme "${editingTheme.name}" saved to list`;
+                const toastMsg = window.t ? window.t(toastKey, { name: editingTheme.name }) : fallbackMsg;
                 window.showPyxisToast(toastMsg, "success", 2600);
             }
         };
@@ -1513,7 +1524,10 @@
                     onConfirm: async () => {
                         await deleteCustomTheme(themeId);
                         await openSettingsModal();
-                        if (window.showPyxisToast) window.showPyxisToast(`Tema "${tName}" eliminado`, "info", 2400);
+                        if (window.showPyxisToast) {
+                            const msg = window.t ? window.t("toast.theme_deleted", { name: tName }) : `Theme "${tName}" deleted`;
+                            window.showPyxisToast(msg, "info", 2400);
+                        }
                     }
                 });
             };
@@ -1615,7 +1629,7 @@
                 let loadingToast = null;
                 if (window.showPyxisToast) {
                     loadingToast = window.showPyxisToast(
-                        shouldConvert ? "Procesando y convirtiendo video de fondo con FFmpeg..." : "Cargando medio de fondo...",
+                        shouldConvert ? "toast.converting_bg_video" : "toast.loading_bg_media",
                         "loading",
                         0
                     );
@@ -1672,19 +1686,20 @@
                         // 3. Mostrar toast de confirmación al terminar
                         if (window.showPyxisToast) {
                             if (isVideo) {
-                                const msg = (typeof res === "object" && res.converted)
-                                    ? "Video de fondo convertido y aplicado con éxito"
-                                    : "Video de fondo aplicado con éxito";
+                                const isConverted = (typeof res === "object" && res.converted);
+                                const msgKey = isConverted ? "toast.bg_video_converted_applied" : "toast.bg_video_applied";
+                                const fallback = isConverted ? "Background video converted and applied successfully" : "Background video applied successfully";
+                                const msg = window.t ? window.t(msgKey) : fallback;
                                 window.showPyxisToast(msg, "success", 2800);
                             } else {
-                                window.showPyxisToast("Imagen de fondo aplicada con éxito", "success", 2800);
+                                window.showPyxisToast("toast.bg_image_applied", "success", 2800);
                             }
                         }
                     } else if (res && res.cancelled) {
                         if (pathInput) pathInput.value = prevPathVal;
                     } else {
                         if (pathInput) pathInput.value = prevPathVal;
-                        if (window.showPyxisToast) window.showPyxisToast("Error al seleccionar fondo", "error", 2800);
+                        if (window.showPyxisToast) window.showPyxisToast("toast.bg_select_error", "error", 2800);
                     }
                 }).catch(err => {
                     if (loadingToast && typeof loadingToast.close === "function") {
@@ -1695,7 +1710,7 @@
                     browseBtn.innerHTML = origBtnHtml;
                     if (pathInput) pathInput.value = prevPathVal;
                     console.error("Pyxis error selecting media:", err);
-                    if (window.showPyxisToast) window.showPyxisToast("Error al procesar fondo multimedia", "error", 2800);
+                    if (window.showPyxisToast) window.showPyxisToast("toast.bg_process_error", "error", 2800);
                 });
             }
         };
@@ -1730,14 +1745,13 @@
                         const count = (res && res.cleaned_files) || 0;
                         const mb = (res && res.freed_bytes) ? (res.freed_bytes / (1024 * 1024)).toFixed(2) : "0.00";
                         if (window.showPyxisToast) {
-                            window.showPyxisToast(
-                                count > 0 ? `Limpieza completada: ${count} archivo(s) eliminados (${mb} MB liberados)` : "No hay archivos temporales de más de 72 horas para purgar",
-                                "info",
-                                3000
-                            );
+                            const msg = count > 0 
+                                ? (window.t ? window.t("toast.temp_clean_summary", { count, mb }) : `Cleanup completed: ${count} file(s) deleted (${mb} MB freed)`)
+                                : (window.t ? window.t("toast.temp_clean_none") : "No temporary files older than 72 hours to purge");
+                            window.showPyxisToast(msg, "info", 3000);
                         }
                     } else {
-                        if (window.showPyxisToast) window.showPyxisToast("Limpieza completada", "info", 2000);
+                        if (window.showPyxisToast) window.showPyxisToast("toast.clean_completed", "info", 2000);
                     }
                 } catch (e) {
                     console.error("Error al limpiar temporales:", e);

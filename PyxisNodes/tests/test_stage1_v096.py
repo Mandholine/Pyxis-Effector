@@ -50,7 +50,7 @@ class TestStage1Features(unittest.TestCase):
 
     def test_version_bump(self):
         from main import PYXIS_ENGINE_VERSION
-        self.assertEqual(PYXIS_ENGINE_VERSION, "1.0.4")
+        self.assertEqual(PYXIS_ENGINE_VERSION, "1.0.5")
 
     def test_remember_and_recall_memory(self):
         engine = GraphEngine({"nodes": [], "links": []})

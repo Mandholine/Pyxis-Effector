@@ -14,7 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# node_engine.py (v1.0.4)
+# node_engine.py (v1.0.5)
 import math
 import os
 import re
@@ -628,6 +628,15 @@ def _eval_num_expr(val, context=None, default=0.0):
 
         if "line" in eval_locals and ("l" not in eval_locals or eval_locals["l"] is None):
             eval_locals["l"] = eval_locals["line"]
+
+        if "maxloop" not in eval_locals:
+            eval_locals["maxloop"] = eval_locals.get("j_max", eval_locals.get("fx_n", 1))
+        if "max_loop" not in eval_locals:
+            eval_locals["max_loop"] = eval_locals.get("j_max", eval_locals.get("fx_n", 1))
+        if "j" not in eval_locals and "fx_i" in eval_locals:
+            eval_locals["j"] = eval_locals["fx_i"]
+        if "j_max" not in eval_locals and "fx_n" in eval_locals:
+            eval_locals["j_max"] = eval_locals["fx_n"]
 
         if "fx" not in eval_locals or eval_locals["fx"] is None or not isinstance(eval_locals["fx"], FxContext):
             eval_locals["fx"] = FxContext(eval_locals)
@@ -1293,7 +1302,7 @@ class GraphEngine:
         # ---------------------------------------------------------------------
         # EVALUADORES DINÁMICOS ESPECIALES (Shape Slicer, Polares, etc.)
         # ---------------------------------------------------------------------
-        if node_type in ["Shape/Shape Slicer", "Shape Slicer"]:
+        if "Shape Slicer" in node_type or node_type in ["Shape/Shape Slicer", "Shape Slicer", "Shape/Corte/Shape Slicer", "Corte/Shape Slicer"]:
             try:
                 modo_alias_map = {
                     "hex": "hex", "hexagonal": "hex", "malla hexagonal": "hex",
@@ -1302,17 +1311,26 @@ class GraphEngine:
                     "ring": "ring", "anillos": "ring",
                     "ray": "ray", "radial": "ray", "rayos": "ray",
                     "quad": "quad", "quadtree": "quad",
-                    "bez": "bez", "bézier": "bez", "jigsaw": "bez",
+                    "bez": "bez", "bézier": "bez", "bezier": "bez", "ondas": "bez",
+                    "jigsaw": "jigsaw", "puzzle": "jigsaw", "rompecabezas": "jigsaw",
                     "voronoi": "voronoi", "vor": "voronoi", "cristales": "voronoi",
-                    "ashlar": "ashlar", "brick": "brick", "ladrillo": "brick",
-                    "mondrian": "mondrian", "herringbone": "herringbone",
-                    "delaunay": "delaunay", "scallop": "scallop", "web": "web",
-                    "rhombille": "rhombille", "octagon": "octagon", "kagome": "kagome",
-                    "truchet": "truchet", "circuit": "circuit", "circuito": "circuit",
-                    "pattern": "pattern", "patrón": "pattern", "rejilla 1d/2d": "Rejilla 1D/2D"
+                    "ashlar": "ashlar", "mamposteria": "ashlar",
+                    "brick": "brick", "ladrillo": "brick", "ladrillos": "brick",
+                    "mondrian": "mondrian",
+                    "herringbone": "herringbone", "espiga": "herringbone", "zig-zag": "herringbone",
+                    "delaunay": "delaunay", "low-poly": "delaunay", "lowpoly": "delaunay",
+                    "scallop": "scallop", "escamas": "scallop",
+                    "web": "web", "spiderweb": "web", "telaraña": "web",
+                    "rhombille": "rhombille", "cubos": "rhombille",
+                    "octagon": "octagon", "mosaico": "octagon", "octogonos": "octagon",
+                    "kagome": "kagome", "trihexagonal": "kagome",
+                    "truchet": "truchet", "tuberias": "truchet", "laberinto": "truchet",
+                    "circuit": "circuit", "circuito": "circuit", "tech": "circuit",
+                    "pattern": "pattern", "patrón": "pattern", "patron": "pattern",
+                    "rejilla 1d/2d": "Rejilla 1D/2D", "grid": "Rejilla 1D/2D"
                 }
 
-                modo = props.get("modo", "Rejilla 1D/2D")
+                modo = props.get("modo", props.get("mode", "Rejilla 1D/2D"))
                 modo_str = str(modo).strip()
                 modo_key = modo_str.lower()
                 norm_engine_mode = modo_alias_map.get(modo_key, modo_str)
@@ -1408,21 +1426,46 @@ class GraphEngine:
                         pass
                     return int(round(float(_eval_num_expr(v, context, default=float(default)))))
 
-                cols = safe_int(get_val(["Cols", "cols", "columnas", "Num Rayos", "num_rayos", "Num Anillos", "num_anillos"], "2"), 2)
-                rows = safe_int(get_val(["Rows", "rows", "filas"], "2"), 2)
-                size_x = safe_float(get_val(["Size X", "size_x", "Radius", "radio", "Tamaño Celda", "tamano_celda", "Tamaño Grid", "tamano_grid", "Width", "ancho", "Tamaño Pieza", "tamano_pieza", "Longitud", "longitud", "Ancho Max", "ancho_max", "R Max", "r_max", "Tamaño Min", "tamano_min", "R Step", "r_step"], 20.0), 20.0)
-                size_y = safe_float(get_val(["Size Y", "size_y", "Height", "alto", "Alto Fila", "alto_fila", "Thickness", "grosor", "Grosor Pista", "grosor_pista", "R In", "r_in", "Tamaño Forma", "tamano_forma", "Amplitud", "amplitud"], 20.0), 20.0)
+                cols = safe_int(get_val(["Cols", "cols", "Rings", "rings", "columnas", "Num Anillos", "num_anillos"], "2"), 2)
+                rows = safe_int(get_val(["Rows", "rows", "Rays", "rays", "filas", "Num Rayos", "num_rayos"], "2"), 2)
+                size_x = safe_float(get_val([
+                    "Radius", "radius", "Min Size", "min_size", "Grid Size", "grid_size",
+                    "Piece Size", "piece_size", "Cell Size", "cell_size", "Min Width", "min_width",
+                    "Width", "width", "Length", "length", "Ring Width", "ring_width",
+                    "Step Angle", "step_angle", "Size X", "size_x", "radio", "Tamaño Celda",
+                    "Tamaño Grid", "Tamaño Pieza", "Tamaño Min", "Ancho Min", "Longitud", "Paso (º)", "Paso (°)"
+                ], 20.0), 20.0)
+                size_y = safe_float(get_val([
+                    "Max Width", "max_width", "Row Height", "row_height", "Height", "height",
+                    "Thickness", "thickness", "Amplitude", "amplitude", "Trace Width", "trace_width",
+                    "Shape Size", "shape_size", "Size Y", "size_y", "alto", "Alto Fila", "Ancho Max",
+                    "Grosor Pista", "Grosor", "Amplitud", "Tamaño Forma"
+                ], 20.0), 20.0)
                 scale_x = safe_float(get_val(["Scale X", "scale_x", "Scale", "scale"], "1.0"), 1.0)
                 scale_y = safe_float(get_val(["Scale Y", "scale_y"], "1.0"), 1.0)
-                off_x = safe_float(get_val(["Off X", "off_x", "offset_x", "Center X", "center_x", "centerx", "cx"], "0"), 0.0)
-                off_y = safe_float(get_val(["Off Y", "off_y", "offset_y", "Center Y", "center_y", "centery", "cy"], "0"), 0.0)
-                angle = safe_float(get_val(["Angle", "angulo", "angle", "Paso (º)", "Paso (°)", "paso_deg", "paso"], "0"), 0.0)
+                off_x = safe_float(get_val(["Center X", "center_x", "centerx", "cx", "Off X", "off_x", "offset_x"], "0"), 0.0)
+                off_y = safe_float(get_val(["Center Y", "center_y", "centery", "cy", "Off Y", "off_y", "offset_y"], "0"), 0.0)
+                angle = safe_float(get_val(["Angle", "angulo", "angle", "Step Angle", "step_angle", "Paso (º)", "Paso (°)", "paso_deg", "paso"], "0"), 0.0)
                 overlap = safe_float(get_val(["Bleed", "sangrado", "overlap", "ov"], "0"), 0.0)
-                accel_x = safe_float(get_val(["Accel X", "accel_x", "Accel", "accel", "Jitter", "jitter", "Caos", "caos", "Prob Stop", "prob_stop", "Prob Vía", "prob_via"], "1.0"), 1.0)
+                
+                stagger_raw = get_val(["Stagger", "stagger", "Intercalar", "intercalar"], "")
+                if str(stagger_raw).lower() in ["true", "1", "yes"]:
+                    accel_x_default = "2.0"
+                else:
+                    accel_x_default = "1.0"
+
+                accel_x = safe_float(get_val([
+                    "Stop Prob", "stop_prob", "Chaos", "chaos", "Via Prob", "via_prob",
+                    "Accel X", "accel_x", "Accel", "accel", "Jitter", "jitter", "Caos", "caos",
+                    "Prob Stop", "prob_stop", "Prob Vía", "prob_via"
+                ], accel_x_default), float(accel_x_default))
                 accel_y = safe_float(get_val(["Accel Y", "accel_y", "Accel", "accel"], "1.0"), 1.0)
+                
+                pattern_shape = get_val(["Pattern Shape", "pattern_shape", "Forma String", "forma_string"], "")
+                
                 text_scale = safe_float(get_val(["Text Scale", "text_scale"], "1.0"), 1.0)
                 pre_offset = safe_float(get_val(["Pre-Offset", "pre_offset", "preoffset", "Pre Offset", "pre-offset"], "0"), 0.0)
-                order = safe_int(get_val(["Order", "order"], "79"), 79)
+                order = safe_int(get_val(["Order", "order", "orden"], "79"), 79)
 
                 unit = context.get('active_unit') if isinstance(context, dict) else None
                 parent_x = float(context.get('pos_x', context.get('line_x', context.get('syl_x', context.get('x', 0.0)))))
@@ -1438,23 +1481,55 @@ class GraphEngine:
 
                 from clipper_engine import ClipperEngine
 
-                # Almacenar y reutilizar las piezas cortadas en el contexto local de ejecucion de la unidad activa
-                slicer_ctx_key = node.get('id', 0)
-                if not isinstance(context.get('_slicer_pieces'), dict):
-                    context['_slicer_pieces'] = {}
+                # Almacenar y reutilizar las piezas cortadas en la unidad activa o contexto de ejecución
+                slicer_node_id = node.get('id', 0)
+                slicer_sig = (
+                    slicer_node_id,
+                    str(shp),
+                    norm_engine_mode,
+                    cols, rows,
+                    size_x, size_y,
+                    scale_x, scale_y,
+                    off_x, off_y,
+                    angle, overlap,
+                    accel_x, accel_y,
+                    order, text_scale,
+                    pre_offset,
+                    pattern_shape
+                )
 
-                if slicer_ctx_key in context['_slicer_pieces']:
-                    pieces = context['_slicer_pieces'][slicer_ctx_key]
+                unit_cache = None
+                if unit is not None:
+                    if not hasattr(unit, '_slicer_cache') or not isinstance(unit._slicer_cache, dict):
+                        unit._slicer_cache = {}
+                    unit_cache = unit._slicer_cache
+                elif isinstance(context.get('_global_slicer_cache'), dict):
+                    unit_cache = context['_global_slicer_cache']
+                else:
+                    if not isinstance(context.get('_slicer_pieces'), dict):
+                        context['_slicer_pieces'] = {}
+                    unit_cache = context['_slicer_pieces']
+
+                if slicer_sig in unit_cache:
+                    pieces = unit_cache[slicer_sig]
+                elif slicer_node_id in unit_cache and not isinstance(unit_cache[slicer_node_id], dict):
+                    pieces = unit_cache[slicer_node_id]
                 else:
                     pieces = ClipperEngine.slice_grid(
                         shp, cols=cols, rows=rows, size_x=size_x, size_y=size_y,
                         scale_x=scale_x, scale_y=scale_y, offset_x=off_x, offset_y=off_y,
                         angle=angle, overlap=overlap, accel=accel_x, accel_x=accel_x, accel_y=accel_y, order=order,
-                        text_scale=text_scale, pre_offset=pre_offset, engine_mode=norm_engine_mode
+                        text_scale=text_scale, pre_offset=pre_offset, engine_mode=norm_engine_mode,
+                        pattern_shape=pattern_shape
                     )
                     if not pieces:
                         pieces = [{"code": shp, "cx": 0, "cy": 0, "col": 1, "row": 1}]
-                    context['_slicer_pieces'][slicer_ctx_key] = pieces
+                    unit_cache[slicer_sig] = pieces
+                    unit_cache[slicer_node_id] = pieces
+
+                if not isinstance(context.get('_slicer_pieces'), dict):
+                    context['_slicer_pieces'] = {}
+                context['_slicer_pieces'][slicer_node_id] = pieces
 
                 total_pieces = len(pieces)
 
@@ -1475,8 +1550,8 @@ class GraphEngine:
 
                 code_val = str(piece.get("code", ""))
 
-                anchor_mode = get_val("Anchor", props.get("anchor", "piezas")).lower()
-                out_mode = get_val("Output Type", props.get("out_mode", "Shape")).lower()
+                anchor_mode = get_val(["Anchor", "anchor", "anclaje"], props.get("anchor", "piezas")).lower()
+                out_mode = get_val(["Output Type", "out_mode", "output_type", "tipo_salida"], props.get("out_mode", "Shape")).lower()
 
                 # Configurar variables de origen (\org) y posición (\pos) en el contexto según el modo de anclaje
                 if "abs" in anchor_mode or "absoluto" in anchor_mode:
@@ -1566,12 +1641,12 @@ class GraphEngine:
                 traceback.print_exc()
                 return f"[Err Shape Slicer: {e}]"
 
-        if node_type in ["Shape/Shape Transform", "Shape Transform"]:
+        if node_type in ["Shape/Shape Manipulator", "Shape Manipulator", "Shape/Manipulador", "Manipulador"]:
             try:
                 modo = str(props.get("mode", props.get("modo", "Escalar"))).strip()
                 shp_val = self.get_input_value(node, 0, context)
                 if shp_val == "": shp_val = str(_get_prop_value(props, "shape", "")).strip()
-                from nodes.shape_nodes import resolve_shape_value
+                from nodes.shape_nodes import resolve_shape_value, shape_manipulator
                 shp_val = resolve_shape_value(shp_val, context)
                 if not shp_val:
                     unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
@@ -1621,14 +1696,92 @@ class GraphEngine:
                     offset_border = _eval_num_expr(self.get_input_value(node, 6, context) or _get_prop_value(props, "offset_border", "0.0"), context, 0.0)
                     anchor = str(self.get_input_value(node, 7, context) or _get_prop_value(props, "anchor", "center")).strip()
 
-                from nodes.shape_nodes import shape_transform
-                return shape_transform(context, drawing=shp_val, scale_x=scale_x / 100.0, scale_y=scale_y / 100.0, rot=angle, offset_x=offset_x, offset_y=offset_y, offset_border=offset_border, mode=anchor)
+                return shape_manipulator(context, drawing=shp_val, scale_x=scale_x / 100.0, scale_y=scale_y / 100.0, rot=angle, offset_x=offset_x, offset_y=offset_y, offset_border=offset_border, mode=anchor)
             except Exception as e:
-                return f"[Err Trans. Shape: {e}]"
+                return f"[Err Shape Manipulator: {e}]"
 
-        # ---------------------------------------------------------------------
-        # 1. POLARES A CARTESIANA (Multi-Slot: \pos, X, Y, dX, dY)
-        # ---------------------------------------------------------------------
+        if node_type in ["Shape/Shape Transform", "Shape Transform", "Shape/Trans. Shape", "Trans. Shape"]:
+            try:
+                modo = str(props.get("mode", props.get("modo", "Inflate"))).strip()
+                shp_val = self.get_input_value(node, 0, context)
+                if shp_val == "": shp_val = str(_get_prop_value(props, "shape", "")).strip()
+                from nodes.shape_nodes import resolve_shape_value, shape_transform
+                shp_val = resolve_shape_value(shp_val, context)
+                if not shp_val:
+                    unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
+                    line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+                    shp_val = getattr(unit, 'text_stripped', getattr(unit, 'text', '')) or getattr(line, 'text_stripped', getattr(line, 'text', ''))
+
+                modo_clean = modo.lower()
+                if "skew" in modo_clean or "cizall" in modo_clean or "inclin" in modo_clean:
+                    in_ax = self.get_input_value(node, 1, context)
+                    if in_ax is None or in_ax == "": in_ax = _get_prop_value(props, "angle_x", _get_prop_value(props, "ang_x", _get_prop_value(props, "angle", "0")))
+                    angle_x = _eval_num_expr(in_ax, context, 0.0)
+
+                    in_ay = self.get_input_value(node, 2, context)
+                    if in_ay is None or in_ay == "": in_ay = _get_prop_value(props, "angle_y", _get_prop_value(props, "ang_y", "0"))
+                    angle_y = _eval_num_expr(in_ay, context, 0.0)
+
+                    in_anc = self.get_input_value(node, 3, context)
+                    if in_anc is None or in_anc == "": in_anc = _get_prop_value(props, "anchor", _get_prop_value(props, "anclaje", "center"))
+                    anchor_val = str(in_anc).strip()
+                    return shape_transform(context, drawing=shp_val, mode="Skew", angle_x=angle_x, angle_y=angle_y, anchor=anchor_val)
+                elif "round" in modo_clean or "redond" in modo_clean or "esquina" in modo_clean:
+                    in_rad = self.get_input_value(node, 1, context)
+                    if in_rad is None or in_rad == "": in_rad = _get_prop_value(props, "radius", "10.0")
+                    radius_val = _eval_num_expr(in_rad, context, 10.0)
+
+                    in_anc = self.get_input_value(node, 2, context)
+                    if in_anc is None or in_anc == "": in_anc = _get_prop_value(props, "anchor", "center")
+                    anchor_val = str(in_anc).strip()
+
+                    corner_mode = str(_get_prop_value(props, "corner_mode", "Round")).strip()
+                    return shape_transform(context, drawing=shp_val, mode="Round Corners", radius=radius_val, corner_mode=corner_mode, anchor=anchor_val)
+                elif "flexor" in modo_clean or "curv" in modo_clean or "dobl" in modo_clean:
+                    curve_in = self.get_input_value(node, 1, context)
+                    if curve_in is None or curve_in == "": curve_in = str(_get_prop_value(props, "curve", "30")).strip()
+
+                    in_bt = self.get_input_value(node, 2, context)
+                    if in_bt is None or in_bt == "": in_bt = _get_prop_value(props, "bend_t", "1.0")
+                    bend_t = _eval_num_expr(in_bt, context, 1.0)
+
+                    in_anc = self.get_input_value(node, 3, context)
+                    if in_anc is None or in_anc == "": in_anc = _get_prop_value(props, "anchor", "center")
+                    anchor_val = str(in_anc).strip()
+
+                    axis_val = str(_get_prop_value(props, "axis", "x")).strip()
+                    return shape_transform(context, drawing=shp_val, mode="Flexor", curve=curve_in, bend_t=bend_t, axis=axis_val, anchor=anchor_val)
+                elif "distort" in modo_clean or "deform" in modo_clean or "morph" in modo_clean:
+                    tgt_val = self.get_input_value(node, 1, context)
+                    if tgt_val is None or tgt_val == "": tgt_val = str(_get_prop_value(props, "target_shape", "")).strip()
+                    tgt_val = resolve_shape_value(tgt_val, context)
+
+                    in_t = self.get_input_value(node, 2, context)
+                    if in_t is None or in_t == "": in_t = _get_prop_value(props, "t", "1.0")
+                    t_val = _eval_num_expr(in_t, context, 1.0)
+
+                    in_anc = self.get_input_value(node, 3, context)
+                    if in_anc is None or in_anc == "": in_anc = _get_prop_value(props, "anchor", "center")
+                    anchor_val = str(in_anc).strip()
+                    return shape_transform(context, drawing=shp_val, mode="Distort", target_shape=tgt_val, t=t_val, anchor=anchor_val)
+                else:  # "Inflate" default
+                    in_t = self.get_input_value(node, 1, context)
+                    if in_t is None or in_t == "": in_t = _get_prop_value(props, "t", "0.5")
+                    t_val = _eval_num_expr(in_t, context, 0.5)
+
+                    in_r = self.get_input_value(node, 2, context)
+                    if in_r is None or in_r == "": in_r = _get_prop_value(props, "ratio", "1.0")
+                    ratio_val = _eval_num_expr(in_r, context, 1.0)
+
+                    in_anc = self.get_input_value(node, 3, context)
+                    if in_anc is None or in_anc == "": in_anc = _get_prop_value(props, "anchor", "center")
+                    anchor_val = str(in_anc).strip()
+
+                    inf_mode = str(_get_prop_value(props, "inflate_mode", "Circle")).strip()
+                    return shape_transform(context, drawing=shp_val, mode="Inflate", t=t_val, ratio=ratio_val, inflate_mode=inf_mode, anchor=anchor_val)
+            except Exception as e:
+                return f"[Err Shape Transform: {e}]"
+
         elif node_type in ["Functions/Polar to Cartesian", "Polar to Cartesian"]:
             try:
                 import math
@@ -2117,9 +2270,54 @@ class GraphEngine:
                 return f"[Err Bordes Concéntricos: {e}]"
 
         # ---------------------------------------------------------------------
+        # 4B2. SHAPE WALKER (Multi-Slot: Shape Out, \pos Tag, Angle \frz, Length, Tip X, Tip Y)
+        # ---------------------------------------------------------------------
+        elif node_type in ["Shape/Shape Walker", "Shape Walker"]:
+            try:
+                shp_raw = self.get_input_value(node, 0, context)
+                if shp_raw == "": shp_raw = str(_get_prop_value(props, "shape", "")).strip()
+
+                prog_raw = self.get_input_value(node, 1, context)
+                if prog_raw == "": prog_raw = str(_get_prop_value(props, "progress", _get_prop_value(props, "progreso", "1.0"))).strip()
+
+                start_raw = self.get_input_value(node, 2, context)
+                if start_raw == "": start_raw = str(_get_prop_value(props, "start_t", _get_prop_value(props, "inicio", "0.0"))).strip()
+
+                sub_raw = self.get_input_value(node, 3, context)
+                if sub_raw == "": sub_raw = str(_get_prop_value(props, "subdivs", _get_prop_value(props, "subdivisiones", "30"))).strip()
+
+                mode_raw = str(_get_prop_value(props, "modo", _get_prop_value(props, "mode", "Global (Continuo)"))).strip()
+                inv_raw = str(_get_prop_value(props, "invert", _get_prop_value(props, "invertir", "0"))).strip()
+
+                from nodes.shape_nodes import shape_walker_node
+                cut_shp, pos_str, angle_deg, cut_len, tip_x, tip_y = shape_walker_node(
+                    context,
+                    shape=shp_raw,
+                    progress=prog_raw,
+                    start_t=start_raw,
+                    mode=mode_raw,
+                    invert=inv_raw,
+                    subdivs=sub_raw
+                )
+
+                if output_slot_index == 1:
+                    return pos_str
+                elif output_slot_index == 2:
+                    return f"\\frz({angle_deg:.2f})".rstrip('0').rstrip('.')
+                elif output_slot_index == 3:
+                    return str(cut_len)
+                elif output_slot_index == 4:
+                    return str(tip_x)
+                elif output_slot_index == 5:
+                    return str(tip_y)
+                return cut_shp
+            except Exception as e:
+                return f"[Err Shape Walker: {e}]"
+
+        # ---------------------------------------------------------------------
         # 4C. CLIP GRADIENT (Multi-Slot: Clip ASS, Progreso 0-1, Índice, Total)
         # ---------------------------------------------------------------------
-        elif node_type in ["Functions/Clip Gradient", "Clip Gradient"]:
+        elif node_type in ["Functions/Clip Gradient", "Shape/Clip Gradient", "Clip Gradient"]:
             try:
                 num_clips_raw = self.get_input_value(node, 0, context)
                 if num_clips_raw == "": num_clips_raw = str(_get_prop_value(props, "num_clips", _get_prop_value(props, "franjas", "5"))).strip()
@@ -2692,9 +2890,16 @@ class GraphEngine:
 
                 t_val = max(0.0, min(1.0, t_val))
 
-                # Apply power-law acceleration / deceleration: t^accel (like ASS \t tag)
-                if accel_val != 1.0 and t_val > 0.0:
-                    t_val = t_val ** accel_val
+                # Apply smooth acceleration / deceleration (Penner conjugated power law):
+                # accel > 1.0 -> ease-in: t^accel (starts at 0 speed, accelerates)
+                # accel < 1.0 -> ease-out: 1 - (1 - t)^(1/accel) (finite slope at t=0, decelerates smoothly without gaps)
+                # accel == 1.0 -> linear: t
+                if accel_val != 1.0 and 0.0 < t_val < 1.0:
+                    if accel_val > 1.0:
+                        t_val = t_val ** accel_val
+                    elif accel_val > 0.0:
+                        p = 1.0 / accel_val
+                        t_val = 1.0 - ((1.0 - t_val) ** p)
 
                 inputs_count = len(node.get('inputs', []))
                 val_list = []
@@ -3124,6 +3329,8 @@ class GraphEngine:
                     ctx = context.copy()
                     ctx[var_name], ctx[var_name + '_max'] = i, veces 
                     ctx['fx_i'], ctx['fx_n'] = i, veces
+                    ctx['j_max'] = veces
+                    ctx['j'] = i
 
                     frame_st = unit_st + (i - 1) * step_ms
                     frame_et = frame_st + step_ms
@@ -3160,6 +3367,8 @@ class GraphEngine:
                     ctx = context.copy()
                     ctx[var_name], ctx[var_name + '_max'] = i, veces 
                     ctx['fx_i'], ctx['fx_n'] = i, veces
+                    ctx['j_max'] = veces
+                    ctx['j'] = i
                     self.bind_active_unit(ctx, active_unit)
                     self.execute_loops_recursive(rest_chain, ctx, output_node, active_unit, check_cancel, progress_tracker, progress_callback)
 

@@ -69,7 +69,7 @@ sys.stderr = GLOBAL_STDERR_STREAM
 import atexit
 import webview
 
-PYXIS_ENGINE_VERSION = "1.0.4"
+PYXIS_ENGINE_VERSION = "1.0.5"
 
 
 def _setup_windows_job_object():
@@ -194,6 +194,9 @@ class PyxisAPI:
         self.templates_dir = self.user_templates_dir
         self._store = None
         self._active_engine = None
+        self._active_preview_engine = None
+        self._active_hardsub_engine = None
+        self._active_hardsub_proc = None
         self._cached_preview_base_info = None
         self._load_and_cache_preview_base()
 
@@ -267,7 +270,7 @@ class PyxisAPI:
                         pass
 
                     print("==========================================================", flush=True)
-                    print(" [Pyxis Engine v1.0.4] Consola de Python (Modo Depuración)", flush=True)
+                    print(" [Pyxis Engine v1.0.5] Consola de Python (Modo Depuración)", flush=True)
                     print(" Presione F1 en Pyxis Nodes para mostrar/ocultar esta consola.", flush=True)
                     print("==========================================================", flush=True)
 
@@ -1402,6 +1405,41 @@ class PyxisAPI:
         abort_global_multiprocessing()
         return {"success": True, "cancelled": True}
 
+    def cancel_preview(self, node_id=None):
+        """Cancela de forma inmediata la generación activa de previsualización."""
+        print(f"[Pyxis] Cancelación de previsualización solicitada (nodo: {node_id}).", flush=True)
+        if getattr(self, '_active_preview_engine', None) is not None:
+            try:
+                self._active_preview_engine.is_cancelled = True
+                if getattr(self._active_preview_engine, 'shared_cancel_flag', None) is not None:
+                    self._active_preview_engine.shared_cancel_flag.value = True
+            except Exception as e:
+                print(f"[Pyxis Cancel Preview Warning] {e}", flush=True)
+            self._active_preview_engine = None
+        return {"success": True, "cancelled": True}
+
+    def cancel_hardsub(self, node_id=None):
+        """Cancela de forma inmediata la exportación/renderizado de vídeo Hardsub con FFmpeg."""
+        print(f"[Pyxis] Cancelación de exportación Hardsub solicitada (nodo: {node_id}).", flush=True)
+        if getattr(self, '_active_hardsub_engine', None) is not None:
+            try:
+                self._active_hardsub_engine.is_cancelled = True
+                if getattr(self._active_hardsub_engine, 'shared_cancel_flag', None) is not None:
+                    self._active_hardsub_engine.shared_cancel_flag.value = True
+            except Exception:
+                pass
+            self._active_hardsub_engine = None
+
+        if getattr(self, '_active_hardsub_proc', None) is not None:
+            try:
+                if self._active_hardsub_proc.poll() is None:
+                    self._active_hardsub_proc.kill()
+            except Exception as e:
+                print(f"[Pyxis Cancel FFmpeg Warning] {e}", flush=True)
+            self._active_hardsub_proc = None
+
+        return {"success": True, "cancelled": True}
+
     def complete_and_hide(self):
         """Oculta la ventana de PyWebView o apaga el servidor una vez completada la retención visual en la UI."""
         self.release_lock()
@@ -1409,6 +1447,25 @@ class PyxisAPI:
         config = self.get_user_config()
         is_daemon = config.get("daemon_mode", True)
         if is_daemon and webview.windows:
+            try:
+                import ctypes
+                user32 = ctypes.windll.user32
+                my_pid = os.getpid()
+                found_hwnd = None
+                WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+                def enum_cb(h, l):
+                    nonlocal found_hwnd
+                    lp = ctypes.c_ulong()
+                    user32.GetWindowThreadProcessId(h, ctypes.byref(lp))
+                    if lp.value == my_pid:
+                        found_hwnd = h
+                        return False
+                    return True
+                user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+                if found_hwnd:
+                    user32.ShowWindow(found_hwnd, 0)
+            except Exception:
+                pass
             try:
                 webview.windows[0].hide()
             except Exception:
@@ -2039,13 +2096,19 @@ class PyxisAPI:
             except (ValueError, TypeError):
                 pass
 
+        def _safe_int(val):
+            try:
+                return int(float(str(val).strip()))
+            except Exception:
+                return None
+
         if nid_str in target_strs:
             return True
         if nid_int is not None and nid_int in numeric_targets:
             return True
-        if out_id and (out_id in target_strs or (_to_int_or_default(out_id, None) in numeric_targets)):
+        if out_id and (out_id in target_strs or (_safe_int(out_id) in numeric_targets)):
             return True
-        if queue_id and (queue_id in target_strs or (_to_int_or_default(queue_id, None) in numeric_targets)):
+        if queue_id and (queue_id in target_strs or (_safe_int(queue_id) in numeric_targets)):
             return True
         if 'default' in (x.lower() for x in target_strs) and (not out_id or out_id.lower() == 'default'):
             return True
@@ -2947,7 +3010,19 @@ class PyxisAPI:
                 if len(output_id_list) > 0:
                     engine = GraphEngine(graph_data, res_x, res_y, frame_dur, default_audio_source=default_audio)
                     engine.target_output_id = output_id_list
-                    generated_lines = engine.process(dialogues, styles)
+                    self._active_preview_engine = engine
+                    try:
+                        generated_lines = engine.process(
+                            dialogues,
+                            styles,
+                            check_cancel_callback=lambda: getattr(engine, 'is_cancelled', False)
+                        )
+                    finally:
+                        if self._active_preview_engine is engine:
+                            self._active_preview_engine = None
+
+                    if getattr(engine, 'is_cancelled', False):
+                        return {"success": False, "cancelled": True, "message": "Previsualización cancelada"}
                     self.log_player_event(f"GraphEngine targets={output_id_list} (Res {res_x}x{res_y}) produced {len(generated_lines)} lines")
 
                 with open(ass_path, "r", encoding="utf-8-sig", errors="ignore") as f:
@@ -3156,7 +3231,7 @@ class PyxisAPI:
 
             import subprocess
             creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
                 cwd=temp_dir,
                 stdout=subprocess.PIPE,
@@ -3164,9 +3239,21 @@ class PyxisAPI:
                 text=True,
                 creationflags=creationflags
             )
+            self._active_hardsub_proc = proc
+            stdout, stderr = "", ""
+            try:
+                stdout, stderr = proc.communicate()
+            finally:
+                self._active_hardsub_proc = None
+
             if proc.returncode != 0:
-                err_msg = proc.stderr[-400:] if proc.stderr else f"Exit code {proc.returncode}"
-                print(f"[Pyxis FFmpeg Hardsub Error] code {proc.returncode}:\n{proc.stderr}", flush=True)
+                if proc.returncode in [-9, 1, 15, 255] or getattr(self, '_hardsub_cancelled', False):
+                    if save_path and os.path.exists(save_path):
+                        try: os.remove(save_path)
+                        except OSError: pass
+                    return {"success": False, "cancelled": True, "message": "Exportación cancelada por el usuario"}
+                err_msg = stderr[-400:] if stderr else f"Exit code {proc.returncode}"
+                print(f"[Pyxis FFmpeg Hardsub Error] code {proc.returncode}:\n{stderr}", flush=True)
                 return {"success": False, "error": f"FFmpeg error: {err_msg}"}
 
             import base64
@@ -3250,6 +3337,12 @@ def main():
             if isinstance(w_val, int) and isinstance(h_val, int) and w_val >= 800 and h_val >= 600:
                 init_width = w_val
                 init_height = h_val
+
+        # Desactivar vinculación automática con el System Media Transport Controls (SMTC) de Windows
+        os.environ["COREWEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
+            "--disable-features=HardwareMediaKeyHandling "
+            "--disable-component-update"
+        )
 
         window = webview.create_window(
             title=f"Pyxis Node Engine {PYXIS_ENGINE_VERSION}",
@@ -3367,11 +3460,28 @@ def main():
             is_daemon = config.get("daemon_mode", True)
 
             if is_daemon:
-                try:
-                    window.hide()
-                except Exception:
-                    pass
-                api._is_handling_closing = False
+                # Ocultar inmediatamente vía Win32 para no bloquear el mensaje WM_CLOSE ni la UI
+                if found_hwnd:
+                    try:
+                        import ctypes
+                        ctypes.windll.user32.ShowWindow(found_hwnd, 0)  # SW_HIDE
+                    except Exception:
+                        pass
+
+                def _deferred_daemon_suspend():
+                    import time
+                    time.sleep(0.05)
+                    try:
+                        window.hide()
+                    except Exception:
+                        pass
+                    try:
+                        window.evaluate_js("if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.suspendForDaemon === 'function') window.PyxisNodePlayerManager.suspendForDaemon();")
+                    except Exception:
+                        pass
+                    api._is_handling_closing = False
+
+                threading.Thread(target=_deferred_daemon_suspend, daemon=True).start()
                 return False
             else:
                 try:

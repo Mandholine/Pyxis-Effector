@@ -82,20 +82,20 @@
 }
 
 /* =============================================================================
-   GLASSMORPHIC STARTUP LOADING OVERLAY
+/* =============================================================================
+   COSMIC STARTUP LOADING OVERLAY (Deep Nebula, Focused Gas & Slowly Rotating Stars)
    ============================================================================= */
 #pyxis-loading-overlay {
     position: fixed;
     inset: 0;
     z-index: 99999;
-    background: rgba(13, 15, 18, 0.88);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: #04060a;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    transition: opacity 0.4s ease, visibility 0.4s ease;
+    overflow: hidden;
+    transition: opacity 0.45s ease, visibility 0.45s ease;
     user-select: none;
 }
 
@@ -105,16 +105,276 @@
     pointer-events: none;
 }
 
-.pyxis-loader-spinner {
-    width: 48px;
-    height: 48px;
-    border: 3px solid rgba(255, 255, 255, 0.1);
-    border-top-color: var(--accent-primary, #10b981);
-    border-right-color: var(--accent-secondary, #6366f1);
+/* Universo Cósmico y Capas */
+.pyxis-cosmic-universe {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 1;
+}
+
+/* Capa 1: Nebulosa Profunda con Alto Desenfoque (55px) */
+.pyxis-nebula-deep {
+    position: absolute;
+    inset: -30%;
+    filter: blur(55px);
+    opacity: 0.85;
+    pointer-events: none;
+}
+
+.pyxis-nebula-cloud {
+    position: absolute;
     border-radius: 50%;
-    animation: pyxis-spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    mix-blend-mode: screen;
+}
+
+.pyxis-nebula-cloud.cloud-1 {
+    width: 65vw;
+    height: 65vw;
+    top: 10%;
+    left: 18%;
+    background: radial-gradient(circle, rgba(147, 51, 234, 0.45) 0%, rgba(79, 70, 229, 0.25) 45%, transparent 70%);
+    animation: pyxis-nebula-pulse-1 24s ease-in-out infinite alternate;
+}
+
+.pyxis-nebula-cloud.cloud-2 {
+    width: 55vw;
+    height: 55vw;
+    top: 30%;
+    left: 45%;
+    background: radial-gradient(circle, rgba(236, 72, 153, 0.42) 0%, rgba(168, 85, 247, 0.22) 50%, transparent 75%);
+    animation: pyxis-nebula-pulse-2 30s ease-in-out infinite alternate;
+}
+
+.pyxis-nebula-cloud.cloud-3 {
+    width: 50vw;
+    height: 50vw;
+    top: 5%;
+    left: 38%;
+    background: radial-gradient(circle, rgba(6, 182, 212, 0.38) 0%, rgba(37, 99, 235, 0.18) 55%, transparent 75%);
+    animation: pyxis-nebula-pulse-3 26s ease-in-out infinite alternate;
+}
+
+.pyxis-nebula-cloud.cloud-4 {
+    width: 48vw;
+    height: 48vw;
+    top: 42%;
+    left: 14%;
+    background: radial-gradient(circle, rgba(244, 63, 94, 0.32) 0%, rgba(139, 92, 246, 0.16) 50%, transparent 70%);
+    animation: pyxis-nebula-pulse-1 32s ease-in-out infinite alternate-reverse;
+}
+
+/* Capa 2: Formas de Gas en Capas Superiores con Menor Desenfoque / Más Enfocadas (15px) */
+.pyxis-gas-upper {
+    position: absolute;
+    inset: -20%;
+    filter: blur(15px);
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.pyxis-gas-filament {
+    position: absolute;
+    mix-blend-mode: screen;
+    opacity: 0.65;
+}
+
+.pyxis-gas-filament.gas-1 {
+    width: 46vw;
+    height: 32vw;
+    top: 24%;
+    left: 26%;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.55) 0%, rgba(129, 140, 248, 0.35) 50%, transparent 80%);
+    border-radius: 60% 40% 70% 30% / 50% 60% 40% 50%;
+    animation: pyxis-gas-drift-1 36s ease-in-out infinite alternate;
+}
+
+.pyxis-gas-filament.gas-2 {
+    width: 42vw;
+    height: 34vw;
+    top: 30%;
+    left: 38%;
+    background: linear-gradient(220deg, rgba(236, 72, 153, 0.5) 0%, rgba(168, 85, 247, 0.32) 60%, transparent 85%);
+    border-radius: 40% 60% 35% 65% / 60% 45% 55% 40%;
+    animation: pyxis-gas-drift-2 44s ease-in-out infinite alternate;
+}
+
+.pyxis-gas-filament.gas-3 {
+    width: 36vw;
+    height: 26vw;
+    top: 18%;
+    left: 44%;
+    background: linear-gradient(45deg, rgba(45, 212, 191, 0.45) 0%, rgba(59, 130, 246, 0.22) 70%, transparent 90%);
+    border-radius: 55% 45% 60% 40% / 45% 55% 45% 55%;
+    animation: pyxis-gas-drift-1 40s ease-in-out infinite alternate-reverse;
+}
+
+/* Capa 3: Partículas Blancas de Estrellas Girando Lentamente */
+.pyxis-starfield {
+    position: absolute;
+    width: 160vmax;
+    height: 160vmax;
+    top: 50%;
+    left: 50%;
+    margin-left: -80vmax;
+    margin-top: -80vmax;
+    pointer-events: none;
+}
+
+.pyxis-starfield.starfield-slow {
+    animation: pyxis-stars-rotate 65s linear infinite;
+}
+
+.pyxis-stars-layer {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+}
+
+.stars-layer-1 {
+    /* Estrellas blancas pequeñas y dispersas */
+    background-image: 
+        radial-gradient(1px 1px at 20% 30%, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 40% 70%, rgba(255, 255, 255, 0.95), transparent),
+        radial-gradient(1px 1px at 60% 25%, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 80% 60%, rgba(255, 255, 255, 0.9), transparent),
+        radial-gradient(1px 1px at 30% 85%, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 70% 15%, rgba(255, 255, 255, 0.95), transparent),
+        radial-gradient(1px 1px at 15% 50%, #ffffff, transparent),
+        radial-gradient(1px 1px at 85% 35%, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 50% 10%, rgba(255, 255, 255, 0.95), transparent),
+        radial-gradient(1px 1px at 55% 90%, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 25% 15%, rgba(255, 255, 255, 0.9), transparent),
+        radial-gradient(1px 1px at 75% 80%, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 35% 45%, rgba(255, 255, 255, 0.95), transparent),
+        radial-gradient(1px 1px at 65% 55%, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 90% 75%, rgba(255, 255, 255, 0.9), transparent),
+        radial-gradient(1px 1px at 10% 80%, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 45% 35%, rgba(255, 255, 255, 0.95), transparent),
+        radial-gradient(1px 1px at 55% 65%, #ffffff, transparent);
+}
+
+.stars-layer-2 {
+    /* Estrellas blancas medianas con resplandor/twinkle */
+    background-image: 
+        radial-gradient(2px 2px at 18% 22%, #ffffff, transparent),
+        radial-gradient(2px 2px at 82% 28%, #ffffff, transparent),
+        radial-gradient(2.5px 2.5px at 32% 78%, #ffffff, transparent),
+        radial-gradient(2px 2px at 68% 72%, #ffffff, transparent),
+        radial-gradient(2px 2px at 52% 48%, #ffffff, transparent),
+        radial-gradient(2.5px 2.5px at 22% 62%, #ffffff, transparent),
+        radial-gradient(2px 2px at 78% 42%, #ffffff, transparent),
+        radial-gradient(2px 2px at 42% 18%, #ffffff, transparent),
+        radial-gradient(2.5px 2.5px at 62% 88%, #ffffff, transparent);
+    filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 7px rgba(186, 230, 253, 0.7));
+    animation: pyxis-stars-twinkle 4.5s ease-in-out infinite alternate;
+}
+
+.stars-layer-3 {
+    /* Micropartículas estelares en contra-rotación */
+    background-image: 
+        radial-gradient(1.5px 1.5px at 28% 38%, #ffffff, transparent),
+        radial-gradient(1px 1px at 72% 62%, #ffffff, transparent),
+        radial-gradient(2px 2px at 48% 82%, #ffffff, transparent),
+        radial-gradient(1.5px 1.5px at 88% 18%, #ffffff, transparent),
+        radial-gradient(1px 1px at 12% 72%, #ffffff, transparent);
+    animation: pyxis-stars-rotate-ccw 90s linear infinite;
+}
+
+/* Animaciones del Cosmos */
+@keyframes pyxis-stars-rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes pyxis-stars-rotate-ccw {
+    from { transform: rotate(360deg); }
+    to { transform: rotate(0deg); }
+}
+
+@keyframes pyxis-stars-twinkle {
+    0%, 100% { opacity: 0.75; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.06); }
+}
+
+@keyframes pyxis-nebula-pulse-1 {
+    0% { transform: scale(1) translate(0, 0); }
+    50% { transform: scale(1.15) translate(4%, -3%); }
+    100% { transform: scale(0.95) translate(-3%, 4%); }
+}
+
+@keyframes pyxis-nebula-pulse-2 {
+    0% { transform: scale(1.05) translate(0, 0); }
+    50% { transform: scale(0.9) translate(-4%, 3%); }
+    100% { transform: scale(1.12) translate(3%, -2%); }
+}
+
+@keyframes pyxis-nebula-pulse-3 {
+    0% { transform: scale(0.95) translate(0, 0); }
+    50% { transform: scale(1.1) translate(3%, 3%); }
+    100% { transform: scale(1) translate(-2%, -3%); }
+}
+
+@keyframes pyxis-gas-drift-1 {
+    0% { transform: rotate(0deg) scale(1); border-radius: 60% 40% 70% 30% / 50% 60% 40% 50%; }
+    50% { transform: rotate(180deg) scale(1.1); border-radius: 40% 60% 30% 70% / 60% 40% 60% 40%; }
+    100% { transform: rotate(360deg) scale(1); border-radius: 60% 40% 70% 30% / 50% 60% 40% 50%; }
+}
+
+@keyframes pyxis-gas-drift-2 {
+    0% { transform: rotate(0deg) scale(1.05); border-radius: 40% 60% 35% 65% / 60% 45% 55% 40%; }
+    50% { transform: rotate(-180deg) scale(0.95); border-radius: 65% 35% 60% 40% / 40% 55% 45% 60%; }
+    100% { transform: rotate(-360deg) scale(1.05); border-radius: 40% 60% 35% 65% / 60% 45% 55% 40%; }
+}
+
+/* Capa 4: Contenedor Central Sin Tarjeta */
+.pyxis-loader-content {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.pyxis-loader-gif {
+    width: 320px;
+    max-width: 85vw;
+    height: auto;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    filter: drop-shadow(0 0 25px rgba(56, 189, 248, 0.45));
+    margin-bottom: -10px;
+}
+
+.pyxis-loader-spinner {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: conic-gradient(
+        #ff0055 0deg,
+        #ff5500 45deg,
+        #ffcc00 90deg,
+        #00ff66 135deg,
+        #00ffff 180deg,
+        #0066ff 225deg,
+        #9900ff 270deg,
+        #ff00aa 315deg,
+        #ff0055 360deg
+    );
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
+    mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
+    animation: pyxis-spin 0.85s linear infinite;
     margin-bottom: 22px;
-    box-shadow: 0 0 20px var(--accent-glow, rgba(16, 185, 129, 0.3));
+    filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.85)) drop-shadow(0 0 20px rgba(255, 0, 128, 0.75)) drop-shadow(0 0 32px rgba(0, 255, 102, 0.5));
 }
 
 @keyframes pyxis-spin {
@@ -126,8 +386,9 @@
     font-size: 20px;
     font-weight: 700;
     color: var(--text-main, #ffffff);
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
     margin-bottom: 8px;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
 }
 
 .pyxis-loader-status {
@@ -135,8 +396,9 @@
     font-size: 13px;
     font-weight: 400;
     color: var(--text-muted, #9ca3af);
-    letter-spacing: 0.2px;
+    letter-spacing: 0.3px;
     transition: opacity 0.2s ease;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
 }
 
 [data-theme="violet"] {
@@ -1940,6 +2202,78 @@ body {
     flex-direction: column;
     overflow: hidden;
     box-sizing: border-box;
+}
+
+.pyxis-player-loading-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 200 !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(9, 13, 22, 0.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+    box-sizing: border-box;
+    padding-bottom: 36px;
+}
+
+.pyxis-floating-player-wrapper .pyxis-player-loading-backdrop {
+    padding-bottom: 0;
+}
+
+.pyxis-player-loading-backdrop.is-loading {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.pyxis-player-loading-gif {
+    width: 238px;
+    max-width: 80%;
+    max-height: 65%;
+    height: auto;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    filter: drop-shadow(0 0 20px rgba(56, 189, 248, 0.45));
+    margin-bottom: -6px;
+}
+
+.pyxis-player-spinner {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: conic-gradient(
+        #ff0055 0deg,
+        #ff5500 45deg,
+        #ffcc00 90deg,
+        #00ff66 135deg,
+        #00ffff 180deg,
+        #0066ff 225deg,
+        #9900ff 270deg,
+        #ff00aa 315deg,
+        #ff0055 360deg
+    );
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 0);
+    mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 0);
+    animation: pyxis-spin 0.85s linear infinite;
+    filter: drop-shadow(0 0 9px rgba(0, 255, 255, 0.85)) drop-shadow(0 0 18px rgba(255, 0, 128, 0.75)) drop-shadow(0 0 28px rgba(0, 255, 102, 0.5));
+    margin-bottom: 12px;
+}
+
+.pyxis-player-loading-text {
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    font-size: 11px;
+    font-weight: 600;
+    color: #cbd5e1;
+    letter-spacing: 0.4px;
+    text-shadow: 0 2px 5px rgba(0, 0, 0, 0.8);
 }
 
 .pyxis-node-player-toolbar {

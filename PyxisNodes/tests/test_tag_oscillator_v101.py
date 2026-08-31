@@ -28,7 +28,7 @@ from main import PYXIS_ENGINE_VERSION
 
 class TestTagOscillatorNodeV101(unittest.TestCase):
     def test_version_bump_v101(self):
-        self.assertEqual(PYXIS_ENGINE_VERSION, "1.0.4")
+        self.assertEqual(PYXIS_ENGINE_VERSION, "1.0.5")
 
     def test_basic_oscillation_sequence(self):
         ctx = {"start_time": 0.0, "end_time": 1000.0}

@@ -54,7 +54,7 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
         if self.path == "/status":
             self._send_json({
                 "status": "ok",
-                "version": "1.0.4",
+                "version": "1.0.5",
                 "pid": os.getpid(),
                 "daemon_mode": getattr(self.daemon_context, "daemon_mode", True)
             })
@@ -313,9 +313,9 @@ class PyxisDaemonServer:
             if self.window and getattr(self.window, "title", None):
                 self.bring_to_foreground(self.window.title, is_maximized=is_max)
 
-            # Notificar al frontend en JS para que recargue el subtítulo (con la ventana ya visible)
+            # Notificar al frontend en JS para reanudar reproductores y recargar el subtítulo (con la ventana ya visible)
             try:
-                js_code = "if (window.__pyxis_reload_subtitles) window.__pyxis_reload_subtitles();"
+                js_code = "if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.resumeFromDaemon === 'function') window.PyxisNodePlayerManager.resumeFromDaemon(); if (window.__pyxis_reload_subtitles) window.__pyxis_reload_subtitles();"
                 self.window.evaluate_js(js_code)
             except Exception as e:
                 print(f"[Pyxis Daemon Warning JS Reload] {e}", flush=True)

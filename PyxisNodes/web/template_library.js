@@ -16,7 +16,7 @@
  * For any question you can visit: https://discord.gg/rYsARc3fB9
  */
 
-/* Biblioteca permanente de templates Pyxis Engine 1.0.4.
+/* Biblioteca permanente de templates Pyxis Engine 1.0.5.
  * Cargar después del script principal de index.html.
  */
 (function () {
