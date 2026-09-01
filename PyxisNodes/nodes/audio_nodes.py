@@ -165,8 +165,16 @@ def _eval_val(val: Any, context: Optional[dict] = None, default: float = 0.0) ->
         return default
 
 
+_RESOLVED_AUDIO_CACHE: Dict[str, AudioData] = {}
+
+
+def clear_resolved_audio_cache():
+    """Limpia la caché de resolución de rutas de audio."""
+    _RESOLVED_AUDIO_CACHE.clear()
+
+
 def resolve_audio_data(audio_path: Optional[str] = None, context: Optional[dict] = None) -> Optional[AudioData]:
-    """Resuelve y carga en memoria el búfer AudioData desde la ruta dada o el proyecto de Aegisub."""
+    """Resuelve y carga en memoria el búfer AudioData desde la ruta dada o el proyecto de Aegisub con caché instantánea."""
     src = str(audio_path or "").strip()
     if not src and isinstance(context, dict):
         src = str(
@@ -179,12 +187,21 @@ def resolve_audio_data(audio_path: Optional[str] = None, context: Optional[dict]
         return None
 
     clean_src = src.strip('"').strip("'")
+    if not clean_src:
+        return None
+
+    # Caché rápida en memoria por ruta de origen (0.0 ms)
+    if clean_src in _RESOLVED_AUDIO_CACHE:
+        return _RESOLVED_AUDIO_CACHE[clean_src]
+
     if not os.path.isfile(clean_src):
         return None
 
     try:
         wav_path = AudioPreprocessor.ensure_audio_wav(clean_src)
-        return AudioEngine.load_wav(wav_path)
+        audio_data = AudioEngine.load_wav(wav_path)
+        _RESOLVED_AUDIO_CACHE[clean_src] = audio_data
+        return audio_data
     except Exception as e:
         print(f"[Pyxis Audio Warning] No se pudo resolver audio '{clean_src}': {e}", flush=True)
         return None

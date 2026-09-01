@@ -3487,19 +3487,28 @@ def main():
                 is_daemon = config.get("daemon_mode", True)
 
                 if is_daemon:
-                    # En modo daemon: ocultar la ventana inmediatamente a nivel de Win32 para no bloquear el bucle de mensajes
-                    if found_hwnd:
+                    # En modo daemon: diferir el ocultamiento al hilo secundario para que FormClosing
+                    # retorne False primero (args.Cancel = True) sin que WinForms restaure la visibilidad
+                    # ni bloquee el despachador con llamadas sincronas a Invoke.
+                    target_hwnd = found_hwnd
+
+                    def _async_daemon_cleanup():
+                        import time
+                        time.sleep(0.03)
+                        if target_hwnd:
+                            try:
+                                user32.ShowWindow(target_hwnd, 0)  # 0 = SW_HIDE
+                            except Exception:
+                                pass
                         try:
-                            user32.ShowWindow(found_hwnd, 0)  # 0 = SW_HIDE
+                            window.hide()
                         except Exception:
                             pass
-
-                    # Ejecutar suspensión de reproductores en hilo secundario asíncrono para evitar deadlocks en el despachador de WebView2
-                    def _async_daemon_cleanup():
                         try:
                             window.evaluate_js("if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.suspendForDaemon === 'function') window.PyxisNodePlayerManager.suspendForDaemon();")
                         except Exception:
                             pass
+
                     import threading
                     threading.Thread(target=_async_daemon_cleanup, daemon=True).start()
 

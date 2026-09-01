@@ -1908,7 +1908,11 @@ class GraphEngine:
                     x0, y0 = _parse_pt(_get_val("P0", "0,0"), (0.0, 0.0))
                     x1, y1 = _parse_pt(_get_val("P1", "50,100"), (50.0, 100.0))
                     x2, y2 = _parse_pt(_get_val("P2", "100,0"), (100.0, 0.0))
-                    spline_str = f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(x2,2)} {round(x2,2)} {round(x2,2)}"
+                    cp1_x = x0 + (2.0 / 3.0) * (x1 - x0)
+                    cp1_y = y0 + (2.0 / 3.0) * (y1 - y0)
+                    cp2_x = x2 + (2.0 / 3.0) * (x1 - x2)
+                    cp2_y = y2 + (2.0 / 3.0) * (y1 - y2)
+                    spline_str = f"m {round(x0,2)} {round(y0,2)} b {round(cp1_x,2)} {round(cp1_y,2)} {round(cp2_x,2)} {round(cp2_y,2)} {round(x2,2)} {round(y2,2)}"
                     if subdivs >= 2:
                         pts = []
                         for j in range(subdivs + 1):
@@ -1941,7 +1945,7 @@ class GraphEngine:
                         x1, y1 = _parse_pt(_get_val("P1", "50,100"), (50.0, 100.0))
                         x2, y2 = _parse_pt(_get_val("P2", "150,100"), (150.0, 100.0))
                         x3, y3 = _parse_pt(_get_val("P3", "200,0"), (200.0, 0.0))
-                        spline_str = shape_str if shape_str else f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(x2,2)} {round(x3,2)} {round(y3,2)}"
+                        spline_str = shape_str if shape_str else f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(y2,2)} {round(x3,2)} {round(y3,2)}"
                         if subdivs >= 2:
                             pts = []
                             for j in range(subdivs + 1):
@@ -1961,7 +1965,7 @@ class GraphEngine:
                     x1, y1 = _parse_pt(_get_val("P1", "50,100"), (50.0, 100.0))
                     x2, y2 = _parse_pt(_get_val("P2", "150,100"), (150.0, 100.0))
                     x3, y3 = _parse_pt(_get_val("P3", "200,0"), (200.0, 0.0))
-                    spline_str = f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(x2,2)} {round(x3,2)} {round(y3,2)}"
+                    spline_str = f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(y2,2)} {round(x3,2)} {round(y3,2)}"
                     if subdivs >= 2:
                         pts = []
                         for j in range(subdivs + 1):
@@ -1977,9 +1981,16 @@ class GraphEngine:
                         dx = 3*(u**2)*(x1 - x0) + 6*u*ft*(x2 - x1) + 3*(ft**2)*(x3 - x2)
                         dy = 3*(u**2)*(y1 - y0) + 6*u*ft*(y2 - y1) + 3*(ft**2)*(y3 - y2)
 
-                tan_rad = math.atan2(dy, dx)
-                tan_deg = math.degrees(tan_rad)
-                norm_deg = (tan_deg + 90.0) % 360.0
+                tan_deg = math.degrees(math.atan2(dx, dy)) - 90.0
+                while tan_deg > 180.0:
+                    tan_deg -= 360.0
+                while tan_deg <= -180.0:
+                    tan_deg += 360.0
+                norm_deg = tan_deg + 90.0
+                while norm_deg > 180.0:
+                    norm_deg -= 360.0
+                while norm_deg <= -180.0:
+                    norm_deg += 360.0
 
                 rbx = round(float(bx), 2)
                 rby = round(float(by), 2)
@@ -2303,7 +2314,10 @@ class GraphEngine:
                 if output_slot_index == 1:
                     return pos_str
                 elif output_slot_index == 2:
-                    return f"\\frz({angle_deg:.2f})".rstrip('0').rstrip('.')
+                    frz_val = f"{angle_deg:.2f}".rstrip('0').rstrip('.')
+                    if not frz_val or frz_val == "-0" or frz_val.endswith('.'):
+                        frz_val = "0"
+                    return f"\\frz{frz_val}"
                 elif output_slot_index == 3:
                     return str(cut_len)
                 elif output_slot_index == 4:
@@ -2313,6 +2327,49 @@ class GraphEngine:
                 return cut_shp
             except Exception as e:
                 return f"[Err Shape Walker: {e}]"
+
+        # ---------------------------------------------------------------------
+        # TEXT ON PATH (Multi-Slot: Tag Out, \pos Tag, Angle (\frz), X, Y, Length)
+        # ---------------------------------------------------------------------
+        elif node_type in ["Functions/Text on Path", "Text on Path", "Text/Text on Path"]:
+            try:
+                shp_raw = self.get_input_value(node, 0, context)
+                if shp_raw == "": shp_raw = str(_get_prop_value(props, "shape", "")).strip()
+
+                offset_raw = self.get_input_value(node, 1, context)
+                if offset_raw == "": offset_raw = str(_get_prop_value(props, "offset", _get_prop_value(props, "desfase", "0"))).strip()
+
+                extra_ang_raw = self.get_input_value(node, 2, context)
+                if extra_ang_raw == "": extra_ang_raw = str(_get_prop_value(props, "extra_angle", _get_prop_value(props, "angulo_extra", "0"))).strip()
+
+                sub_raw = self.get_input_value(node, 3, context)
+                if sub_raw == "": sub_raw = str(_get_prop_value(props, "subdivs", _get_prop_value(props, "subdivisiones", "30"))).strip()
+
+                mode_raw = str(_get_prop_value(props, "modo", _get_prop_value(props, "mode", "Center (Centrado)"))).strip()
+
+                from nodes.text_nodes import text_on_path_node
+                tag_out, pos_str, frz_str, x_val, y_val, total_len = text_on_path_node(
+                    context,
+                    shape=shp_raw,
+                    mode=mode_raw,
+                    offset=offset_raw,
+                    extra_angle=extra_ang_raw,
+                    subdivs=sub_raw
+                )
+
+                if output_slot_index == 1:
+                    return pos_str
+                elif output_slot_index == 2:
+                    return frz_str
+                elif output_slot_index == 3:
+                    return str(x_val)
+                elif output_slot_index == 4:
+                    return str(y_val)
+                elif output_slot_index == 5:
+                    return str(total_len)
+                return tag_out
+            except Exception as e:
+                return f"[Err Text on Path: {e}]"
 
         # ---------------------------------------------------------------------
         # 4C. CLIP GRADIENT (Multi-Slot: Clip ASS, Progreso 0-1, Índice, Total)

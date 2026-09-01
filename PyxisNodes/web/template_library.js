@@ -275,7 +275,7 @@
         overlay.className = "pyxis-template-overlay";
         overlay.style.zIndex = "2200";
         overlay.innerHTML = `
-            <div class="pyxis-template-dialog" style="width: 530px; padding: 24px; background: #161920; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; box-shadow: 0 20px 40px rgba(0,0,0,0.7); color: #ffffff; font-family: system-ui, -apple-system, sans-serif;">
+            <div class="pyxis-template-dialog" style="width: 560px; max-width: 92vw; padding: 24px; background: #161920; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; box-shadow: 0 20px 40px rgba(0,0,0,0.7); color: #ffffff; font-family: system-ui, -apple-system, sans-serif;">
                 <div style="display: flex; gap: 16px; align-items: flex-start;">
                     <div style="width: 44px; height: 44px; min-width: 44px; border-radius: 10px; border: 1.5px solid #d97706; background: rgba(217, 119, 6, 0.12); display: flex; align-items: center; justify-content: center;">
                         <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; stroke: #f59e0b; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;">
@@ -287,22 +287,22 @@
                     <div style="flex: 1;">
                         <h3 style="margin: 0 0 6px 0; font-size: 18px; font-weight: 700; color: #ffffff; line-height: 1.2;">${window.t ? window.t("library.unsaved_title") : "Cambios sin guardar"}</h3>
                         <p style="margin: 0; font-size: 13.5px; line-height: 1.45; color: #9ca3af;">
-                            ${window.t ? window.t("library.unsaved_msg") : "Hiciste cambios en este template. Si cargas otro, los perderás.<br>¿Seguro de que quieres continuar?"}
+                            ${window.t ? window.t("library.unsaved_msg") : "El grafo actual tiene cambios que se perderán al cargar otra plantilla."}
                         </p>
                     </div>
                 </div>
                 
                 <div style="height: 1px; background: rgba(255, 255, 255, 0.08); margin: 20px 0 18px 0;"></div>
                 
-                <div style="display: flex; justify-content: flex-end; gap: 10px; align-items: center;">
-                    <button id="pyxis-unsaved-cancel" style="background: #272a30; border: 1px solid #3a3f4a; color: #e5e7eb; padding: 9px 18px; border-radius: 8px; font-size: 13.5px; font-weight: 600; cursor: pointer; transition: all 0.15s ease;">
+                <div style="display: flex; justify-content: flex-end; gap: 10px; align-items: center; flex-wrap: nowrap;">
+                    <button id="pyxis-unsaved-cancel" style="background: #272a30; border: 1px solid #3a3f4a; color: #e5e7eb; padding: 0 18px; height: 38px; border-radius: 8px; font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease;">
                         ${window.t ? window.t("common.cancel") : "Cancelar"}
                     </button>
-                    <button id="pyxis-unsaved-discard" style="background: rgba(220, 38, 38, 0.18); border: 1px solid #b91c1c; color: #fca5a5; padding: 9px 18px; border-radius: 8px; font-size: 13.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.15s ease;">
+                    <button id="pyxis-unsaved-discard" style="background: rgba(220, 38, 38, 0.18); border: 1px solid #b91c1c; color: #fca5a5; padding: 0 18px; height: 38px; border-radius: 8px; font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.15s ease;">
                         <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                         ${window.t ? window.t("library.discard") : "Descartar"}
                     </button>
-                    <button id="pyxis-unsaved-save-lib" style="background: #059669; border: 1px solid #10b981; color: #ffffff; padding: 9px 20px; border-radius: 8px; font-size: 13.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 7px; transition: all 0.15s ease; box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);">
+                    <button id="pyxis-unsaved-save-lib" style="background: #059669; border: 1px solid #10b981; color: #ffffff; padding: 0 20px; height: 38px; border-radius: 8px; font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: 7px; transition: all 0.15s ease; box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);">
                         <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                         ${window.t ? window.t("library.save_and_continue") : "Guardar en biblioteca"}
                     </button>

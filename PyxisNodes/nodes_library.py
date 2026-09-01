@@ -391,6 +391,21 @@ system_node(
 )
 
 system_node(
+    "Functions", "Text on Path", node_kind="data", color="#0F766E",
+    inputs=["Path / Shape", "Offset", "Extra Angle", "Subdivs"],
+    outputs=["Tag Out", "\\pos Tag", "Angle (\\frz)", "X", "Y", "Length"],
+    properties={
+        "shape": "",
+        "modo": "Center (Centrado)",
+        "offset": "0",
+        "extra_angle": "0",
+        "subdivs": "30"
+    },
+    widgets=[]
+)
+
+
+system_node(
     "Shape", "IMG to Shape", node_kind="data", color="#0F766E",
     inputs=["Image Path", "Frame (j)", "Threshold", "Tolerance", "Smoothing", "Optimization", "Scale Out", "Width Out", "Height Out", "Offset X", "Offset Y", "Image Scale", "Binarize Mode"],
     outputs=["Shape Out", "Width", "Height", "Puntos", "Shapes Array", "Total Frames"],

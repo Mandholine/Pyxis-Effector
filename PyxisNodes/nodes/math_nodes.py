@@ -568,7 +568,11 @@ def math_bezier_node(context, p0="0,0", p1="50,100", p2="150,100", p3="200,0", t
 
     if m in ("spline", "assdraw", "trazado assdraw", "b"):
         if "cuadr" in m:
-            return f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(y2,2)} {round(x2,2)} {round(y2,2)}"
-        return f"b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(y2,2)} {round(x3,2)} {round(y3,2)}"
+            cp1_x = x0 + (2.0 / 3.0) * (x1 - x0)
+            cp1_y = y0 + (2.0 / 3.0) * (y1 - y0)
+            cp2_x = x2 + (2.0 / 3.0) * (x1 - x2)
+            cp2_y = y2 + (2.0 / 3.0) * (y1 - y2)
+            return f"m {round(x0,2)} {round(y0,2)} b {round(cp1_x,2)} {round(cp1_y,2)} {round(cp2_x,2)} {round(cp2_y,2)} {round(x2,2)} {round(y2,2)}"
+        return f"m {round(x0,2)} {round(y0,2)} b {round(x1,2)} {round(y1,2)} {round(x2,2)} {round(y2,2)} {round(x3,2)} {round(y3,2)}"
 
     return f"\\pos({fmt_x},{fmt_y})"

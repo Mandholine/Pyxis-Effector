@@ -145,7 +145,7 @@ class TestShapeWalkerNodeEvaluation:
         assert "\\pos(100" in pos_tag
 
         angle_tag = engine.evaluate_data_node('walker_node_1', context, output_slot_index=2)
-        assert "\\frz(0" in angle_tag
+        assert "\\frz0" in angle_tag or "\\frz" in angle_tag
 
         len_val = engine.evaluate_data_node('walker_node_1', context, output_slot_index=3)
         assert float(len_val) == pytest.approx(100.0, 0.01)

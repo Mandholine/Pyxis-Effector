@@ -15,31 +15,54 @@
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
 # PyxisNodes/audio_engine.py
-"""Motor de análisis acústico, decodificación PCM WAV y cálculo FFT/RMS para PyxisNodes."""
+"""Motor de análisis acústico de alto rendimiento, decodificación PCM WAV en C y cálculo FFT/RMS para PyxisNodes."""
 
 import math
 import os
-import struct
 import wave
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
-try:
-    import numpy as np
-    HAS_NUMPY = True
-except ImportError:
-    np = None
-    HAS_NUMPY = False
+import numpy as np
+
+
+# Tablas precalculadas de ventanas de análisis espectral (Hann)
+_HANN_WINDOWS: Dict[int, np.ndarray] = {}
+
+
+def _get_hann_window(n: int) -> np.ndarray:
+    """Obtiene o precalcula la ventana de Hann como un array NumPy float32 contiguo en C."""
+    win = _HANN_WINDOWS.get(n)
+    if win is None:
+        win = (0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(n, dtype=np.float32) / (n - 1)))).astype(np.float32)
+        _HANN_WINDOWS[n] = win
+    return win
 
 
 class AudioData:
-    """Representa un búfer de audio PCM en memoria normalizado con utilidades de análisis."""
+    """Representa un búfer de audio PCM en memoria normalizado con utilidades de análisis ultra-rápidas."""
 
-    def __init__(self, sample_rate: int, channels: int, samples: List[float]):
-        self.sample_rate = sample_rate
-        self.channels = channels
-        self.samples = samples  # Lista o array 1D de floats en rango [-1.0, 1.0]
-        self.num_samples = len(samples)
-        self.duration_ms = (self.num_samples / float(sample_rate)) * 1000.0 if sample_rate > 0 else 0.0
+    def __init__(self, sample_rate: int, channels: int, samples: np.ndarray):
+        self.sample_rate = int(sample_rate)
+        self.channels = int(channels)
+        # Asegurar array 1D NumPy float32 contiguo
+        if not isinstance(samples, np.ndarray) or samples.dtype != np.float32:
+            self.samples = np.asarray(samples, dtype=np.float32)
+        else:
+            self.samples = samples
+
+        self.num_samples = len(self.samples)
+        self.duration_ms = (self.num_samples / float(self.sample_rate)) * 1000.0 if self.sample_rate > 0 else 0.0
+
+        # Precalcular suma acumulativa de cuadrados (Prefix Sums) en float64 para cálculo RMS en O(1)
+        if self.num_samples > 0:
+            self._sq_cumsum = np.concatenate(
+                ([0.0], np.cumsum(self.samples.astype(np.float64) ** 2))
+            )
+        else:
+            self._sq_cumsum = np.array([0.0], dtype=np.float64)
+
+        # Caché LRU en memoria para transformadas FFT por intervalo temporal
+        self._fft_cache: Dict[Tuple[int, int, int], np.ndarray] = {}
 
     def sample_from_ms(self, ms: float) -> int:
         """Convierte milisegundos a índice de muestra."""
@@ -54,29 +77,30 @@ class AudioData:
             return 0.0
         return (sample_idx / float(self.sample_rate)) * 1000.0
 
-    def get_chunk(self, start_ms: float, end_ms: float):
-        """Extrae el segmento de audio entre start_ms y end_ms."""
+    def get_chunk(self, start_ms: float, end_ms: float) -> np.ndarray:
+        """Extrae el segmento de audio (view slice) entre start_ms y end_ms."""
         idx_start = self.sample_from_ms(start_ms)
         idx_end = self.sample_from_ms(end_ms)
         if idx_start >= self.num_samples:
-            return [] if not (HAS_NUMPY and isinstance(self.samples, np.ndarray)) else np.array([], dtype=np.float32)
+            return np.empty(0, dtype=np.float32)
         if idx_start >= idx_end:
             idx_end = min(self.num_samples, idx_start + 1)
         return self.samples[idx_start:idx_end]
 
     def get_rms(self, start_ms: float, end_ms: float, gain: float = 1.0) -> float:
-        """Calcula la energía acústica cuadrática media (RMS) entre 0.0 y 1.0 con ganancia."""
-        chunk = self.get_chunk(start_ms, end_ms)
-        if len(chunk) == 0:
+        """Calcula la energía acústica cuadrática media (RMS) en O(1) constante mediante Prefix Sums."""
+        idx_start = self.sample_from_ms(start_ms)
+        idx_end = self.sample_from_ms(end_ms)
+        if idx_start >= idx_end:
+            idx_end = min(self.num_samples, idx_start + 1)
+
+        count = idx_end - idx_start
+        if count <= 0 or idx_start >= self.num_samples:
             return 0.0
 
-        if HAS_NUMPY and isinstance(chunk, np.ndarray):
-            mean_sq = np.mean(chunk ** 2)
-            raw_rms = float(np.sqrt(mean_sq))
-        else:
-            sum_sq = sum(s * s for s in chunk)
-            raw_rms = math.sqrt(sum_sq / len(chunk))
-
+        # O(1) resta directa en el arreglo de energía acumulativa
+        sum_sq = self._sq_cumsum[idx_end] - self._sq_cumsum[idx_start]
+        raw_rms = math.sqrt(max(0.0, sum_sq / count))
         return min(1.0, raw_rms * max(0.0, float(gain)))
 
     def get_peak(self, start_ms: float, end_ms: float, gain: float = 1.0) -> float:
@@ -85,105 +109,78 @@ class AudioData:
         if len(chunk) == 0:
             return 0.0
 
-        if HAS_NUMPY and isinstance(chunk, np.ndarray):
-            p = float(np.max(np.abs(chunk)))
-        else:
-            p = max(abs(s) for s in chunk)
-
+        p = float(np.max(np.abs(chunk)))
         return min(1.0, p * max(0.0, float(gain)))
 
     def get_samples(self, start_ms: float, end_ms: float, num_points: int = 32, gain: float = 1.0) -> List[float]:
-        """Submuestrea el intervalo temporal en N puntos equidistantes para dibujo de formas con ganancia."""
+        """Submuestrea el intervalo temporal de manera vectorizada en N puntos equidistantes."""
         chunk = self.get_chunk(start_ms, end_ms)
-        if len(chunk) == 0 or num_points <= 0:
-            return [0.0] * num_points
-
         n = len(chunk)
+        if n == 0 or num_points <= 0:
+            return [0.0] * max(0, num_points)
+
         g = max(0.0, float(gain))
         if n == num_points:
-            return [float(s) * g for s in chunk]
+            return (chunk * g).tolist() if g != 1.0 else chunk.tolist()
 
-        result = []
-        for i in range(num_points):
-            pos = int(round((i / float(num_points - 1)) * (n - 1))) if num_points > 1 else 0
-            pos = max(0, min(n - 1, pos))
-            result.append(float(chunk[pos]) * g)
-        return result
+        if num_points == 1:
+            return [float(chunk[0]) * g]
 
-    def get_fft(self, start_ms: float, end_ms: float, n_fft: int = 2048) -> Tuple[List[float], float]:
-        """Calcula la transformada de Fourier FFT y retorna (magnitudes, freq_step_hz)."""
-        chunk = self.get_chunk(start_ms, end_ms)
-        if len(chunk) == 0:
-            return ([0.0] * (n_fft // 2), float(self.sample_rate) / n_fft if n_fft else 1.0)
+        # Vectorización con NumPy linspace
+        indices = np.linspace(0, n - 1, num_points, dtype=np.intp)
+        sampled = chunk[indices]
+        if g != 1.0:
+            sampled = sampled * g
+        return sampled.tolist()
 
-        # Ajustar n_fft a potencia de 2 más cercana
+    def get_fft(self, start_ms: float, end_ms: float, n_fft: int = 2048) -> Tuple[np.ndarray, float]:
+        """Calcula la FFT real optimizada con ventana de Hann precalculada y caché LRU por intervalo."""
+        idx_start = self.sample_from_ms(start_ms)
+        idx_end = self.sample_from_ms(end_ms)
+        if idx_start >= idx_end:
+            idx_end = min(self.num_samples, idx_start + 1)
+
+        # Ajustar n_fft a potencia de 2
         if n_fft < 16:
             n_fft = 16
         n_pow2 = 1 << (n_fft - 1).bit_length()
         if n_pow2 != n_fft:
             n_fft = n_pow2
 
-        # Rellenar o recortar chunk con ventana de Hann
+        freq_step = float(self.sample_rate) / float(n_fft) if n_fft else 1.0
+
+        # Comprobar caché LRU por índices exactos
+        cache_key = (idx_start, idx_end, n_fft)
+        if cache_key in self._fft_cache:
+            return self._fft_cache[cache_key], freq_step
+
+        chunk = self.samples[idx_start:idx_end]
         chunk_len = len(chunk)
-        samples_win = []
-        for i in range(n_fft):
-            if i < chunk_len:
-                # Hann window: 0.5 * (1 - cos(2*pi*i / (N-1)))
-                w = 0.5 * (1.0 - math.cos(2.0 * math.pi * i / (n_fft - 1)))
-                samples_win.append(float(chunk[i]) * w)
-            else:
-                samples_win.append(0.0)
+        if chunk_len == 0:
+            zeros = np.zeros(n_fft // 2 + 1, dtype=np.float32)
+            return zeros, freq_step
 
-        freq_step = float(self.sample_rate) / float(n_fft)
+        # Vectorización: Hann window precalculada + zero padding directo
+        window = _get_hann_window(n_fft)
+        pad = np.zeros(n_fft, dtype=np.float32)
+        valid_len = min(chunk_len, n_fft)
+        pad[:valid_len] = chunk[:valid_len] * window[:valid_len]
 
-        if HAS_NUMPY:
-            fft_res = np.fft.rfft(samples_win)
-            magnitudes = np.abs(fft_res)
-            # Normalizar
-            mag_sum = np.sum(magnitudes)
-            if mag_sum > 0:
-                magnitudes = magnitudes / (n_fft / 2.0)
-            return (magnitudes.tolist(), freq_step)
+        # Fast Real FFT
+        fft_res = np.fft.rfft(pad)
+        magnitudes = np.abs(fft_res).astype(np.float32)
+        mag_sum = float(np.sum(magnitudes))
+        if mag_sum > 0:
+            magnitudes = magnitudes / (n_fft / 2.0)
 
-        # FFT pura en Python (Radix-2 Cooley-Tukey)
-        magnitudes = self._fft_pure_python(samples_win)
-        num_mags = len(magnitudes) // 2
-        half_mags = [magnitudes[i] / (n_fft / 2.0) for i in range(num_mags)]
-        return (half_mags, freq_step)
+        # Manejo de tamaño de caché LRU (máximo 512 entradas)
+        if len(self._fft_cache) >= 512:
+            old_keys = list(self._fft_cache.keys())[:128]
+            for k in old_keys:
+                del self._fft_cache[k]
 
-    @staticmethod
-    def _fft_pure_python(x: List[float]) -> List[float]:
-        """Implementación nativa pura de FFT Cooley-Tukey recursiva/iterativa."""
-        N = len(x)
-        if N <= 1:
-            return [abs(v) for v in x]
-
-        # Convertir a complejos (r, i)
-        complex_x = [(v, 0.0) for v in x]
-
-        def _fft_rec(a):
-            n = len(a)
-            if n <= 1:
-                return a
-            even = _fft_rec(a[0::2])
-            odd = _fft_rec(a[1::2])
-            combined = [(0.0, 0.0)] * n
-            for k in range(n // 2):
-                angle = -2.0 * math.pi * k / n
-                cos_a = math.cos(angle)
-                sin_a = math.sin(angle)
-                # odd[k] * exp(angle)
-                odd_r, odd_i = odd[k]
-                t_r = odd_r * cos_a - odd_i * sin_a
-                t_i = odd_r * sin_a + odd_i * cos_a
-                
-                even_r, even_i = even[k]
-                combined[k] = (even_r + t_r, even_i + t_i)
-                combined[k + n // 2] = (even_r - t_r, even_i - t_i)
-            return combined
-
-        res_complex = _fft_rec(complex_x)
-        return [math.sqrt(r * r + i * i) for r, i in res_complex]
+        self._fft_cache[cache_key] = magnitudes
+        return magnitudes, freq_step
 
     def get_band_weight(self, start_ms: float, end_ms: float, min_hz: float, max_hz: float, gain: float = 1.0) -> float:
         """Calcula la energía de frecuencia normalizada en una banda [min_hz, max_hz] con compensación espectral."""
@@ -205,26 +202,20 @@ class AudioData:
             k_idx = int(k_center)
             frac = k_center - k_idx
             if k_idx >= num_mags - 1:
-                combined_energy = mags[-1] if num_mags > 0 else 0.0
+                combined_energy = float(mags[-1]) if num_mags > 0 else 0.0
             else:
-                combined_energy = mags[k_idx] * (1.0 - frac) + mags[k_idx + 1] * frac
+                combined_energy = float(mags[k_idx] * (1.0 - frac) + mags[k_idx + 1] * frac)
         else:
             idx_start = max(0, int(math.floor(k_start)))
             idx_end = min(num_mags, int(math.ceil(k_end)))
-            band_energy = 0.0
-            max_mag = 0.0
-            bin_count = 0
-            for i in range(idx_start, idx_end):
-                mag = mags[i]
-                band_energy += mag
-                if mag > max_mag:
-                    max_mag = mag
-                bin_count += 1
+            if idx_start >= idx_end:
+                idx_end = min(num_mags, idx_start + 1)
 
-            if bin_count == 0:
+            band_slice = mags[idx_start:idx_end]
+            if len(band_slice) == 0:
                 return 0.0
-
-            avg_mag = band_energy / bin_count
+            avg_mag = float(np.mean(band_slice))
+            max_mag = float(np.max(band_slice))
             combined_energy = 0.5 * avg_mag + 0.5 * max_mag
 
         val = combined_energy * spectral_boost * 3.5 * max(0.0, float(gain))
@@ -239,7 +230,7 @@ class AudioData:
         max_hz: float = 16000.0,
         gain: float = 1.0
     ) -> List[float]:
-        """Divide el espectro en N bandas de frecuencia con escala logarítmica, interpolación continua y compensación espectral."""
+        """Divide el espectro en N bandas de frecuencia con escala logarítmica, interpolación y compensación espectral."""
         if num_bands <= 0:
             return []
 
@@ -251,6 +242,7 @@ class AudioData:
         bands = [0.0] * num_bands
         log_min = math.log10(max(10.0, min_hz))
         log_max = math.log10(max(min_hz + 10.0, max_hz))
+        g = max(0.0, float(gain))
 
         for b in range(num_bands):
             f_start = 10.0 ** (log_min + (b / float(num_bands)) * (log_max - log_min))
@@ -266,29 +258,22 @@ class AudioData:
                 k_idx = int(k_center)
                 frac = k_center - k_idx
                 if k_idx >= num_mags - 1:
-                    val_mag = mags[-1] if num_mags > 0 else 0.0
+                    val_mag = float(mags[-1]) if num_mags > 0 else 0.0
                 else:
-                    val_mag = mags[k_idx] * (1.0 - frac) + mags[k_idx + 1] * frac
+                    val_mag = float(mags[k_idx] * (1.0 - frac) + mags[k_idx + 1] * frac)
             else:
                 idx_start = max(0, int(math.floor(k_start)))
                 idx_end = min(num_mags, int(math.ceil(k_end)))
-                b_energy = 0.0
-                b_max = 0.0
-                b_bins = 0
-                for i in range(idx_start, idx_end):
-                    mag = mags[i]
-                    b_energy += mag
-                    if mag > b_max:
-                        b_max = mag
-                    b_bins += 1
+                if idx_start >= idx_end:
+                    idx_end = min(num_mags, idx_start + 1)
 
-                if b_bins > 0:
-                    avg_b = b_energy / b_bins
-                    val_mag = 0.5 * avg_b + 0.5 * b_max
+                band_slice = mags[idx_start:idx_end]
+                if len(band_slice) > 0:
+                    val_mag = float(0.5 * np.mean(band_slice) + 0.5 * np.max(band_slice))
                 else:
                     val_mag = 0.0
 
-            val = val_mag * spectral_boost * 4.0 * max(0.0, float(gain))
+            val = val_mag * spectral_boost * 4.0 * g
             bands[b] = min(1.0, val)
 
         return bands
@@ -301,7 +286,7 @@ class AudioEngine:
 
     @classmethod
     def load_wav(cls, file_path: str) -> AudioData:
-        """Carga y decodifica un archivo PCM WAV a memoria. Reutiliza caché si ya está cargado."""
+        """Carga y decodifica un archivo PCM WAV directamente a memoria RAM con vectorización en C."""
         clean_path = os.path.abspath(file_path).lower()
         if clean_path in cls._audio_cache:
             return cls._audio_cache[clean_path]
@@ -316,84 +301,44 @@ class AudioEngine:
             n_frames = wf.getnframes()
             raw_data = wf.readframes(n_frames)
 
-        samples: List[float] = []
-
-        if sampwidth == 2:  # 16-bit signed PCM
-            total_samples = n_frames * channels
-            fmt = f"<{total_samples}h"
-            ints = struct.unpack(fmt, raw_data)
-            if channels == 1:
-                samples = [s / 32768.0 for s in ints]
-            else:
-                # Promedio de canales a mono
-                samples = [
-                    ((ints[i * channels] + ints[i * channels + 1]) / 2.0) / 32768.0
-                    for i in range(n_frames)
-                ]
+        if sampwidth == 2:  # 16-bit signed PCM (estándar de alta fidelidad)
+            arr = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32)
+            if channels > 1:
+                arr = arr.reshape(-1, channels).mean(axis=1)
+            samples = arr / 32768.0
 
         elif sampwidth == 1:  # 8-bit unsigned PCM
-            total_samples = n_frames * channels
-            fmt = f"<{total_samples}B"
-            ints = struct.unpack(fmt, raw_data)
-            if channels == 1:
-                samples = [(s - 128) / 128.0 for s in ints]
-            else:
-                samples = [
-                    (((ints[i * channels] + ints[i * channels + 1]) / 2.0) - 128) / 128.0
-                    for i in range(n_frames)
-                ]
+            arr = np.frombuffer(raw_data, dtype=np.uint8).astype(np.float32)
+            if channels > 1:
+                arr = arr.reshape(-1, channels).mean(axis=1)
+            samples = (arr - 128.0) / 128.0
 
         elif sampwidth == 3:  # 24-bit signed PCM
-            # 3 bytes por muestra
-            total_samples = n_frames * channels
-            ints = []
-            for i in range(total_samples):
-                b = raw_data[i * 3:(i + 1) * 3]
-                # Pad to 4 bytes signed int
-                val = int.from_bytes(b, byteorder="little", signed=True)
-                ints.append(val)
-            max_24 = 8388608.0
-            if channels == 1:
-                samples = [s / max_24 for s in ints]
-            else:
-                samples = [
-                    ((ints[i * channels] + ints[i * channels + 1]) / 2.0) / max_24
-                    for i in range(n_frames)
-                ]
+            raw_bytes = np.frombuffer(raw_data, dtype=np.uint8)
+            a = raw_bytes.reshape(-1, 3)
+            padded = np.zeros((len(a), 4), dtype=np.uint8)
+            padded[:, 1:] = a
+            ints = padded.view(dtype=np.int32)[:, 0] >> 8
+            arr = ints.astype(np.float32)
+            if channels > 1:
+                arr = arr.reshape(-1, channels).mean(axis=1)
+            samples = arr / 8388608.0
 
-        elif sampwidth == 4:  # 32-bit float o 32-bit signed int
-            total_samples = n_frames * channels
+        elif sampwidth == 4:  # 32-bit float o 32-bit int
             try:
-                # Intentar primero float de 32 bits
-                fmt = f"<{total_samples}f"
-                floats = struct.unpack(fmt, raw_data)
-                if channels == 1:
-                    samples = list(floats)
-                else:
-                    samples = [
-                        (floats[i * channels] + floats[i * channels + 1]) / 2.0
-                        for i in range(n_frames)
-                    ]
+                arr = np.frombuffer(raw_data, dtype=np.float32)
+                if channels > 1:
+                    arr = arr.reshape(-1, channels).mean(axis=1)
+                samples = arr.copy()
             except Exception:
-                fmt = f"<{total_samples}i"
-                ints = struct.unpack(fmt, raw_data)
-                max_32 = 2147483648.0
-                if channels == 1:
-                    samples = [s / max_32 for s in ints]
-                else:
-                    samples = [
-                        ((ints[i * channels] + ints[i * channels + 1]) / 2.0) / max_32
-                        for i in range(n_frames)
-                    ]
+                arr = np.frombuffer(raw_data, dtype=np.int32).astype(np.float32)
+                if channels > 1:
+                    arr = arr.reshape(-1, channels).mean(axis=1)
+                samples = arr / 2147483648.0
         else:
             raise ValueError(f"Ancho de muestra WAV no soportado: {sampwidth} bytes")
 
-        if HAS_NUMPY and np is not None:
-            samples_arr = np.array(samples, dtype=np.float32)
-            audio_obj = AudioData(framerate, channels, samples_arr)
-        else:
-            audio_obj = AudioData(framerate, channels, samples)
-
+        audio_obj = AudioData(framerate, channels, samples)
         cls._audio_cache[clean_path] = audio_obj
         return audio_obj
 
@@ -401,3 +346,8 @@ class AudioEngine:
     def clear_cache(cls):
         """Limpia la caché de audio en memoria."""
         cls._audio_cache.clear()
+        try:
+            from nodes.audio_nodes import clear_resolved_audio_cache
+            clear_resolved_audio_cache()
+        except Exception:
+            pass

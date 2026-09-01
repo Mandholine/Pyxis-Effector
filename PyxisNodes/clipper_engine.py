@@ -407,7 +407,7 @@ class ClipperEngine:
         masks = []
 
         if mode_key in ["hex", "hexagonal"]:
-            R = float(size_x) if (size_x and 0 < float(size_x) < 80.0) else max(5.0, h / 3.5)
+            R = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(5.0, h / 3.5)
             H = 1.73205081 * R
             c_start = int(math.floor(min_x / (1.5 * R))) - 1
             c_end = int(math.ceil(max_x / (1.5 * R))) + 1
@@ -423,7 +423,7 @@ class ClipperEngine:
                     masks.append({"code": hex_code, "cx": screen_cx, "cy": screen_cy, "col": c, "row": r})
 
         elif mode_key in ["tri", "triangular"]:
-            R = float(size_x) if (size_x and 0 < float(size_x) < 80.0) else max(5.0, h / 3.5)
+            R = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(5.0, h / 3.5)
             L = R * 2.0
             H = L * 0.86602540378
             c_start = int(math.floor(min_x / L)) - 1
@@ -446,7 +446,7 @@ class ClipperEngine:
                     masks.append({"code": tri_down, "cx": d_cx, "cy": d_cy - (2*H/3.0), "col": c, "row": r})
 
         elif mode_key in ["dia", "diamante"]:
-            R = float(size_x) if (size_x and 0 < float(size_x) < 80.0) else max(5.0, h / 3.5)
+            R = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(5.0, h / 3.5)
             H_step, W_step = R, R * 2.0
             c_start = int(math.floor(min_x / W_step)) - 1
             c_end = int(math.ceil(max_x / W_step)) + 1
@@ -462,7 +462,7 @@ class ClipperEngine:
                     masks.append({"code": dia_code, "cx": screen_cx, "cy": screen_cy, "col": c, "row": r})
 
         elif mode_key in ["ring", "anillos"]:
-            ring_w = float(size_x) if (size_x and 0 < float(size_x) < 80.0) else max(4.0, h / 5.0)
+            ring_w = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(4.0, h / 5.0)
             max_r = math.sqrt((w/2.0)**2 + (h/2.0)**2) + 20.0
             num_rings = int(math.ceil(max_r / ring_w))
             for i in range(num_rings):
@@ -951,14 +951,14 @@ class ClipperEngine:
                     if config == 0:
                         m1 = f"m {cx_val:.3f} {cy_val + W/2:.3f} b {cx_val:.3f} {cy_val + W/2 - k:.3f} {cx_val + W/2 - k:.3f} {cy_val:.3f} {cx_val + W/2:.3f} {cy_val:.3f} l {cx_val:.3f} {cy_val:.3f} l {cx_val:.3f} {cy_val + W/2:.3f}"
                         m2 = f"m {cx_val + W/2:.3f} {cy_val + W:.3f} b {cx_val + W/2 + k:.3f} {cy_val + W:.3f} {cx_val + W:.3f} {cy_val + W/2 + k:.3f} {cx_val + W:.3f} {cy_val + W/2:.3f} l {cx_val + W:.3f} {cy_val + W:.3f} l {cx_val + W/2:.3f} {cy_val + W:.3f}"
-                        m3 = f"m {cx_val + W/2:.3f} {cy_val:.3f} l {cx_val + W:.3f} {cy_val:.3f} l {cx_val + W:.3f} {cy_val + W/2:.3f} b {cx_val + W:.3f} {cy_val + W/2 + k:.3f} {cx_val + W/2 + k:.3f} {cy_val + W:.3f} {cx_val + W/2:.3f} {cy_val + W:.3f} l {cx_val:.3f} {cy_val + W:.3f} l {cx_val:.3f} {cy_val + W/2:.3f} b {cx_val:.3f} {cy_val + W/2 - k:.3f} {cx_val + W/2 - k:.3f} {cy_val:.3f} {cx_val + W/2:.3f} {cy_val:.3f}"
+                        m3 = f"m {cx_val + W/2:.3f} {cy_val:.3f} l {cx_val + W:.3f} {cy_val:.3f} l {cx_val + W:.3f} {cy_val + W/2:.3f} b {cx_val + W:.3f} {cy_val + W/2 + k:.3f} {cx_val + W/2 + k:.3f} {cy_val + W:.3f} {cx_val + W/2:.3f} {cy_val + W:.3f} l {cx_val:.3f} {cy_val + W:.3f} l {cx_val:.3f} {cy_val + W/2:.3f} b {cx_val:.3f} {cy_val + W/2 - k:.3f} {cx_val + W/2 - k:.3f} {cy_val + W:.3f} {cx_val + W/2:.3f} {cy_val:.3f}"
                         masks.append({"code": m1, "cx": cx_val + W/4.0, "cy": cy_val + W/4.0, "col": c, "row": r})
                         masks.append({"code": m2, "cx": cx_val + 3*W/4.0, "cy": cy_val + 3*W/4.0, "col": c, "row": r})
                         masks.append({"code": m3, "cx": cx_val + W/2.0, "cy": cy_val + W/2.0, "col": c, "row": r})
                     else:
                         m1 = f"m {cx_val + W/2:.3f} {cy_val:.3f} l {cx_val + W:.3f} {cy_val:.3f} l {cx_val + W:.3f} {cy_val + W/2:.3f} b {cx_val + W:.3f} {cy_val + W/2 - k:.3f} {cx_val + W/2 + k:.3f} {cy_val:.3f} {cx_val + W/2:.3f} {cy_val:.3f}"
                         m2 = f"m {cx_val:.3f} {cy_val + W/2:.3f} l {cx_val:.3f} {cy_val + W:.3f} l {cx_val + W/2:.3f} {cy_val + W:.3f} b {cx_val + W/2 - k:.3f} {cy_val + W:.3f} {cx_val:.3f} {cy_val + W/2 + k:.3f} {cx_val:.3f} {cy_val + W/2:.3f}"
-                        m3 = f"m {cx_val:.3f} {cy_val + W/2:.3f} b {cx_val:.3f} {cy_val + W/2 - k:.3f} {cx_val + W/2 - k:.3f} {cy_val:.3f} {cx_val + W/2:.3f} {cy_val:.3f} l {cx_val + W:.3f} {cy_val:.3f} l {cx_val + W:.3f} {cy_val + W/2:.3f} b {cx_val + W:.3f} {cy_val + W/2 + k:.3f} {cx_val + W/2 + k:.3f} {cy_val:.3f} {cx_val + W/2:.3f} {cy_val + W:.3f} l {cx_val:.3f} {cy_val + W:.3f} l {cx_val:.3f} {cy_val + W/2:.3f}"
+                        m3 = f"m {cx_val:.3f} {cy_val:.3f} l {cx_val + W/2:.3f} {cy_val:.3f} b {cx_val + W/2 + k:.3f} {cy_val:.3f} {cx_val + W:.3f} {cy_val + W/2 - k:.3f} {cx_val + W:.3f} {cy_val + W/2:.3f} l {cx_val + W:.3f} {cy_val + W:.3f} l {cx_val + W/2:.3f} {cy_val + W:.3f} b {cx_val + W/2 - k:.3f} {cy_val + W:.3f} {cx_val:.3f} {cy_val + W/2 + k:.3f} {cx_val:.3f} {cy_val + W/2:.3f} l {cx_val:.3f} {cy_val:.3f}"
                         masks.append({"code": m1, "cx": cx_val + 3*W/4.0, "cy": cy_val + W/4.0, "col": c, "row": r})
                         masks.append({"code": m2, "cx": cx_val + W/4.0, "cy": cy_val + 3*W/4.0, "col": c, "row": r})
                         masks.append({"code": m3, "cx": cx_val + W/2.0, "cy": cy_val + W/2.0, "col": c, "row": r})
@@ -1161,4 +1161,3 @@ class ClipperEngine:
             transformed.append(" ".join(parts))
 
         return " ".join(transformed)
-

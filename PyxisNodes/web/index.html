@@ -1041,11 +1041,13 @@
                 node.title === "IMG to Shape" ||
                 node.title === "Bezier Curve" ||
                 node.title === "Curva Bézier" ||
+                node.title === "Text on Path" ||
                 (node.type && (
                     String(node.type).includes("Polares") ||
                     String(node.type).includes("Concatenate") ||
                     String(node.type).includes("Previewer") ||
                     String(node.type).includes("Text to Shape") ||
+                    String(node.type).includes("Text on Path") ||
                     String(node.type).includes("IMG to Shape") ||
                     String(node.type).includes("Bezier") ||
                     String(node.type).includes("Curva") ||
@@ -6249,6 +6251,16 @@
                 { full: "Borde (Contorno)", short: "Borde" },
                 { full: "Relleno Interior", short: "Relleno" }
             ],
+            "Text on Path": {
+                propKey: "modo",
+                modes: [
+                    { full: "Center (Centrado)", short: "Center" },
+                    { full: "Left (Izquierda)", short: "Left" },
+                    { full: "Right (Derecha)", short: "Right" },
+                    { full: "Justified (Justificado)", short: "Justified" },
+                    { full: "Animated (Animar 0->1)", short: "Animated" }
+                ]
+            },
             "Math": {
                 propKey: "categoria",
                 modes: [
@@ -6581,12 +6593,12 @@
             for (const key in DYNAMIC_NODE_MODES) {
                 const matches = (key === "Math" ? (title === "Math" || title === "Mates") : 
                                 (key === "Text" ? (title === "Text" || title === "Texto" || (node && (node.type === "Text" || node.type === "Texto"))) : 
+                                (key === "Text on Path" ? (title.includes("Text on Path") || (node && node.type && String(node.type).includes("Text on Path"))) :
                                 (key === "Bezier Curve" ? (title.includes("Bezier") || title.includes("Bézier") || title.includes("Curva") || (node && node.type && String(node.type).includes("Bezier"))) :
                                 (key === "Shape Walker" ? (title.includes("Shape Walker") || title.includes("Recorredor") || (node && node.type && String(node.type).includes("Shape Walker"))) :
                                 (key === "Shape Manipulator" ? (title.includes("Shape Manipulator") || title.includes("Manipulador") || (node && node.type && String(node.type).includes("Shape Manipulator"))) :
                                 (key === "Shape Transform" ? (title.includes("Shape Transform") || title.includes("Trans. Shape") || (node && node.type && String(node.type).includes("Shape Transform"))) :
-                                (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key)))))))) || 
-                                (key.includes("/") && key.split("/").some(k => title.includes(k.trim())));
+                                (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key)))))))));
                 if (matches) {
                     const entry = DYNAMIC_NODE_MODES[key];
                     const modeList = Array.isArray(entry) ? entry : (entry.modes || []);
@@ -6864,6 +6876,14 @@
             "Benchmark Math": {
                 "DEFAULT": [
                     { name: "Iterations", default: "10000", property: "iterations" }
+                ]
+            },
+            "Text on Path": {
+                "DEFAULT": [
+                    { name: "Path / Shape", default: "", property: "shape" },
+                    { name: "Offset", default: "0", property: "offset" },
+                    { name: "Extra Angle", default: "0", property: "extra_angle" },
+                    { name: "Subdivs", default: "30", property: "subdivs" }
                 ]
             },
             "Time Ipol": {
@@ -7483,18 +7503,24 @@
             }
         };
 
-        const ANCHOR_MODES = [
+        const SLICER_ANCHOR_MODES = [
             { full: "piezas", short: "Piece" },
             { full: "relativo", short: "Relativo" },
             { full: "org_padre", short: "Org Padre" },
             { full: "solo_pos", short: "Pos" },
-            { full: "absoluto", short: "Absoluto" },
-            { full: "Center", short: "Center" },
-            { full: "TopLeft", short: "TopLeft" },
-            { full: "TopRight", short: "TopRight" },
-            { full: "BottomLeft", short: "BottomLeft" },
-            { full: "BottomRight", short: "BottomRight" }
+            { full: "absoluto", short: "Absoluto" }
         ];
+
+        const GEOMETRIC_ANCHOR_MODES = [
+            { full: "center", short: "Center" },
+            { full: "topleft", short: "TopLeft" },
+            { full: "topright", short: "TopRight" },
+            { full: "bottomleft", short: "BottomLeft" },
+            { full: "bottomright", short: "BottomRight" },
+            { full: "original", short: "Original" }
+        ];
+
+        const ANCHOR_MODES = SLICER_ANCHOR_MODES;
 
         const OUT_MODES = [
             { full: "Shape", short: "Shape" },
@@ -7749,8 +7775,11 @@
                     } else if (portName === "Anchor") {
                         w.draw = function(ctx, n, width, y, height) {
                             const drawY = (w.last_y !== undefined) ? w.last_y : y;
-                            const curA = (n.properties && n.properties.anchor) ? n.properties.anchor : (w.value || "piezas");
-                            const aObj = ANCHOR_MODES.find(m => m.full === curA) || ANCHOR_MODES[0];
+                            const isSlicer = n.title && (n.title.includes("Slicer") || (n.type && String(n.type).includes("Slicer")));
+                            const anchorList = isSlicer ? SLICER_ANCHOR_MODES : GEOMETRIC_ANCHOR_MODES;
+                            const defAnchor = isSlicer ? "piezas" : "center";
+                            const curA = String((n.properties && n.properties.anchor) ? n.properties.anchor : (w.value || defAnchor)).trim();
+                            const aObj = anchorList.find(m => m.full.toLowerCase() === curA.toLowerCase() || m.short.toLowerCase() === curA.toLowerCase()) || anchorList[0];
 
                             ctx.save();
                             ctx.font = "bold 11px monospace";
@@ -7781,10 +7810,13 @@
                             ctx.restore();
                         };
                         w.onClick = function(canvas) {
-                            const curA = (node.properties && node.properties.anchor) ? node.properties.anchor : "piezas";
-                            const curIdx = ANCHOR_MODES.findIndex(m => m.full === curA);
-                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % ANCHOR_MODES.length);
-                            const nextObj = ANCHOR_MODES[nextIdx];
+                            const isSlicer = node.title && (node.title.includes("Slicer") || (node.type && String(node.type).includes("Slicer")));
+                            const anchorList = isSlicer ? SLICER_ANCHOR_MODES : GEOMETRIC_ANCHOR_MODES;
+                            const defAnchor = isSlicer ? "piezas" : "center";
+                            const curA = String((node.properties && node.properties.anchor) ? node.properties.anchor : (w.value || defAnchor)).trim();
+                            const curIdx = anchorList.findIndex(m => m.full.toLowerCase() === curA.toLowerCase() || m.short.toLowerCase() === curA.toLowerCase());
+                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % anchorList.length);
+                            const nextObj = anchorList[nextIdx];
                             node.properties.anchor = nextObj.full;
                             w.value = nextObj.full;
                             if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
@@ -9028,6 +9060,74 @@ function setupDynamicInlineNode(node) {
             updatePolaresInputs();
         }
 
+        function getNodePreviewAspectRatio(node) {
+            if (node) {
+                const nodeIdStr = String(node.id !== undefined ? node.id : "");
+                const p = (nodeIdStr && window.PyxisNodePlayerManager && window.PyxisNodePlayerManager.activePlayers) 
+                    ? window.PyxisNodePlayerManager.activePlayers[nodeIdStr] 
+                    : null;
+
+                // 1. Medición directa del elemento <video> real si ya tiene metadata cargada
+                if (p && p.art && p.art.template && p.art.template.$video) {
+                    const vid = p.art.template.$video;
+                    if (vid.videoWidth > 0 && vid.videoHeight > 0) {
+                        const vidAspect = vid.videoWidth / vid.videoHeight;
+                        node.preview_aspect_ratio = vidAspect;
+                        if (node.properties) node.properties.preview_aspect_ratio = vidAspect;
+                        return vidAspect;
+                    }
+                }
+
+                // 2. Aspect ratio asignado específicamente al nodo o serializado en properties
+                if (node.preview_aspect_ratio && !isNaN(node.preview_aspect_ratio) && node.preview_aspect_ratio > 0) {
+                    return node.preview_aspect_ratio;
+                }
+                if (node.properties && node.properties.preview_aspect_ratio && !isNaN(node.properties.preview_aspect_ratio) && node.properties.preview_aspect_ratio > 0) {
+                    node.preview_aspect_ratio = node.properties.preview_aspect_ratio;
+                    return node.properties.preview_aspect_ratio;
+                }
+
+                // 3. Aspect ratio según la fuente activa del nodo (base o aegisub)
+                const curSrc = (node.properties && node.properties.preview_source) || "base";
+                if (curSrc === "base" && window.PyxisPreviewConfigBase && window.PyxisPreviewConfigBase.aspect_ratio) {
+                    return window.PyxisPreviewConfigBase.aspect_ratio;
+                }
+                if (curSrc === "aegisub" && window.PyxisPreviewConfigAegi && window.PyxisPreviewConfigAegi.aspect_ratio) {
+                    return window.PyxisPreviewConfigAegi.aspect_ratio;
+                }
+            }
+
+            // 4. Configuración global por fuente si está disponible
+            if (window.PyxisPreviewConfigBase && window.PyxisPreviewConfigBase.aspect_ratio) {
+                return window.PyxisPreviewConfigBase.aspect_ratio;
+            }
+            if (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio && !isNaN(window.PyxisPreviewConfig.aspect_ratio) && window.PyxisPreviewConfig.aspect_ratio > 0) {
+                return window.PyxisPreviewConfig.aspect_ratio;
+            }
+
+            return 16 / 9;
+        }
+
+        function getDynamicMinPreviewWidth(aspect) {
+            let a = aspect;
+            if (!a || isNaN(a) || a <= 0) {
+                a = getNodePreviewAspectRatio(null);
+            }
+            if (a < 0.75) {
+                // Vertical (ej. 9:16 Shorts/TikTok)
+                return 340;
+            } else if (a < 1.15) {
+                // Cuadrado / Casi cuadrado (ej. 1:1, 4:5)
+                return 380;
+            } else if (a < 1.5) {
+                // Formato clásico (ej. 4:3, 5:4)
+                return 420;
+            } else {
+                // Formato panorámico (ej. 16:9, 16:10, 21:9)
+                return 440;
+            }
+        }
+
         function calculatePrevisualizadorNodeHeight(w, customAspect) {
             const sideMargin = 10;
             const topOffset = 46;
@@ -9036,11 +9136,7 @@ function setupDynamicInlineNode(node) {
             
             let aspect = customAspect;
             if (!aspect || isNaN(aspect) || aspect <= 0) {
-                if (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio) {
-                    aspect = window.PyxisPreviewConfig.aspect_ratio;
-                } else {
-                    aspect = 16 / 9;
-                }
+                aspect = getNodePreviewAspectRatio(null);
             }
 
             const playerW = Math.max(100, w - (sideMargin * 2));
@@ -9086,7 +9182,6 @@ function setupDynamicInlineNode(node) {
             if (!node.flags) node.flags = {};
             node.flags.resizable = true;
 
-            const minW = 480;
             node.computeSize = function() {
                 let text_req_w = 0;
                 const props = this.properties || node.properties || {};
@@ -9094,34 +9189,36 @@ function setupDynamicInlineNode(node) {
                 if (val.length > 0) {
                     text_req_w = getExactTextWidth(val, "bold 11px Consolas, monospace");
                 }
-                const boxW = Math.max(120, Math.ceil(text_req_w + 36));
-                const reqW = Math.max(minW, 22 + boxW + 40);
-                const curW = (this.size && this.size[0]) ? Math.max(this.size[0], reqW) : reqW;
-                const curAspect = (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio) 
-                    ? window.PyxisPreviewConfig.aspect_ratio 
-                    : (this.preview_aspect_ratio || (16 / 9));
-                const targetH = typeof calculatePrevisualizadorNodeHeight === "function" 
-                    ? calculatePrevisualizadorNodeHeight(curW, curAspect) 
-                    : 330;
-                return [curW, targetH];
+                const curAspect = getNodePreviewAspectRatio(this);
+                const dynMinW = getDynamicMinPreviewWidth(curAspect);
+                const boxW = Math.max(100, Math.ceil(text_req_w + 36));
+                const reqW = Math.max(dynMinW, 22 + boxW + 40);
+                const minH = calculatePrevisualizadorNodeHeight(reqW, curAspect);
+                return [reqW, minH];
             };
 
-            const targetW = Math.max(node.size ? node.size[0] : 0, 520);
-            const targetH = typeof calculatePrevisualizadorNodeHeight === "function" 
-                ? calculatePrevisualizadorNodeHeight(targetW, node.preview_aspect_ratio) 
-                : 330;
-            node.size = [targetW, targetH];
+            const curAspect = getNodePreviewAspectRatio(node);
+            const dynMinW = getDynamicMinPreviewWidth(curAspect);
+            const initialW = (node.size && node.size[0] && node.size[0] >= dynMinW) ? node.size[0] : 520;
+            const initialH = calculatePrevisualizadorNodeHeight(initialW, curAspect);
+            node.size = [initialW, initialH];
 
             node.onResize = function(size) {
-                const w = Math.max(size[0], minW);
-                const curAspect = (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio) 
-                    ? window.PyxisPreviewConfig.aspect_ratio 
-                    : (node.preview_aspect_ratio || (16 / 9));
-                const h = typeof calculatePrevisualizadorNodeHeight === "function" 
-                    ? calculatePrevisualizadorNodeHeight(w, curAspect) 
-                    : 330;
+                const curAspect = getNodePreviewAspectRatio(this);
+                const dynMinW = getDynamicMinPreviewWidth(curAspect);
+                const reqMin = (this.computeSize ? this.computeSize()[0] : dynMinW);
+                const w = Math.max(size[0], reqMin);
+                const h = calculatePrevisualizadorNodeHeight(w, curAspect);
                 size[0] = w;
                 size[1] = h;
+            };
+
+            const oldConfigure = node.onConfigure;
+            node.onConfigure = function(info) {
+                if (oldConfigure) oldConfigure.call(this, info);
+                if (this.properties && this.properties.preview_aspect_ratio) {
+                    this.preview_aspect_ratio = this.properties.preview_aspect_ratio;
+                }
             };
 
             const oldDraw = node.onDrawForeground;
@@ -13357,7 +13454,7 @@ function setupDynamicInlineNode(node) {
                     setupImgToPixelsNode(this);
                 } else if (node_name === "MultiRandom" || node_name.includes("MultiRandom")) {
                     setupRandomMasterNode(this);
-                } else if (category === "Audio" || category === "Shape" || (category === "Math" && node_name !== "MultiRandom" && !node_name.includes("MultiRandom")) || node_name.includes("Audio") || node_name === "Math" || node_name === "Text" || node_name.includes("Shape Manipulator") || node_name.includes("Manipulador") || node_name.includes("Shape Transform") || node_name.includes("Shape Walker") || node_name.includes("Recorredor") || node_name.includes("Shape Slicer") || node_name.includes("Bezier") || node_name === "Bezier Curve" || node_name.includes("Curva") || node_name.includes("Particles") || node_name.includes("Bordes") || node_name.includes("Clip") || node_name.includes("Tag Oscillator") || node_name.includes("Oscilador") || node_name.includes("Tag Animado") || node_name.includes("Synced Time") || node_name.includes("Kana") || node_name.includes("Ipol") || node_name.includes("Interpolator") || node_name.includes("Benchmark") || node_name.includes("Gradiente") || node_name.includes("MultiTag") || node_name.includes("Sys Var") || node_name.includes("SysVar") || node_name === "Module" || node_name.includes("Module")) {
+                } else if (category === "Audio" || category === "Shape" || (category === "Math" && node_name !== "MultiRandom" && !node_name.includes("MultiRandom")) || node_name.includes("Audio") || node_name === "Math" || node_name === "Text" || node_name.includes("Text on Path") || node_name.includes("Shape Manipulator") || node_name.includes("Manipulador") || node_name.includes("Shape Transform") || node_name.includes("Shape Walker") || node_name.includes("Recorredor") || node_name.includes("Shape Slicer") || node_name.includes("Bezier") || node_name === "Bezier Curve" || node_name.includes("Curva") || node_name.includes("Particles") || node_name.includes("Bordes") || node_name.includes("Clip") || node_name.includes("Tag Oscillator") || node_name.includes("Oscilador") || node_name.includes("Tag Animado") || node_name.includes("Synced Time") || node_name.includes("Kana") || node_name.includes("Ipol") || node_name.includes("Interpolator") || node_name.includes("Benchmark") || node_name.includes("Gradiente") || node_name.includes("MultiTag") || node_name.includes("Sys Var") || node_name.includes("SysVar") || node_name === "Module" || node_name.includes("Module")) {
                     setupDynamicInlineNode(this);
                 } else if (node_name === "Offset" || node_name.includes("Offset")) {
                     setupOffsetNode(this);
@@ -13812,6 +13909,14 @@ function setupDynamicInlineNode(node) {
                                         window.__pyxis_active_template_name = activeTplName;
                                     }
                                     if (typeof window.updateTemplateUIState === "function") window.updateTemplateUIState();
+                                    if (typeof window.update_checkpoint === "function") {
+                                        window.update_checkpoint();
+                                    } else if (typeof window.update_template_checkpoint === "function") {
+                                        window.update_template_checkpoint();
+                                    }
+                                    if (window.PyxisUndoManager && typeof window.PyxisUndoManager.initInitialState === "function") {
+                                        window.PyxisUndoManager.initInitialState();
+                                    }
                                     if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                 }
                             }
@@ -13829,6 +13934,16 @@ function setupDynamicInlineNode(node) {
                             updatedInfoAegi = await window.pywebview.api.get_preview_info("aegisub", undefined, serialized);
                             updatedInfoBase = await window.pywebview.api.get_preview_info("base", undefined, serialized);
                             if (updatedInfoAegi) {
+                                window.PyxisPreviewConfigAegi = updatedInfoAegi;
+                            }
+                            if (updatedInfoBase) {
+                                window.PyxisPreviewConfigBase = updatedInfoBase;
+                            }
+                            if (updatedInfoAegi && updatedInfoAegi.has_aegisub) {
+                                window.PyxisPreviewConfig = updatedInfoAegi;
+                            } else if (updatedInfoBase) {
+                                window.PyxisPreviewConfig = updatedInfoBase;
+                            } else if (updatedInfoAegi) {
                                 window.PyxisPreviewConfig = updatedInfoAegi;
                             }
                         }
@@ -13848,7 +13963,7 @@ function setupDynamicInlineNode(node) {
                                 const connectedOutputs = (p.node && typeof resolveConnectedOutputsForPreview === "function")
                                     ? resolveConnectedOutputsForPreview(p.node)
                                     : [];
-                                const hasAegi = Boolean(window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub);
+                                const hasAegi = Boolean(window.PyxisPreviewConfigAegi ? window.PyxisPreviewConfigAegi.has_aegisub : (window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub));
                                 p.hasAegisub = hasAegi;
                                 if (typeof window.PyxisNodePlayerManager.updateSourceButtonUI === "function") {
                                     window.PyxisNodePlayerManager.updateSourceButtonUI(nId, curSrc, hasAegi);
@@ -13891,14 +14006,18 @@ function setupDynamicInlineNode(node) {
                                             }
                                         } catch(e) {}
                                     }
-                                    if (p.node && updatedInfoBase && updatedInfoBase.aspect_ratio) {
-                                        p.node.preview_aspect_ratio = updatedInfoBase.aspect_ratio;
+                                    const activeInfo = updatedInfoBase || window.PyxisPreviewConfigBase;
+                                    if (p.node && activeInfo && activeInfo.aspect_ratio) {
+                                        p.node.preview_aspect_ratio = activeInfo.aspect_ratio;
+                                        if (p.node.properties) p.node.properties.preview_aspect_ratio = activeInfo.aspect_ratio;
+                                        const nodeAspect = getNodePreviewAspectRatio(p.node);
                                         if (!p.isPinned) {
-                                            const curW = Math.max(p.node.size ? p.node.size[0] : 0, 520);
+                                            const dynMinW = getDynamicMinPreviewWidth(nodeAspect);
+                                            const curW = (p.node.size && p.node.size[0] && p.node.size[0] >= dynMinW) ? p.node.size[0] : 520;
                                             const newH = typeof calculatePrevisualizadorNodeHeight === "function"
-                                                ? calculatePrevisualizadorNodeHeight(curW, updatedInfoBase.aspect_ratio)
+                                                ? calculatePrevisualizadorNodeHeight(curW, nodeAspect)
                                                 : 330;
-                                            if (!p.node.size || Math.abs(p.node.size[1] - newH) > 1) {
+                                            if (!p.node.size || Math.abs(p.node.size[1] - newH) > 1.5) {
                                                 p.node.size = [curW, newH];
                                                 if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                                 if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
@@ -13907,7 +14026,7 @@ function setupDynamicInlineNode(node) {
                                             p.node.size = [300, 54];
                                             if (p.originalSize) {
                                                 p.originalSize[1] = typeof calculatePrevisualizadorNodeHeight === "function"
-                                                    ? calculatePrevisualizadorNodeHeight(p.originalSize[0], updatedInfoBase.aspect_ratio)
+                                                    ? calculatePrevisualizadorNodeHeight(p.originalSize[0], nodeAspect)
                                                     : p.originalSize[1];
                                             }
                                             if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
@@ -13952,14 +14071,18 @@ function setupDynamicInlineNode(node) {
                                             }
                                         } catch(e) {}
                                     }
-                                    if (p.node && updatedInfoAegi && updatedInfoAegi.aspect_ratio) {
-                                        p.node.preview_aspect_ratio = updatedInfoAegi.aspect_ratio;
+                                    const activeInfo = updatedInfoAegi || window.PyxisPreviewConfigAegi;
+                                    if (p.node && activeInfo && activeInfo.aspect_ratio) {
+                                        p.node.preview_aspect_ratio = activeInfo.aspect_ratio;
+                                        if (p.node.properties) p.node.properties.preview_aspect_ratio = activeInfo.aspect_ratio;
+                                        const nodeAspect = getNodePreviewAspectRatio(p.node);
                                         if (!p.isPinned) {
-                                            const curW = Math.max(p.node.size ? p.node.size[0] : 0, 520);
+                                            const dynMinW = getDynamicMinPreviewWidth(nodeAspect);
+                                            const curW = (p.node.size && p.node.size[0] && p.node.size[0] >= dynMinW) ? p.node.size[0] : 520;
                                             const newH = typeof calculatePrevisualizadorNodeHeight === "function"
-                                                ? calculatePrevisualizadorNodeHeight(curW, updatedInfoAegi.aspect_ratio)
+                                                ? calculatePrevisualizadorNodeHeight(curW, nodeAspect)
                                                 : 330;
-                                            if (!p.node.size || Math.abs(p.node.size[1] - newH) > 1) {
+                                            if (!p.node.size || Math.abs(p.node.size[1] - newH) > 1.5) {
                                                 p.node.size = [curW, newH];
                                                 if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                                 if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
@@ -13968,7 +14091,7 @@ function setupDynamicInlineNode(node) {
                                             p.node.size = [300, 54];
                                             if (p.originalSize) {
                                                 p.originalSize[1] = typeof calculatePrevisualizadorNodeHeight === "function"
-                                                    ? calculatePrevisualizadorNodeHeight(p.originalSize[0], updatedInfoAegi.aspect_ratio)
+                                                    ? calculatePrevisualizadorNodeHeight(p.originalSize[0], nodeAspect)
                                                     : p.originalSize[1];
                                             }
                                             if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
@@ -14203,13 +14326,14 @@ function setupDynamicInlineNode(node) {
                         const p = activePlayers[nodeIdStr];
 
                         if (!p || !p.isPinned) {
-                            const minW = 480;
-                            const targetW = Math.max(node.size ? node.size[0] : 0, 520);
+                            const curAspect = getNodePreviewAspectRatio(node);
+                            const minW = getDynamicMinPreviewWidth(curAspect);
+                            const curW = (node.size && node.size[0] && node.size[0] >= minW) ? node.size[0] : 520;
                             const targetH = typeof calculatePrevisualizadorNodeHeight === "function" 
-                                ? calculatePrevisualizadorNodeHeight(targetW, node.preview_aspect_ratio) 
+                                ? calculatePrevisualizadorNodeHeight(curW, curAspect) 
                                 : 330;
-                            if (!node.size || node.size[0] < minW || Math.abs(node.size[1] - targetH) > 1) {
-                                node.size = [targetW, targetH];
+                            if (!node.size || node.size[0] < minW || Math.abs(node.size[1] - targetH) > 1.5) {
+                                node.size = [curW, targetH];
                                 if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
                             }
                         } else {
@@ -14576,15 +14700,19 @@ function setupDynamicInlineNode(node) {
 
                     if (previewInfo) {
                         window.PyxisPreviewConfig = previewInfo;
+                        const cSrc = (node.properties && node.properties.preview_source) || "base";
+                        if (cSrc === "base") window.PyxisPreviewConfigBase = previewInfo;
+                        if (cSrc === "aegisub") window.PyxisPreviewConfigAegi = previewInfo;
                         if (previewInfo.aspect_ratio) {
                             node.preview_aspect_ratio = previewInfo.aspect_ratio;
+                            if (node.properties) node.properties.preview_aspect_ratio = previewInfo.aspect_ratio;
                         }
                         const pExisting = activePlayers[nodeIdStr];
                         if (!pExisting || !pExisting.isPinned) {
-                            const minW = 480;
-                            const curW = Math.max(node.size ? node.size[0] : 0, 520);
+                            const dynMinW = getDynamicMinPreviewWidth(previewInfo.aspect_ratio);
+                            const curW = (node.size && node.size[0] && node.size[0] >= dynMinW) ? node.size[0] : 520;
                             const newH = calculatePrevisualizadorNodeHeight(curW, previewInfo.aspect_ratio);
-                            if (!node.size || node.size[0] < minW || Math.abs(node.size[1] - newH) > 1) {
+                            if (!node.size || node.size[0] < dynMinW || Math.abs(node.size[1] - newH) > 1.5) {
                                 node.size = [curW, newH];
                                 if (typeof node.setDirtyCanvas === 'function') {
                                     node.setDirtyCanvas(true, true);
@@ -14628,6 +14756,40 @@ function setupDynamicInlineNode(node) {
                             if (artInstance.template && artInstance.template.$video) {
                                 try {
                                     artInstance.template.$video.crossOrigin = 'anonymous';
+                                    const vidEl = artInstance.template.$video;
+                                    const onVideoMeta = () => {
+                                        if (vidEl.videoWidth > 0 && vidEl.videoHeight > 0) {
+                                            const detectedAspect = vidEl.videoWidth / vidEl.videoHeight;
+                                            node.preview_aspect_ratio = detectedAspect;
+                                            if (node.properties) node.properties.preview_aspect_ratio = detectedAspect;
+                                            const curSource = (node.properties && node.properties.preview_source) || "base";
+                                            if (curSource === "base" && window.PyxisPreviewConfigBase) {
+                                                window.PyxisPreviewConfigBase.aspect_ratio = detectedAspect;
+                                            } else if (curSource === "aegisub" && window.PyxisPreviewConfigAegi) {
+                                                window.PyxisPreviewConfigAegi.aspect_ratio = detectedAspect;
+                                            }
+                                            if (window.PyxisPreviewConfig) {
+                                                window.PyxisPreviewConfig.aspect_ratio = detectedAspect;
+                                            }
+                                            const pActive = activePlayers[nodeIdStr];
+                                            if (!pActive || !pActive.isPinned) {
+                                                const dynMinW = getDynamicMinPreviewWidth(detectedAspect);
+                                                const curW = (node.size && node.size[0] && node.size[0] >= dynMinW) ? node.size[0] : 520;
+                                                const targetH = calculatePrevisualizadorNodeHeight(curW, detectedAspect);
+                                                if (!node.size || Math.abs(node.size[1] - targetH) > 1.5 || node.size[0] < dynMinW) {
+                                                    node.size = [curW, targetH];
+                                                    if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
+                                                    if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
+                                                }
+                                            }
+                                        }
+                                    };
+                                    if (vidEl.readyState >= 1) {
+                                        onVideoMeta();
+                                    }
+                                    vidEl.addEventListener('loadedmetadata', onVideoMeta);
+                                    artInstance.on('video:loadedmetadata', onVideoMeta);
+
                                     artInstance.template.$video.addEventListener('play', function(e) {
                                         if (window.PyxisNodePlayerManager && window.PyxisNodePlayerManager.isDaemonSuspended) {
                                             try { artInstance.pause(); } catch(err) {}
@@ -14830,12 +14992,17 @@ function setupDynamicInlineNode(node) {
                             const updatedInfo = await window.pywebview.api.get_preview_info(nextSource, connectedOutputs, serialized);
                             if (updatedInfo) {
                                 window.PyxisPreviewConfig = updatedInfo;
+                                if (nextSource === "base") window.PyxisPreviewConfigBase = updatedInfo;
+                                if (nextSource === "aegisub") window.PyxisPreviewConfigAegi = updatedInfo;
                                 if (updatedInfo.aspect_ratio && p.node) {
                                     p.node.preview_aspect_ratio = updatedInfo.aspect_ratio;
+                                    if (p.node.properties) p.node.properties.preview_aspect_ratio = updatedInfo.aspect_ratio;
+                                    const nodeAspect = getNodePreviewAspectRatio(p.node);
                                     if (!p.isPinned) {
-                                        const curW = Math.max(p.node.size ? p.node.size[0] : 0, 520);
-                                        const newH = calculatePrevisualizadorNodeHeight(curW, updatedInfo.aspect_ratio);
-                                        if (!p.node.size || Math.abs(p.node.size[1] - newH) > 1) {
+                                        const dynMinW = getDynamicMinPreviewWidth(nodeAspect);
+                                        const curW = (p.node.size && p.node.size[0] && p.node.size[0] >= dynMinW) ? p.node.size[0] : 520;
+                                        const newH = calculatePrevisualizadorNodeHeight(curW, nodeAspect);
+                                        if (!p.node.size || Math.abs(p.node.size[1] - newH) > 1.5) {
                                             p.node.size = [curW, newH];
                                             if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                             if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
@@ -14843,7 +15010,7 @@ function setupDynamicInlineNode(node) {
                                     } else {
                                         p.node.size = [300, 54];
                                         if (p.originalSize) {
-                                            p.originalSize[1] = calculatePrevisualizadorNodeHeight(p.originalSize[0], updatedInfo.aspect_ratio);
+                                            p.originalSize[1] = calculatePrevisualizadorNodeHeight(p.originalSize[0], nodeAspect);
                                         }
                                         if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                         if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
@@ -15071,14 +15238,19 @@ function setupDynamicInlineNode(node) {
                         updatedInfo = await window.pywebview.api.get_preview_info(curSource, connectedOutputIds, serialized);
                         if (updatedInfo) {
                             window.PyxisPreviewConfig = updatedInfo;
+                            if (curSource === "base") window.PyxisPreviewConfigBase = updatedInfo;
+                            if (curSource === "aegisub") window.PyxisPreviewConfigAegi = updatedInfo;
                             if (p) {
                                 p.hasAegisub = Boolean(updatedInfo.has_aegisub);
                                 if (p.node && updatedInfo.aspect_ratio) {
                                     p.node.preview_aspect_ratio = updatedInfo.aspect_ratio;
+                                    if (p.node.properties) p.node.properties.preview_aspect_ratio = updatedInfo.aspect_ratio;
+                                    const nodeAspect = getNodePreviewAspectRatio(p.node);
                                     if (!p.isPinned) {
-                                        const curW = Math.max(p.node.size ? p.node.size[0] : 0, 520);
-                                        const newH = calculatePrevisualizadorNodeHeight(curW, updatedInfo.aspect_ratio);
-                                        if (!p.node.size || Math.abs(p.node.size[1] - newH) > 1) {
+                                        const dynMinW = getDynamicMinPreviewWidth(nodeAspect);
+                                        const curW = (p.node.size && p.node.size[0] && p.node.size[0] >= dynMinW) ? p.node.size[0] : 520;
+                                        const newH = calculatePrevisualizadorNodeHeight(curW, nodeAspect);
+                                        if (!p.node.size || Math.abs(p.node.size[1] - newH) > 1.5) {
                                             p.node.size = [curW, newH];
                                             if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                             if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
@@ -15086,7 +15258,7 @@ function setupDynamicInlineNode(node) {
                                     } else {
                                         p.node.size = [300, 54];
                                         if (p.originalSize) {
-                                            p.originalSize[1] = calculatePrevisualizadorNodeHeight(p.originalSize[0], updatedInfo.aspect_ratio);
+                                            p.originalSize[1] = calculatePrevisualizadorNodeHeight(p.originalSize[0], nodeAspect);
                                         }
                                         if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                         if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
@@ -15416,9 +15588,7 @@ function setupDynamicInlineNode(node) {
                     floatingContainer.appendChild(p.wrapper);
                     p.wrapper.classList.add('pyxis-floating-player-wrapper');
 
-                    const currentAspect = (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio) 
-                        ? window.PyxisPreviewConfig.aspect_ratio 
-                        : ((p.node && p.node.preview_aspect_ratio) ? p.node.preview_aspect_ratio : (16 / 9));
+                    const currentAspect = getNodePreviewAspectRatio(p.node);
                     const initFloatingW = 560;
                     const initFloatingH = Math.round(initFloatingW / currentAspect) + 98;
                     const targetW = p.savedFloatingWidth || (initFloatingW + 'px');
@@ -15480,9 +15650,7 @@ function setupDynamicInlineNode(node) {
                                 const minW = 380;
                                 const maxW = window.innerWidth - 20;
 
-                                const curAspect = (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio) 
-                                    ? window.PyxisPreviewConfig.aspect_ratio 
-                                    : ((pObj.node && pObj.node.preview_aspect_ratio) ? pObj.node.preview_aspect_ratio : (16 / 9));
+                                const curAspect = getNodePreviewAspectRatio(pObj.node);
 
                                 let delta = dx;
                                 if (corner === 'se') {
@@ -15583,9 +15751,7 @@ function setupDynamicInlineNode(node) {
                         } else {
                             delete p.node.onResize;
                         }
-                        const curAspect = (window.PyxisPreviewConfig && window.PyxisPreviewConfig.aspect_ratio) 
-                            ? window.PyxisPreviewConfig.aspect_ratio 
-                            : ((p.node.preview_aspect_ratio) ? p.node.preview_aspect_ratio : (16 / 9));
+                        const curAspect = getNodePreviewAspectRatio(p.node);
                         const restoredW = (p.originalSize && p.originalSize[0]) ? p.originalSize[0] : 520;
                         const restoredH = typeof calculatePrevisualizadorNodeHeight === "function" 
                             ? calculatePrevisualizadorNodeHeight(restoredW, curAspect) 
