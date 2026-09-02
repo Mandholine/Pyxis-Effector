@@ -298,15 +298,15 @@ system_node(
     "Shape", "Shape Transform", node_kind="data", color="#7D3C98",
     inputs=["Shape / Texto", "Factor (t)", "Ratio", "Anchor"],
     outputs=["Shape"],
-    properties={"shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "anchor": "center"},
+    properties={"shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "energy": "0.35", "step_px": "0", "anchor": "center"},
     widgets=[]
 )
 
 system_node(
     "Shape", "Concentric Borders", node_kind="data", color="#5B2C6F",
-    inputs=["Shape / Text", "Base Mode", "Separation", "Overlap", "Max Rings", "Anchor"],
+    inputs=["Shape / Text", "Base Mode", "Max Rings", "Separation", "Overlap", "Anchor"],
     outputs=["Shape", "\\pos", "Index", "Total"],
-    properties={"shape": "", "modo": "Hueco (borders)", "separation": "5", "overlap": "0.5", "loop_count": "5", "out_mode": "Shape", "anchor": "relativo"},
+    properties={"shape": "", "modo": "Hueco (borders)", "loop_count": "5", "separation": "5", "overlap": "0.5", "out_mode": "Shape", "anchor": "relativo"},
     widgets=[]
 )
 

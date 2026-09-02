@@ -131,11 +131,14 @@ class FontVectorEngine:
         scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0)
         scale_factor_y = (1.0 / 64.0) * float(scale) * (float(scale_y) / 100.0)
 
+        layout_cx = (sz.cx * scale_factor_x) / 2.0
+        layout_cy = (sz.cy * scale_factor_y) / 2.0
+
         while i < num_points:
             pt_type = types[i]
             base_type = pt_type & ~PT_CLOSEFIGURE
-            x = round(points[i].x * scale_factor_x, 2)
-            y = round(points[i].y * scale_factor_y, 2)
+            x = round(points[i].x * scale_factor_x - layout_cx, 2)
+            y = round(points[i].y * scale_factor_y - layout_cy, 2)
 
             if base_type == PT_MOVETO:
                 ass_parts.append(f"m {x} {y}")
@@ -145,9 +148,9 @@ class FontVectorEngine:
                 i += 1
             elif base_type == PT_BEZIERTO:
                 if i + 2 < num_points:
-                    x1, y1 = round(points[i].x * scale_factor_x, 2), round(points[i].y * scale_factor_y, 2)
-                    x2, y2 = round(points[i+1].x * scale_factor_x, 2), round(points[i+1].y * scale_factor_y, 2)
-                    x3, y3 = round(points[i+2].x * scale_factor_x, 2), round(points[i+2].y * scale_factor_y, 2)
+                    x1, y1 = round(points[i].x * scale_factor_x - layout_cx, 2), round(points[i].y * scale_factor_y - layout_cy, 2)
+                    x2, y2 = round(points[i+1].x * scale_factor_x - layout_cx, 2), round(points[i+1].y * scale_factor_y - layout_cy, 2)
+                    x3, y3 = round(points[i+2].x * scale_factor_x - layout_cx, 2), round(points[i+2].y * scale_factor_y - layout_cy, 2)
                     ass_parts.append(f"b {x1} {y1} {x2} {y2} {x3} {y3}")
                     i += 3
                 else:
@@ -157,15 +160,6 @@ class FontVectorEngine:
                 i += 1
 
         raw_shape = " ".join(ass_parts)
-        if not raw_shape:
-            return ""
-
-        # Centrado automático en (0, 0) según el Layout Box (idéntico a text.to_shape_ill de Seijitsu Extensions)
-        layout_cx = (sz.cx * scale_factor_x) / 2.0
-        layout_cy = (sz.cy * scale_factor_y) / 2.0
-        from clipper_engine import ClipperEngine
-        raw_shape = ClipperEngine.transform_shape(raw_shape, mode="Offset", offset_x=-layout_cx, offset_y=-layout_cy)
-
         return raw_shape
 
     @staticmethod

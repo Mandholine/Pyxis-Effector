@@ -1042,12 +1042,16 @@
                 node.title === "Bezier Curve" ||
                 node.title === "Curva Bézier" ||
                 node.title === "Text on Path" ||
+                node.title === "Concentric Borders" ||
+                node.title === "Bordes Concéntricos" ||
                 (node.type && (
                     String(node.type).includes("Polares") ||
                     String(node.type).includes("Concatenate") ||
                     String(node.type).includes("Previewer") ||
                     String(node.type).includes("Text to Shape") ||
                     String(node.type).includes("Text on Path") ||
+                    String(node.type).includes("Concentric") ||
+                    String(node.type).includes("Bordes") ||
                     String(node.type).includes("IMG to Shape") ||
                     String(node.type).includes("Bezier") ||
                     String(node.type).includes("Curva") ||
@@ -6906,9 +6910,9 @@
                 "DEFAULT": [
                     { name: "Shape / Text", default: "", property: "shape" },
                     { name: "Base Mode", default: "Hueco (borders)", property: "modo", type: "button" },
+                    { name: "Max Rings", default: "5", property: "loop_count" },
                     { name: "Separación (px)", default: "5", property: "separation" },
                     { name: "Solape (px)", default: "0.5", property: "overlap" },
-                    { name: "Max Rings", default: "5", property: "loop_count" },
                     { name: "Anchor", default: "relativo", property: "anchor", type: "button" }
                 ]
             },
@@ -7076,6 +7080,8 @@
                     { name: "Shape / Texto", default: "", property: "shape" },
                     { name: "Target Shape", default: "", property: "target_shape" },
                     { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Fluidez / Energy", default: "0.35", property: "energy" },
+                    { name: "Step (px)", default: "0", property: "step_px" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ]
             },
@@ -7513,11 +7519,9 @@
 
         const GEOMETRIC_ANCHOR_MODES = [
             { full: "center", short: "Center" },
-            { full: "topleft", short: "TopLeft" },
-            { full: "topright", short: "TopRight" },
-            { full: "bottomleft", short: "BottomLeft" },
-            { full: "bottomright", short: "BottomRight" },
-            { full: "original", short: "Original" }
+            { full: "origin", short: "Origin" },
+            { full: "zero", short: "0,0" },
+            { full: "pos", short: "Pos" }
         ];
 
         const ANCHOR_MODES = SLICER_ANCHOR_MODES;
@@ -8699,7 +8703,7 @@ function setupDynamicInlineNode(node) {
                 } else if (titleText.includes("Benchmark")) {
                     req_w = Math.max(req_w, 225);
                     req_h = Math.max(req_h, 65);
-                } else if (titleText.includes("Bordes")) {
+                } else if (titleText.includes("Bordes") || titleText.includes("Concentric")) {
                     req_w = Math.max(req_w, 235);
                 } else if (titleText.includes("Audio Modulator") || (this.type && this.type.includes("Audio"))) {
                     req_w = Math.max(req_w, 225);
@@ -13231,7 +13235,7 @@ function setupDynamicInlineNode(node) {
                     if (node_name === "Lead In" || node_name === "Lead Out" || node_name === "Middle 1" || node_name === "Middle 2" || node_name === "Loop 1" || node_name === "Loop 2") req_w = Math.max(req_w, 140);
                     else if (node_name === "Benchmark Math") req_w = Math.max(req_w, 225);
                     else if (node_name.includes("Shape Slicer") || title_text.includes("Slicer")) req_w = Math.max(req_w, 225);
-                    else if (node_name.includes("Bordes") || title_text.includes("Bordes")) req_w = Math.max(req_w, 235);
+                    else if (node_name.includes("Bordes") || title_text.includes("Bordes") || node_name.includes("Concentric") || title_text.includes("Concentric")) req_w = Math.max(req_w, 235);
                     else if (node_name.includes("Audio Modulator") || title_text.includes("Audio")) req_w = Math.max(req_w, 225);
                     else if (node_name.includes("MultiRandom") || node_name.includes("MultiTag")) req_w = Math.max(req_w, 210);
                     else if (node_name.includes("module") || title_text.includes("module")) req_w = Math.max(req_w, 145);
@@ -13675,7 +13679,7 @@ function setupDynamicInlineNode(node) {
                 },
                 "Shape Transform": {
                     "node_kind": "data", "inputs": ["Shape / Texto", "Factor (t)", "Ratio", "Anchor"], "outputs": ["Shape"], "color": "#7D3C98",
-                    "properties": { "shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "anchor": "center" },
+                    "properties": { "shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "energy": "0.35", "step_px": "0", "anchor": "center" },
                     "widgets": []
                 }
             },

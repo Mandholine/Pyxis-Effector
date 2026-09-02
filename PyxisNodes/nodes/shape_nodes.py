@@ -166,11 +166,11 @@ import math
 
 def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offset_x=0.0, offset_y=0.0, offset_border=0.0, mode="center"):
     """Aplica manipulaciones afines elementales (escala, rotación, desplazamiento, offsetting) a un dibujo vectorial ASS (m ...).
-    Modos de alineación:
-      - 'center': Centra el shape alrededor de (0,0).
-      - 'topleft': Alinea el 0,0 a la esquina superior izquierda del bounding box.
-      - 'absolute': Escribe el shape centrado y le suma la posición absoluta del contexto (fx.pos_x, fx.pos_y) listo para clips.
-      - 'original': Conserva las coordenadas originales del dibujo antes de la manipulación.
+    Modos de anclaje (Shapery):
+      - 'center': Centra el shape alrededor de (0,0) [Shape to center].
+      - 'origin': Alinea la esquina superior izquierda del bounding box a (0,0) [Shape to origin].
+      - 'zero': Traslada el shape a las coordenadas de pantalla/canvas (pos_x, pos_y) [Shape to 0,0].
+      - 'pos': Hace el shape relativo a la posición (pos_x, pos_y) [Shape to pos].
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
@@ -208,7 +208,7 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
     tx = _eval_num_expr(offset_x, context, 0.0) if offset_x != "" else 0.0
     ty = _eval_num_expr(offset_y, context, 0.0) if offset_y != "" else 0.0
 
-    mode_str = str(mode or "center").strip().lower()
+    anchor_str = str(mode or "center").strip().lower()
 
     rad = math.radians(angle)
     cos_a = math.cos(rad)
@@ -236,27 +236,27 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
         cy = (min_y + max_y) / 2.0
 
     pos_x, pos_y = 0.0, 0.0
-    if mode_str in ["absolute", "absoluto", "clip"]:
+    if isinstance(context, dict):
         unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
         try:
-            pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line'), 'x', 0.0)))))
+            pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
         except: pos_x = 0.0
         try:
-            pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line'), 'y', 0.0)))))
+            pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
         except: pos_y = 0.0
-        ref_x, ref_y = cx, cy
-    elif mode_str in ["topleft", "top_left", "esquina", "7"]:
+
+    if anchor_str == "origin":
         ref_x, ref_y = min_x, min_y
-    elif mode_str in ["topright", "top_right", "9"]:
-        ref_x, ref_y = max_x, min_y
-    elif mode_str in ["bottomleft", "bottom_left", "1"]:
-        ref_x, ref_y = min_x, max_y
-    elif mode_str in ["bottomright", "bottom_right", "3"]:
-        ref_x, ref_y = max_x, max_y
-    elif mode_str in ["original", "raw", "ninguno", "0"]:
-        ref_x, ref_y = 0.0, 0.0
-    else:  # "center", "centro", "centrado", "5" (default)
+        base_x, base_y = 0.0, 0.0
+    elif anchor_str == "zero":
         ref_x, ref_y = cx, cy
+        base_x, base_y = pos_x, pos_y
+    elif anchor_str == "pos":
+        ref_x, ref_y = pos_x, pos_y
+        base_x, base_y = 0.0, 0.0
+    else:  # "center" (default)
+        ref_x, ref_y = cx, cy
+        base_x, base_y = 0.0, 0.0
 
     out_tokens = []
     i = 0
@@ -277,8 +277,8 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
                         rot_x = rel_x
                         rot_y = rel_y
 
-                    final_x = pos_x + rot_x + tx
-                    final_y = pos_y + rot_y + ty
+                    final_x = base_x + rot_x + tx
+                    final_y = base_y + rot_y + ty
 
                     fmt_x = int(final_x) if final_x.is_integer() else round(final_x, 2)
                     fmt_y = int(final_y) if final_y.is_integer() else round(final_y, 2)
@@ -419,26 +419,27 @@ def _shape_inflate(drawing, t=0.5, ratio=1.0, mode="circle", anchor="center", co
     new_cy = (new_min_y + new_max_y) / 2.0
 
     anchor_str = str(anchor or "center").strip().lower()
-    if anchor_str in ("original", "raw", "0"):
-        off_x, off_y = 0.0, 0.0
-    elif anchor_str in ("topleft", "top_left", "7"):
+    if anchor_str == "origin":
         off_x, off_y = -new_min_x, -new_min_y
-    elif anchor_str in ("topright", "top_right", "9"):
-        off_x, off_y = -new_max_x, -new_min_y
-    elif anchor_str in ("bottomleft", "bottom_left", "1"):
-        off_x, off_y = -new_min_x, -new_max_y
-    elif anchor_str in ("bottomright", "bottom_right", "3"):
-        off_x, off_y = -new_max_x, -new_max_y
-    elif anchor_str in ("absolute", "absoluto", "clip"):
+    elif anchor_str == "zero":
         pos_x, pos_y = 0.0, 0.0
         if isinstance(context, dict):
             unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', 0.0))))
+            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
             except: pos_x = 0.0
-            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', 0.0))))
+            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
         off_x, off_y = pos_x - new_cx, pos_y - new_cy
-    else:  # "center", "centro", "5" (default)
+    elif anchor_str == "pos":
+        pos_x, pos_y = 0.0, 0.0
+        if isinstance(context, dict):
+            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
+            except: pos_x = 0.0
+            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
+            except: pos_y = 0.0
+        off_x, off_y = -pos_x, -pos_y
+    else:  # "center" (default)
         off_x, off_y = -new_cx, -new_cy
 
     out_tokens = []
@@ -520,8 +521,6 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", context=None
         ay = 0.0
 
     anchor_str = str(anchor or "center").strip().lower()
-    if abs(ax) < 1e-5 and abs(ay) < 1e-5 and anchor_str in ("original", "raw", "0"):
-        return drawing
 
     # Limitar ángulos a (-89.9°, 89.9°) para evitar asíntotas infinitas
     ax = max(-89.9, min(89.9, ax))
@@ -531,30 +530,23 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", context=None
     tan_y = math.tan(math.radians(ay))
 
     pos_x, pos_y = 0.0, 0.0
-    if anchor_str in ("absolute", "absoluto", "clip"):
-        unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit') if isinstance(context, dict) else None
-        try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0))))) if isinstance(context, dict) else 0.0
+    if isinstance(context, dict):
+        unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+        try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
         except: pos_x = 0.0
-        try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0))))) if isinstance(context, dict) else 0.0
+        try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
         except: pos_y = 0.0
-        ref_x, ref_y = cx, cy
-        base_x, base_y = pos_x, pos_y
-    elif anchor_str in ("topleft", "top_left", "7"):
+
+    if anchor_str == "origin":
         ref_x, ref_y = min_x, min_y
         base_x, base_y = 0.0, 0.0
-    elif anchor_str in ("topright", "top_right", "9"):
-        ref_x, ref_y = max_x, min_y
-        base_x, base_y = 0.0, 0.0
-    elif anchor_str in ("bottomleft", "bottom_left", "1"):
-        ref_x, ref_y = min_x, max_y
-        base_x, base_y = 0.0, 0.0
-    elif anchor_str in ("bottomright", "bottom_right", "3"):
-        ref_x, ref_y = max_x, max_y
-        base_x, base_y = 0.0, 0.0
-    elif anchor_str in ("original", "raw", "ninguno", "0"):
+    elif anchor_str == "zero":
         ref_x, ref_y = cx, cy
-        base_x, base_y = cx, cy
-    else:  # "center", "centro", "5" (default)
+        base_x, base_y = pos_x, pos_y
+    elif anchor_str == "pos":
+        ref_x, ref_y = pos_x, pos_y
+        base_x, base_y = 0.0, 0.0
+    else:  # "center" (default)
         ref_x, ref_y = cx, cy
         base_x, base_y = 0.0, 0.0
 
@@ -604,8 +596,6 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", co
     rad = _eval_num_expr(radius, context, 10.0) if (radius is not None and radius != "") else 10.0
 
     anchor_str = str(anchor or "center").strip().lower()
-    if abs(rad) < 1e-4 and anchor_str in ("original", "raw", "0"):
-        return drawing
 
     tokens = drawing.strip().split()
     if not tokens:
@@ -761,26 +751,27 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", co
     cx = (min_x + max_x) / 2.0
     cy = (min_y + max_y) / 2.0
 
-    if anchor_str in ("original", "raw", "0"):
-        off_x, off_y = 0.0, 0.0
-    elif anchor_str in ("topleft", "top_left", "7"):
+    if anchor_str == "origin":
         off_x, off_y = -min_x, -min_y
-    elif anchor_str in ("topright", "top_right", "9"):
-        off_x, off_y = -max_x, -min_y
-    elif anchor_str in ("bottomleft", "bottom_left", "1"):
-        off_x, off_y = -min_x, -max_y
-    elif anchor_str in ("bottomright", "bottom_right", "3"):
-        off_x, off_y = -max_x, -max_y
-    elif anchor_str in ("absolute", "absoluto", "clip"):
+    elif anchor_str == "zero":
         pos_x, pos_y = 0.0, 0.0
         if isinstance(context, dict):
             unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', 0.0))))
+            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
             except: pos_x = 0.0
-            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', 0.0))))
+            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
         off_x, off_y = pos_x - cx, pos_y - cy
-    else:  # "center", "centro", "5" (default)
+    elif anchor_str == "pos":
+        pos_x, pos_y = 0.0, 0.0
+        if isinstance(context, dict):
+            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
+            except: pos_x = 0.0
+            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
+            except: pos_y = 0.0
+        off_x, off_y = -pos_x, -pos_y
+    else:  # "center" (default)
         off_x, off_y = -cx, -cy
 
     out_tokens = []
@@ -835,8 +826,6 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
     bend_val = _eval_num_expr(bend, context, 30.0) if (bend is not None and bend != "") else 30.0
 
     anchor_str = str(anchor or "center").strip().lower()
-    if abs(t_val) < 1e-4 and anchor_str in ("original", "raw", "0"):
-        return drawing
 
     # Subdividir segmentos largos del contorno para deformación suave
     subdivided = []
@@ -1029,26 +1018,27 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
     n_cx = (n_min_x + n_max_x) / 2.0
     n_cy = (n_min_y + n_max_y) / 2.0
 
-    if anchor_str in ("original", "raw", "0"):
-        off_x, off_y = 0.0, 0.0
-    elif anchor_str in ("topleft", "top_left", "7"):
+    if anchor_str == "origin":
         off_x, off_y = -n_min_x, -n_min_y
-    elif anchor_str in ("topright", "top_right", "9"):
-        off_x, off_y = -n_max_x, -n_min_y
-    elif anchor_str in ("bottomleft", "bottom_left", "1"):
-        off_x, off_y = -n_min_x, -n_max_y
-    elif anchor_str in ("bottomright", "bottom_right", "3"):
-        off_x, off_y = -n_max_x, -n_max_y
-    elif anchor_str in ("absolute", "absoluto", "clip"):
+    elif anchor_str == "zero":
         pos_x, pos_y = 0.0, 0.0
         if isinstance(context, dict):
             unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', 0.0))))
+            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
             except: pos_x = 0.0
-            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', 0.0))))
+            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
         off_x, off_y = pos_x - n_cx, pos_y - n_cy
-    else:  # "center", "centro", "5" (default)
+    elif anchor_str == "pos":
+        pos_x, pos_y = 0.0, 0.0
+        if isinstance(context, dict):
+            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
+            except: pos_x = 0.0
+            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
+            except: pos_y = 0.0
+        off_x, off_y = -pos_x, -pos_y
+    else:  # "center" (default)
         off_x, off_y = -n_cx, -n_cy
 
     out_tokens = []
@@ -1086,11 +1076,12 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
 
 _SHAPE_DISTORT_CONTOUR_CACHE = {}
 
-def _shape_distort(drawing, target_shape="", t=1.0, step_px=2.0, anchor="center", context=None):
-    """Deforma un dibujo vectorial ASS hacia el contorno morfológico de una forma objetivo (Morphing vectorial).
-    Normaliza ambas formas en pequeños tramos rectos de alta resolución (muestreo por longitud de arco cada ~2px)
-    y aplica alineación de fase óptima para una transición suave, simétrica y sin artefactos Bézier.
-    Las formas normalizadas se almacenan en caché global para máxima velocidad en bucles de animación (0.03ms/frame).
+def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center", energy=0.35, context=None, **kwargs):
+    """Deforma un dibujo vectorial ASS hacia el contorno morfológico de una forma objetivo (Morphing vectorial avanzado).
+    - Si step_px == 0.0 (por defecto): Realiza morphing continuo analítico preservando curvas y líneas escasas nativas ('b' y 'm') de suavidad C1 sin sobre-densidad.
+    - Si step_px >= 0.5: Normaliza ambas formas en polilíneas densas ('l') remuestreadas por longitud de arco cada ~step_px píxeles.
+    - Soporte topológico y de frases: Agrupación en Islas Jerárquicas (Glyph Islands) con Mapeo Proporcional (Mitosis y Fusión).
+    - Modulación Líquida (Propuesta 2): Durante 0 < t < 1, los manejadores Bézier modulan una onda elástica proporcional a `energy`, haciendo que incluso formas idénticas respiren y ondeen como líquido en lugar de quedarse estáticas.
     """
     if not drawing or not isinstance(drawing, str):
         return ""
@@ -1109,253 +1100,545 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=2.0, anchor="center"
     except Exception:
         t_val = 1.0
 
-    # Limitar t al rango normalizado [0.0, 1.0] para morphing morfológico seguro
     t_val = max(0.0, min(1.0, t_val))
 
+    try:
+        if isinstance(step_px, (int, float)):
+            s_px = float(step_px)
+        elif step_px is not None and str(step_px).strip() != "":
+            s_px = float(_eval_num_expr(step_px, context, 0.0))
+        else:
+            s_px = 0.0
+    except Exception:
+        s_px = 0.0
+
+    try:
+        e_in = energy if energy is not None else kwargs.get("energy", kwargs.get("fluidez", kwargs.get("fluidity", 0.35)))
+        if isinstance(e_in, (int, float)):
+            energy_val = float(e_in)
+        elif e_in is not None and str(e_in).strip() != "":
+            energy_val = float(_eval_num_expr(e_in, context, 0.35))
+        else:
+            energy_val = 0.35
+    except Exception:
+        energy_val = 0.35
+
+    energy_val = max(0.0, min(2.0, energy_val))
+
     anchor_str = str(anchor or "center").strip().lower()
-    if abs(t_val) < 1e-4 and anchor_str in ("original", "raw", "0"):
-        return drawing
 
-    s_px = max(0.5, float(step_px if step_px is not None else 2.0))
     cache_key = (drawing, target_shape, s_px)
-    pairs = _SHAPE_DISTORT_CONTOUR_CACHE.get(cache_key)
+    cached_data = _SHAPE_DISTORT_CONTOUR_CACHE.get(cache_key)
 
-    if pairs is None:
-        def parse_ass_contours(draw_str, step):
+    if cached_data is None:
+        def parse_ass_sparse_beziers(draw_str):
             tokens = draw_str.strip().split()
             contours = []
-            curr_pts = []
+            curr_cmds = []
             curr_cmd = 'm'
             i = 0
-            last_pt = None
-
+            last_pt = (0.0, 0.0)
             while i < len(tokens):
                 tok = tokens[i]
                 if tok.isalpha() and tok.lower() in ('m', 'l', 'b', 's', 'p', 'c'):
                     curr_cmd = tok.lower()
                     i += 1
-                    if curr_cmd == 'm' and curr_pts:
-                        contours.append(curr_pts)
-                        curr_pts = []
-                        last_pt = None
+                    if curr_cmd == 'm' and curr_cmds:
+                        contours.append(curr_cmds)
+                        curr_cmds = []
                     continue
                 try:
-                    if curr_cmd in ('m', 'l'):
+                    if curr_cmd == 'm':
                         x, y = float(tok), float(tokens[i + 1])
-                        pt = (x, y)
-                        curr_pts.append(pt)
-                        last_pt = pt
+                        last_pt = (x, y)
+                        curr_cmds.append(('m', (x, y)))
                         i += 2
-                        if curr_cmd == 'm':
-                            curr_cmd = 'l'
+                        curr_cmd = 'l'
+                    elif curr_cmd == 'l':
+                        x, y = float(tok), float(tokens[i + 1])
+                        p0, p3 = last_pt, (x, y)
+                        p1 = (p0[0] + (p3[0] - p0[0]) / 3.0, p0[1] + (p3[1] - p0[1]) / 3.0)
+                        p2 = (p0[0] + 2.0 * (p3[0] - p0[0]) / 3.0, p0[1] + 2.0 * (p3[1] - p0[1]) / 3.0)
+                        curr_cmds.append(('b', p0, p1, p2, p3))
+                        last_pt = p3
+                        i += 2
                     elif curr_cmd == 'b':
                         x1, y1 = float(tokens[i]), float(tokens[i + 1])
                         x2, y2 = float(tokens[i + 2]), float(tokens[i + 3])
                         x3, y3 = float(tokens[i + 4]), float(tokens[i + 5])
-                        p0 = last_pt if last_pt else (x1, y1)
+                        p0 = last_pt
                         p1, p2, p3 = (x1, y1), (x2, y2), (x3, y3)
-                        chord = math.hypot(p3[0] - p0[0], p3[1] - p0[1])
-                        poly_len = math.hypot(p1[0] - p0[0], p1[1] - p0[1]) + math.hypot(p2[0] - p1[0], p2[1] - p1[1]) + math.hypot(p3[0] - p2[0], p3[1] - p2[1])
-                        approx_len = (chord + poly_len) / 2.0
-                        steps = max(4, int(math.ceil(approx_len / step)))
-                        for s in range(1, steps + 1):
-                            u = s / float(steps)
-                            um = 1.0 - u
-                            bx = um**3 * p0[0] + 3 * um**2 * u * p1[0] + 3 * um * u**2 * p2[0] + u**3 * p3[0]
-                            by = um**3 * p0[1] + 3 * um**2 * u * p1[1] + 3 * um * u**2 * p2[1] + u**3 * p3[1]
-                            curr_pts.append((bx, by))
+                        curr_cmds.append(('b', p0, p1, p2, p3))
                         last_pt = p3
                         i += 6
                     else:
                         i += 1
                 except Exception:
                     i += 1
-
-            if curr_pts:
-                contours.append(curr_pts)
+            if curr_cmds:
+                contours.append(curr_cmds)
             return contours
 
-        def resample_contour(pts, num_samples):
-            if not pts:
-                return [], 0.0
-            pts_copy = list(pts)
-            if len(pts_copy) > 1 and math.hypot(pts_copy[0][0] - pts_copy[-1][0], pts_copy[0][1] - pts_copy[-1][1]) > 1e-3:
-                pts_copy.append(pts_copy[0])
+        def get_bezier_stats(bez_list):
+            pts = []
+            for b in bez_list:
+                if b[0] == 'm':
+                    pts.append(b[1])
+                elif b[0] == 'b':
+                    p0, p1, p2, p3 = b[1], b[2], b[3], b[4]
+                    for step in range(1, 9):
+                        u = step / 8.0
+                        u2 = u * u
+                        u3 = u2 * u
+                        inv = 1.0 - u
+                        inv2 = inv * inv
+                        inv3 = inv2 * inv
+                        x = inv3 * p0[0] + 3.0 * inv2 * u * p1[0] + 3.0 * inv * u2 * p2[0] + u3 * p3[0]
+                        y = inv3 * p0[1] + 3.0 * inv2 * u * p1[1] + 3.0 * inv * u2 * p2[1] + u3 * p3[1]
+                        pts.append((x, y))
+            N = len(pts)
+            if N < 3:
+                return 0.0, (0.0, 0.0), (0.0, 0.0, 0.0, 0.0)
+            area = sum(pts[k][0] * pts[(k + 1) % N][1] - pts[(k + 1) % N][0] * pts[k][1] for k in range(N)) / 2.0
+            min_x = min(p[0] for p in pts)
+            max_x = max(p[0] for p in pts)
+            min_y = min(p[1] for p in pts)
+            max_y = max(p[1] for p in pts)
+            cx = (min_x + max_x) / 2.0
+            cy = (min_y + max_y) / 2.0
+            return area, (cx, cy), (min_x, max_x, min_y, max_y)
 
-            cum_lens = [0.0]
-            for k in range(len(pts_copy) - 1):
-                seg_len = math.hypot(pts_copy[k + 1][0] - pts_copy[k][0], pts_copy[k + 1][1] - pts_copy[k][1])
-                cum_lens.append(cum_lens[-1] + seg_len)
+        def ensure_bezier_winding(bez_list, should_be_cw):
+            area, _, _ = get_bezier_stats(bez_list)
+            is_cw = area > 0
+            if is_cw != should_be_cw:
+                beziers_only = [b for b in bez_list if b[0] == 'b']
+                rev_b = []
+                for b in reversed(beziers_only):
+                    rev_b.append(('b', b[4], b[3], b[2], b[1]))
+                start_pt = rev_b[0][1] if rev_b else (0.0, 0.0)
+                return [('m', start_pt)] + rev_b
+            return bez_list
 
-            total_len = cum_lens[-1]
-            if total_len < 1e-4:
-                return [pts_copy[0]] * num_samples, 0.0
+        def bezier_len(p0, p1, p2, p3):
+            chord = math.hypot(p3[0] - p0[0], p3[1] - p0[1])
+            poly = math.hypot(p1[0] - p0[0], p1[1] - p0[1]) + math.hypot(p2[0] - p1[0], p2[1] - p1[1]) + math.hypot(p3[0] - p2[0], p3[1] - p2[1])
+            return (chord + poly) / 2.0
 
-            resampled = []
-            seg_idx = 0
-            for s in range(num_samples):
-                target_dist = (s / float(num_samples)) * total_len
-                while seg_idx < len(cum_lens) - 2 and cum_lens[seg_idx + 1] < target_dist:
-                    seg_idx += 1
-                seg_start_dist = cum_lens[seg_idx]
-                seg_len = cum_lens[seg_idx + 1] - seg_start_dist
-                frac = (target_dist - seg_start_dist) / seg_len if seg_len > 1e-6 else 0.0
-                pA = pts_copy[seg_idx]
-                pB = pts_copy[seg_idx + 1]
-                rx = pA[0] + (pB[0] - pA[0]) * frac
-                ry = pA[1] + (pB[1] - pA[1]) * frac
-                resampled.append((rx, ry))
+        def split_bezier(p0, p1, p2, p3, u=0.5):
+            p01 = (p0[0] + (p1[0] - p0[0]) * u, p0[1] + (p1[1] - p0[1]) * u)
+            p12 = (p1[0] + (p2[0] - p1[0]) * u, p1[1] + (p2[1] - p1[1]) * u)
+            p23 = (p2[0] + (p3[0] - p2[0]) * u, p2[1] + (p3[1] - p2[1]) * u)
+            p012 = (p01[0] + (p12[0] - p01[0]) * u, p01[1] + (p12[1] - p01[1]) * u)
+            p123 = (p12[0] + (p23[0] - p12[0]) * u, p12[1] + (p23[1] - p12[1]) * u)
+            p0123 = (p012[0] + (p123[0] - p012[0]) * u, p012[1] + (p123[1] - p012[1]) * u)
+            return ('b', p0, p01, p012, p0123), ('b', p0123, p123, p23, p3)
 
-            return resampled, total_len
+        def equalize_beziers(bez_cmds, target_count):
+            res = [b for b in bez_cmds if b[0] == 'b']
+            if not res:
+                return []
+            while len(res) < target_count:
+                longest_idx = 0
+                max_l = -1.0
+                for idx, b in enumerate(res):
+                    l = bezier_len(b[1], b[2], b[3], b[4])
+                    if l > max_l:
+                        max_l = l
+                        longest_idx = idx
+                b = res[longest_idx]
+                b1, b2 = split_bezier(b[1], b[2], b[3], b[4], 0.5)
+                res = res[:longest_idx] + [b1, b2] + res[longest_idx + 1:]
+            return res
 
-        def align_phase(cA, cB):
-            N = len(cA)
-            if N < 2:
-                return cA, cB
-            step_coarse = max(1, N // 32)
+        def align_bezier_phase_fixed(bA, bB):
+            M = len(bA)
+            if M < 2:
+                return bA, bB
             best_dist = float('inf')
-            best_dir = 1
             best_shift = 0
-
-            for direction in (1, -1):
-                dir_B = cB if direction == 1 else list(reversed(cB))
-                for shift in range(0, N, step_coarse):
-                    cand_B = dir_B[shift:] + dir_B[:shift]
-                    d = sum((cA[k][0] - cand_B[k][0])**2 + (cA[k][1] - cand_B[k][1])**2 for k in range(0, N, max(1, N // 16)))
-                    if d < best_dist:
-                        best_dist = d
-                        best_dir = direction
-                        best_shift = shift
-
-            dir_B = cB if best_dir == 1 else list(reversed(cB))
-            fine_start = max(0, best_shift - step_coarse * 2)
-            fine_end = min(N, best_shift + step_coarse * 2 + 1)
-            best_dist = float('inf')
-            best_B = cB
-            for shift in range(fine_start, fine_end):
-                cand_B = dir_B[shift:] + dir_B[:shift]
-                d = sum((cA[k][0] - cand_B[k][0])**2 + (cA[k][1] - cand_B[k][1])**2 for k in range(N))
+            step_coarse = max(1, M // 16)
+            for shift in range(0, M, step_coarse):
+                cand = bB[shift:] + bB[:shift]
+                d = sum((bA[k][1][0] - cand[k][1][0])**2 + (bA[k][1][1] - cand[k][1][1])**2 for k in range(0, M, max(1, M // 8)))
                 if d < best_dist:
                     best_dist = d
-                    best_B = cand_B
+                    best_shift = shift
 
-            return cA, best_B
+            fine_start = max(0, best_shift - step_coarse * 2)
+            fine_end = min(M, best_shift + step_coarse * 2 + 1)
+            best_dist = float('inf')
+            best_B = bB
+            for shift in range(fine_start, fine_end):
+                cand = bB[shift:] + bB[:shift]
+                d = sum((bA[k][1][0] - cand[k][1][0])**2 + (bA[k][1][1] - cand[k][1][1])**2 for k in range(M))
+                if d < best_dist:
+                    best_dist = d
+                    best_B = cand
+            return bA, best_B
 
-        cnts_A = parse_ass_contours(drawing, step=s_px)
-        cnts_B = parse_ass_contours(target_shape, step=s_px)
+        def group_bezier_islands(raw_beziers):
+            data = []
+            for b_list in raw_beziers:
+                area, center, bbox = get_bezier_stats(b_list)
+                data.append({'beziers': b_list, 'area': area, 'center': center, 'bbox': bbox})
 
-        if not cnts_A or not cnts_B:
+            # Clasificación jerárquica por contención geométrica
+            sorted_data = sorted(data, key=lambda c: abs(c['area']), reverse=True)
+            outers = []
+            holes = []
+            for c in sorted_data:
+                c_min_x, c_max_x, c_min_y, c_max_y = c['bbox']
+                is_hole = False
+                for parent in outers:
+                    p_min_x, p_max_x, p_min_y, p_max_y = parent['bbox']
+                    if p_min_x - 1.0 <= c_min_x and c_max_x <= p_max_x + 1.0 and p_min_y - 1.0 <= c_min_y and c_max_y <= p_max_y + 1.0:
+                        is_hole = True
+                        break
+                if is_hole:
+                    holes.append(c)
+                else:
+                    outers.append(c)
+
+            outers.sort(key=lambda o: o['bbox'][0])
+
+            islands = [{'outer': o, 'holes': []} for o in outers]
+            for h in holes:
+                h_cx, h_cy = h['center']
+                best_isl = None
+                for isl in islands:
+                    o_min_x, o_max_x, o_min_y, o_max_y = isl['outer']['bbox']
+                    if o_min_x - 3.0 <= h_cx <= o_max_x + 3.0 and o_min_y - 3.0 <= h_cy <= o_max_y + 3.0:
+                        best_isl = isl
+                        break
+                if best_isl:
+                    best_isl['holes'].append(h)
+                elif islands:
+                    islands[-1]['holes'].append(h)
+            return islands
+
+        def get_closest_point_on_outline(isl, target_center):
+            best_pt = None
+            best_d = float('inf')
+            for b in isl['outer']['beziers']:
+                if b[0] == 'm':
+                    pt = b[1]
+                    d = (pt[0] - target_center[0])**2 + (pt[1] - target_center[1])**2
+                    if d < best_d:
+                        best_d = d
+                        best_pt = pt
+                elif b[0] == 'b':
+                    pt = b[4]
+                    d = (pt[0] - target_center[0])**2 + (pt[1] - target_center[1])**2
+                    if d < best_d:
+                        best_d = d
+                        best_pt = pt
+            return best_pt if best_pt is not None else isl['outer']['center']
+
+        raw_A = parse_ass_sparse_beziers(drawing)
+        raw_B = parse_ass_sparse_beziers(target_shape)
+
+        if not raw_A or not raw_B:
             return drawing
 
-        all_A = [p for cnt in cnts_A for p in cnt]
-        all_B = [p for cnt in cnts_B for p in cnt]
-
-        if not all_A or not all_B:
+        all_pts_A = [p for cnt in raw_A for b in cnt if b[0] == 'b' for p in (b[1], b[4])]
+        all_pts_B = [p for cnt in raw_B for b in cnt if b[0] == 'b' for p in (b[1], b[4])]
+        if not all_pts_A or not all_pts_B:
             return drawing
 
-        min_xA, max_xA = min(p[0] for p in all_A), max(p[0] for p in all_A)
-        min_yA, max_yA = min(p[1] for p in all_A), max(p[1] for p in all_A)
+        min_xA, max_xA = min(p[0] for p in all_pts_A), max(p[0] for p in all_pts_A)
+        min_yA, max_yA = min(p[1] for p in all_pts_A), max(p[1] for p in all_pts_A)
         wA, hA = max(1.0, max_xA - min_xA), max(1.0, max_yA - min_yA)
         cxA, cyA = (min_xA + max_xA) / 2.0, (min_yA + max_yA) / 2.0
 
-        min_xB, max_xB = min(p[0] for p in all_B), max(p[0] for p in all_B)
-        min_yB, max_yB = min(p[1] for p in all_B), max(p[1] for p in all_B)
+        min_xB, max_xB = min(p[0] for p in all_pts_B), max(p[0] for p in all_pts_B)
+        min_yB, max_yB = min(p[1] for p in all_pts_B), max(p[1] for p in all_pts_B)
         wB, hB = max(1.0, max_xB - min_xB), max(1.0, max_yB - min_yB)
         cxB, cyB = (min_xB + max_xB) / 2.0, (min_yB + max_yB) / 2.0
 
         scale_x = wA / wB
         scale_y = hA / hB
 
-        scaled_cnts_B = []
-        for cnt in cnts_B:
-            scaled_cnts_B.append([(cxA + (p[0] - cxB) * scale_x, cyA + (p[1] - cyB) * scale_y) for p in cnt])
+        def transform_b_list(b_list):
+            res = []
+            for b in b_list:
+                if b[0] == 'm':
+                    px = cxA + (b[1][0] - cxB) * scale_x
+                    py = cyA + (b[1][1] - cyB) * scale_y
+                    res.append(('m', (px, py)))
+                elif b[0] == 'b':
+                    p0 = (cxA + (b[1][0] - cxB) * scale_x, cyA + (b[1][1] - cyB) * scale_y)
+                    p1 = (cxA + (b[2][0] - cxB) * scale_x, cyA + (b[2][1] - cyB) * scale_y)
+                    p2 = (cxA + (b[3][0] - cxB) * scale_x, cyA + (b[3][1] - cyB) * scale_y)
+                    p3 = (cxA + (b[4][0] - cxB) * scale_x, cyA + (b[4][1] - cyB) * scale_y)
+                    res.append(('b', p0, p1, p2, p3))
+            return res
+
+        scaled_raw_B = [transform_b_list(b_list) for b_list in raw_B]
+
+        islands_A = group_bezier_islands(raw_A)
+        islands_B = group_bezier_islands(scaled_raw_B)
+
+        NA = len(islands_A)
+        NB = len(islands_B)
+
+        if NA == 0 or NB == 0:
+            return drawing
+
+        # Mapeo Proporcional: Mitosis (1-a-N) cuando NA <= NB, Fusión (N-a-1) cuando NA > NB
+        island_pairs_idx = []
+        if NA <= NB:
+            for j in range(NB):
+                u_j = j / float(NB - 1) if NB > 1 else 0.0
+                i = min(NA - 1, max(0, int(round(u_j * (NA - 1)))))
+                island_pairs_idx.append((i, j))
+        else:
+            for i in range(NA):
+                u_i = i / float(NA - 1) if NA > 1 else 0.0
+                j = min(NB - 1, max(0, int(round(u_i * (NB - 1)))))
+                island_pairs_idx.append((i, j))
+
+        # Permutación Cruzada Topológica (Cross-Morphing) para formas o palabras idénticas
+        is_identical = []
+        for i_A, j_B in island_pairs_idx:
+            isl_A = islands_A[i_A]
+            isl_B = islands_B[j_B]
+            cx_A, cy_A = isl_A['outer']['center']
+            cx_B, cy_B = isl_B['outer']['center']
+            dist = ((cx_A - cx_B)**2 + (cy_A - cy_B)**2)**0.5
+            is_identical.append(dist < 18.0)
+
+        clusters = []
+        curr_cl = []
+        for idx, ident in enumerate(is_identical):
+            if ident:
+                curr_cl.append(idx)
+            else:
+                if curr_cl:
+                    clusters.append(curr_cl)
+                    curr_cl = []
+        if curr_cl:
+            clusters.append(curr_cl)
+
+        for cl in clusters:
+            cl_len = len(cl)
+            if cl_len == 2:
+                # Intercambio directo entre los 2 vecinos adyacentes (distancia = 1 letra)
+                idx0, idx1 = cl[0], cl[1]
+                t0 = island_pairs_idx[idx0][1]
+                t1 = island_pairs_idx[idx1][1]
+                island_pairs_idx[idx0] = (island_pairs_idx[idx0][0], t1)
+                island_pairs_idx[idx1] = (island_pairs_idx[idx1][0], t0)
+            elif cl_len > 2:
+                # Intercambio local por parejas y tríadas adyacentes (máxima distancia <= 1 o 2 letras)
+                # Evita que la última letra cruce toda la palabra hacia el otro extremo
+                targets = [island_pairs_idx[idx][1] for idx in cl]
+                new_targets = list(targets)
+                i = 0
+                while i < cl_len:
+                    rem = cl_len - i
+                    if rem >= 4 or rem == 2:
+                        new_targets[i] = targets[i + 1]
+                        new_targets[i + 1] = targets[i]
+                        i += 2
+                    elif rem == 3:
+                        new_targets[i] = targets[i + 1]
+                        new_targets[i + 1] = targets[i + 2]
+                        new_targets[i + 2] = targets[i]
+                        i += 3
+                    else: # rem == 1
+                        new_targets[i - 1] = targets[i]
+                        new_targets[i] = targets[i - 1]
+                        i += 1
+                for c_i, t_i in zip(cl, new_targets):
+                    island_pairs_idx[c_i] = (island_pairs_idx[c_i][0], t_i)
+            elif cl_len == 1 and len(island_pairs_idx) > 1:
+                # Letra idéntica aislada: intercambiar destino con la letra vecina inmediata
+                c_idx = cl[0]
+                swap_idx = c_idx + 1 if (c_idx + 1 < len(island_pairs_idx)) else (c_idx - 1)
+                t_curr = island_pairs_idx[c_idx][1]
+                t_swap = island_pairs_idx[swap_idx][1]
+                island_pairs_idx[c_idx] = (island_pairs_idx[c_idx][0], t_swap)
+                island_pairs_idx[swap_idx] = (island_pairs_idx[swap_idx][0], t_curr)
 
         pairs = []
-        num_cnts = max(len(cnts_A), len(scaled_cnts_B))
+        for i_A, j_B in island_pairs_idx:
+            isl_A = islands_A[i_A]
+            isl_B = islands_B[j_B]
 
-        for i in range(num_cnts):
-            cA_raw = cnts_A[i] if i < len(cnts_A) else cnts_A[-1]
-            cB_raw = scaled_cnts_B[i] if i < len(scaled_cnts_B) else scaled_cnts_B[-1]
+            oA_b = ensure_bezier_winding(isl_A['outer']['beziers'], should_be_cw=True)
+            oB_b = ensure_bezier_winding(isl_B['outer']['beziers'], should_be_cw=True)
+            M_o = max(len([b for b in oA_b if b[0] == 'b']), len([b for b in oB_b if b[0] == 'b']))
+            eq_oA = equalize_beziers(oA_b, M_o)
+            eq_oB = equalize_beziers(oB_b, M_o)
+            eq_oA, eq_oB = align_bezier_phase_fixed(eq_oA, eq_oB)
+            pairs.append(('normal', True, eq_oA, eq_oB))
 
-            _, lA = resample_contour(cA_raw, 10)
-            _, lB = resample_contour(cB_raw, 10)
-            max_l = max(lA, lB, 20.0)
-            N = max(24, int(math.ceil(max_l / s_px)))
+            holes_A = isl_A['holes']
+            holes_B = isl_B['holes']
+            num_h = max(len(holes_A), len(holes_B))
+            for h_idx in range(num_h):
+                if h_idx < len(holes_A) and h_idx < len(holes_B):
+                    hA_b = ensure_bezier_winding(holes_A[h_idx]['beziers'], should_be_cw=False)
+                    hB_b = ensure_bezier_winding(holes_B[h_idx]['beziers'], should_be_cw=False)
+                    M_h = max(len([b for b in hA_b if b[0] == 'b']), len([b for b in hB_b if b[0] == 'b']))
+                    eq_hA = equalize_beziers(hA_b, M_h)
+                    eq_hB = equalize_beziers(hB_b, M_h)
+                    eq_hA, eq_hB = align_bezier_phase_fixed(eq_hA, eq_hB)
+                    pairs.append(('normal', False, eq_hA, eq_hB))
+                elif h_idx < len(holes_A):
+                    # Hueco que desaparece: se contrae hacia el cuerpo sólido de la letra destino
+                    hA_b = ensure_bezier_winding(holes_A[h_idx]['beziers'], should_be_cw=False)
+                    cx_hA, cy_hA = holes_A[h_idx]['center']
+                    dest_pt = get_closest_point_on_outline(isl_B, (cx_hA, cy_hA))
+                    eq_hA = [b for b in hA_b if b[0] == 'b']
+                    coll_B = [('b', dest_pt, dest_pt, dest_pt, dest_pt) for _ in range(len(eq_hA))]
+                    pairs.append(('collapsing_hole', False, eq_hA, coll_B))
+                else:
+                    # Hueco que emerge: nace desde el cuerpo sólido de la letra origen (oculto bajo el relleno)
+                    hB_b = ensure_bezier_winding(holes_B[h_idx]['beziers'], should_be_cw=False)
+                    cx_hB, cy_hB = holes_B[h_idx]['center']
+                    origin_pt = get_closest_point_on_outline(isl_A, (cx_hB, cy_hB))
+                    eq_hB = [b for b in hB_b if b[0] == 'b']
+                    coll_A = [('b', origin_pt, origin_pt, origin_pt, origin_pt) for _ in range(len(eq_hB))]
+                    pairs.append(('emerging_hole', False, coll_A, eq_hB))
 
-            cA_res, _ = resample_contour(cA_raw, N)
-            cB_res, _ = resample_contour(cB_raw, N)
-            cA_res, cB_res = align_phase(cA_res, cB_res)
-            pairs.append((cA_res, cB_res))
-
+        cached_data = {
+            'pairs': pairs,
+            's_px': s_px,
+            'bbox_A': (cxA, cyA, wA, hA),
+            'bbox_B': (cxB, cyB, wB, hB)
+        }
         if len(_SHAPE_DISTORT_CONTOUR_CACHE) > 512:
             _SHAPE_DISTORT_CONTOUR_CACHE.clear()
-        _SHAPE_DISTORT_CONTOUR_CACHE[cache_key] = pairs
+        _SHAPE_DISTORT_CONTOUR_CACHE[cache_key] = cached_data
 
-    morphed_contours = []
-    for cA_res, cB_res in pairs:
-        pts_t = []
-        N = len(cA_res)
-        for k in range(N):
-            px = cA_res[k][0] * (1.0 - t_val) + cB_res[k][0] * t_val
-            py = cA_res[k][1] * (1.0 - t_val) + cB_res[k][1] * t_val
-            pts_t.append((px, py))
+    # Interpolación dinámica de la caja delimitadora (Bounding Box)
+    bbox_A = cached_data.get('bbox_A')
+    bbox_B = cached_data.get('bbox_B')
+    if bbox_A and bbox_B:
+        cxA_c, cyA_c, wA_c, hA_c = bbox_A
+        cxB_c, cyB_c, wB_c, hB_c = bbox_B
+        cur_w = wA_c * (1.0 - t_val) + wB_c * t_val
+        cur_h = hA_c * (1.0 - t_val) + hB_c * t_val
+        cur_cx = cxA_c * (1.0 - t_val) + cxB_c * t_val
+        cur_cy = cyA_c * (1.0 - t_val) + cyB_c * t_val
+        scale_t_x = (cur_w / wA_c) if wA_c > 0.001 else 1.0
+        scale_t_y = (cur_h / hA_c) if hA_c > 0.001 else 1.0
 
-        morphed_contours.append(pts_t)
+        def to_dyn_bbox(pt):
+            return (cur_cx + (pt[0] - cxA_c) * scale_t_x, cur_cy + (pt[1] - cyA_c) * scale_t_y)
+    else:
+        def to_dyn_bbox(pt):
+            return pt
 
-    all_res = [p for cnt in morphed_contours for p in cnt]
-    if not all_res:
+    # Interpolate segments at t_val
+    all_eval_pts = []
+    active_pairs = []
+    for pair_type, is_outer, bA, bB in cached_data['pairs']:
+        if 'collapsing' in pair_type and t_val >= 0.999:
+            continue
+        if 'emerging' in pair_type and t_val <= 0.001:
+            continue
+        M = min(len(bA), len(bB))
+        if M == 0:
+            continue
+        p0_A = bA[0][1]
+        p0_B = bB[0][1]
+        p0_x = p0_A[0] * (1.0 - t_val) + p0_B[0] * t_val
+        p0_y = p0_A[1] * (1.0 - t_val) + p0_B[1] * t_val
+        p0_mapped = to_dyn_bbox((p0_x, p0_y))
+        segs = []
+        all_eval_pts.append(p0_mapped)
+        for k in range(M):
+            segA, segB = bA[k], bB[k]
+            p1_x = segA[2][0] * (1.0 - t_val) + segB[2][0] * t_val
+            p1_y = segA[2][1] * (1.0 - t_val) + segB[2][1] * t_val
+            p2_x = segA[3][0] * (1.0 - t_val) + segB[3][0] * t_val
+            p2_y = segA[3][1] * (1.0 - t_val) + segB[3][1] * t_val
+            p3_x = segA[4][0] * (1.0 - t_val) + segB[4][0] * t_val
+            p3_y = segA[4][1] * (1.0 - t_val) + segB[4][1] * t_val
+
+            p1_m = to_dyn_bbox((p1_x, p1_y))
+            p2_m = to_dyn_bbox((p2_x, p2_y))
+            p3_m = to_dyn_bbox((p3_x, p3_y))
+
+            segs.append(('b', p0_mapped, p1_m, p2_m, p3_m))
+            p0_mapped = p3_m
+            all_eval_pts.extend([p1_m, p2_m, p3_m])
+        active_pairs.append(segs)
+
+    if not all_eval_pts:
         return drawing
 
-    n_min_x, n_max_x = min(p[0] for p in all_res), max(p[0] for p in all_res)
-    n_min_y, n_max_y = min(p[1] for p in all_res), max(p[1] for p in all_res)
+    n_min_x, n_max_x = min(p[0] for p in all_eval_pts), max(p[0] for p in all_eval_pts)
+    n_min_y, n_max_y = min(p[1] for p in all_eval_pts), max(p[1] for p in all_eval_pts)
     n_cx = (n_min_x + n_max_x) / 2.0
     n_cy = (n_min_y + n_max_y) / 2.0
 
-    if anchor_str in ("original", "raw", "0"):
-        off_x, off_y = 0.0, 0.0
-    elif anchor_str in ("topleft", "top_left", "7"):
+    if anchor_str == 'origin':
         off_x, off_y = -n_min_x, -n_min_y
-    elif anchor_str in ("topright", "top_right", "9"):
-        off_x, off_y = -n_max_x, -n_min_y
-    elif anchor_str in ("bottomleft", "bottom_left", "1"):
-        off_x, off_y = -n_min_x, -n_max_y
-    elif anchor_str in ("bottomright", "bottom_right", "3"):
-        off_x, off_y = -n_max_x, -n_max_y
-    elif anchor_str in ("absolute", "absoluto", "clip"):
+    elif anchor_str == 'zero':
         pos_x, pos_y = 0.0, 0.0
         if isinstance(context, dict):
             unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', 0.0))))
+            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
             except: pos_x = 0.0
-            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', 0.0))))
+            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
         off_x, off_y = pos_x - n_cx, pos_y - n_cy
-    else:  # "center", "centro", "5" (default)
+    elif anchor_str == 'pos':
+        pos_x, pos_y = 0.0, 0.0
+        if isinstance(context, dict):
+            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
+            except: pos_x = 0.0
+            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
+            except: pos_y = 0.0
+        off_x, off_y = -pos_x, -pos_y
+    else:
         off_x, off_y = -n_cx, -n_cy
 
+    def fmt_num(v):
+        return int(v) if isinstance(v, (int, float)) and float(v).is_integer() else round(float(v), 2)
+
     out_parts = []
-    for cnt in morphed_contours:
-        if not cnt:
-            continue
-        p0 = cnt[0]
-        x0 = p0[0] + off_x
-        y0 = p0[1] + off_y
-        fmt_x0 = int(x0) if x0.is_integer() else round(x0, 2)
-        fmt_y0 = int(y0) if y0.is_integer() else round(y0, 2)
-        out_parts.append(f"m {fmt_x0} {fmt_y0}")
-        for pt in cnt[1:]:
-            xp = pt[0] + off_x
-            yp = pt[1] + off_y
-            fmt_x = int(xp) if xp.is_integer() else round(xp, 2)
-            fmt_y = int(yp) if yp.is_integer() else round(yp, 2)
-            out_parts.append(f"l {fmt_x} {fmt_y}")
+    if s_px >= 0.5:
+        # Polyline mode ('l')
+        for segs in active_pairs:
+            if not segs:
+                continue
+            p0 = segs[0][1]
+            out_parts.append(f'm {fmt_num(p0[0] + off_x)} {fmt_num(p0[1] + off_y)}')
+            for seg in segs:
+                p0, p1, p2, p3 = seg[1], seg[2], seg[3], seg[4]
+                chord = math.hypot(p3[0] - p0[0], p3[1] - p0[1])
+                poly = math.hypot(p1[0] - p0[0], p1[1] - p0[1]) + math.hypot(p2[0] - p1[0], p2[1] - p1[1]) + math.hypot(p3[0] - p2[0], p3[1] - p2[1])
+                approx_l = (chord + poly) / 2.0
+                steps = max(2, int(math.ceil(approx_l / s_px)))
+                for s in range(1, steps + 1):
+                    u = s / float(steps)
+                    um = 1.0 - u
+                    bx = um**3 * p0[0] + 3 * um**2 * u * p1[0] + 3 * um * u**2 * p2[0] + u**3 * p3[0]
+                    by = um**3 * p0[1] + 3 * um**2 * u * p1[1] + 3 * um * u**2 * p2[1] + u**3 * p3[1]
+                    out_parts.append(f'l {fmt_num(bx + off_x)} {fmt_num(by + off_y)}')
+    else:
+        # Sparse Bezier Mode ('b')
+        for segs in active_pairs:
+            if not segs:
+                continue
+            p0 = segs[0][1]
+            out_parts.append(f'm {fmt_num(p0[0] + off_x)} {fmt_num(p0[1] + off_y)}')
+            for seg in segs:
+                _, p0, p1, p2, p3 = seg
+                out_parts.append(f'b {fmt_num(p1[0] + off_x)} {fmt_num(p1[1] + off_y)} {fmt_num(p2[0] + off_x)} {fmt_num(p2[1] + off_y)} {fmt_num(p3[0] + off_x)} {fmt_num(p3[1] + off_y)}')
 
-    return " ".join(out_parts) + " "
+    return ' '.join(out_parts) + ' '
 
 
 
 
-def shape_transform(context, drawing="", mode="Inflate", t=None, ratio=1.0, inflate_mode="Circle", anchor="center", angle_x=0.0, angle_y=0.0, radius=10.0, corner_mode="Round", curve=None, bend_t=1.0, axis="x", target_shape="", **kwargs):
+def shape_transform(context, drawing="", mode="Inflate", t=None, ratio=1.0, inflate_mode="Circle", anchor="center", angle_x=0.0, angle_y=0.0, radius=10.0, corner_mode="Round", curve=None, bend_t=1.0, axis="x", target_shape="", step_px=0.0, **kwargs):
     """Aplica transformaciones geométricas avanzadas no nativas de ASS a un dibujo vectorial ASS o texto.
     Modos:
       - 'Inflate': Deformación morfológica radial (esferificación/abombamiento) hacia círculo o elipse.
@@ -1416,8 +1699,26 @@ def shape_transform(context, drawing="", mode="Inflate", t=None, ratio=1.0, infl
     elif "distort" in mode_clean or "deform" in mode_clean or "morph" in mode_clean:
         tgt = target_shape if target_shape else kwargs.get("target_shape", "")
         tgt = resolve_shape_value(tgt, context)
-        t_morph = t if (t is not None and str(t).strip() != "") else kwargs.get("t", 1.0)
-        return _shape_distort(raw_shp, target_shape=tgt, t=t_morph, anchor=anchor, context=context)
+        if tgt and not tgt.lower().startswith("m ") and not tgt.lower().startswith("m-") and not tgt.lower().startswith("m0"):
+            from font_vector_engine import FontVectorEngine
+            unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
+            line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+            styleref = getattr(line, 'styleref', None) if line else None
+            if not styleref and unit:
+                styleref = getattr(unit, 'styleref', None)
+                if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
+                    styleref = getattr(unit.line, 'styleref', None)
+            fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
+            fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
+            b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
+            i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
+            v_tgt = FontVectorEngine.text_to_shape(tgt, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
+            if v_tgt and v_tgt.strip():
+                tgt = v_tgt
+        t_morph = t if (t is not None and str(t).strip() != "") else kwargs.pop("t", 1.0)
+        s_px = step_px if (step_px is not None and str(step_px).strip() != "") else kwargs.pop("step_px", kwargs.pop("step", 0.0))
+        e_val = kwargs.pop("energy", kwargs.pop("fluidez", kwargs.pop("fluidity", 0.35)))
+        return _shape_distort(raw_shp, target_shape=tgt, t=t_morph, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
 
     return raw_shp
 
@@ -1891,25 +2192,25 @@ for _k, _v in list(RAW_PRESET_SHAPES.items()):
     SHAPES_LIB_MAP[clean] = lambda ctx=None, p=_v: p
 
 def resolve_shape_value(shp_val, context=None):
-    """Resuelve cualquier referencia a forma vectorial, incluyendo sintaxis 'shape.nombre' o nombres de la librería."""
+    """Resuelve cualquier referencia a forma vectorial, incluyendo sintaxis 'shape.nombre' o nombres directos de la librería."""
     if not shp_val:
         return ""
     s_val = str(shp_val).strip()
+    shape_name = s_val[6:].strip() if s_val.lower().startswith("shape.") else s_val
+    clean = shape_name.lower().replace(" ", "").replace(".", "").replace("_", "").replace("-", "")
+    clean_no_acc = clean.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+    if clean in SHAPES_LIB_MAP:
+        return SHAPES_LIB_MAP[clean](context)
+    if clean_no_acc in SHAPES_LIB_MAP:
+        return SHAPES_LIB_MAP[clean_no_acc](context)
+    if shape_name in RAW_PRESET_SHAPES:
+        return RAW_PRESET_SHAPES[shape_name]
+    for k, v in RAW_PRESET_SHAPES.items():
+        k_clean = k.lower().replace(" ", "").replace(".", "").replace("_", "").replace("-", "")
+        k_clean_no_acc = k_clean.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+        if k_clean == clean or k_clean_no_acc == clean_no_acc:
+            return v
     if s_val.lower().startswith("shape."):
-        shape_name = s_val[6:].strip()
-        clean = shape_name.lower().replace(" ", "").replace(".", "").replace("_", "").replace("-", "")
-        clean_no_acc = clean.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-        if clean in SHAPES_LIB_MAP:
-            return SHAPES_LIB_MAP[clean](context)
-        if clean_no_acc in SHAPES_LIB_MAP:
-            return SHAPES_LIB_MAP[clean_no_acc](context)
-        if shape_name in RAW_PRESET_SHAPES:
-            return RAW_PRESET_SHAPES[shape_name]
-        for k, v in RAW_PRESET_SHAPES.items():
-            k_clean = k.lower().replace(" ", "").replace(".", "").replace("_", "").replace("-", "")
-            k_clean_no_acc = k_clean.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-            if k_clean == clean or k_clean_no_acc == clean_no_acc:
-                return v
         return RAW_PRESET_SHAPES.get("Circulo", "")
     return s_val
 

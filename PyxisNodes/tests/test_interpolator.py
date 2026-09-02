@@ -137,6 +137,68 @@ class TestInterpolator(unittest.TestCase):
         # t = 0.75 -> 255 * 0.75 = 191 -> #BFBFBF
         self.assertIn("#BFBFBF", res.upper())
 
+    def test_interpolator_ass_alpha_tags(self):
+        graph = {
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "Functions/Interpolator",
+                    "properties": {
+                        "iterador": "5",
+                        "total": "9",
+                        "accel": "1.0",
+                        "v1": r"\alpha&H00&",
+                        "v2": r"\alpha&HFF&"
+                    }
+                }
+            ]
+        }
+        engine = GraphEngine(graph)
+        res = engine.evaluate_data_node(1, {})
+        # t = 0.5 -> 128 = 0x80
+        self.assertEqual(res, r"\alpha&H80&")
+
+    def test_interpolator_multitag_chain(self):
+        graph = {
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "Functions/Interpolator",
+                    "properties": {
+                        "iterador": "5",
+                        "total": "9",
+                        "accel": "1.0",
+                        "v1": r"\1a&H00&\3a&H00&\4a&H00&",
+                        "v2": r"\1a&HC8&\3a&HC8&\4a&HC8&"
+                    }
+                }
+            ]
+        }
+        engine = GraphEngine(graph)
+        res = engine.evaluate_data_node(1, {})
+        # t = 0.5 -> 200 * 0.5 = 100 = 0x64
+        self.assertEqual(res, r"\1a&H64&\3a&H64&\4a&H64&")
+
+    def test_interpolator_numeric_tags(self):
+        graph = {
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "Functions/Interpolator",
+                    "properties": {
+                        "iterador": "5",
+                        "total": "9",
+                        "accel": "1.0",
+                        "v1": r"\fscx100\fscy100",
+                        "v2": r"\fscx200\fscy300"
+                    }
+                }
+            ]
+        }
+        engine = GraphEngine(graph)
+        res = engine.evaluate_data_node(1, {})
+        self.assertEqual(res, r"\fscx150\fscy200")
+
 
 if __name__ == "__main__":
     unittest.main()

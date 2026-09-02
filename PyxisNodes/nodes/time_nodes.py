@@ -151,7 +151,7 @@ def time_loop_1(*args, **kwargs):
     delay_val = _eval_val(delay, context, 30.0)
     mode_str = str(mode).strip().lower()
     j = float(context.get('fx_i', context.get('j', 1))) if isinstance(context, dict) else 1.0
-    maxj = float(context.get('fx_n', context.get('j_max', context.get('maxj', 1)))) if isinstance(context, dict) else 1.0
+    maxj = float(context.get('maxj', context.get('j_max', context.get('fx_n', 1)))) if isinstance(context, dict) else 1.0
     is_end = mode_str in ["leadout", "lo"]
     base_val = _get_base_time(context, is_end_time=is_end, base=base)
 

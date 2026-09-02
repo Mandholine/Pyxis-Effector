@@ -68,7 +68,7 @@ class TestSessionPersistenceIntegrity(unittest.TestCase):
                     "id": 5,
                     "type": "Shape/Corte/Shape Slicer",
                     "title": "Shape Slicer [hex]",
-                    "properties": {"modo": "hex", "Radius": "15", "Bleed": "2"}
+                    "properties": {"modo": "hex", "Radius": "15", "Overlap": "2"}
                 }
             ],
             "links": []

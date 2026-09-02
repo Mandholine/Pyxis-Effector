@@ -275,6 +275,7 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
         context['particle_max'] = total_pts
         context['maxloop'] = total_pts
         if 'j' not in context or context.get('in_auto_slicer_loop'):
+            context['maxj'] = total_pts
             context['j_max'] = total_pts
 
     parent_x = float(getattr(unit, 'center', getattr(unit, 'x', getattr(line, 'center', getattr(line, 'x', 0))))) if (unit or line) else 0.0
@@ -396,6 +397,7 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
         context['total_pixels'] = total_pixels
         context['maxloop'] = total_pixels
         if 'j' not in context or context.get('in_auto_slicer_loop'):
+            context['maxj'] = total_pixels
             context['j_max'] = total_pixels
 
     j_val = int(context.get('p_i', context.get('particle_i', context.get('fx_i', context.get('i', context.get('j', 1)))))) if isinstance(context, dict) else 1

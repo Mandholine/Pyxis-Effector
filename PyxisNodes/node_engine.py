@@ -1760,10 +1760,37 @@ class GraphEngine:
                     if in_t is None or in_t == "": in_t = _get_prop_value(props, "t", "1.0")
                     t_val = _eval_num_expr(in_t, context, 1.0)
 
-                    in_anc = self.get_input_value(node, 3, context)
-                    if in_anc is None or in_anc == "": in_anc = _get_prop_value(props, "anchor", "center")
-                    anchor_val = str(in_anc).strip()
-                    return shape_transform(context, drawing=shp_val, mode="Distort", target_shape=tgt_val, t=t_val, anchor=anchor_val)
+                    in_slot_3 = self.get_input_value(node, 3, context)
+                    in_slot_4 = self.get_input_value(node, 4, context)
+                    in_slot_5 = self.get_input_value(node, 5, context)
+                    known_anchors = {"center", "origin", "zero", "pos", "topleft", "bottomleft", "topright", "bottomright", "relativo", "absoluto"}
+
+                    prop_energy = _get_prop_value(props, "energy", _get_prop_value(props, "fluidez", _get_prop_value(props, "fluidity", "0.35")))
+                    prop_step = _get_prop_value(props, "step_px", _get_prop_value(props, "step", "0"))
+                    prop_anchor = _get_prop_value(props, "anchor", "center")
+
+                    energy_val = _eval_num_expr(prop_energy, context, 0.35)
+                    step_val = _eval_num_expr(prop_step, context, 0.0)
+                    anchor_val = str(prop_anchor).strip()
+
+                    if in_slot_3 is not None and str(in_slot_3).strip() != "":
+                        s3_str = str(in_slot_3).strip().lower()
+                        if s3_str in known_anchors:
+                            anchor_val = str(in_slot_3).strip()
+                        else:
+                            energy_val = _eval_num_expr(in_slot_3, context, energy_val)
+
+                    if in_slot_4 is not None and str(in_slot_4).strip() != "":
+                        s4_str = str(in_slot_4).strip().lower()
+                        if s4_str in known_anchors:
+                            anchor_val = str(in_slot_4).strip()
+                        else:
+                            step_val = _eval_num_expr(in_slot_4, context, step_val)
+
+                    if in_slot_5 is not None and str(in_slot_5).strip() != "":
+                        anchor_val = str(in_slot_5).strip()
+
+                    return shape_transform(context, drawing=shp_val, mode="Distort", target_shape=tgt_val, t=t_val, step_px=step_val, energy=energy_val, anchor=anchor_val)
                 else:  # "Inflate" default
                     in_t = self.get_input_value(node, 1, context)
                     if in_t is None or in_t == "": in_t = _get_prop_value(props, "t", "0.5")
@@ -2242,14 +2269,14 @@ class GraphEngine:
                 mode_raw = self.get_input_value(node, 1, context)
                 if mode_raw == "": mode_raw = str(_get_prop_value(props, "modo", _get_prop_value(props, "mode", "Hueco (borders)"))).strip()
 
-                sep_raw = self.get_input_value(node, 2, context)
+                loops_raw = self.get_input_value(node, 2, context)
+                if loops_raw == "": loops_raw = str(_get_prop_value(props, "loop_count", _get_prop_value(props, "max_rings", "5"))).strip()
+
+                sep_raw = self.get_input_value(node, 3, context)
                 if sep_raw == "": sep_raw = str(_get_prop_value(props, "separation", "5")).strip()
 
-                ov_raw = self.get_input_value(node, 3, context)
-                if ov_raw == "": ov_raw = str(_get_prop_value(props, "overlap", "0.5")).strip()
-
-                loops_raw = self.get_input_value(node, 4, context)
-                if loops_raw == "": loops_raw = str(_get_prop_value(props, "loop_count", "5")).strip()
+                ov_raw = self.get_input_value(node, 4, context)
+                if ov_raw == "": ov_raw = str(_get_prop_value(props, "overlap", _get_prop_value(props, "solape", "0.5"))).strip()
 
                 anchor_raw = self.get_input_value(node, 5, context)
                 if anchor_raw == "": anchor_raw = str(_get_prop_value(props, "anchor", _get_prop_value(props, "anclaje", "relativo"))).strip()
@@ -2844,10 +2871,12 @@ class GraphEngine:
             return ""
 
         elif node_type in ["Loops/MaxLoop", "MaxLoop"] or (isinstance(node_type, str) and node_type.endswith("MaxLoop")):
+            props = node.get("properties", {})
+            var_name = str(props.get("var_name", "j")).strip() or "j"
             if output_slot_index == 1:
-                return str(context.get('fx_i', context.get('j', 1)))
+                return str(context.get(var_name, context.get('j', context.get('fx_i', 1))))
             elif output_slot_index == 2:
-                return str(context.get('fx_n', context.get('j_max', 1)))
+                return str(context.get(var_name + '_max', context.get('j_max', context.get('fx_n', 1))))
             return ""
 
         elif node_type in ["Color Picker"]:

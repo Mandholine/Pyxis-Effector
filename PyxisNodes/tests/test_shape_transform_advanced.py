@@ -22,8 +22,8 @@ class TestShapeTransformAdvanced(unittest.TestCase):
 
     def test_inflate_basic_levels(self):
         """Verifica la deformación morfológica radial con diferentes niveles de t (0.0, 0.5, 1.0)."""
-        # Con t=0.0 y anchor="original", el contorno no sufre alteración
-        res_t0 = shape_transform(self.context, drawing=self.sq, mode="Inflate", t=0.0, anchor="original")
+        # Con t=0.0 y anchor="origin", el contorno no sufre alteración
+        res_t0 = shape_transform(self.context, drawing=self.sq, mode="Inflate", t=0.0, anchor="origin")
         self.assertIn("m 0 0", res_t0)
 
         # Con t=0.5, los lados del cuadrado se subdividen y abomban hacia afuera
@@ -64,7 +64,7 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertGreater(max_x2, max_x1)
 
     def test_inflate_anchor_modes(self):
-        """Verifica el correcto anclaje: center, topleft, absolute, original."""
+        """Verifica el correcto anclaje de Shapery: center, origin, zero, pos."""
         res_center = shape_transform(self.context, drawing=self.sq, mode="Inflate", t=0.5, anchor="center")
         coords_c = [float(t) for t in res_center.split() if t.replace('-','',1).replace('.','',1).isdigit()]
         xs_c = coords_c[0::2]
@@ -72,15 +72,20 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertAlmostEqual((min(xs_c) + max(xs_c)) / 2.0, 0.0, delta=1.0)
         self.assertAlmostEqual((min(ys_c) + max(ys_c)) / 2.0, 0.0, delta=1.0)
 
-        res_topleft = shape_transform(self.context, drawing=self.sq, mode="Inflate", t=0.5, anchor="topleft")
-        coords_tl = [float(t) for t in res_topleft.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual(min(coords_tl[0::2]), 0.0, delta=0.5)
-        self.assertAlmostEqual(min(coords_tl[1::2]), 0.0, delta=0.5)
+        res_origin = shape_transform(self.context, drawing=self.sq, mode="Inflate", t=0.5, anchor="origin")
+        coords_orig = [float(t) for t in res_origin.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual(min(coords_orig[0::2]), 0.0, delta=0.5)
+        self.assertAlmostEqual(min(coords_orig[1::2]), 0.0, delta=0.5)
 
-        res_abs = shape_transform(self.context, drawing=self.sq, mode="Inflate", t=0.5, anchor="absolute")
-        coords_abs = [float(t) for t in res_abs.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual((min(coords_abs[0::2]) + max(coords_abs[0::2])) / 2.0, 500.0, delta=1.0)
-        self.assertAlmostEqual((min(coords_abs[1::2]) + max(coords_abs[1::2])) / 2.0, 300.0, delta=1.0)
+        res_zero = shape_transform(self.context, drawing=self.sq, mode="Inflate", t=0.5, anchor="zero")
+        coords_zero = [float(t) for t in res_zero.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_zero[0::2]) + max(coords_zero[0::2])) / 2.0, 500.0, delta=1.0)
+        self.assertAlmostEqual((min(coords_zero[1::2]) + max(coords_zero[1::2])) / 2.0, 300.0, delta=1.0)
+
+        res_pos = shape_transform(self.context, drawing=self.sq, mode="Inflate", t=0.5, anchor="pos")
+        coords_pos = [float(t) for t in res_pos.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_pos[0::2]) + max(coords_pos[0::2])) / 2.0, -450.0, delta=10.0)
+        self.assertAlmostEqual((min(coords_pos[1::2]) + max(coords_pos[1::2])) / 2.0, -250.0, delta=10.0)
 
     def test_graph_engine_evaluation(self):
         """Verifica la integración y evaluación de Shape Transform en GraphEngine."""
@@ -111,11 +116,11 @@ class TestShapeTransformAdvanced(unittest.TestCase):
     def test_skew_x_and_y(self):
         """Verifica la deformación angular planar (Skew en X y Skew en Y)."""
         # Con angle_x=0 y angle_y=0, forma original sin alteración
-        res_zero = shape_transform(self.context, drawing=self.sq, mode="Skew", angle_x=0, angle_y=0, anchor="original")
+        res_zero = shape_transform(self.context, drawing=self.sq, mode="Skew", angle_x=0, angle_y=0, anchor="origin")
         self.assertIn("m 0 0", res_zero)
 
         # Skew X = 45° (tan(45°) = 1.0)
-        # Un cuadrado [0..100, 0..100] centrado con anchor original desplaza x según y
+        # Un cuadrado [0..100, 0..100] centrado con anchor center desplaza x según y
         res_skew_x = shape_transform(self.context, drawing=self.sq, mode="Skew", angle_x=45, angle_y=0, anchor="center")
         self.assertTrue(res_skew_x.startswith("m "))
         self.assertIn("l ", res_skew_x)
@@ -125,7 +130,7 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertTrue(res_skew_y.startswith("m "))
 
     def test_skew_anchors(self):
-        """Verifica los modos de anclaje de Skew: center, topleft, absolute."""
+        """Verifica los modos de anclaje de Skew: center, origin, zero, pos."""
         res_center = shape_transform(self.context, drawing=self.sq, mode="Skew", angle_x=30, angle_y=0, anchor="center")
         coords_c = [float(t) for t in res_center.split() if t.replace('-','',1).replace('.','',1).isdigit()]
         xs_c = coords_c[0::2]
@@ -133,15 +138,20 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertAlmostEqual((min(xs_c) + max(xs_c)) / 2.0, 0.0, delta=1.0)
         self.assertAlmostEqual((min(ys_c) + max(ys_c)) / 2.0, 0.0, delta=1.0)
 
-        res_topleft = shape_transform(self.context, drawing=self.sq, mode="Skew", angle_x=30, angle_y=0, anchor="topleft")
-        coords_tl = [float(t) for t in res_topleft.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual(min(coords_tl[0::2]), 0.0, delta=0.5)
-        self.assertAlmostEqual(min(coords_tl[1::2]), 0.0, delta=0.5)
+        res_origin = shape_transform(self.context, drawing=self.sq, mode="Skew", angle_x=30, angle_y=0, anchor="origin")
+        coords_orig = [float(t) for t in res_origin.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual(min(coords_orig[0::2]), 0.0, delta=0.5)
+        self.assertAlmostEqual(min(coords_orig[1::2]), 0.0, delta=0.5)
 
-        res_abs = shape_transform(self.context, drawing=self.sq, mode="Skew", angle_x=30, angle_y=0, anchor="absolute")
-        coords_abs = [float(t) for t in res_abs.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual((min(coords_abs[0::2]) + max(coords_abs[0::2])) / 2.0, 500.0, delta=1.0)
-        self.assertAlmostEqual((min(coords_abs[1::2]) + max(coords_abs[1::2])) / 2.0, 300.0, delta=1.0)
+        res_zero = shape_transform(self.context, drawing=self.sq, mode="Skew", angle_x=30, angle_y=0, anchor="zero")
+        coords_zero = [float(t) for t in res_zero.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_zero[0::2]) + max(coords_zero[0::2])) / 2.0, 500.0, delta=1.0)
+        self.assertAlmostEqual((min(coords_zero[1::2]) + max(coords_zero[1::2])) / 2.0, 300.0, delta=1.0)
+
+        res_pos = shape_transform(self.context, drawing=self.sq, mode="Skew", angle_x=30, angle_y=0, anchor="pos")
+        coords_pos = [float(t) for t in res_pos.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_pos[0::2]) + max(coords_pos[0::2])) / 2.0, -594.34, delta=5.0)
+        self.assertAlmostEqual((min(coords_pos[1::2]) + max(coords_pos[1::2])) / 2.0, -250.0, delta=5.0)
 
     def test_skew_graph_engine_evaluation(self):
         """Verifica la integración y evaluación de Skew en GraphEngine."""
@@ -170,7 +180,7 @@ class TestShapeTransformAdvanced(unittest.TestCase):
 
     def test_round_corners_bezier(self):
         """Verifica el redondeo de esquinas con curvas Bézier cúbicas."""
-        res_round = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=20, corner_mode="Round", anchor="original")
+        res_round = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=20, corner_mode="Round", anchor="origin")
         self.assertTrue(res_round.startswith("m "))
         # Debe contener comandos 'b' para las curvas en las esquinas
         self.assertIn(" b ", res_round)
@@ -179,14 +189,14 @@ class TestShapeTransformAdvanced(unittest.TestCase):
 
     def test_round_corners_bevel(self):
         """Verifica el chaflán/biselado de esquinas (Bevel con rectas 'l')."""
-        res_bevel = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=20, corner_mode="Bevel", anchor="original")
+        res_bevel = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=20, corner_mode="Bevel", anchor="origin")
         self.assertTrue(res_bevel.startswith("m "))
         # Bevel corta las esquinas con segmentos rectos 'l' y no debe generar 'b'
         self.assertNotIn(" b ", res_bevel)
         self.assertIn(" l ", res_bevel)
 
     def test_round_corners_anchors(self):
-        """Verifica los modos de anclaje de Round Corners: center, topleft, absolute."""
+        """Verifica los modos de anclaje de Round Corners: center, origin, zero, pos."""
         res_center = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=15, anchor="center")
         coords_c = [float(t) for t in res_center.split() if t.replace('-','',1).replace('.','',1).isdigit()]
         xs_c = coords_c[0::2]
@@ -194,15 +204,20 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertAlmostEqual((min(xs_c) + max(xs_c)) / 2.0, 0.0, delta=1.0)
         self.assertAlmostEqual((min(ys_c) + max(ys_c)) / 2.0, 0.0, delta=1.0)
 
-        res_topleft = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=15, anchor="topleft")
-        coords_tl = [float(t) for t in res_topleft.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual(min(coords_tl[0::2]), 0.0, delta=0.5)
-        self.assertAlmostEqual(min(coords_tl[1::2]), 0.0, delta=0.5)
+        res_origin = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=15, anchor="origin")
+        coords_orig = [float(t) for t in res_origin.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual(min(coords_orig[0::2]), 0.0, delta=0.5)
+        self.assertAlmostEqual(min(coords_orig[1::2]), 0.0, delta=0.5)
 
-        res_abs = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=15, anchor="absolute")
-        coords_abs = [float(t) for t in res_abs.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual((min(coords_abs[0::2]) + max(coords_abs[0::2])) / 2.0, 500.0, delta=1.0)
-        self.assertAlmostEqual((min(coords_abs[1::2]) + max(coords_abs[1::2])) / 2.0, 300.0, delta=1.0)
+        res_zero = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=15, anchor="zero")
+        coords_zero = [float(t) for t in res_zero.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_zero[0::2]) + max(coords_zero[0::2])) / 2.0, 500.0, delta=1.0)
+        self.assertAlmostEqual((min(coords_zero[1::2]) + max(coords_zero[1::2])) / 2.0, 300.0, delta=1.0)
+
+        res_pos = shape_transform(self.context, drawing=self.sq, mode="Round Corners", radius=15, anchor="pos")
+        coords_pos = [float(t) for t in res_pos.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_pos[0::2]) + max(coords_pos[0::2])) / 2.0, -450.0, delta=5.0)
+        self.assertAlmostEqual((min(coords_pos[1::2]) + max(coords_pos[1::2])) / 2.0, -250.0, delta=5.0)
 
     def test_round_corners_graph_engine_evaluation(self):
         """Verifica la integración y evaluación de Round Corners en GraphEngine."""
@@ -245,7 +260,7 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertGreater(len(res_guide.split()), 30)
 
     def test_flexor_anchors(self):
-        """Verifica los modos de anclaje de Flexor: center, topleft, absolute."""
+        """Verifica los modos de anclaje de Flexor: center, origin, zero, pos."""
         res_center = shape_transform(self.context, drawing=self.rect, mode="Flexor", curve="30", bend_t=1.0, anchor="center")
         coords_c = [float(t) for t in res_center.split() if t.replace('-','',1).replace('.','',1).isdigit()]
         xs_c = coords_c[0::2]
@@ -253,15 +268,20 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertAlmostEqual((min(xs_c) + max(xs_c)) / 2.0, 0.0, delta=1.0)
         self.assertAlmostEqual((min(ys_c) + max(ys_c)) / 2.0, 0.0, delta=1.0)
 
-        res_topleft = shape_transform(self.context, drawing=self.rect, mode="Flexor", curve="30", bend_t=1.0, anchor="topleft")
-        coords_tl = [float(t) for t in res_topleft.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual(min(coords_tl[0::2]), 0.0, delta=0.5)
-        self.assertAlmostEqual(min(coords_tl[1::2]), 0.0, delta=0.5)
+        res_origin = shape_transform(self.context, drawing=self.rect, mode="Flexor", curve="30", bend_t=1.0, anchor="origin")
+        coords_orig = [float(t) for t in res_origin.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual(min(coords_orig[0::2]), 0.0, delta=0.5)
+        self.assertAlmostEqual(min(coords_orig[1::2]), 0.0, delta=0.5)
 
-        res_abs = shape_transform(self.context, drawing=self.rect, mode="Flexor", curve="30", bend_t=1.0, anchor="absolute")
-        coords_abs = [float(t) for t in res_abs.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual((min(coords_abs[0::2]) + max(coords_abs[0::2])) / 2.0, 500.0, delta=1.0)
-        self.assertAlmostEqual((min(coords_abs[1::2]) + max(coords_abs[1::2])) / 2.0, 300.0, delta=1.0)
+        res_zero = shape_transform(self.context, drawing=self.rect, mode="Flexor", curve="30", bend_t=1.0, anchor="zero")
+        coords_zero = [float(t) for t in res_zero.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_zero[0::2]) + max(coords_zero[0::2])) / 2.0, 500.0, delta=1.0)
+        self.assertAlmostEqual((min(coords_zero[1::2]) + max(coords_zero[1::2])) / 2.0, 300.0, delta=1.0)
+
+        res_pos = shape_transform(self.context, drawing=self.rect, mode="Flexor", curve="30", bend_t=1.0, anchor="pos")
+        coords_pos = [float(t) for t in res_pos.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_pos[0::2]) + max(coords_pos[0::2])) / 2.0, -400.0, delta=10.0)
+        self.assertAlmostEqual((min(coords_pos[1::2]) + max(coords_pos[1::2])) / 2.0, -270.0, delta=10.0)
 
     def test_flexor_graph_engine_evaluation(self):
         """Verifica la integración y evaluación de Flexor en GraphEngine."""
@@ -292,7 +312,7 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         """Verifica la deformación polar morfológica hacia una forma objetivo (Distort)."""
         diamond = "m 50 0 l 100 50 l 50 100 l 0 50"
         # Con t=0.0, la forma se mantiene idéntica
-        res_t0 = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=diamond, t=0.0, anchor="original")
+        res_t0 = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=diamond, t=0.0, anchor="origin")
         self.assertIn("m 0 0", res_t0)
 
         # Con t=1.0, se deforma hacia el rombo objetivo con subdivisión adaptativa
@@ -301,7 +321,7 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertGreater(len(res_t1.split()), len(self.sq.split()))
 
     def test_distort_anchors(self):
-        """Verifica los modos de anclaje de Distort: center, topleft, absolute."""
+        """Verifica los modos de anclaje de Distort: center, origin, zero, pos."""
         diamond = "m 50 0 l 100 50 l 50 100 l 0 50"
         res_center = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=diamond, t=0.8, anchor="center")
         coords_c = [float(t) for t in res_center.split() if t.replace('-','',1).replace('.','',1).isdigit()]
@@ -310,15 +330,20 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertAlmostEqual((min(xs_c) + max(xs_c)) / 2.0, 0.0, delta=1.0)
         self.assertAlmostEqual((min(ys_c) + max(ys_c)) / 2.0, 0.0, delta=1.0)
 
-        res_topleft = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=diamond, t=0.8, anchor="topleft")
-        coords_tl = [float(t) for t in res_topleft.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual(min(coords_tl[0::2]), 0.0, delta=0.5)
-        self.assertAlmostEqual(min(coords_tl[1::2]), 0.0, delta=0.5)
+        res_origin = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=diamond, t=0.8, anchor="origin")
+        coords_orig = [float(t) for t in res_origin.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual(min(coords_orig[0::2]), 0.0, delta=0.5)
+        self.assertAlmostEqual(min(coords_orig[1::2]), 0.0, delta=0.5)
 
-        res_abs = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=diamond, t=0.8, anchor="absolute")
-        coords_abs = [float(t) for t in res_abs.split() if t.replace('-','',1).replace('.','',1).isdigit()]
-        self.assertAlmostEqual((min(coords_abs[0::2]) + max(coords_abs[0::2])) / 2.0, 500.0, delta=1.0)
-        self.assertAlmostEqual((min(coords_abs[1::2]) + max(coords_abs[1::2])) / 2.0, 300.0, delta=1.0)
+        res_zero = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=diamond, t=0.8, anchor="zero")
+        coords_zero = [float(t) for t in res_zero.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_zero[0::2]) + max(coords_zero[0::2])) / 2.0, 500.0, delta=1.0)
+        self.assertAlmostEqual((min(coords_zero[1::2]) + max(coords_zero[1::2])) / 2.0, 300.0, delta=1.0)
+
+        res_pos = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=diamond, t=0.8, anchor="pos")
+        coords_pos = [float(t) for t in res_pos.split() if t.replace('-','',1).replace('.','',1).isdigit()]
+        self.assertAlmostEqual((min(coords_pos[0::2]) + max(coords_pos[0::2])) / 2.0, -450.0, delta=5.0)
+        self.assertAlmostEqual((min(coords_pos[1::2]) + max(coords_pos[1::2])) / 2.0, -250.0, delta=5.0)
 
     def test_distort_graph_engine_evaluation(self):
         """Verifica la integración y evaluación de Distort en GraphEngine."""
@@ -346,6 +371,39 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         self.assertTrue(res.startswith("m "))
         self.assertNotIn("[Err", res)
 
+    def test_distort_bezier_preservation(self):
+        """Verifica que step_px == 0.0 genere comandos Bézier nativos 'b' analíticos sin facetado."""
+        circle = "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0"
+        diamond = "m 50 0 l 100 50 l 50 100 l 0 50"
+        res_t05 = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=circle, t=0.5, step_px=0.0)
+        self.assertIn(" b ", res_t05)
+        self.assertNotIn(" l ", res_t05)
+
+        # En modo subdividido step_px > 0, genera polilíneas 'l'
+        res_subdiv = shape_transform(self.context, drawing=self.sq, mode="Distort", target_shape=circle, t=0.5, step_px=2.0)
+        self.assertIn(" l ", res_subdiv)
+
+    def test_distort_hole_topology_collapse(self):
+        """Verifica que los huecos de letras (ej. 'O') colapsen a su centroide y no generen doble trazo al morphing a formas sólidas."""
+        # Letra 'O': cuadrado exterior (100x100) con hueco interior (20x20 a 80x80)
+        letter_o = "m 0 0 l 100 0 l 100 100 l 0 100 m 20 20 l 80 20 l 80 80 l 20 80"
+        circle = "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0"
+
+        # t=0.0: Contiene ambos contornos
+        res_t0 = shape_transform(self.context, drawing=letter_o, mode="Distort", target_shape=circle, t=0.0)
+        self.assertEqual(res_t0.strip().count("m "), 2)
+
+        # t=0.5: El hueco interior se encoge hacia su centroide dentro del cuerpo
+        res_t05 = shape_transform(self.context, drawing=letter_o, mode="Distort", target_shape=circle, t=0.5)
+        self.assertEqual(res_t05.strip().count("m "), 2)
+        self.assertIn(" b ", res_t05)
+
+        # t=1.0: El objetivo es un círculo sólido (1 contorno). El hueco colapsado se elimina, sin doble trazado exterior.
+        res_t1 = shape_transform(self.context, drawing=letter_o, mode="Distort", target_shape=circle, t=1.0)
+        self.assertEqual(res_t1.strip().count("m "), 1)
+        self.assertIn(" b ", res_t1)
+
 
 if __name__ == '__main__':
     unittest.main()
+

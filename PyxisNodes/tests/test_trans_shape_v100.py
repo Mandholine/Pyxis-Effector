@@ -35,26 +35,26 @@ class TestTransShapeV100(unittest.TestCase):
         }
 
     def test_anchor_modes(self):
-        """Verifica los modos de anclaje: center, topleft, absolute, original."""
+        """Verifica los modos de anclaje de Shapery: center, origin, zero, pos."""
         res_center = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="center")
         self.assertTrue(res_center.startswith("m -50 -50"))
 
-        res_topleft = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="topleft")
-        self.assertTrue(res_topleft.startswith("m 0 0"))
+        res_origin = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="origin")
+        self.assertTrue(res_origin.startswith("m 0 0"))
 
-        res_abs = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="absolute")
-        self.assertTrue(res_abs.startswith("m 150 250"))
+        res_zero = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="zero")
+        self.assertTrue(res_zero.startswith("m 150 250"))
 
-        res_orig = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="original")
-        self.assertTrue(res_orig.startswith("m 0 0"))
+        res_pos = shape_manipulator(self.context, drawing=self.sq, scale_x=1.0, scale_y=1.0, mode="pos")
+        self.assertTrue(res_pos.startswith("m -200 -300"))
 
     def test_real_shape_offsetting(self):
         """Verifica la expansión (+10px) y contracción (-10px) de contornos usando PyClipperOffset."""
-        res_plus = shape_manipulator(self.context, drawing=self.sq, offset_border=10.0, mode="topleft")
+        res_plus = shape_manipulator(self.context, drawing=self.sq, offset_border=10.0, mode="origin")
         self.assertIn("l", res_plus)
         self.assertNotIn("[Err", res_plus)
 
-        res_minus = shape_manipulator(self.context, drawing=self.sq, offset_border=-10.0, mode="topleft")
+        res_minus = shape_manipulator(self.context, drawing=self.sq, offset_border=-10.0, mode="origin")
         self.assertTrue(res_minus.startswith("m 80 80"))
 
     def test_full_node_execution(self):

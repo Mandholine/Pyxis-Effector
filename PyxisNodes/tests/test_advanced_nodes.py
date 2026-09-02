@@ -104,20 +104,20 @@ class AdvancedNodesTests(unittest.TestCase):
         ctx = {"fx_pos_x": 500, "fx_pos_y": 300}
         square = "m 0 0 l 100 0 l 100 100 l 0 100 "
 
-        # 1. Mode 'topleft': Scale 2x, offset +10, +10 -> top-left at (10, 10), corner at (210, 210)
-        t_topleft = shape_manipulator(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="topleft")
-        self.assertIn("m 10 10", t_topleft)
-        self.assertIn("l 210 210", t_topleft)
+        # 1. Mode 'origin': Scale 2x, offset +10, +10 -> top-left at (10, 10), corner at (210, 210)
+        t_origin = shape_manipulator(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="origin")
+        self.assertIn("m 10 10", t_origin)
+        self.assertIn("l 210 210", t_origin)
 
         # 2. Mode 'center': Center at (0,0), scale 2x (box [-100..100, -100..100]) + offset (10, 10) -> [-90..110, -90..110]
         t_center = shape_manipulator(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="center")
         self.assertIn("m -90 -90", t_center)
         self.assertIn("l 110 110", t_center)
 
-        # 3. Mode 'absolute': Bounding box centered and placed at (500+10, 300+10) = (510, 310) -> [-100+510 .. 100+510] = [410..610]
-        t_abs = shape_manipulator(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="absolute")
-        self.assertIn("m 410 210", t_abs)
-        self.assertIn("l 610 410", t_abs)
+        # 3. Mode 'zero': Bounding box centered and placed at (500+10, 300+10) = (510, 310) -> [-100+510 .. 100+510] = [410..610]
+        t_zero = shape_manipulator(ctx, drawing=square, scale_x=2.0, scale_y=2.0, rot=0, offset_x=10, offset_y=10, mode="zero")
+        self.assertIn("m 410 210", t_zero)
+        self.assertIn("l 610 410", t_zero)
 
     def test_trans_shape_engine(self):
         graph = {
@@ -132,7 +132,7 @@ class AdvancedNodesTests(unittest.TestCase):
                         "scale_y": "200",
                         "offset_x": "10",
                         "offset_y": "10",
-                        "anchor": "topleft",
+                        "anchor": "origin",
                         "mode": "Escalar"
                     }
                 }
