@@ -319,6 +319,22 @@ system_node(
 )
 
 system_node(
+    "Shape", "Shape Array", node_kind="data", color="#5B2C6F",
+    inputs=["Particle", "Cols", "Rows", "Spacing X", "Spacing Y", "Scale", "Anchor", "Order"],
+    outputs=["Shape", "\\pos Tag", "X", "Y", "Angle (\\frz)", "Index (a_i)", "Total (a_n)", "Col / Ring", "Row / IdxRing"],
+    properties={
+        "particle": "", "formation": "", "width": "0", "height": "0", "scale": "1.0",
+        "modo": "Grid", "out_mode": "Loops", "cols": "5", "rows": "3",
+        "spacing_x": "0", "spacing_y": "0", "spacing": "0",
+        "rings": "3", "count_per_ring": "", "radius": "50", "radius_step": "30", "rotate_step": "0",
+        "count": "20", "turns": "2.0", "max_radius": "100", "angle_step": "0",
+        "area_width": "150", "area_height": "100", "seed": "1",
+        "anchor": "piezas", "order": "79"
+    },
+    widgets=[]
+)
+
+system_node(
     "Functions", "Clip Gradient", node_kind="data", color="#5B2C6F",
     inputs=["Stripes", "Angle", "Padding", "Overlap", "Order"],
     outputs=["Output", "Progress (0-1)", "Index", "Total"],

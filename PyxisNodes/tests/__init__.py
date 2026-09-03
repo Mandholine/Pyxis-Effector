@@ -14,10 +14,4 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-import os
-import sys
-
-# Garantizar que el directorio raíz de PyxisNodes esté en sys.path para la ejecución de tests
-_pyxis_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _pyxis_dir not in sys.path:
-    sys.path.insert(0, _pyxis_dir)
+"""Paquete de pruebas unitarias y de integracion para Pyxis Node Engine."""

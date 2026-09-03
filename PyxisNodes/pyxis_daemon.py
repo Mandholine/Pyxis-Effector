@@ -54,7 +54,7 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
         if self.path == "/status":
             self._send_json({
                 "status": "ok",
-                "version": "1.0.5",
+                "version": "1.0.6",
                 "pid": os.getpid(),
                 "daemon_mode": getattr(self.daemon_context, "daemon_mode", True)
             })

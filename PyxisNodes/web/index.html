@@ -78,7 +78,7 @@
                 <img src="icon.png" class="brand-icon" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover;">
                 <span>PYXIS EFFECTOR</span>
             </div>
-            <span class="brand-badge">v1.0.5</span>
+            <span class="brand-badge">v1.0.6</span>
 
             <!-- Botones de Acción de Programa -->
             <button class="pyxis-btn" id="btn-save-main" onclick="triggerSave()" data-i18n-tooltip="topbar.save_tooltip" data-tooltip="Guardar cambios en la plantilla activa">
@@ -6587,6 +6587,22 @@
                     { full: "Normal", short: "Normal" },
                     { full: "Invertido", short: "Invertido" }
                 ]
+            },
+            "Shape Array": {
+                propKey: "out_mode",
+                secondaryPropKey: "modo",
+                modes: [
+                    { full: "Loops", short: "LOOPS" },
+                    { full: "Shape", short: "SHAPE" }
+                ],
+                secondaryModes: [
+                    { full: "Grid", short: "GRID" },
+                    { full: "Formation", short: "FORM" },
+                    { full: "Rings", short: "RINGS" },
+                    { full: "Spiral", short: "SPIRAL" },
+                    { full: "Scatter", short: "SCATTER" },
+                    { full: "Hex", short: "HEX" }
+                ]
             }
         };
 
@@ -6602,7 +6618,8 @@
                                 (key === "Shape Walker" ? (title.includes("Shape Walker") || title.includes("Recorredor") || (node && node.type && String(node.type).includes("Shape Walker"))) :
                                 (key === "Shape Manipulator" ? (title.includes("Shape Manipulator") || title.includes("Manipulador") || (node && node.type && String(node.type).includes("Shape Manipulator"))) :
                                 (key === "Shape Transform" ? (title.includes("Shape Transform") || title.includes("Trans. Shape") || (node && node.type && String(node.type).includes("Shape Transform"))) :
-                                (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key)))))))));
+                                (key === "Shape Array" ? (title.includes("Shape Array") || title.includes("Array") || (node && node.type && String(node.type).includes("Shape Array"))) :
+                                (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key))))))))));
                 if (matches) {
                     const entry = DYNAMIC_NODE_MODES[key];
                     const modeList = Array.isArray(entry) ? entry : (entry.modes || []);
@@ -7506,6 +7523,66 @@
                     { name: "Bleed", default: "0" },
                     { name: "Order", default: "79" }
                 ]
+            },
+            "Shape Array": {
+                "Grid": [
+                    { name: "Particle", default: "", property: "particle" },
+                    { name: "Cols", default: "5", property: "cols" },
+                    { name: "Rows", default: "3", property: "rows" },
+                    { name: "Spacing X", default: "0", property: "spacing_x" },
+                    { name: "Spacing Y", default: "0", property: "spacing_y" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order" }
+                ],
+                "Formation": [
+                    { name: "Particle", default: "", property: "particle" },
+                    { name: "Formation", default: "", property: "formation" },
+                    { name: "Spacing", default: "0", property: "spacing" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order" }
+                ],
+                "Rings": [
+                    { name: "Particle", default: "", property: "particle" },
+                    { name: "Rings", default: "3", property: "rings" },
+                    { name: "Count / Ring", default: "", property: "count_per_ring" },
+                    { name: "Radius", default: "50", property: "radius" },
+                    { name: "Radius Step", default: "30", property: "radius_step" },
+                    { name: "Rotate Step", default: "0", property: "rotate_step" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order" }
+                ],
+                "Spiral": [
+                    { name: "Particle", default: "", property: "particle" },
+                    { name: "Count", default: "20", property: "count" },
+                    { name: "Turns", default: "2.0", property: "turns" },
+                    { name: "Max Radius", default: "100", property: "max_radius" },
+                    { name: "Angle Step", default: "0", property: "angle_step" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order" }
+                ],
+                "Scatter": [
+                    { name: "Particle", default: "", property: "particle" },
+                    { name: "Count", default: "20", property: "count" },
+                    { name: "Width", default: "150", property: "area_width" },
+                    { name: "Height", default: "100", property: "area_height" },
+                    { name: "Seed", default: "1", property: "seed" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order" }
+                ],
+                "Hex": [
+                    { name: "Particle", default: "", property: "particle" },
+                    { name: "Cols", default: "5", property: "cols" },
+                    { name: "Rows", default: "3", property: "rows" },
+                    { name: "Spacing", default: "0", property: "spacing" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order" }
+                ]
             }
         };
 
@@ -7558,6 +7635,9 @@
                     if (nodeKey === "Math") {
                         const secMode = node.properties ? (node.properties["operacion"] || "Suma") : "Suma";
                         specList = MODE_INPUT_SPECS["Math"][secMode] || MODE_INPUT_SPECS["Math"]["Suma"];
+                    } else if (nodeKey === "Shape Array") {
+                        const secMode = node.properties ? (node.properties["modo"] || "Grid") : "Grid";
+                        specList = MODE_INPUT_SPECS["Shape Array"][secMode] || MODE_INPUT_SPECS["Shape Array"]["Grid"];
                     } else {
                         specList = MODE_INPUT_SPECS[nodeKey][curMode] || MODE_INPUT_SPECS[nodeKey]["DEFAULT"];
                     }
@@ -7779,7 +7859,7 @@
                     } else if (portName === "Anchor") {
                         w.draw = function(ctx, n, width, y, height) {
                             const drawY = (w.last_y !== undefined) ? w.last_y : y;
-                            const isSlicer = n.title && (n.title.includes("Slicer") || (n.type && String(n.type).includes("Slicer")));
+                            const isSlicer = n.title && (n.title.includes("Slicer") || n.title.includes("Array") || (n.type && (String(n.type).includes("Slicer") || String(n.type).includes("Array"))));
                             const anchorList = isSlicer ? SLICER_ANCHOR_MODES : GEOMETRIC_ANCHOR_MODES;
                             const defAnchor = isSlicer ? "piezas" : "center";
                             const curA = String((n.properties && n.properties.anchor) ? n.properties.anchor : (w.value || defAnchor)).trim();
@@ -7814,7 +7894,7 @@
                             ctx.restore();
                         };
                         w.onClick = function(canvas) {
-                            const isSlicer = node.title && (node.title.includes("Slicer") || (node.type && String(node.type).includes("Slicer")));
+                            const isSlicer = node.title && (node.title.includes("Slicer") || node.title.includes("Array") || (node.type && (String(node.type).includes("Slicer") || String(node.type).includes("Array"))));
                             const anchorList = isSlicer ? SLICER_ANCHOR_MODES : GEOMETRIC_ANCHOR_MODES;
                             const defAnchor = isSlicer ? "piezas" : "center";
                             const curA = String((node.properties && node.properties.anchor) ? node.properties.anchor : (w.value || defAnchor)).trim();
@@ -8369,6 +8449,28 @@ function setupDynamicInlineNode(node) {
             if (!node.properties) node.properties = {};
             node.widgets_up = true;
 
+            if (node.title && (node.title.includes("Shape Array") || (node.type && String(node.type).includes("Shape Array")))) {
+                const reqOutputs = [
+                    { name: "Shape", type: "data" },
+                    { name: "\\pos Tag", type: "data" },
+                    { name: "X", type: "data" },
+                    { name: "Y", type: "data" },
+                    { name: "Angle (\\frz)", type: "data" },
+                    { name: "Index (a_i)", type: "data" },
+                    { name: "Total (a_n)", type: "data" },
+                    { name: "Col / Ring", type: "data" },
+                    { name: "Row / IdxRing", type: "data" }
+                ];
+                if (!node.outputs || node.outputs.length !== reqOutputs.length) {
+                    const oldLinks = (node.outputs || []).map(o => o.links);
+                    node.outputs = reqOutputs.map((o, idx) => ({
+                        name: o.name,
+                        type: o.type,
+                        links: oldLinks[idx] || null
+                    }));
+                }
+            }
+
             node.updateTagInputs = function() {
                 updateNodeModeInputs(this);
             };
@@ -8673,7 +8775,7 @@ function setupDynamicInlineNode(node) {
                         modeW += 26;
                     }
                     if (modeInfo.isSlicer || modeInfo.isShapesLib) {
-                        modeW += 26;
+                                        modeW += 26;
                     }
                 }
 
@@ -8685,6 +8787,7 @@ function setupDynamicInlineNode(node) {
 
                 const hasLoopFooter = (
                     titleText.includes("Slicer") ||
+                    titleText.includes("Shape Array") || titleText.includes("Array") ||
                     titleText.includes("Particles") || titleText.includes("Particles") ||
                     titleText.includes("IMG to pixels") || titleText.includes("IMG to Pixels") ||
                     titleText.includes("IMG to Shape") || titleText.includes("IMG to shape") ||
@@ -8698,8 +8801,8 @@ function setupDynamicInlineNode(node) {
                 let req_h = 12 + maxRows * 23 + (hasLoopFooter ? 14 : 0);
 
                 // Overrides específicos de la Fase 2
-                if (titleText.includes("Slicer")) {
-                    req_w = Math.max(req_w, 225);
+                if (titleText.includes("Slicer") || titleText.includes("Shape Array") || titleText.includes("Array")) {
+                    req_w = Math.max(req_w, 235);
                 } else if (titleText.includes("Benchmark")) {
                     req_w = Math.max(req_w, 225);
                     req_h = Math.max(req_h, 65);
@@ -8903,6 +9006,11 @@ function setupDynamicInlineNode(node) {
                 const titleText = String(this.title || this.type || "");
                 if (titleText.includes("Slicer")) {
                     footerCounterText = "j, j_max";
+                } else if (titleText.includes("Shape Array") || titleText.includes("Array")) {
+                    const outMode = String((this.properties && this.properties.out_mode) || "Loops").toLowerCase();
+                    if (outMode.includes("loop")) {
+                        footerCounterText = "a_i, a_n";
+                    }
                 } else if (titleText.includes("Particles") || titleText.includes("Particles")) {
                     footerCounterText = "p_i, p_n";
                 } else if (titleText.includes("IMG to pixels") || titleText.includes("IMG to Pixels")) {

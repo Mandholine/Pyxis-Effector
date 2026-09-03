@@ -14,7 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# node_engine.py (v1.0.5)
+# node_engine.py (v1.0.6)
 import math
 import os
 import re
@@ -637,6 +637,12 @@ def _eval_num_expr(val, context=None, default=0.0):
             eval_locals["j"] = eval_locals["fx_i"]
         if "j_max" not in eval_locals and "fx_n" in eval_locals:
             eval_locals["j_max"] = eval_locals["fx_n"]
+        if "a_i" not in eval_locals and "fx_i" in eval_locals:
+            eval_locals["a_i"] = eval_locals["fx_i"]
+        if "a_n" not in eval_locals and "fx_n" in eval_locals:
+            eval_locals["a_n"] = eval_locals["fx_n"]
+        if "a_max" not in eval_locals:
+            eval_locals["a_max"] = eval_locals.get("a_n", eval_locals.get("maxloop", 1))
 
         if "fx" not in eval_locals or eval_locals["fx"] is None or not isinstance(eval_locals["fx"], FxContext):
             eval_locals["fx"] = FxContext(eval_locals)
@@ -2356,6 +2362,194 @@ class GraphEngine:
                 return f"[Err Shape Walker: {e}]"
 
         # ---------------------------------------------------------------------
+        # 4B3. SHAPE ARRAY (Multi-Slot: Shape, \pos Tag, X, Y, Angle, a_i, a_n, Col/Ring, Row/IdxRing)
+        # ---------------------------------------------------------------------
+        elif node_type in ["Shape/Shape Array", "Shape Array"]:
+            try:
+                # Memoización por iteración de loop actual
+                memo_key = f"_sa_eval_{node_id}_{context.get('a_i', 1) if isinstance(context, dict) else 1}"
+                cached_res = context.get(memo_key) if isinstance(context, dict) else None
+
+                if cached_res is None:
+                    modo_raw = str(props.get("modo", props.get("mode", "Grid"))).strip()
+                    out_mode_raw = str(props.get("out_mode", "Loops")).strip()
+                    mode_norm = modo_raw.lower()
+
+                    particle_raw = self.get_input_value(node, 0, context)
+                    if particle_raw == "": particle_raw = str(props.get("particle", "")).strip()
+
+                    formation_raw = str(props.get("formation", "")).strip()
+                    cols_raw = str(props.get("cols", "5")).strip()
+                    rows_raw = str(props.get("rows", "3")).strip()
+                    sp_x_raw = str(props.get("spacing_x", "0")).strip()
+                    sp_y_raw = str(props.get("spacing_y", "0")).strip()
+                    sp_raw = str(props.get("spacing", "0")).strip()
+                    rings_raw = str(props.get("rings", "3")).strip()
+                    c_per_ring_raw = str(props.get("count_per_ring", "")).strip()
+                    rad_raw = str(props.get("radius", "50")).strip()
+                    dr_raw = str(props.get("radius_step", "30")).strip()
+                    rot_step_raw = str(props.get("rotate_step", "0")).strip()
+                    count_raw = str(props.get("count", "20")).strip()
+                    turns_raw = str(props.get("turns", "2.0")).strip()
+                    max_rad_raw = str(props.get("max_radius", "100")).strip()
+                    a_step_raw = str(props.get("angle_step", "0")).strip()
+                    w_area_raw = str(props.get("area_width", "150")).strip()
+                    h_area_raw = str(props.get("area_height", "100")).strip()
+                    seed_raw = str(props.get("seed", "1")).strip()
+                    sc_raw = str(props.get("scale", "1.0")).strip()
+                    anchor_raw = str(props.get("anchor", "piezas")).strip()
+                    order_raw = str(props.get("order", "79")).strip()
+                    w_target_raw = str(props.get("width", "0")).strip()
+                    h_target_raw = str(props.get("height", "0")).strip()
+
+                    if "form" in mode_norm:
+                        in_f = self.get_input_value(node, 1, context)
+                        if in_f != "": formation_raw = in_f
+                        in_sp = self.get_input_value(node, 2, context)
+                        if in_sp != "": sp_raw = in_sp
+                        in_sc = self.get_input_value(node, 3, context)
+                        if in_sc != "": sc_raw = in_sc
+                        in_anc = self.get_input_value(node, 4, context)
+                        if in_anc != "": anchor_raw = in_anc
+                        in_ord = self.get_input_value(node, 5, context)
+                        if in_ord != "": order_raw = in_ord
+                    elif "ring" in mode_norm or "anillo" in mode_norm:
+                        in_rng = self.get_input_value(node, 1, context)
+                        if in_rng != "": rings_raw = in_rng
+                        in_cr = self.get_input_value(node, 2, context)
+                        if in_cr != "": c_per_ring_raw = in_cr
+                        in_rad = self.get_input_value(node, 3, context)
+                        if in_rad != "": rad_raw = in_rad
+                        in_dr = self.get_input_value(node, 4, context)
+                        if in_dr != "": dr_raw = in_dr
+                        in_rot = self.get_input_value(node, 5, context)
+                        if in_rot != "": rot_step_raw = in_rot
+                        in_sc = self.get_input_value(node, 6, context)
+                        if in_sc != "": sc_raw = in_sc
+                        in_anc = self.get_input_value(node, 7, context)
+                        if in_anc != "": anchor_raw = in_anc
+                        in_ord = self.get_input_value(node, 8, context)
+                        if in_ord != "": order_raw = in_ord
+                    elif "spiral" in mode_norm or "espiral" in mode_norm:
+                        in_cnt = self.get_input_value(node, 1, context)
+                        if in_cnt != "": count_raw = in_cnt
+                        in_tr = self.get_input_value(node, 2, context)
+                        if in_tr != "": turns_raw = in_tr
+                        in_mr = self.get_input_value(node, 3, context)
+                        if in_mr != "": max_rad_raw = in_mr
+                        in_as = self.get_input_value(node, 4, context)
+                        if in_as != "": a_step_raw = in_as
+                        in_sc = self.get_input_value(node, 5, context)
+                        if in_sc != "": sc_raw = in_sc
+                        in_anc = self.get_input_value(node, 6, context)
+                        if in_anc != "": anchor_raw = in_anc
+                        in_ord = self.get_input_value(node, 7, context)
+                        if in_ord != "": order_raw = in_ord
+                    elif "scatter" in mode_norm or "dispers" in mode_norm:
+                        in_cnt = self.get_input_value(node, 1, context)
+                        if in_cnt != "": count_raw = in_cnt
+                        in_w = self.get_input_value(node, 2, context)
+                        if in_w != "": w_area_raw = in_w
+                        in_h = self.get_input_value(node, 3, context)
+                        if in_h != "": h_area_raw = in_h
+                        in_sd = self.get_input_value(node, 4, context)
+                        if in_sd != "": seed_raw = in_sd
+                        in_sc = self.get_input_value(node, 5, context)
+                        if in_sc != "": sc_raw = in_sc
+                        in_anc = self.get_input_value(node, 6, context)
+                        if in_anc != "": anchor_raw = in_anc
+                        in_ord = self.get_input_value(node, 7, context)
+                        if in_ord != "": order_raw = in_ord
+                    elif "hex" in mode_norm or "panal" in mode_norm:
+                        in_c = self.get_input_value(node, 1, context)
+                        if in_c != "": cols_raw = in_c
+                        in_r = self.get_input_value(node, 2, context)
+                        if in_r != "": rows_raw = in_r
+                        in_sp = self.get_input_value(node, 3, context)
+                        if in_sp != "": sp_raw = in_sp
+                        in_sc = self.get_input_value(node, 4, context)
+                        if in_sc != "": sc_raw = in_sc
+                        in_anc = self.get_input_value(node, 5, context)
+                        if in_anc != "": anchor_raw = in_anc
+                        in_ord = self.get_input_value(node, 6, context)
+                        if in_ord != "": order_raw = in_ord
+                    else:
+                        in_c = self.get_input_value(node, 1, context)
+                        if in_c != "": cols_raw = in_c
+                        in_r = self.get_input_value(node, 2, context)
+                        if in_r != "": rows_raw = in_r
+                        in_sx = self.get_input_value(node, 3, context)
+                        if in_sx != "": sp_x_raw = in_sx
+                        in_sy = self.get_input_value(node, 4, context)
+                        if in_sy != "": sp_y_raw = in_sy
+                        in_sc = self.get_input_value(node, 5, context)
+                        if in_sc != "": sc_raw = in_sc
+                        in_anc = self.get_input_value(node, 6, context)
+                        if in_anc != "": anchor_raw = in_anc
+                        in_ord = self.get_input_value(node, 7, context)
+                        if in_ord != "": order_raw = in_ord
+
+                    from nodes.shape_nodes import shape_array_node
+                    cached_res = shape_array_node(
+                        context=context,
+                        particle=particle_raw,
+                        formation=formation_raw,
+                        width=w_target_raw,
+                        height=h_target_raw,
+                        scale=sc_raw,
+                        anchor=anchor_raw,
+                        order=order_raw,
+                        mode=modo_raw,
+                        out_mode=out_mode_raw,
+                        cols=cols_raw,
+                        rows=rows_raw,
+                        spacing_x=sp_x_raw,
+                        spacing_y=sp_y_raw,
+                        spacing=sp_raw,
+                        rings=rings_raw,
+                        count_per_ring=c_per_ring_raw,
+                        radius=rad_raw,
+                        radius_step=dr_raw,
+                        rotate_step=rot_step_raw,
+                        count=count_raw,
+                        turns=turns_raw,
+                        max_radius=max_rad_raw,
+                        angle_step=a_step_raw,
+                        area_width=w_area_raw,
+                        area_height=h_area_raw,
+                        seed=seed_raw
+                    )
+                    if isinstance(context, dict):
+                        context[memo_key] = cached_res
+
+                res_shp, res_pos, res_x, res_y, res_ang, res_ai, res_an, res_col, res_row = cached_res
+
+                if output_slot_index == 1:
+                    return res_pos
+                elif output_slot_index == 2:
+                    return str(res_x)
+                elif output_slot_index == 3:
+                    return str(res_y)
+                elif output_slot_index == 4:
+                    frz_val = f"{res_ang:.2f}".rstrip('0').rstrip('.')
+                    if not frz_val or frz_val == "-0" or frz_val.endswith('.'):
+                        frz_val = "0"
+                    return f"\\frz{frz_val}"
+                elif output_slot_index == 5:
+                    return str(res_ai)
+                elif output_slot_index == 6:
+                    return str(res_an)
+                elif output_slot_index == 7:
+                    return str(res_col)
+                elif output_slot_index == 8:
+                    return str(res_row)
+                return res_shp
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return f"[Err Shape Array: {e}]"
+
+        # ---------------------------------------------------------------------
         # TEXT ON PATH (Multi-Slot: Tag Out, \pos Tag, Angle (\frz), X, Y, Length)
         # ---------------------------------------------------------------------
         elif node_type in ["Functions/Text on Path", "Text on Path", "Text/Text on Path"]:
@@ -3170,6 +3364,12 @@ class GraphEngine:
                         loop_ctx['particle_n'] = auto_n
                         loop_ctx['particle_max'] = auto_n
                         loop_ctx['total_pixels'] = auto_n
+                        loop_ctx['a_i'] = auto_j
+                        loop_ctx['a_n'] = auto_n
+                        loop_ctx['a_max'] = auto_n
+                        loop_ctx['array_i'] = auto_j
+                        loop_ctx['array_n'] = auto_n
+                        loop_ctx['array_max'] = auto_n
                         if 'j' not in context:
                             loop_ctx['j'] = auto_j
                             loop_ctx['j_max'] = auto_n
@@ -3677,6 +3877,8 @@ class GraphEngine:
         self.is_cancelled = False
         from particle_nodes import clear_particle_caches
         clear_particle_caches()
+        from nodes.shape_nodes import clear_shape_array_caches
+        clear_shape_array_caches()
 
         if hasattr(self, 'target_output_id') and self.target_output_id is not None:
             if isinstance(self.target_output_id, (list, tuple, set)):

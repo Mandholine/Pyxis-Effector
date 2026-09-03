@@ -17,7 +17,7 @@
 script_name        = "Pyxis Node Engine"
 script_description = "Visual Node-Based Karaoke Automation"
 script_author      = "Pyxis Dev Team"
-script_version     = "1.0.5"
+script_version     = "1.0.6"
 
 local ffi = require("ffi")
 local unicode = require("aegisub.unicode")

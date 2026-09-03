@@ -69,12 +69,12 @@ sys.stderr = GLOBAL_STDERR_STREAM
 import atexit
 import webview
 
-PYXIS_ENGINE_VERSION = "1.0.5"
+PYXIS_ENGINE_VERSION = "1.0.6"
 
 if sys.platform == "win32":
     try:
         import ctypes
-        my_app_id = "Mandholine.Pyxis.NodeEngine.1.0.5"
+        my_app_id = "Mandholine.Pyxis.NodeEngine.1.0.6"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
     except Exception:
         pass
@@ -359,7 +359,7 @@ class PyxisAPI:
                         pass
 
                     print("==========================================================", flush=True)
-                    print(" [Pyxis Engine v1.0.5] Consola de Python (Modo Depuración)", flush=True)
+                    print(" [Pyxis Engine v1.0.6] Consola de Python (Modo Depuración)", flush=True)
                     print(" Presione F1 en Pyxis Nodes para mostrar/ocultar esta consola.", flush=True)
                     print("==========================================================", flush=True)
 

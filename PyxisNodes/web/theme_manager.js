@@ -17,7 +17,7 @@
  */
 
 /* =============================================================================
-   Pyxis Theme Manager & Dynamic Node Palette Engine - v1.0.5
+   Pyxis Theme Manager & Dynamic Node Palette Engine - v1.0.6
    Includes: Theme Engine, Interactive Custom Theme Editor & Media Backgrounds
    ============================================================================= */
 (function (window) {

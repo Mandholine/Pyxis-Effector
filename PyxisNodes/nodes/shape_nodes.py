@@ -18,6 +18,8 @@
 """Nodos de figuras vectoriales fijas (~100x100) de Kara Effector (sin entradas, 1 salida Dato)."""
 
 import re
+import math
+import numpy as np
 from decorators import pyxis_node
 
 # -----------------------------------------------------------------------------
@@ -2857,3 +2859,646 @@ def shape_walker_node(
 
 NODE_REGISTRY["Shape/Shape Walker"] = shape_walker_node
 NODE_REGISTRY["Shape Walker"] = shape_walker_node
+
+
+# -----------------------------------------------------------------------------
+# SHAPE ARRAY / ARREGLOS Y FORMACIONES VECTORIALES
+# -----------------------------------------------------------------------------
+_GLOBAL_SHAPE_ARRAY_CACHE = {}
+
+def clear_shape_array_caches():
+    """Limpia la caché global de formaciones y arreglos de Shape Array."""
+    _GLOBAL_SHAPE_ARRAY_CACHE.clear()
+
+
+def point_in_contour_vectorized(points_x, points_y, contour):
+    """Prueba rápida y vectorizada de punto en contorno (Ray-Casting en NumPy)."""
+    if len(contour) < 3 or len(points_x) == 0:
+        return np.zeros(len(points_x), dtype=bool)
+    x = contour[:, 0]
+    y = contour[:, 1]
+    
+    px = points_x[:, np.newaxis]
+    py = points_y[:, np.newaxis]
+    
+    x1 = x[:-1]
+    y1 = y[:-1]
+    x2 = x[1:]
+    y2 = y[1:]
+    
+    if x[0] != x[-1] or y[0] != y[-1]:
+        x1 = np.append(x1, x[-1])
+        y1 = np.append(y1, y[-1])
+        x2 = np.append(x2, x[0])
+        y2 = np.append(y2, y[0])
+        
+    x1 = x1[np.newaxis, :]
+    y1 = y1[np.newaxis, :]
+    x2 = x2[np.newaxis, :]
+    y2 = y2[np.newaxis, :]
+    
+    cond1 = (y1 <= py) & (py < y2)
+    cond2 = (y2 <= py) & (py < y1)
+    cond_y = cond1 | cond2
+    
+    dy = np.where(y2 == y1, 1e-12, y2 - y1)
+    x_inters = (x2 - x1) * (py - y1) / dy + x1
+    cond_x = px < x_inters
+    
+    crossings = np.sum(cond_y & cond_x, axis=1)
+    return (crossings % 2) == 1
+
+
+def shape_array_core(
+    particle="m 0 0 l 10 0 l 10 10 l 0 10",
+    formation="",
+    width=0.0,
+    height=0.0,
+    scale=1.0,
+    mode="Grid",
+    cols=5,
+    rows=3,
+    spacing_x=0.0,
+    spacing_y=0.0,
+    spacing=0.0,
+    rings=3,
+    count_per_ring="",
+    radius=50.0,
+    radius_step=30.0,
+    rotate_step=0.0,
+    count=20,
+    turns=2.0,
+    max_radius=100.0,
+    angle_step=0.0,
+    area_width=150.0,
+    area_height=100.0,
+    seed=1,
+    anchor="piezas",
+    order="79",
+    out_mode="Loops",
+    active_index=1,
+    parent_x=0.0,
+    parent_y=0.0,
+    context=None
+):
+    """Motor de cálculo geométrico y generación para Shape Array.
+    Soporta modos Grid, Formation, Rings, Spiral, Scatter y Hex,
+    con dimensionamiento previo, ordenamiento Numpad y anclaje local o relativo."""
+    if context is None:
+        context = {}
+
+    mode_clean = str(mode or "Grid").strip().lower()
+    target_w = float(width) if width not in ("", None) else 0.0
+    target_h = float(height) if height not in ("", None) else 0.0
+    sc_val = max(0.001, float(scale) if scale not in ("", None) else 1.0)
+    cols_val = int(float(cols)) if cols not in ("", None) else 5
+    rows_val = int(float(rows)) if rows not in ("", None) else 3
+    sp_x_val = float(spacing_x) if spacing_x not in ("", None) else 0.0
+    sp_y_val = float(spacing_y) if spacing_y not in ("", None) else 0.0
+    sp_val = float(spacing) if spacing not in ("", None) else 0.0
+    rings_val = int(float(rings)) if rings not in ("", None) else 3
+    c_per_ring_str = str(count_per_ring or "")
+    rad_val = float(radius) if radius not in ("", None) else 50.0
+    dr_val = float(radius_step) if radius_step not in ("", None) else 30.0
+    d_rot_val = float(rotate_step) if rotate_step not in ("", None) else 0.0
+    count_val = int(float(count)) if count not in ("", None) else 20
+    turns_val = float(turns) if turns not in ("", None) else 2.0
+    max_r_val = float(max_radius) if max_radius not in ("", None) else 100.0
+    a_step_val = float(angle_step) if angle_step not in ("", None) else 0.0
+    aw_val = float(area_width) if area_width not in ("", None) else 150.0
+    ah_val = float(area_height) if area_height not in ("", None) else 100.0
+    seed_val = int(float(seed)) if seed not in ("", None) else 1
+    order_str = str(order or "79")
+
+    cache_key = (
+        str(particle),
+        str(formation),
+        target_w,
+        target_h,
+        sc_val,
+        mode_clean,
+        cols_val,
+        rows_val,
+        sp_x_val,
+        sp_y_val,
+        sp_val,
+        rings_val,
+        c_per_ring_str,
+        rad_val,
+        dr_val,
+        d_rot_val,
+        count_val,
+        turns_val,
+        max_r_val,
+        a_step_val,
+        aw_val,
+        ah_val,
+        seed_val,
+        order_str
+    )
+
+    cached_pieces = _GLOBAL_SHAPE_ARRAY_CACHE.get(cache_key)
+    if cached_pieces is not None:
+        return cached_pieces
+
+    from clipper_engine import ClipperEngine
+    from particle_nodes import sort_particles, _point_in_contour
+
+    # 1. Normalizar y parsear partículas (lista cíclica o forma individual)
+    raw_p_list = []
+    if isinstance(particle, list):
+        raw_p_list = [str(p) for p in particle if str(p).strip()]
+    elif isinstance(particle, str):
+        if "|" in particle:
+            raw_p_list = [p.strip() for p in particle.split("|") if p.strip()]
+        elif "\n" in particle:
+            raw_p_list = [p.strip() for p in particle.splitlines() if p.strip()]
+        else:
+            raw_p_list = [particle.strip()] if particle.strip() else []
+
+    if not raw_p_list:
+        raw_p_list = ["m 0 0 l 10 0 l 10 10 l 0 10"]
+
+    resolved_particles = []
+    for p_str in raw_p_list:
+        r_shp = resolve_shape_value(p_str, context) or p_str
+        if r_shp and not r_shp.lower().startswith("m ") and not r_shp.lower().startswith("m-") and not r_shp.lower().startswith("m0"):
+            from font_vector_engine import FontVectorEngine
+            v_shp = FontVectorEngine.text_to_shape(r_shp)
+            if v_shp and v_shp.strip():
+                r_shp = v_shp
+        if not r_shp or not r_shp.strip():
+            r_shp = "m 0 0 l 10 0 l 10 10 l 0 10"
+        resolved_particles.append(r_shp)
+
+    # 2. Calcular Bounding Box y re-escalado de partículas según ancho/alto/scale
+    prepared_particles = []
+    eff_widths = []
+    eff_heights = []
+
+    for p_shp in resolved_particles:
+        cnts = ClipperEngine.parse_assdraw(p_shp)
+        _, _, _, _, _, _, pw, ph = ClipperEngine.get_bbox(cnts)
+        
+        sx = (target_w / max(0.001, pw)) if target_w > 0 else 1.0
+        sy = (target_h / max(0.001, ph)) if target_h > 0 else 1.0
+        if target_w > 0 and target_h <= 0: sy = sx
+        elif target_h > 0 and target_w <= 0: sx = sy
+
+        sx *= sc_val
+        sy *= sc_val
+
+        # Normalizar y centrar partícula en (0,0)
+        norm_shp = shape_manipulator(context, drawing=p_shp, scale_x=sx, scale_y=sy, mode="center")
+        prepared_particles.append(norm_shp)
+        eff_widths.append(pw * sx)
+        eff_heights.append(ph * sy)
+
+    max_eff_w = max(eff_widths) if eff_widths else 10.0
+    max_eff_h = max(eff_heights) if eff_heights else 10.0
+
+    # 3. Generación geométrica según el modo
+    raw_items = []
+
+    if "form" in mode_clean or "guia" in mode_clean:
+        # Modo FORMATION: Relleno interior de forma
+        f_shp = resolve_shape_value(formation, context) or formation
+        if f_shp and not f_shp.lower().startswith("m ") and not f_shp.lower().startswith("m-"):
+            from font_vector_engine import FontVectorEngine
+            v_shp = FontVectorEngine.text_to_shape(f_shp)
+            if v_shp and v_shp.strip():
+                f_shp = v_shp
+
+        if not f_shp or not f_shp.strip():
+            f_shp = "m 0 0 l 100 0 l 100 100 l 0 100"
+
+        f_cnts = ClipperEngine.parse_assdraw(f_shp)
+        f_min_x, f_min_y, f_max_x, f_max_y, fcx, fcy, fw, fh = ClipperEngine.get_bbox(f_cnts)
+
+        # Si ancho/alto se definieron y se aplican a la formación
+        f_scale_x = (target_w / fw) if (target_w > 0 and fw > 0) else 1.0
+        f_scale_y = (target_h / fh) if (target_h > 0 and fh > 0) else 1.0
+        if f_scale_x != 1.0 or f_scale_y != 1.0:
+            f_cnts = [np.column_stack(((c[:, 0] - fcx) * f_scale_x + fcx, (c[:, 1] - fcy) * f_scale_y + fcy)) for c in f_cnts]
+            f_min_x, f_min_y, f_max_x, f_max_y, fcx, fcy, fw, fh = ClipperEngine.get_bbox(f_cnts)
+
+        # 1. Muestreo de posición pura en la formación (basado en el tamaño de partícula, sin distorsión de margen)
+        step_x = max(1.0, max_eff_w)
+        step_y = max(1.0, max_eff_h)
+
+        grid_w = max(1.0, f_max_x - f_min_x)
+        grid_h = max(1.0, f_max_y - f_min_y)
+        est_points = (grid_w / step_x) * (grid_h / step_y)
+        if est_points > 5000:
+            scale_step = math.sqrt(est_points / 5000.0)
+            step_x *= scale_step
+            step_y *= scale_step
+
+        x_ticks = np.arange(f_min_x + step_x * 0.5, f_max_x + step_x * 0.25, step_x)
+        y_ticks = np.arange(f_min_y + step_y * 0.5, f_max_y + step_y * 0.25, step_y)
+
+        if len(x_ticks) > 0 and len(y_ticks) > 0:
+            gx_grid, gy_grid = np.meshgrid(x_ticks, y_ticks)
+            pts_gx = gx_grid.flatten()
+            pts_gy = gy_grid.flatten()
+            grid_cols_cnt = len(x_ticks)
+            grid_rows_cnt = len(y_ticks)
+
+            c_center = (grid_cols_cnt + 1) / 2.0
+            r_center = (grid_rows_cnt + 1) / 2.0
+
+            cnt_bboxes = [(cnt, np.min(cnt, axis=0), np.max(cnt, axis=0)) for cnt in f_cnts]
+            inside_mask = np.zeros(len(pts_gx), dtype=int)
+
+            for cnt, c_min, c_max in cnt_bboxes:
+                bbox_mask = (pts_gx >= c_min[0]) & (pts_gx <= c_max[0]) & (pts_gy >= c_min[1]) & (pts_gy <= c_max[1])
+                if np.any(bbox_mask):
+                    sub_inside = point_in_contour_vectorized(pts_gx[bbox_mask], pts_gy[bbox_mask], cnt)
+                    inside_mask[bbox_mask] += sub_inside.astype(int)
+
+            valid_indices = np.where(inside_mask % 2 == 1)[0]
+            eff_sp_x = sp_x_val if sp_x_val != 0 else sp_val
+            eff_sp_y = sp_y_val if sp_y_val != 0 else sp_val
+
+            for idx_pt in valid_indices:
+                gx = float(pts_gx[idx_pt])
+                gy = float(pts_gy[idx_pt])
+                c_idx = int((idx_pt % grid_cols_cnt) + 1)
+                r_idx = int((idx_pt // grid_cols_cnt) + 1)
+
+                # Posición base dentro de la formación
+                rel_x = gx - fcx
+                rel_y = gy - fcy
+
+                # 2. Aplicar espaciado/margen DESPUÉS de posicionar en la formación
+                final_x = rel_x + (c_idx - c_center) * eff_sp_x
+                final_y = rel_y + (r_idx - r_center) * eff_sp_y
+
+                raw_items.append({
+                    "x": final_x,
+                    "y": final_y,
+                    "col": c_idx,
+                    "row": r_idx,
+                    "angle": 0.0,
+                    "ring": 1,
+                    "idx_ring": len(raw_items) + 1
+                })
+
+        if not raw_items:
+            raw_items.append({"x": 0.0, "y": 0.0, "col": 1, "row": 1, "angle": 0.0, "ring": 1, "idx_ring": 1})
+
+    elif "ring" in mode_clean or "anillo" in mode_clean or "radial" in mode_clean:
+        # Modo RINGS: Anillos concéntricos polares
+        n_rings = max(1, int(float(rings)) if rings not in ("", None) else 3)
+        base_r = float(radius) if radius not in ("", None) else 50.0
+        dr = float(radius_step) if radius_step not in ("", None) else 30.0
+        d_rot = float(rotate_step) if rotate_step not in ("", None) else 0.0
+        eff_diam = max(1.0, max(max_eff_w, max_eff_h))
+
+        c_per_ring_val = None
+        if count_per_ring not in ("", None):
+            try:
+                c_per_ring_val = max(1, int(float(count_per_ring)))
+            except Exception:
+                c_per_ring_val = None
+
+        eff_step = max(1.0, eff_diam + sp_val)
+        for k in range(n_rings):
+            cur_r = base_r + k * dr
+            if c_per_ring_val is not None:
+                nk = c_per_ring_val
+            else:
+                # Auto-densidad: Perímetro / Diámetro efectivo
+                perimeter = 2.0 * math.pi * max(0.1, abs(cur_r))
+                nk = max(1, int(round(perimeter / eff_step)))
+
+            d_theta = 360.0 / nk
+            theta_0 = k * d_rot
+
+            for j in range(nk):
+                theta_deg = theta_0 + j * d_theta
+                rad = math.radians(theta_deg)
+                gx = cur_r * math.cos(rad)
+                gy = cur_r * math.sin(rad)
+                raw_items.append({
+                    "x": gx,
+                    "y": gy,
+                    "col": j + 1,
+                    "row": k + 1,
+                    "angle": round(theta_deg, 2),
+                    "ring": k + 1,
+                    "idx_ring": j + 1
+                })
+
+    elif "spiral" in mode_clean or "espiral" in mode_clean:
+        # Modo SPIRAL
+        n_pts = max(1, int(float(count)) if count not in ("", None) else 20)
+        n_turns = float(turns) if turns not in ("", None) else 2.0
+        max_r = float(max_radius) if max_radius not in ("", None) else 100.0
+        a_step = float(angle_step) if angle_step not in ("", None) else 0.0
+
+        for i in range(n_pts):
+            t = (i / max(1, n_pts - 1)) if n_pts > 1 else 0.0
+            cur_r = max_r * t
+            theta_deg = (i * a_step) if a_step != 0 else (t * n_turns * 360.0)
+            rad = math.radians(theta_deg)
+            gx = cur_r * math.cos(rad)
+            gy = cur_r * math.sin(rad)
+            raw_items.append({
+                "x": gx,
+                "y": gy,
+                "col": i + 1,
+                "row": 1,
+                "angle": round(theta_deg, 2),
+                "ring": 1,
+                "idx_ring": i + 1
+            })
+
+    elif "scatter" in mode_clean or "dispers" in mode_clean or "rand" in mode_clean:
+        # Modo SCATTER
+        n_pts = max(1, int(float(count)) if count not in ("", None) else 20)
+        aw = max(1.0, float(area_width) if area_width not in ("", None) else 150.0)
+        ah = max(1.0, float(area_height) if area_height not in ("", None) else 100.0)
+        s_seed = int(float(seed)) if seed not in ("", None) else 1
+        rng = np.random.RandomState(abs(s_seed) % 1000000)
+
+        xs = rng.uniform(-aw / 2.0, aw / 2.0, size=n_pts)
+        ys = rng.uniform(-ah / 2.0, ah / 2.0, size=n_pts)
+        for i in range(n_pts):
+            raw_items.append({
+                "x": float(xs[i]),
+                "y": float(ys[i]),
+                "col": i + 1,
+                "row": 1,
+                "angle": 0.0,
+                "ring": 1,
+                "idx_ring": i + 1
+            })
+
+    elif "hex" in mode_clean or "panal" in mode_clean:
+        # Modo HEX (Honeycomb)
+        n_cols = max(1, int(float(cols)) if cols not in ("", None) else 5)
+        n_rows = max(1, int(float(rows)) if rows not in ("", None) else 3)
+        sp_val = float(spacing) if spacing not in ("", None) else 0.0
+        pitch_x = max_eff_w + sp_val
+        pitch_y = pitch_x * math.sqrt(3.0) / 2.0
+
+        total_w = (n_cols - 1) * pitch_x + pitch_x * 0.5
+        total_h = (n_rows - 1) * pitch_y
+
+        for r in range(n_rows):
+            row_shift = (pitch_x * 0.5) if (r % 2 == 1) else 0.0
+            for c in range(n_cols):
+                gx = c * pitch_x + row_shift - total_w / 2.0
+                gy = r * pitch_y - total_h / 2.0
+                raw_items.append({
+                    "x": gx,
+                    "y": gy,
+                    "col": c + 1,
+                    "row": r + 1,
+                    "angle": 0.0,
+                    "ring": 0,
+                    "idx_ring": 0
+                })
+
+    else:
+        # Modo GRID por defecto
+        n_cols = max(1, int(float(cols)) if cols not in ("", None) else 5)
+        n_rows = max(1, int(float(rows)) if rows not in ("", None) else 3)
+        sp_x = float(spacing_x) if spacing_x not in ("", None) else (float(spacing) if spacing not in ("", None) else 0.0)
+        sp_y = float(spacing_y) if spacing_y not in ("", None) else (float(spacing) if spacing not in ("", None) else 0.0)
+
+        pitch_x = max_eff_w + sp_x
+        pitch_y = max_eff_h + sp_y
+
+        total_w = (n_cols - 1) * pitch_x
+        total_h = (n_rows - 1) * pitch_y
+
+        for r in range(n_rows):
+            for c in range(n_cols):
+                gx = c * pitch_x - total_w / 2.0
+                gy = r * pitch_y - total_h / 2.0
+                raw_items.append({
+                    "x": gx,
+                    "y": gy,
+                    "col": c + 1,
+                    "row": r + 1,
+                    "angle": 0.0,
+                    "ring": 0,
+                    "idx_ring": 0
+                })
+
+    if not raw_items:
+        raw_items = [{"x": 0.0, "y": 0.0, "col": 1, "row": 1, "angle": 0.0, "ring": 0, "idx_ring": 0}]
+
+    # 4. Ordenamiento Numpad
+    sorted_items = sort_particles(raw_items, order_code=order, get_xy=lambda it: (it["x"], it["y"]))
+
+    # 5. Generar piezas en coordenadas relativas y forma monolítica unificada
+    pieces = []
+    combined_parts = []
+    for i, it in enumerate(sorted_items):
+        p_base = prepared_particles[i % len(prepared_particles)]
+        cx = float(it["x"])
+        cy = float(it["y"])
+        rel_code = shape_manipulator(context, drawing=p_base, offset_x=cx, offset_y=cy, mode="center")
+        combined_parts.append(rel_code)
+        pieces.append({
+            "code": p_base,
+            "rel_code": rel_code,
+            "cx": cx,
+            "cy": cy,
+            "col": it["col"],
+            "row": it["row"],
+            "angle": it["angle"],
+            "ring": it.get("ring", 1),
+            "idx_ring": it.get("idx_ring", 1),
+            "base_particle": p_base
+        })
+
+    unified_relative_shape = " ".join(combined_parts)
+    cache_val = (pieces, unified_relative_shape)
+    _GLOBAL_SHAPE_ARRAY_CACHE[cache_key] = cache_val
+    return cache_val
+
+
+def shape_array_node(
+    context=None,
+    particle="m 0 0 l 10 0 l 10 10 l 0 10",
+    formation="",
+    width=0.0,
+    height=0.0,
+    scale=1.0,
+    anchor="piezas",
+    order="79",
+    mode="Grid",
+    out_mode="Loops",
+    cols=5,
+    rows=3,
+    spacing_x=0.0,
+    spacing_y=0.0,
+    spacing=0.0,
+    rings=3,
+    count_per_ring="",
+    radius=50.0,
+    radius_step=30.0,
+    rotate_step=0.0,
+    count=20,
+    turns=2.0,
+    max_radius=100.0,
+    angle_step=0.0,
+    area_width=150.0,
+    area_height=100.0,
+    seed=1
+):
+    r"""Nodo Shape Array: Arreglos y formaciones vectoriales al por mayor.
+    Soporta modos Loops (con contadores a_i y a_n) y Shape (dibujo monolítico).
+    Retorna tupla: (Shape, \pos Tag, X, Y, Angle (\frz), Index (a_i), Total (a_n), Col/Ring, Row/IdxRing).
+    """
+    if context is None:
+        context = {}
+
+    unit = context.get('active_unit') if isinstance(context, dict) else None
+    if not unit and isinstance(context, dict):
+        unit = context.get('char') or context.get('syl') or context.get('word')
+    line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+    if not line and unit and hasattr(unit, 'line'):
+        line = getattr(unit, 'line', None)
+
+    parent_x = float(getattr(unit, 'center', getattr(unit, 'x', getattr(line, 'center', getattr(line, 'x', 0.0))))) if (unit or line) else 0.0
+    parent_y = float(getattr(unit, 'middle', getattr(unit, 'y', getattr(line, 'middle', getattr(line, 'y', 0.0))))) if (unit or line) else 0.0
+
+    pieces, unified_relative_shape = shape_array_core(
+        particle=particle,
+        formation=formation,
+        width=width,
+        height=height,
+        scale=scale,
+        mode=mode,
+        cols=cols,
+        rows=rows,
+        spacing_x=spacing_x,
+        spacing_y=spacing_y,
+        spacing=spacing,
+        rings=rings,
+        count_per_ring=count_per_ring,
+        radius=radius,
+        radius_step=radius_step,
+        rotate_step=rotate_step,
+        count=count,
+        turns=turns,
+        max_radius=max_radius,
+        angle_step=angle_step,
+        area_width=area_width,
+        area_height=area_height,
+        seed=seed,
+        anchor=anchor,
+        order=order,
+        out_mode=out_mode,
+        parent_x=parent_x,
+        parent_y=parent_y,
+        context=context
+    )
+
+    total_pieces = len(pieces)
+    out_mode_clean = str(out_mode or "Loops").strip().lower()
+    anchor_mode = str(anchor or "piezas").strip().lower()
+
+    if "shape" in out_mode_clean and "loop" not in out_mode_clean:
+        # Modo Shape Monolítico:
+        if "abs" in anchor_mode:
+            combined_code = shape_manipulator(context, drawing=unified_relative_shape, offset_x=parent_x, offset_y=parent_y, mode="center")
+        elif "origin" in anchor_mode:
+            combined_code = " ".join([shape_manipulator(context, drawing=p["code"], offset_x=p["cx"], offset_y=p["cy"], mode="origin") for p in pieces])
+        else:
+            combined_code = unified_relative_shape
+        pos_str = f"\\pos({parent_x:.2f},{parent_y:.2f})".rstrip('0').rstrip('.') if (parent_x != 0 or parent_y != 0) else ""
+        return combined_code, pos_str, round(parent_x, 2), round(parent_y, 2), 0.0, 1, total_pieces, 1, 1
+
+    # Modo Loops: Selecciona la pieza actual según a_i
+    if isinstance(context, dict):
+        context['a_n'] = total_pieces
+        context['a_max'] = total_pieces
+        context['maxloop'] = total_pieces
+
+    a_i_val = int(float(context.get('a_i', context.get('j', context.get('fx_i', context.get('i', 1)))))) if isinstance(context, dict) else 1
+    idx = max(0, min(a_i_val - 1, total_pieces - 1))
+    piece = pieces[idx]
+
+    cx = piece["cx"]
+    cy = piece["cy"]
+    px = round(parent_x + cx, 2)
+    py = round(parent_y + cy, 2)
+    ang = piece["angle"]
+    col_val = piece["col"]
+    row_val = piece["row"]
+
+    # Configuración de anclaje según el estándar de Shape Slicer
+    if any(k in anchor_mode for k in ["pieza", "piece", "local", "true"]):
+        piece_code = piece["code"] # centrado en (0,0)
+        if isinstance(context, dict):
+            context['pos_x'] = px
+            context['pos_y'] = py
+            context['pos_overridden'] = True
+            context['has_org'] = True
+            context['org_x'] = px
+            context['org_y'] = py
+    elif "solo_pos" in anchor_mode or "pos" in anchor_mode:
+        piece_code = piece["code"] # centrado en (0,0)
+        if isinstance(context, dict):
+            context['pos_x'] = px
+            context['pos_y'] = py
+            context['pos_overridden'] = True
+            context['has_org'] = False
+    elif "org" in anchor_mode or "padre" in anchor_mode:
+        piece_code = piece["code"] # centrado en (0,0)
+        if isinstance(context, dict):
+            context['pos_x'] = px
+            context['pos_y'] = py
+            context['pos_overridden'] = True
+            context['has_org'] = True
+            context['org_x'] = parent_x
+            context['org_y'] = parent_y
+    elif "rel" in anchor_mode:
+        piece_code = shape_manipulator(context, drawing=piece["code"], offset_x=cx, offset_y=cy, mode="center")
+        if isinstance(context, dict):
+            context['pos_x'] = parent_x
+            context['pos_y'] = parent_y
+            context['pos_overridden'] = False
+            context['has_org'] = True
+            context['org_x'] = parent_x
+            context['org_y'] = parent_y
+    elif "abs" in anchor_mode:
+        piece_code = shape_manipulator(context, drawing=piece["code"], offset_x=px, offset_y=py, mode="center")
+        if isinstance(context, dict):
+            context['pos_x'] = 0.0
+            context['pos_y'] = 0.0
+            context['pos_overridden'] = True
+            context['has_org'] = False
+    else: # default piezas
+        piece_code = piece["code"]
+        if isinstance(context, dict):
+            context['pos_x'] = px
+            context['pos_y'] = py
+            context['pos_overridden'] = True
+            context['has_org'] = True
+            context['org_x'] = px
+            context['org_y'] = py
+
+    if isinstance(context, dict):
+        context['a_i'] = a_i_val
+        context['x'] = px
+        context['y'] = py
+        context['fx_pos_x'] = px
+        context['fx_pos_y'] = py
+        context['col'] = col_val
+        context['row'] = row_val
+        context['angle'] = ang
+
+    pos_str = f"\\pos({px:.2f},{py:.2f})".rstrip('0').rstrip('.')
+    return piece_code, pos_str, round(px, 2), round(py, 2), round(ang, 2), a_i_val, total_pieces, col_val, row_val
+
+
+NODE_REGISTRY["Shape/Shape Array"] = shape_array_node
+NODE_REGISTRY["Shape Array"] = shape_array_node
+
