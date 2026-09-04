@@ -39,7 +39,7 @@
         if (name === "Text" || name.startsWith("Text ")) return "Text";
         if (name === "MultiTag" || name === "Tag Oscillator") return "Tags";
         if (name === "Math" || name === "Number" || name === "Number" || name === "Color Picker" || name === "MultiRandom") return "Math";
-        if (name === "Shapes Library" || name === "Shape Slicer" || name === "Shape Transform" || name === "Concentric Borders" || name === "IMG to Shape") return "Shape";
+        if (name === "Shapes Library" || name === "Shape Slicer" || name === "Shape Transform" || name === "Shape Stroke" || name === "Stroke" || name === "Shape Walker" || name === "Shape Array" || name === "Concentric Borders" || name === "IMG to Shape") return "Shape";
         if (name === "Audio Modulator" || name === "Audio Waveform") return "Audio";
         if (name === "Lead In" || name === "Lead Out" || name === "Middle 1" || name === "Middle 2" || name === "Loop 1" || name === "Loop 2" || name === "Time Ipol" || name === "Synced Time" || name === "Offset" || name === "Duración" || name === "Parse ASS Time" || name === "Format ASS Time") return "Time";
         if (name === "Particles" || name === "IMG to pixels") return "Particles";

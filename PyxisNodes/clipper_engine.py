@@ -96,7 +96,7 @@ class ClipperEngine:
         return f"m {pts[0]} " + " ".join([f"l {p}" for p in pts[1:]]) + f" l {pts[0]}"
 
     @staticmethod
-    def parse_assdraw(shape_str: str, bezier_steps: int = 10):
+    def parse_assdraw(shape_str: str, bezier_steps: int = 10, min_points: int = 2):
         """Parsea comandos ASSdraw (m, l, b, c) a una lista de contornos de puntos (N, 2),
         soportando repetición implícita de coordenadas para m, l, b y aplanando curvas Bézier.
         """
@@ -104,7 +104,7 @@ class ClipperEngine:
             return []
 
         shape_key = str(shape_str).strip()
-        cache_key = (shape_key, int(bezier_steps))
+        cache_key = (shape_key, int(bezier_steps), int(min_points))
         if cache_key in _PARSE_ASSDRAW_CACHE:
             cached = _PARSE_ASSDRAW_CACHE[cache_key]
             _PARSE_ASSDRAW_CACHE.move_to_end(cache_key)
@@ -131,7 +131,7 @@ class ClipperEngine:
                 if i + 1 < n:
                     try:
                         x, y = float(tokens[i]), float(tokens[i+1])
-                        if len(current_contour) >= 3:
+                        if len(current_contour) >= min_points:
                             contours.append(np.array(current_contour, dtype=np.float64))
                         current_contour = [[x, y]]
                         current_cmd = 'l'
@@ -169,7 +169,7 @@ class ClipperEngine:
             else:
                 i += 1
 
-        if len(current_contour) >= 3:
+        if len(current_contour) >= min_points:
             contours.append(np.array(current_contour, dtype=np.float64))
 
         if len(_PARSE_ASSDRAW_CACHE) >= _MAX_CACHE_SIZE:
@@ -342,6 +342,99 @@ class ClipperEngine:
             return " ".join(code_parts)
         except Exception:
             return shape_str
+
+    @staticmethod
+    def contours_to_assdraw(contours) -> str:
+        """Convierte una lista de contornos numpy / arrays de puntos a comandos ASSDraw (m x y l x y...)."""
+        if not contours:
+            return ""
+        parts = []
+        for cnt in contours:
+            if len(cnt) == 0:
+                continue
+            pts = cnt if isinstance(cnt, (list, tuple)) else cnt.tolist()
+            p0 = pts[0]
+            seg = [f"m {round(float(p0[0]), 2)} {round(float(p0[1]), 2)}"]
+            for p in pts[1:]:
+                seg.append(f"l {round(float(p[0]), 2)} {round(float(p[1]), 2)}")
+            parts.append(" ".join(seg))
+        return " ".join(parts)
+
+    @staticmethod
+    def stroke_shape(shape_str: str, width: float = 4.0, join_mode: str = "Round", cap_mode: str = "Round", miter_limit: float = 2.0, scale: float = 10000.0) -> str:
+        """Convierte líneas abiertas o contornos cerrados en polígonos cerrados ASSDraw con grosor uniforme.
+        - Para líneas/splines abiertas: genera una tira continua con terminaciones (Round, Square, Flat/Butt).
+        - Para polígonos cerrados: genera un contorno hueco (diferencia booleana entre offset exterior e interior).
+        """
+        if not shape_str or not str(shape_str).strip() or pyclipper is None:
+            return shape_str
+        w = max(0.01, float(width))
+        if w < 0.0001:
+            return shape_str
+
+        contours = ClipperEngine.parse_assdraw(shape_str, min_points=2)
+        if not contours:
+            return shape_str
+
+        jm_clean = str(join_mode).strip().lower()
+        if "miter" in jm_clean:
+            jt = pyclipper.JT_MITER
+        elif "bevel" in jm_clean or "square" in jm_clean:
+            jt = pyclipper.JT_SQUARE
+        else:
+            jt = pyclipper.JT_ROUND
+
+        cm_clean = str(cap_mode).strip().lower()
+        if "square" in cm_clean:
+            et_open = pyclipper.ET_OPENSQUARE
+        elif "flat" in cm_clean or "butt" in cm_clean:
+            et_open = pyclipper.ET_OPENBUTT
+        elif "bezier" in cm_clean or "round" in cm_clean:
+            et_open = pyclipper.ET_OPENROUND
+        else:
+            et_open = pyclipper.ET_OPENROUND
+
+        results = []
+        for c in contours:
+            if len(c) < 2:
+                continue
+            is_closed = len(c) >= 3 and (abs(float(c[0][0]) - float(c[-1][0])) < 1e-4 and abs(float(c[0][1]) - float(c[-1][1])) < 1e-4)
+
+            if is_closed:
+                c_str = ClipperEngine.contours_to_assdraw([c])
+                outer = ClipperEngine.offset_shape(c_str, delta=w / 2.0, join_type=jt, scale=scale)
+                inner = ClipperEngine.offset_shape(c_str, delta=-w / 2.0, join_type=jt, scale=scale)
+                diff = ClipperEngine.boolean_difference(outer, inner, scale=scale)
+                if diff and diff.strip():
+                    results.append(diff)
+                elif outer and outer.strip():
+                    results.append(outer)
+            else:
+                try:
+                    pco = pyclipper.PyclipperOffset(miter_limit=float(miter_limit), arc_tolerance=0.25 * scale)
+                    path = [[int(round(float(pt[0]) * scale)), int(round(float(pt[1]) * scale))] for pt in c]
+                    pco.AddPath(path, jt, et_open)
+                    solution = pco.Execute((w / 2.0) * scale)
+                    if not solution:
+                        continue
+                    try:
+                        clean_sol = pyclipper.CleanPolygons(solution, distance=0.1 * scale)
+                        if clean_sol:
+                            solution = clean_sol
+                    except Exception:
+                        pass
+                    code_parts = []
+                    for path in solution:
+                        if len(path) >= 3:
+                            pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
+                            path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]])
+                            code_parts.append(path_str)
+                    if code_parts:
+                        results.append(" ".join(code_parts))
+                except Exception:
+                    continue
+
+        return " ".join(results)
 
     @staticmethod
     def slice_grid(shape_str: str, cols: int = 2, rows: int = 2, size_x: float = 0.0, size_y: float = 0.0,

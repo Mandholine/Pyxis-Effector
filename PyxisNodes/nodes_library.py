@@ -30,7 +30,7 @@ system_node(
 )
 
 system_node(
-    "Loops", "MaxLoop", node_kind="max_loop", inputs=["Loop In", "Start", "End"], outputs=["Loop Out", "Iterator (j)", "Total (N)"], color="#8A2BE2",
+    "Loops", "MaxLoop", node_kind="max_loop", inputs=["Loop In", "Start", "End"], outputs=["Loop Out", "Counter", "Total"], color="#8A2BE2",
     properties={"modo": "Normal", "veces": "3", "step_ms": "41.7", "start_time": "start_time", "end_time": "end_time", "var_name": "j"},
     widgets=[
         {"type": "combo", "name": "Modo:", "property": "modo", "values": ["Normal", "FBF"]},
@@ -298,7 +298,7 @@ system_node(
     "Shape", "Shape Transform", node_kind="data", color="#7D3C98",
     inputs=["Shape / Texto", "Factor (t)", "Ratio", "Anchor"],
     outputs=["Shape"],
-    properties={"shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "energy": "0.35", "step_px": "0", "anchor": "center"},
+    properties={"shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "mid_shape": "", "energy": "0.35", "step_px": "0", "anchor": "center"},
     widgets=[]
 )
 
@@ -316,6 +316,19 @@ system_node(
     outputs=["Shape Out", "\\pos Tag", "Angle (\\frz)", "Length", "Tip X", "Tip Y"],
     properties={"shape": "", "progress": "1.0", "start_t": "0.0", "modo": "Global (Continuo)", "invert": "0", "subdivs": "30"},
     widgets=[]
+)
+
+system_node(
+    "Shape", "Shape Stroke", node_kind="data", color="#5B2C6F",
+    inputs=["Shape / Text", "Width (px)"],
+    outputs=["Shape Out", "Width"],
+    properties={"shape": "", "width": "4.0", "join_mode": "Round", "cap_mode": "Bezier", "miter_limit": "2.0"},
+    widgets=[
+        {"type": "combo", "name": "Vertex:", "property": "join_mode", "values": ["Round", "Miter", "Bevel"]},
+        {"type": "combo", "name": "Cap:", "property": "cap_mode", "values": ["Bezier", "Square", "Flat"]},
+        {"type": "text", "name": "Width:", "property": "width"},
+        {"type": "text", "name": "Miter Limit:", "property": "miter_limit"}
+    ]
 )
 
 system_node(

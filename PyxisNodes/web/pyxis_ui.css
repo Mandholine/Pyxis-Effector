@@ -2395,7 +2395,8 @@ body {
 }
 
 /* --- ANIMACIÓN ELEGANTE DE BORDE: REFRESH PREVIEW (CYAN / EMERALD / VIOLET) --- */
-.pyxis-header-icon-btn.is-refreshing {
+.pyxis-header-icon-btn.is-refreshing,
+.pyxis-pbtn.is-refreshing {
     position: relative !important;
     border-color: transparent !important;
     background: #0f172a !important;
@@ -2405,7 +2406,8 @@ body {
     z-index: 1 !important;
 }
 
-.pyxis-header-icon-btn.is-refreshing::before {
+.pyxis-header-icon-btn.is-refreshing::before,
+.pyxis-pbtn.is-refreshing::before {
     content: '';
     position: absolute;
     top: -60%;
@@ -2423,7 +2425,8 @@ body {
     z-index: -2;
 }
 
-.pyxis-header-icon-btn.is-refreshing::after {
+.pyxis-header-icon-btn.is-refreshing::after,
+.pyxis-pbtn.is-refreshing::after {
     content: '';
     position: absolute;
     inset: 1.5px;
@@ -2432,7 +2435,8 @@ body {
     z-index: -1;
 }
 
-.pyxis-header-icon-btn.is-refreshing svg {
+.pyxis-header-icon-btn.is-refreshing svg,
+.pyxis-pbtn.is-refreshing svg {
     stroke: #38bdf8 !important;
     animation: pyxisSpinSlow 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
     filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.8));
@@ -2441,7 +2445,8 @@ body {
 }
 
 /* --- ANIMACIÓN ELEGANTE DE BORDE: HARDSUB EXPORT (AMBER / CORAL / ROSE GOLD) --- */
-.pyxis-header-icon-btn.is-rendering-hardsub {
+.pyxis-header-icon-btn.is-rendering-hardsub,
+.pyxis-pbtn.is-rendering-hardsub {
     position: relative !important;
     border-color: transparent !important;
     background: #180d1e !important;
@@ -2451,7 +2456,8 @@ body {
     z-index: 1 !important;
 }
 
-.pyxis-header-icon-btn.is-rendering-hardsub::before {
+.pyxis-header-icon-btn.is-rendering-hardsub::before,
+.pyxis-pbtn.is-rendering-hardsub::before {
     content: '';
     position: absolute;
     top: -60%;
@@ -2469,7 +2475,8 @@ body {
     z-index: -2;
 }
 
-.pyxis-header-icon-btn.is-rendering-hardsub::after {
+.pyxis-header-icon-btn.is-rendering-hardsub::after,
+.pyxis-pbtn.is-rendering-hardsub::after {
     content: '';
     position: absolute;
     inset: 1.5px;
@@ -2478,7 +2485,8 @@ body {
     z-index: -1;
 }
 
-.pyxis-header-icon-btn.is-rendering-hardsub svg {
+.pyxis-header-icon-btn.is-rendering-hardsub svg,
+.pyxis-pbtn.is-rendering-hardsub svg {
     stroke: #fbbf24 !important;
     animation: pyxisHardsubPulse 1.2s ease-in-out infinite;
     filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.85));
@@ -2601,67 +2609,560 @@ div.JASSUB,
     pointer-events: none !important;
 }
 
-/* Ocultar únicamente el icono gigante de Play del centro */
-.pyxis-artplayer-box .art-state {
+/* Ocultar elementos internos nativos de Artplayer */
+.pyxis-artplayer-box .art-state,
+.pyxis-artplayer-box .art-loading,
+.pyxis-artplayer-box .art-bottom,
+.pyxis-artplayer-box .art-controls,
+.pyxis-artplayer-box .art-progress {
     display: none !important;
     opacity: 0 !important;
     visibility: hidden !important;
     pointer-events: none !important;
 }
 
-/* Barra de controles inferior de Artplayer (Fija y estática sin animación de inactividad) */
-.pyxis-artplayer-box .art-bottom,
-.pyxis-artplayer-box .art-controls,
-.pyxis-artplayer-box .art-bottom *,
-.pyxis-artplayer-box .art-controls *,
-.pyxis-artplayer-box.art-hide .art-bottom,
-.pyxis-artplayer-box.art-auto-hide .art-bottom,
-.pyxis-artplayer-box .art-video-player .art-bottom,
-.pyxis-artplayer-box .art-video-player.art-hide .art-bottom,
-.pyxis-artplayer-box .art-video-player.art-auto-hide .art-bottom,
-.pyxis-artplayer-box .art-video-player:not(:hover) .art-bottom {
-    transform: none !important;
-    transition: none !important;
-    animation: none !important;
-}
+/* =============================================================================
+   CUSTOM MODERN PLAYER CONTROLS (OPCIÓN 2 - JELLYFIN / VIDSTACK THEMED)
+   ============================================================================= */
 
-.pyxis-artplayer-box .art-bottom {
+.pyxis-custom-player-controls {
     position: absolute !important;
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
-    top: auto !important;
     height: 68px !important;
-    background: #0d131f !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
+    background: linear-gradient(180deg, rgba(13, 19, 31, 0.92) 0%, rgba(9, 13, 22, 0.98) 100%) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
-    padding: 2px 14px 12px 14px !important;
-    z-index: 35 !important;
+    z-index: 40 !important;
     pointer-events: auto !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    transform: none !important;
-    transition: none !important;
-    animation: none !important;
-    overflow: visible !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
     box-sizing: border-box !important;
-}
-
-.pyxis-artplayer-box .art-progress {
-    height: 6px !important;
-    margin-top: 2px !important;
-    margin-bottom: 4px !important;
-    position: relative !important;
+    padding: 0 0 6px 0 !important;
     overflow: visible !important;
 }
 
-.pyxis-artplayer-box .art-controls {
-    height: 36px !important;
+/* 1. Top Full-Width Seekbar */
+.pyxis-pbar-container {
+    position: relative;
+    width: 100%;
+    height: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+    box-sizing: border-box;
+    margin-top: 5px;
+    z-index: 10;
+    touch-action: none;
+    overflow: visible !important;
+}
+
+.pyxis-pbar-track {
+    position: relative;
+    width: 100%;
+    height: 3.5px;
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 2px;
+    transition: height 0.15s ease, background 0.15s ease;
+    overflow: visible;
+}
+
+.pyxis-pbar-container:hover .pyxis-pbar-track,
+.pyxis-pbar-container.is-dragging .pyxis-pbar-track {
+    height: 5.5px;
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.pyxis-pbar-loaded {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.35);
+    border-radius: inherit;
+    pointer-events: none;
+    transition: width 0.2s ease;
+}
+
+.pyxis-pbar-played {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6 0%, #38bdf8 100%);
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
+.pyxis-pbar-thumb {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #38bdf8;
+    border: 2px solid #ffffff;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.9), 0 2px 4px rgba(0, 0, 0, 0.5);
+    transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+}
+
+.pyxis-pbar-container:hover .pyxis-pbar-thumb,
+.pyxis-pbar-container.is-dragging .pyxis-pbar-thumb {
+    transform: translate(-50%, -50%) scale(1);
+}
+
+/* Cartel Flotante Desacoplado con flecha indicadora (Speech Bubble) */
+.pyxis-pbar-tip {
+    position: absolute;
+    bottom: 24px;
+    transform: translateX(-50%);
+    background: rgba(13, 17, 24, 0.95);
+    border: 1px solid rgba(56, 189, 248, 0.6);
+    color: #f8fafc;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 2.5px 7.5px;
+    border-radius: 5px;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.8), 0 0 10px rgba(56, 189, 248, 0.4);
+    white-space: nowrap;
+    z-index: 99999 !important;
+}
+
+.pyxis-pbar-tip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 4.5px 4.5px 0 4.5px;
+    border-style: solid;
+    border-color: rgba(56, 189, 248, 0.7) transparent transparent transparent;
+}
+
+.pyxis-pbar-container:hover .pyxis-pbar-tip,
+.pyxis-pbar-container.is-dragging .pyxis-pbar-tip {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* 2. Subcabecera de Tiempos debajo de la barra de búsqueda */
+.pyxis-ptime-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0 10px;
+    margin-top: 1px;
+    margin-bottom: 2px;
+    box-sizing: border-box;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 9.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: #94a3b8;
+    pointer-events: none;
+    user-select: none;
+    line-height: 1;
+}
+
+.pyxis-ptime-current {
+    color: #e2e8f0;
+    font-weight: 600;
+}
+
+.pyxis-ptime-duration {
+    color: #94a3b8;
+}
+
+/* 3. Controls Row (Left, Center, Right) */
+.pyxis-pcontrols-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    gap: 4px;
+    margin-bottom: 2px;
+}
+
+.pyxis-pcontrols-left,
+.pyxis-pcontrols-center,
+.pyxis-pcontrols-right {
+    display: flex;
+    align-items: center;
+}
+
+.pyxis-pcontrols-left {
+    flex: 1 1 0;
+    justify-content: flex-start;
+    gap: 6px;
+    min-width: 0;
+}
+
+.pyxis-pcontrols-center {
+    flex: 0 0 auto;
+    justify-content: center;
+    gap: 4px;
+}
+
+.pyxis-pcontrols-right {
+    flex: 1 1 0;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+}
+
+/* Generic Control Button */
+.pyxis-pbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: #cbd5e1;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.pyxis-pbtn svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+    stroke: none;
+    transition: transform 0.12s ease, fill 0.12s ease;
+    display: block;
+}
+
+.pyxis-pbtn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}
+
+.pyxis-pbtn:active {
+    transform: scale(0.92);
+    background: rgba(56, 189, 248, 0.2);
+    color: #38bdf8;
+}
+
+/* Prominent Hero Play/Pause Center Button */
+.pyxis-pbtn-hero {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.22) 0%, rgba(59, 130, 246, 0.32) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.55);
+    color: #38bdf8;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+}
+
+.pyxis-pbtn-hero svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+.pyxis-pbtn-hero:hover {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.4) 0%, rgba(59, 130, 246, 0.5) 100%);
+    border-color: rgba(56, 189, 248, 0.95);
+    color: #ffffff;
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.6);
+    transform: scale(1.08);
+}
+
+.pyxis-pbtn-hero:active {
+    transform: scale(0.96);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.35);
+}
+
+/* Horizontal Volume Slider */
+.pyxis-pvolume-container {
+    display: flex;
+    align-items: center;
+    width: 62px;
+    flex-shrink: 0;
+}
+
+.pyxis-pvolume-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.2);
+    transition: height 0.15s ease;
+    margin: 0;
+    padding: 0;
+}
+
+.pyxis-pvolume-slider:hover {
+    height: 5.5px;
+}
+
+.pyxis-pvolume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #38bdf8;
+    border: 1.5px solid #ffffff;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.85);
+    transition: transform 0.15s ease;
+}
+
+.pyxis-pvolume-slider:hover::-webkit-slider-thumb {
+    transform: scale(1.2);
+}
+
+.pyxis-pvolume-slider::-moz-range-thumb {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #38bdf8;
+    border: 1.5px solid #ffffff;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.85);
+}
+
+/* Artplayer Settings Overlay Styling */
+.art-video-player .art-settings,
+.pyxis-artplayer-box .art-settings {
+    position: absolute !important;
+    left: auto !important;
+    right: 12px !important;
+    bottom: 72px !important;
+    top: auto !important;
+    width: 200px !important;
+    min-width: 160px !important;
+    max-width: 240px !important;
+    max-height: calc(100% - 80px) !important;
+    z-index: 9999999 !important;
+    background: rgba(15, 23, 42, 0.96) !important;
+    border: 1px solid rgba(56, 189, 248, 0.45) !important;
+    border-radius: 8px !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85), 0 0 16px rgba(56, 189, 248, 0.25) !important;
+    color: #e2e8f0 !important;
+    font-family: inherit !important;
+    pointer-events: auto !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+.art-video-player.art-setting-show .art-settings,
+.pyxis-artplayer-box .art-video-player.art-setting-show .art-settings {
+    display: flex !important;
+}
+
+.art-video-player .art-setting-panel,
+.pyxis-artplayer-box .art-setting-panel {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #e2e8f0 !important;
+    width: 100% !important;
+}
+
+.art-video-player .art-setting-item,
+.pyxis-artplayer-box .art-setting-item {
+    transition: background 0.15s ease, color 0.15s ease !important;
+    color: #e2e8f0 !important;
+    padding: 0 12px !important;
+    height: 34px !important;
+    font-size: 12px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
+    cursor: pointer !important;
+}
+
+.art-video-player .art-setting-item:hover,
+.pyxis-artplayer-box .art-setting-item:hover {
+    background: rgba(56, 189, 248, 0.18) !important;
+    color: #38bdf8 !important;
+}
+
+.art-video-player .art-setting-item.art-current,
+.pyxis-artplayer-box .art-setting-item.art-current {
+    color: #38bdf8 !important;
+    font-weight: 600 !important;
+}
+
+.art-video-player .art-setting-item .art-setting-item-right-tooltip,
+.pyxis-artplayer-box .art-setting-item .art-setting-item-right-tooltip {
+    color: #94a3b8 !important;
+    font-size: 11px !important;
+}
+
+.art-video-player .art-setting-item-back,
+.pyxis-artplayer-box .art-setting-item-back {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+    font-weight: 600 !important;
+}
+
+.art-video-player .art-setting-item svg,
+.pyxis-artplayer-box .art-setting-item svg {
+    fill: currentColor !important;
+}
+
+/* =============================================================================
+   CINEMATIC FULLSCREEN PREVIEW PLAYER MODE
+   ============================================================================= */
+
+.pyxis-node-player-wrapper.pyxis-player-fullscreen,
+.pyxis-floating-player-wrapper.pyxis-player-fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    transform: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #000000 !important;
+    box-shadow: none !important;
+    z-index: 999999 !important;
+    pointer-events: auto !important;
+}
+
+.pyxis-node-player-wrapper.pyxis-player-fullscreen .pyxis-artplayer-box,
+.pyxis-floating-player-wrapper.pyxis-player-fullscreen .pyxis-artplayer-box {
+    position: absolute !important;
+    inset: 0 !important;
+    border-radius: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 10 !important;
+    pointer-events: auto !important;
+    overflow: hidden !important;
+}
+
+.pyxis-player-fullscreen .art-video-player {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    pointer-events: auto !important;
+    z-index: 15 !important;
+}
+
+.pyxis-node-player-wrapper.pyxis-player-fullscreen .art-video,
+.pyxis-floating-player-wrapper.pyxis-player-fullscreen .art-video {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 68px !important;
+    width: 100% !important;
+    height: calc(100% - 68px) !important;
+    max-height: calc(100% - 68px) !important;
+    z-index: 1 !important;
+}
+
+.pyxis-node-player-wrapper.pyxis-player-fullscreen .pyxis-node-header-actions,
+.pyxis-floating-player-wrapper.pyxis-player-fullscreen .pyxis-floating-header,
+.pyxis-floating-player-wrapper.pyxis-player-fullscreen .pyxis-floating-resizer {
+    display: none !important;
+}
+
+/* Botones de acción del reproductor exclusivos de modo pantalla completa (ocultos en modo normal) */
+.pyxis-pbtn-fs-only {
+    display: none !important;
+}
+
+.pyxis-player-fullscreen .pyxis-pbtn-fs-only {
+    display: inline-flex !important;
+}
+
+.pyxis-pbtn.pyxis-pbtn-source img {
+    width: 17px !important;
+    height: 17px !important;
+    object-fit: contain !important;
+    display: block !important;
+}
+
+.pyxis-pbtn.pyxis-pbtn-refresh svg,
+.pyxis-pbtn.pyxis-pbtn-hardsub svg {
+    fill: none !important;
+    stroke: currentColor !important;
+}
+
+.pyxis-pbtn.disabled,
+.pyxis-pbtn:disabled {
+    opacity: 0.35 !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+}
+
+/* Barra de controles en Fullscreen: acoplada al fondo, ancho completo y fondo sólido */
+.pyxis-player-fullscreen .pyxis-custom-player-controls {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: 68px !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    transform: none !important;
+    background: linear-gradient(180deg, rgba(13, 19, 31, 0.95) 0%, rgba(9, 13, 22, 0.98) 100%) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    z-index: 100000 !important;
+    opacity: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    box-sizing: border-box !important;
+    padding: 0 0 6px 0 !important;
+    overflow: visible !important;
+    pointer-events: auto !important;
+}
+
+.pyxis-player-fullscreen .art-video-player .art-settings,
+.pyxis-player-fullscreen .pyxis-artplayer-box .art-settings,
+.pyxis-player-fullscreen .art-settings {
+    position: absolute !important;
+    left: auto !important;
+    right: 20px !important;
+    bottom: 74px !important;
+    top: auto !important;
+    z-index: 100002 !important;
+    max-height: calc(100% - 90px) !important;
 }
 
 /* =============================================================================

@@ -6187,7 +6187,8 @@
                     { full: "Skew", short: "Skew" },
                     { full: "Round Corners", short: "Round" },
                     { full: "Flexor", short: "Flexor" },
-                    { full: "Distort", short: "Distort" }
+                    { full: "Distort", short: "Distort" },
+                    { full: "Distort2", short: "Distort2" }
                 ]
             },
             "IMG to Shape": {
@@ -6727,6 +6728,14 @@
             "Shapes Library": {
                 "DEFAULT": []
             },
+            "Shape Stroke": {
+                "DEFAULT": [
+                    { name: "Shape / Text", default: "", property: "shape" },
+                    { name: "Width (px)", default: "4.0", property: "width" },
+                    { name: "Vertex Mode", default: "Round", property: "join_mode", type: "button", no_socket: true },
+                    { name: "Cap Mode", default: "Bezier", property: "cap_mode", type: "button", no_socket: true }
+                ]
+            },
             "IMG to Shape": {
                 "DEFAULT": [
                     { name: "Image Path", default: "", property: "image_path" },
@@ -7095,6 +7104,15 @@
                 ],
                 "Distort": [
                     { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Target Shape", default: "", property: "target_shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Fluidez / Energy", default: "0.35", property: "energy" },
+                    { name: "Step (px)", default: "0", property: "step_px" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Distort2": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Mid Shape", default: "", property: "mid_shape" },
                     { name: "Target Shape", default: "", property: "target_shape" },
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Fluidez / Energy", default: "0.35", property: "energy" },
@@ -7755,25 +7773,29 @@
                     remainingOldInputs.splice(oldInpIdx, 1);
                 }
 
-                if (linkId !== null && linkId !== undefined && graph && graph.links && graph.links[linkId]) {
-                    const linkObj = graph.links[linkId];
-                    if (Array.isArray(linkObj)) {
-                        linkObj[4] = idx;
-                    } else if (typeof linkObj === "object") {
-                        linkObj.target_slot = idx;
-                    }
-                }
-
                 const yPos = startY + idx * 23;
-                const dotY = yPos + 9;
-                node.inputs.push({
-                    name: portName,
-                    type: 0,
-                    link: linkId,
-                    pos: [10, dotY],
-                    label: " ",
-                    property: propKey
-                });
+                const isNoSocket = !!spec.no_socket;
+
+                if (!isNoSocket) {
+                    if (linkId !== null && linkId !== undefined && graph && graph.links && graph.links[linkId]) {
+                        const linkObj = graph.links[linkId];
+                        if (Array.isArray(linkObj)) {
+                            linkObj[4] = node.inputs.length;
+                        } else if (typeof linkObj === "object") {
+                            linkObj.target_slot = node.inputs.length;
+                        }
+                    }
+
+                    const dotY = yPos + 9;
+                    node.inputs.push({
+                        name: portName,
+                        type: 0,
+                        link: linkId,
+                        pos: [10, dotY],
+                        label: " ",
+                        property: propKey
+                    });
+                }
 
                 const curVal = String(node.properties[propKey] !== undefined ? node.properties[propKey] : spec.default);
                 const w = node.addWidget("text", portName, curVal, function(val) {
@@ -8058,6 +8080,103 @@
                             if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                             if (canvas && canvas.draw) canvas.draw(true, true);
                             if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("order-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (portName === "Vertex Mode" || portName === "Union Mode" || propKey === "join_mode") {
+                        const JOIN_MODES = [
+                            { full: "Round", short: "Round" },
+                            { full: "Miter", short: "Miter" },
+                            { full: "Bevel", short: "Bevel" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curJ = (n.properties && n.properties.join_mode) ? n.properties.join_mode : (w.value || "Round");
+                            const jObj = JOIN_MODES.find(m => m.full.toLowerCase() === curJ.toLowerCase()) || JOIN_MODES[0];
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#94a3b8";
+                            ctx.textAlign = "left";
+                            const vLabel = (window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot("Vertex:") : "Vertex:";
+                            ctx.fillText(vLabel, 14, drawY + 13);
+
+                            const btnX = 76;
+                            const btnW = 68;
+                            const btnH = 18;
+
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#8b5cf6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#a7f3d0";
+                            ctx.textAlign = "center";
+                            ctx.fillText(jObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curJ = (node.properties && node.properties.join_mode) ? node.properties.join_mode : "Round";
+                            const curIdx = JOIN_MODES.findIndex(m => m.full.toLowerCase() === curJ.toLowerCase());
+                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % JOIN_MODES.length);
+                            const nextObj = JOIN_MODES[nextIdx];
+                            node.properties.join_mode = nextObj.full;
+                            w.value = nextObj.full;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("join_mode-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (portName === "Cap Mode" || propKey === "cap_mode") {
+                        const CAP_MODES = [
+                            { full: "Bezier", short: "Bezier" },
+                            { full: "Square", short: "Square" },
+                            { full: "Flat", short: "Flat" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curC = (n.properties && n.properties.cap_mode) ? n.properties.cap_mode : (w.value || "Bezier");
+                            const cObj = CAP_MODES.find(m => m.full.toLowerCase() === curC.toLowerCase() || (curC.toLowerCase() === "round" && m.full === "Bezier")) || CAP_MODES[0];
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#94a3b8";
+                            ctx.textAlign = "left";
+                            const cLabel = (window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot("Cap:") : "Cap:";
+                            ctx.fillText(cLabel, 14, drawY + 13);
+
+                            const btnX = 76;
+                            const btnW = 68;
+                            const btnH = 18;
+
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#8b5cf6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#38bdf8";
+                            ctx.textAlign = "center";
+                            ctx.fillText(cObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curC = (node.properties && node.properties.cap_mode) ? node.properties.cap_mode : "Bezier";
+                            let curIdx = CAP_MODES.findIndex(m => m.full.toLowerCase() === curC.toLowerCase());
+                            if (curIdx === -1 && curC.toLowerCase() === "round") curIdx = 0;
+                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % CAP_MODES.length);
+                            const nextObj = CAP_MODES[nextIdx];
+                            node.properties.cap_mode = nextObj.full;
+                            w.value = nextObj.full;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("cap_mode-change");
                             if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                         };
                     }
@@ -8788,15 +8907,17 @@ function setupDynamicInlineNode(node) {
                 const hasLoopFooter = (
                     titleText.includes("Slicer") ||
                     titleText.includes("Shape Array") || titleText.includes("Array") ||
-                    titleText.includes("Particles") || titleText.includes("Particles") ||
+                    titleText.includes("Particles") || titleText.includes("Particle") ||
                     titleText.includes("IMG to pixels") || titleText.includes("IMG to Pixels") ||
                     titleText.includes("IMG to Shape") || titleText.includes("IMG to shape") ||
                     titleText.includes("Concentric Borders") || titleText.includes("Concentric Borders") ||
-                    titleText.includes("Clip Gradient")
+                    titleText.includes("Clip Gradient") || titleText.includes("Clip") ||
+                    titleText.includes("MaxLoop") || titleText.includes("Max Loop") ||
+                    titleText.includes("Module") || titleText.includes("Módulo") || titleText.includes("Modulo")
                 );
 
                 // REGLA UNIVERSAL FASE 2: req_w >= titleW + modeW + 54px para eliminar colisión en barra de título
-                const maxRows = Math.max(nodeInputs.length, (this.outputs ? this.outputs.length : 0));
+                const maxRows = Math.max(nodeInputs.length, (this.widgets ? this.widgets.length : 0), (this.outputs ? this.outputs.length : 0));
                 let req_w = Math.max(minBaseW, 20 + boxW + right_space, titleW + modeW + 54);
                 let req_h = 12 + maxRows * 23 + (hasLoopFooter ? 14 : 0);
 
@@ -8815,7 +8936,7 @@ function setupDynamicInlineNode(node) {
                     req_h = Math.max(req_h, 150);
                 } else if (titleText.includes("Shape Walker") || titleText.includes("Recorredor")) {
                     req_w = Math.max(req_w, 235);
-                } else if (titleText.includes("Clip") || titleText.includes("Shape Manipulator") || titleText.includes("Manipulador") || titleText.includes("Shape Transform") || titleText.includes("Trans. Shape") || titleText.includes("Ipol") || titleText.includes("Interpolator")) {
+                } else if (titleText.includes("Clip") || titleText.includes("Shape Manipulator") || titleText.includes("Manipulador") || titleText.includes("Shape Transform") || titleText.includes("Trans. Shape") || titleText.includes("Shape Stroke") || titleText.includes("Stroke") || titleText.includes("Trazo") || titleText.includes("Ipol") || titleText.includes("Interpolator")) {
                     req_w = Math.max(req_w, 215);
                 }
 
@@ -8825,10 +8946,13 @@ function setupDynamicInlineNode(node) {
                     req_h = Math.max(req_h, 54);
                 }
                 const isSysVar = titleText.includes("Sys Var") || titleText.includes("SysVar");
-                const isModuleNode = titleText.includes("Module") || (this.type && this.type.includes("Module"));
-                if (isSysVar || isModuleNode) {
+                const isModuleNode = titleText.includes("Module") || titleText.includes("Módulo") || titleText.includes("Modulo") || (this.type && this.type.includes("Module"));
+                if (isSysVar) {
                     req_w = Math.max(req_w, 185);
                     req_h = Math.max(req_h, 52);
+                } else if (isModuleNode) {
+                    req_w = Math.max(req_w, 180);
+                    req_h = Math.max(req_h, 95);
                 }
                 if (this.properties && this.properties.expandable) {
                     req_w = Math.max(req_w, 160);
@@ -9005,22 +9129,91 @@ function setupDynamicInlineNode(node) {
                 let footerCounterText = "";
                 const titleText = String(this.title || this.type || "");
                 if (titleText.includes("Slicer")) {
-                    footerCounterText = "j, j_max";
+                    footerCounterText = "s_i, s_n";
                 } else if (titleText.includes("Shape Array") || titleText.includes("Array")) {
                     const outMode = String((this.properties && this.properties.out_mode) || "Loops").toLowerCase();
                     if (outMode.includes("loop")) {
                         footerCounterText = "a_i, a_n";
                     }
-                } else if (titleText.includes("Particles") || titleText.includes("Particles")) {
-                    footerCounterText = "p_i, p_n";
-                } else if (titleText.includes("IMG to pixels") || titleText.includes("IMG to Pixels")) {
+                } else if (titleText.includes("Text to Particle") || titleText.includes("From Text")) {
+                    footerCounterText = "tp_i, tp_n";
+                } else if (titleText.includes("IMG to pixels") || titleText.includes("IMG to Pixels") || titleText.includes("IMG to Particle") || titleText.includes("Particles")) {
                     footerCounterText = "p_i, p_n";
                 } else if (titleText.includes("IMG to Shape") || titleText.includes("IMG to shape")) {
                     footerCounterText = "j, total_frames";
                 } else if (titleText.includes("Concentric Borders") || titleText.includes("Concentric Borders") || titleText.includes("Bordes")) {
-                    footerCounterText = "j, j_max";
+                    footerCounterText = "b_i, b_n";
                 } else if (titleText.includes("Clip Gradient") || titleText.includes("Clip")) {
-                    footerCounterText = "j, j_max";
+                    footerCounterText = "c_i, c_n";
+                } else if (titleText.includes("MaxLoop") || titleText.includes("Max Loop")) {
+                    const varName = (this.properties && this.properties.var_name) ? String(this.properties.var_name).trim() : "j";
+                    footerCounterText = `${varName}, max${varName}`;
+                } else if (titleText.includes("Module") || titleText.includes("Módulo") || titleText.includes("Modulo")) {
+                    // Extraer nombres dinámicos de los datos activos (prioridad: cable > caja de texto)
+                    function resolveLoopPort(graph, inputPort, defaultVal, isTotal) {
+                        if (graph && inputPort && inputPort.link !== null && inputPort.link !== undefined) {
+                            const linkObj = graph.links[inputPort.link];
+                            if (linkObj) {
+                                const originNode = graph.getNodeById(linkObj.origin_id);
+                                if (originNode) {
+                                    const origTitle = String(originNode.title || originNode.type || "");
+                                    const slot = linkObj.origin_slot;
+
+                                    if (origTitle.includes("Main Loop") || origTitle.includes("MainLoop") || origTitle.includes("Bucle Primario")) {
+                                        const iter = String((originNode.properties && originNode.properties.iterador) || "syl").toLowerCase();
+                                        if (slot === 1) return `${iter}.i`;
+                                        if (slot === 2) return `${iter}.n`;
+                                        return isTotal ? `${iter}.n` : `${iter}.i`;
+                                    }
+                                    if (origTitle.includes("MaxLoop") || origTitle.includes("Max Loop")) {
+                                        const vName = String((originNode.properties && originNode.properties.var_name) || "j").trim() || "j";
+                                        if (slot === 1) return vName;
+                                        if (slot === 2) return `max${vName}`;
+                                        return isTotal ? `max${vName}` : vName;
+                                    }
+                                    if (origTitle.includes("Shape Array") || origTitle.includes("Array")) {
+                                        if (slot === 5) return "a_i";
+                                        if (slot === 6) return "a_n";
+                                        return isTotal ? "a_n" : "a_i";
+                                    }
+                                    if (origTitle.includes("Slicer")) {
+                                        return isTotal ? "s_n" : "s_i";
+                                    }
+                                    if (origTitle.includes("Text to Particle") || origTitle.includes("From Text")) {
+                                        return isTotal ? "tp_n" : "tp_i";
+                                    }
+                                    if (origTitle.includes("IMG to pixels") || origTitle.includes("IMG to Pixels") || origTitle.includes("IMG to Particle") || origTitle.includes("Particles")) {
+                                        return isTotal ? "p_n" : "p_i";
+                                    }
+                                    if (origTitle.includes("Concentric Borders") || origTitle.includes("Bordes")) {
+                                        return isTotal ? "b_n" : "b_i";
+                                    }
+                                    if (origTitle.includes("Clip Gradient") || origTitle.includes("Clip")) {
+                                        return isTotal ? "c_n" : "c_i";
+                                    }
+                                    if (originNode.outputs && originNode.outputs[slot]) {
+                                        const outName = originNode.outputs[slot].name || "";
+                                        const mMatch = outName.match(/\(([^)]+)\)/);
+                                        return mMatch ? mMatch[1] : outName;
+                                    }
+                                }
+                            }
+                        }
+                        return defaultVal;
+                    }
+
+                    let rawIter = (this.properties && (this.properties.iter !== undefined ? this.properties.iter : this.properties.i)) || "i";
+                    let rawTotal = (this.properties && (this.properties.total !== undefined ? this.properties.total : this.properties.N)) || "N";
+
+                    if (this.widgets) {
+                        if (this.widgets[0] && this.widgets[0].value !== undefined && String(this.widgets[0].value).trim() !== "") rawIter = String(this.widgets[0].value).trim();
+                        if (this.widgets[1] && this.widgets[1].value !== undefined && String(this.widgets[1].value).trim() !== "") rawTotal = String(this.widgets[1].value).trim();
+                    }
+
+                    const iterLabel = resolveLoopPort(this.graph, (this.inputs && this.inputs[0]), rawIter, false);
+                    const totalLabel = resolveLoopPort(this.graph, (this.inputs && this.inputs[1]), rawTotal, true);
+
+                    footerCounterText = `${iterLabel}, ${totalLabel}`;
                 }
 
                 if (footerCounterText) {
@@ -10928,12 +11121,16 @@ function setupDynamicInlineNode(node) {
                     node.inputs = [{ name: "Loop In", type: "bucle", label: "Loop In", pos: [10, 18], link: link0 }];
                 }
 
+                const varName = String(node.properties.var_name || "j").trim() || "j";
                 if (!node.outputs || node.outputs.length < 3) {
                     node.outputs = [
                         { name: "Loop Out", type: "bucle" },
-                        { name: "Iterator (j)", type: "data" },
-                        { name: "Total (N)", type: "data" }
+                        { name: "Counter", type: "data" },
+                        { name: "Total", type: "data" }
                     ];
+                } else {
+                    node.outputs[1].name = "Counter";
+                    node.outputs[2].name = "Total";
                 }
 
                 node.widgets = [];
@@ -10953,6 +11150,9 @@ function setupDynamicInlineNode(node) {
                     const w = node.addWidget("text", item.name, curVal, function(val) {
                         const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
                         node.properties[item.prop] = cleanVal;
+                        if (item.prop === "var_name") {
+                            updateMaxLoopInputs();
+                        }
                         if (node.computeSize) node.size = node.computeSize();
                         if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                         if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
@@ -11082,7 +11282,7 @@ function setupDynamicInlineNode(node) {
                 ctx.fillStyle = "#94a3b8";
                 ctx.textAlign = "center";
                 const varName = String(this.properties.var_name || "j").trim() || "j";
-                const maxLoopCounterText = `${varName}, N`;
+                const maxLoopCounterText = `${varName}, max${varName}`;
                 ctx.fillText(maxLoopCounterText, this.size[0] / 2, this.size[1] - 6);
                 ctx.restore();
             };
@@ -13704,7 +13904,7 @@ function setupDynamicInlineNode(node) {
                     "widgets": []
                 },
                 "MaxLoop": {
-                    "node_kind": "max_loop", "inputs": ["Loop In"], "outputs": ["Loop Out", "Iterator (j)", "Total (N)"], "color": "#8A2BE2",
+                    "node_kind": "max_loop", "inputs": ["Loop In"], "outputs": ["Loop Out", "Counter", "Total"], "color": "#8A2BE2",
                     "properties": { "veces": "3", "var_name": "j" },
                     "widgets": [{ "type": "text", "name": "Iterations (N)", "property": "veces" }, { "type": "text", "name": "Var Name (j)", "property": "var_name" }]
                 },
@@ -13787,7 +13987,7 @@ function setupDynamicInlineNode(node) {
                 },
                 "Shape Transform": {
                     "node_kind": "data", "inputs": ["Shape / Texto", "Factor (t)", "Ratio", "Anchor"], "outputs": ["Shape"], "color": "#7D3C98",
-                    "properties": { "shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "energy": "0.35", "step_px": "0", "anchor": "center" },
+                    "properties": { "shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "mid_shape": "", "energy": "0.35", "step_px": "0", "anchor": "center" },
                     "widgets": []
                 }
             },
@@ -14461,6 +14661,9 @@ function setupDynamicInlineNode(node) {
 
                         const pUpdated = activePlayers[nodeIdStr];
                         if (pUpdated) {
+                            if (pUpdated.isFullscreen) {
+                                return;
+                            }
                             if (pUpdated.headerActions) {
                                 const headX = (node.pos[0] + node.size[0] - 143 + tx) * scale;
                                 const headY = (node.pos[1] + 9 + ty) * scale;
@@ -14912,6 +15115,8 @@ function setupDynamicInlineNode(node) {
                                     });
                                 } catch(e) {}
                             }
+                            setupCustomPlayerControls(artInstance, nodeIdStr, node, wrapper);
+
                             if (artInstance.template && artInstance.template.$progress) {
                                 const releaseProgressDrag = () => {
                                     try { artInstance.emit('document:mouseup'); } catch(e) {}
@@ -14979,6 +15184,457 @@ function setupDynamicInlineNode(node) {
                         });
                     }
 
+                    function setupCustomPlayerControls(artInstance, nodeIdStr, node, wrapper) {
+                        if (!artInstance || !artInstance.template || !artInstance.template.$player) return;
+                        const playerEl = artInstance.template.$player;
+
+                        const oldControls = playerEl.querySelector('.pyxis-custom-player-controls');
+                        if (oldControls) oldControls.remove();
+
+                        const curSrcVal = (node.properties && node.properties.preview_source) || "base";
+                        const isBaseSrc = curSrcVal === "base";
+                        const initialHasAegisub = Boolean(window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub);
+                        const tipFsKey = isBaseSrc ? "preview.source_base_tooltip" : "preview.source_aegisub_tooltip";
+                        const tipFs = window.t ? window.t(tipFsKey) : (isBaseSrc
+                            ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub"
+                            : "Source: Open File in Aegisub - Click to switch to Base");
+
+                        const controls = document.createElement('div');
+                        controls.className = 'pyxis-custom-player-controls';
+                        controls.id = 'pyxis-player-controls-' + nodeIdStr;
+                        controls.innerHTML = `
+                            <div class="pyxis-pbar-container">
+                                <div class="pyxis-pbar-track">
+                                    <div class="pyxis-pbar-loaded" style="width: 0%;"></div>
+                                    <div class="pyxis-pbar-played" style="width: 0%;"></div>
+                                    <div class="pyxis-pbar-thumb" style="left: 0%;"></div>
+                                </div>
+                                <div class="pyxis-pbar-tip">00:00</div>
+                            </div>
+                            <div class="pyxis-ptime-header-row">
+                                <span class="pyxis-ptime-current">00:00</span>
+                                <span class="pyxis-ptime-duration">00:00</span>
+                            </div>
+                            <div class="pyxis-pcontrols-row">
+                                <div class="pyxis-pcontrols-left">
+                                    <button class="pyxis-pbtn pyxis-pbtn-volume" aria-label="${window.t ? window.t('preview.mute') : 'Mute / Unmute'}">
+                                        <svg class="icon-vol-high" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                                        <svg class="icon-vol-low" viewBox="0 0 24 24" style="display:none;"><path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/></svg>
+                                        <svg class="icon-vol-mute" viewBox="0 0 24 24" style="display:none;"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+                                    </button>
+                                    <div class="pyxis-pvolume-container">
+                                        <input type="range" class="pyxis-pvolume-slider" min="0" max="1" step="0.01" value="0.5" aria-label="Volume">
+                                    </div>
+                                </div>
+                                <div class="pyxis-pcontrols-center">
+                                    <button class="pyxis-pbtn pyxis-pbtn-step-prev" aria-label="${window.t ? window.t('preview.prev_frame') : 'Frame anterior (-1 frame)'}">
+                                        <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6V5zm12 0l-9 7 9 7V5z"/></svg>
+                                    </button>
+                                    <button class="pyxis-pbtn pyxis-pbtn-seek-back" aria-label="${window.t ? window.t('preview.seek_back_10') : 'Retroceder 10s'}">
+                                        <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+                                    </button>
+                                    <button class="pyxis-pbtn pyxis-pbtn-hero pyxis-pbtn-playpause" aria-label="${window.t ? window.t('preview.play') : 'Play / Pause'}">
+                                        <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                        <svg class="icon-pause" viewBox="0 0 24 24" style="display:none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                                    </button>
+                                    <button class="pyxis-pbtn pyxis-pbtn-seek-fwd" aria-label="${window.t ? window.t('preview.seek_fwd_10') : 'Avanzar 10s'}">
+                                        <svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+                                    </button>
+                                    <button class="pyxis-pbtn pyxis-pbtn-step-next" aria-label="${window.t ? window.t('preview.next_frame') : 'Frame siguiente (+1 frame)'}">
+                                        <svg viewBox="0 0 24 24"><path d="M6 19l9-7-9-7v14zm10-14v14h2V5h-2z"/></svg>
+                                    </button>
+                                </div>
+                                <div class="pyxis-pcontrols-right">
+                                    <button id="btn-ctrl-source-${nodeIdStr}" class="pyxis-pbtn pyxis-pbtn-fs-only pyxis-pbtn-source ${!initialHasAegisub ? 'disabled' : ''}" aria-label="${tipFs}" data-i18n-aria-label="${tipFsKey}" ${!initialHasAegisub ? 'disabled' : ''}>
+                                        <img src="${isBaseSrc ? 'CD.png' : 'Aegisub_logo.png'}" alt="${curSrcVal}" />
+                                    </button>
+                                    <button id="btn-ctrl-refresh-${nodeIdStr}" class="pyxis-pbtn pyxis-pbtn-fs-only pyxis-pbtn-refresh" aria-label="${window.t ? window.t('preview.refresh') : 'Refresh Previewer'}" data-i18n-aria-label="preview.refresh">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                                        </svg>
+                                    </button>
+                                    <button id="btn-ctrl-hardsub-${nodeIdStr}" class="pyxis-pbtn pyxis-pbtn-fs-only pyxis-pbtn-hardsub" aria-label="${window.t ? window.t('preview.hardsub') : 'Render Hardsub with FFmpeg'}" data-i18n-aria-label="preview.hardsub">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M4 11v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8H4z"/>
+                                            <path d="M4 11V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6H4z"/>
+                                            <path d="M9 3l-2 8"/>
+                                            <path d="M15 3l-2 8"/>
+                                        </svg>
+                                    </button>
+                                    <button class="pyxis-pbtn pyxis-pbtn-settings" aria-label="${window.t ? window.t('preview.settings') : 'Configuración'}">
+                                        <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                                    </button>
+                                    <button class="pyxis-pbtn pyxis-pbtn-fullscreen" aria-label="${window.t ? window.t('preview.fullscreen') : 'Pantalla completa'}">
+                                        <svg class="icon-fs-enter" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                                        <svg class="icon-fs-exit" viewBox="0 0 24 24" style="display:none;"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+
+                        controls.addEventListener('mousedown', (e) => e.stopPropagation());
+                        controls.addEventListener('pointerdown', (e) => e.stopPropagation());
+                        controls.addEventListener('click', (e) => e.stopPropagation());
+
+                        playerEl.appendChild(controls);
+
+                        const pbarContainer = controls.querySelector('.pyxis-pbar-container');
+                        const pbarLoaded = controls.querySelector('.pyxis-pbar-loaded');
+                        const pbarPlayed = controls.querySelector('.pyxis-pbar-played');
+                        const pbarThumb = controls.querySelector('.pyxis-pbar-thumb');
+                        const pbarTip = controls.querySelector('.pyxis-pbar-tip');
+
+                        const btnVolume = controls.querySelector('.pyxis-pbtn-volume');
+                        const iconVolHigh = btnVolume.querySelector('.icon-vol-high');
+                        const iconVolLow = btnVolume.querySelector('.icon-vol-low');
+                        const iconVolMute = btnVolume.querySelector('.icon-vol-mute');
+                        const sliderVolume = controls.querySelector('.pyxis-pvolume-slider');
+
+                        const timeCurrent = controls.querySelector('.pyxis-ptime-current');
+                        const timeDuration = controls.querySelector('.pyxis-ptime-duration');
+
+                        const btnStepPrev = controls.querySelector('.pyxis-pbtn-step-prev');
+                        const btnSeekBack = controls.querySelector('.pyxis-pbtn-seek-back');
+                        const btnPlayPause = controls.querySelector('.pyxis-pbtn-playpause');
+                        const iconPlay = btnPlayPause.querySelector('.icon-play');
+                        const iconPause = btnPlayPause.querySelector('.icon-pause');
+                        const btnSeekFwd = controls.querySelector('.pyxis-pbtn-seek-fwd');
+                        const btnStepNext = controls.querySelector('.pyxis-pbtn-step-next');
+
+                        const btnCtrlSource = controls.querySelector('#btn-ctrl-source-' + nodeIdStr);
+                        const btnCtrlRefresh = controls.querySelector('#btn-ctrl-refresh-' + nodeIdStr);
+                        const btnCtrlHardsub = controls.querySelector('#btn-ctrl-hardsub-' + nodeIdStr);
+
+                        if (btnCtrlSource) {
+                            btnCtrlSource.onclick = (e) => {
+                                e.stopPropagation();
+                                window.PyxisNodePlayerManager.togglePreviewSource(nodeIdStr);
+                            };
+                            if (typeof attachPyxisDelayTooltip === 'function') {
+                                attachPyxisDelayTooltip(btnCtrlSource, () => {
+                                    const p = activePlayers[nodeIdStr];
+                                    const curSrc = (p && p.node && p.node.properties && p.node.properties.preview_source) || "base";
+                                    const k = curSrc === "base" ? "preview.source_base_tooltip" : "preview.source_aegisub_tooltip";
+                                    return window.t ? window.t(k) : (curSrc === "base" ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub" : "Source: Open File in Aegisub - Click to switch to Base");
+                                }, 800);
+                            }
+                        }
+                        if (btnCtrlRefresh) {
+                            btnCtrlRefresh.onclick = (e) => {
+                                e.stopPropagation();
+                                window.PyxisNodePlayerManager.refreshPreview(nodeIdStr);
+                            };
+                            if (typeof attachPyxisDelayTooltip === 'function') {
+                                attachPyxisDelayTooltip(btnCtrlRefresh, () => (window.t ? window.t('preview.refresh') : "Refresh Previewer"), 800);
+                            }
+                        }
+                        if (btnCtrlHardsub) {
+                            btnCtrlHardsub.onclick = (e) => {
+                                e.stopPropagation();
+                                window.PyxisNodePlayerManager.renderHardsub(nodeIdStr);
+                            };
+                            if (typeof attachPyxisDelayTooltip === 'function') {
+                                attachPyxisDelayTooltip(btnCtrlHardsub, () => (window.t ? window.t('preview.hardsub') : "Render Hardsub with FFmpeg"), 800);
+                            }
+                        }
+
+                        const btnSettings = controls.querySelector('.pyxis-pbtn-settings');
+                        const btnFullscreen = controls.querySelector('.pyxis-pbtn-fullscreen');
+                        const iconFsEnter = btnFullscreen.querySelector('.icon-fs-enter');
+                        const iconFsExit = btnFullscreen.querySelector('.icon-fs-exit');
+
+                        if (artInstance && artInstance.controls) {
+                            artInstance.controls.setting = btnSettings;
+                        }
+
+                        function formatTime(seconds) {
+                            if (isNaN(seconds) || seconds < 0) seconds = 0;
+                            const m = Math.floor(seconds / 60);
+                            const s = Math.floor(seconds % 60);
+                            return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+                        }
+
+                        function formatTimeWithMs(seconds) {
+                            if (isNaN(seconds) || seconds < 0) seconds = 0;
+                            const m = Math.floor(seconds / 60);
+                            const s = Math.floor(seconds % 60);
+                            const ms = Math.floor((seconds % 1) * 1000);
+                            return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(ms).padStart(3, '0');
+                        }
+
+                        function updateVolumeUI() {
+                            const vol = (artInstance.muted) ? 0 : (artInstance.volume !== undefined ? artInstance.volume : 0.5);
+                            sliderVolume.value = vol;
+                            sliderVolume.style.background = `linear-gradient(to right, #38bdf8 ${vol * 100}%, rgba(255,255,255,0.2) ${vol * 100}%)`;
+
+                            if (vol === 0 || artInstance.muted) {
+                                iconVolHigh.style.display = 'none';
+                                iconVolLow.style.display = 'none';
+                                iconVolMute.style.display = 'block';
+                            } else if (vol < 0.5) {
+                                iconVolHigh.style.display = 'none';
+                                iconVolLow.style.display = 'block';
+                                iconVolMute.style.display = 'none';
+                            } else {
+                                iconVolHigh.style.display = 'block';
+                                iconVolLow.style.display = 'none';
+                                iconVolMute.style.display = 'none';
+                            }
+                        }
+
+                        let lastVolume = 0.5;
+                        btnVolume.onclick = (e) => {
+                            e.stopPropagation();
+                            if (artInstance.muted || artInstance.volume === 0) {
+                                artInstance.muted = false;
+                                artInstance.volume = (lastVolume > 0) ? lastVolume : 0.5;
+                            } else {
+                                lastVolume = artInstance.volume;
+                                artInstance.muted = true;
+                                artInstance.volume = 0;
+                            }
+                            updateVolumeUI();
+                        };
+
+                        sliderVolume.oninput = (e) => {
+                            e.stopPropagation();
+                            const val = parseFloat(sliderVolume.value);
+                            if (val === 0) {
+                                artInstance.muted = true;
+                                artInstance.volume = 0;
+                            } else {
+                                artInstance.muted = false;
+                                artInstance.volume = val;
+                                lastVolume = val;
+                            }
+                            updateVolumeUI();
+                        };
+
+                        function updatePlayPauseUI() {
+                            const isPlaying = artInstance.playing;
+                            if (isPlaying) {
+                                iconPlay.style.display = 'none';
+                                iconPause.style.display = 'block';
+                            } else {
+                                iconPlay.style.display = 'block';
+                                iconPause.style.display = 'none';
+                            }
+                        }
+
+                        btnPlayPause.onclick = (e) => {
+                            e.stopPropagation();
+                            artInstance.toggle();
+                        };
+
+                        function stepFrame(deltaFrames) {
+                            if (!artInstance) return;
+                            try { artInstance.pause(); } catch(e) {}
+                            const fps = (window.PyxisPreviewConfig && window.PyxisPreviewConfig.fps && window.PyxisPreviewConfig.fps > 0) 
+                                ? window.PyxisPreviewConfig.fps 
+                                : 24.0;
+                            const frameDuration = 1.0 / fps;
+                            const maxTime = artInstance.duration || 0;
+                            const target = Math.max(0, Math.min(maxTime, artInstance.currentTime + deltaFrames * frameDuration));
+                            artInstance.currentTime = target;
+                        }
+
+                        function seekRelative(deltaSec) {
+                            if (!artInstance) return;
+                            const maxTime = artInstance.duration || 0;
+                            const target = Math.max(0, Math.min(maxTime, artInstance.currentTime + deltaSec));
+                            artInstance.currentTime = target;
+                        }
+
+                        btnStepPrev.onclick = (e) => { e.stopPropagation(); stepFrame(-1); };
+                        btnSeekBack.onclick = (e) => { e.stopPropagation(); seekRelative(-10); };
+                        btnSeekFwd.onclick = (e) => { e.stopPropagation(); seekRelative(10); };
+                        btnStepNext.onclick = (e) => { e.stopPropagation(); stepFrame(1); };
+
+                        btnSettings.onclick = (e) => {
+                            e.stopPropagation();
+                            if (artInstance && artInstance.setting) {
+                                artInstance.setting.toggle();
+                            }
+                        };
+
+                        const targetWrapper = wrapper || (activePlayers[nodeIdStr] ? activePlayers[nodeIdStr].wrapper : null);
+
+                        if (artInstance) {
+                            artInstance.on('video:play', updatePlayPauseUI);
+                            artInstance.on('video:pause', updatePlayPauseUI);
+                        }
+
+                        function toggleFullscreen(forceState) {
+                            if (!targetWrapper) return;
+                            const isNowFs = (forceState !== undefined) 
+                                ? Boolean(forceState) 
+                                : !targetWrapper.classList.contains('pyxis-player-fullscreen');
+                            const p = activePlayers[nodeIdStr];
+                            if (p) p.isFullscreen = isNowFs;
+
+                            if (isNowFs) {
+                                targetWrapper.classList.add('pyxis-player-fullscreen');
+                                iconFsEnter.style.display = 'none';
+                                iconFsExit.style.display = 'block';
+                                try {
+                                    if (targetWrapper.requestFullscreen) {
+                                        targetWrapper.requestFullscreen().catch(() => {});
+                                    } else if (document.documentElement.requestFullscreen) {
+                                        document.documentElement.requestFullscreen().catch(() => {});
+                                    }
+                                } catch(e) {}
+                            } else {
+                                targetWrapper.classList.remove('pyxis-player-fullscreen');
+                                iconFsEnter.style.display = 'block';
+                                iconFsExit.style.display = 'none';
+                                try {
+                                    if (document.fullscreenElement) {
+                                        document.exitFullscreen().catch(() => {});
+                                    }
+                                } catch(e) {}
+                            }
+
+                            setTimeout(() => {
+                                if (artInstance && typeof artInstance.resize === 'function') artInstance.resize();
+                                if (p && p.jassub && typeof p.jassub.resize === 'function') p.jassub.resize();
+                            }, 60);
+                        }
+
+                        btnFullscreen.onclick = (e) => {
+                            e.stopPropagation();
+                            toggleFullscreen();
+                        };
+
+                        if (playerEl) {
+                            playerEl.addEventListener('dblclick', (e) => {
+                                if (e.target.closest('.pyxis-custom-player-controls') || e.target.closest('.art-settings')) {
+                                    return;
+                                }
+                                e.stopPropagation();
+                                toggleFullscreen();
+                            });
+                        }
+
+                        const onKeydown = (e) => {
+                            if (!targetWrapper) return;
+                            const isFs = targetWrapper.classList.contains('pyxis-player-fullscreen');
+                            if (e.key === 'Escape' && isFs) {
+                                toggleFullscreen(false);
+                            }
+                        };
+                        window.addEventListener('keydown', onKeydown);
+                        document.addEventListener('keydown', onKeydown);
+
+                        document.addEventListener('fullscreenchange', () => {
+                            if (!targetWrapper) return;
+                            const isFs = targetWrapper.classList.contains('pyxis-player-fullscreen');
+                            if (!document.fullscreenElement && isFs) {
+                                toggleFullscreen(false);
+                            }
+                        });
+
+                        // Seekbar dragging and clamped speech bubble tooltip
+                        let isDraggingSeek = false;
+
+                        function updateHoverTip(e) {
+                            const rect = pbarContainer.getBoundingClientRect();
+                            if (rect.width <= 0) return 0;
+                            const rawX = e.clientX - rect.left;
+                            const clampedX = Math.max(0, Math.min(rect.width, rawX));
+                            const pct = clampedX / rect.width;
+                            const duration = artInstance.duration || 0;
+                            const hoverTime = pct * duration;
+                            pbarTip.textContent = formatTimeWithMs(hoverTime);
+
+                            const tipWidth = pbarTip.offsetWidth || 56;
+                            const halfTip = tipWidth / 2;
+                            const tipLeftPx = Math.max(halfTip + 4, Math.min(rect.width - halfTip - 4, clampedX));
+                            pbarTip.style.left = `${(tipLeftPx / rect.width) * 100}%`;
+                            return pct;
+                        }
+
+                        pbarContainer.addEventListener('pointerenter', updateHoverTip);
+                        pbarContainer.addEventListener('pointermove', (e) => {
+                            const pct = updateHoverTip(e);
+                            if (isDraggingSeek) {
+                                pbarPlayed.style.width = (pct * 100) + '%';
+                                pbarThumb.style.left = (pct * 100) + '%';
+                                const duration = artInstance.duration || 0;
+                                const curTime = pct * duration;
+                                timeCurrent.textContent = formatTime(curTime);
+                                artInstance.currentTime = curTime;
+                            }
+                        });
+
+                        pbarContainer.addEventListener('pointerdown', (e) => {
+                            e.stopPropagation();
+                            isDraggingSeek = true;
+                            pbarContainer.classList.add('is-dragging');
+                            try { pbarContainer.setPointerCapture(e.pointerId); } catch(err) {}
+                            const pct = updateHoverTip(e);
+                            pbarPlayed.style.width = (pct * 100) + '%';
+                            pbarThumb.style.left = (pct * 100) + '%';
+                            const duration = artInstance.duration || 0;
+                            const curTime = pct * duration;
+                            timeCurrent.textContent = formatTime(curTime);
+                            artInstance.currentTime = curTime;
+                        });
+
+                        const releaseSeek = (e) => {
+                            if (isDraggingSeek) {
+                                isDraggingSeek = false;
+                                pbarContainer.classList.remove('is-dragging');
+                                try { pbarContainer.releasePointerCapture(e.pointerId); } catch(err) {}
+                            }
+                        };
+                        pbarContainer.addEventListener('pointerup', releaseSeek);
+                        pbarContainer.addEventListener('pointercancel', releaseSeek);
+
+                        function updateTimeUI() {
+                            const duration = artInstance.duration || 0;
+                            const current = artInstance.currentTime || 0;
+                            timeDuration.textContent = formatTime(duration);
+
+                            if (!isDraggingSeek) {
+                                timeCurrent.textContent = formatTime(current);
+                                const pct = (duration > 0) ? (current / duration) * 100 : 0;
+                                pbarPlayed.style.width = pct + '%';
+                                pbarThumb.style.left = pct + '%';
+                            }
+
+                            const video = artInstance.template ? artInstance.template.$video : null;
+                            if (video && video.buffered && video.buffered.length > 0 && duration > 0) {
+                                let bufEnd = 0;
+                                for (let i = 0; i < video.buffered.length; i++) {
+                                    if (video.buffered.start(i) <= current && current <= video.buffered.end(i)) {
+                                        bufEnd = video.buffered.end(i);
+                                        break;
+                                    }
+                                }
+                                if (!bufEnd && video.buffered.length > 0) {
+                                    bufEnd = video.buffered.end(video.buffered.length - 1);
+                                }
+                                pbarLoaded.style.width = Math.min(100, (bufEnd / duration) * 100) + '%';
+                            }
+                        }
+
+                        artInstance.on('video:timeupdate', updateTimeUI);
+                        artInstance.on('video:progress', updateTimeUI);
+                        artInstance.on('video:loadedmetadata', updateTimeUI);
+                        artInstance.on('video:durationchange', updateTimeUI);
+
+                        artInstance.on('video:play', updatePlayPauseUI);
+                        artInstance.on('video:pause', updatePlayPauseUI);
+                        artInstance.on('play', updatePlayPauseUI);
+                        artInstance.on('pause', updatePlayPauseUI);
+
+                        artInstance.on('video:volumechange', updateVolumeUI);
+
+                        updateTimeUI();
+                        updatePlayPauseUI();
+                        updateVolumeUI();
+                    }
+
                     const hasAegi = Boolean(previewInfo && previewInfo.has_aegisub);
                     activePlayers[nodeIdStr] = {
                         wrapper: wrapper,
@@ -15038,7 +15694,7 @@ function setupDynamicInlineNode(node) {
                     ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub"
                     : "Source: Open File in Aegisub - Click to switch to Base");
 
-                const btnSelectors = ['#btn-source-' + nodeIdStr, '#btn-float-source-' + nodeIdStr];
+                const btnSelectors = ['#btn-source-' + nodeIdStr, '#btn-float-source-' + nodeIdStr, '#btn-ctrl-source-' + nodeIdStr];
                 btnSelectors.forEach(sel => {
                     const btn = document.querySelector(sel);
                     if (btn) {
@@ -15320,7 +15976,8 @@ function setupDynamicInlineNode(node) {
                 if (!window.pywebview || !window.pywebview.api || !window.graph) return;
                 const refBtns = [
                     document.querySelector('#btn-refresh-' + nodeId),
-                    document.querySelector('#btn-float-refresh-' + nodeId)
+                    document.querySelector('#btn-float-refresh-' + nodeId),
+                    document.querySelector('#btn-ctrl-refresh-' + nodeId)
                 ].filter(Boolean);
                 refBtns.forEach(b => b.classList.add('is-refreshing'));
                 setPlayerLoading(nodeId, true, "preview.updating");
@@ -15439,7 +16096,8 @@ function setupDynamicInlineNode(node) {
                 if (!window.pywebview || !window.pywebview.api || !window.graph) return;
                 const hardBtns = [
                     document.querySelector('#btn-hardsub-' + nodeId),
-                    document.querySelector('#btn-float-hardsub-' + nodeId)
+                    document.querySelector('#btn-float-hardsub-' + nodeId),
+                    document.querySelector('#btn-ctrl-hardsub-' + nodeId)
                 ].filter(Boolean);
                 hardBtns.forEach(b => b.classList.add('is-rendering-hardsub'));
                 try {

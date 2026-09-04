@@ -35,6 +35,7 @@ from nodes.shape_nodes import (
     SHAPES_LIB_MAP,
     parse_assdraw_segments,
     shape_walker_core,
+    shape_walker_node,
     shape_manipulator,
     shape_transform,
     shape_concentric_borders_node,
@@ -222,6 +223,55 @@ class TestShapeWalker(unittest.TestCase):
         self.assertAlmostEqual(ty, 0.0, delta=0.1)
         self.assertAlmostEqual(cut_len, 50.0, delta=0.1)
 
+    def test_shape_walker_node_pure_shape_out(self):
+        shape = "m 0 0 l 100 0"
+        final_shp, pos_str, angle, cut_len, tip_x, tip_y = shape_walker_node(None, shape=shape, progress=0.5)
+        self.assertTrue(final_shp.startswith("m "))
+        self.assertNotIn("\\pos", final_shp)
+        self.assertNotIn("{\\", final_shp)
+
+    def test_shape_walker_node_unit_position_inheritance(self):
+        class DummyUnit:
+            center = 640.0
+            middle = 360.0
+        ctx = {"active_unit": DummyUnit()}
+        shape = "m 0 0 l 100 0"
+        final_shp, pos_str, angle, cut_len, tip_x, tip_y = shape_walker_node(ctx, shape=shape, progress=0.5)
+        self.assertEqual(tip_x, 690.0)
+        self.assertEqual(tip_y, 360.0)
+        self.assertEqual(pos_str, "\\pos(690,360)")
+        self.assertTrue(final_shp.startswith("m "))
+        self.assertNotIn("\\pos", final_shp)
+
+    def test_shape_walker_node_line_position_inheritance(self):
+        class DummyLine:
+            center = 500.0
+            middle = 200.0
+        ctx = {"active_line": DummyLine()}
+        shape = "m 0 0 l 100 0"
+        final_shp, pos_str, angle, cut_len, tip_x, tip_y = shape_walker_node(ctx, shape=shape, progress=0.5)
+        self.assertEqual(tip_x, 550.0)
+        self.assertEqual(tip_y, 200.0)
+        self.assertEqual(pos_str, "\\pos(550,200)")
+
+    def test_shape_walker_node_fx_override(self):
+        class DummyUnit:
+            center = 640.0
+            middle = 360.0
+        ctx = {"active_unit": DummyUnit(), "fx_pos_x": 100.0, "fx_pos_y": 50.0}
+        shape = "m 0 0 l 100 0"
+        final_shp, pos_str, angle, cut_len, tip_x, tip_y = shape_walker_node(ctx, shape=shape, progress=0.5)
+        self.assertEqual(tip_x, 150.0)
+        self.assertEqual(tip_y, 50.0)
+        self.assertEqual(pos_str, "\\pos(150,50)")
+
+    def test_shape_walker_node_no_context_fallback(self):
+        shape = "m 0 0 l 100 0"
+        final_shp, pos_str, angle, cut_len, tip_x, tip_y = shape_walker_node(None, shape=shape, progress=0.5)
+        self.assertEqual(tip_x, 50.0)
+        self.assertEqual(tip_y, 0.0)
+        self.assertEqual(pos_str, "\\pos(50,0)")
+
 
 class TestShapeTransformAdvanced(unittest.TestCase):
     """Pruebas de transformacion, rotacion, pivote y deformaciones."""
@@ -246,20 +296,112 @@ class TestShapeTransformAdvanced(unittest.TestCase):
         res_t05 = shape_transform(None, drawing=sq, mode="Inflate", t=0.5, anchor="center")
         self.assertTrue(res_t05.startswith("m "))
 
+    def test_shape_transform_distort_basic(self):
+        sq = "m 0 0 l 100 0 l 100 100 l 0 100"
+        tri = "m 0 0 l 100 0 l 50 100"
+        res_t0 = shape_transform(None, drawing=sq, target_shape=tri, mode="Distort", t=0.0, anchor="origin")
+        self.assertTrue(isinstance(res_t0, str) and res_t0.startswith("m "))
+        res_t1 = shape_transform(None, drawing=sq, target_shape=tri, mode="Distort", t=1.0, anchor="origin")
+        self.assertTrue(isinstance(res_t1, str) and res_t1.startswith("m "))
+
+    def test_shape_transform_distort2_progression(self):
+        shape_a = "m 0 0 l 100 0 l 100 100 l 0 100"
+        shape_b = "m 0 0 l 100 0 l 50 100"
+        shape_c = "m 0 0 l 100 50 l 0 100"
+
+        # t = 0.0: debería coincidir con Distort(A -> B, t=0.0)
+        res_t0 = shape_transform(None, drawing=shape_a, mid_shape=shape_b, target_shape=shape_c, mode="Distort2", t=0.0, anchor="origin")
+        expected_t0 = shape_transform(None, drawing=shape_a, target_shape=shape_b, mode="Distort", t=0.0, anchor="origin")
+        self.assertEqual(res_t0, expected_t0)
+
+        # t = 0.5: fin del primer tramo, debería coincidir con Distort(A -> B, t=1.0)
+        res_t05 = shape_transform(None, drawing=shape_a, mid_shape=shape_b, target_shape=shape_c, mode="Distort2", t=0.5, anchor="origin")
+        expected_t05 = shape_transform(None, drawing=shape_a, target_shape=shape_b, mode="Distort", t=1.0, anchor="origin")
+        self.assertEqual(res_t05, expected_t05)
+
+        # t = 1.0: fin del segundo tramo, debería coincidir con Distort(B -> C, t=1.0)
+        res_t1 = shape_transform(None, drawing=shape_a, mid_shape=shape_b, target_shape=shape_c, mode="Distort2", t=1.0, anchor="origin")
+        expected_t1 = shape_transform(None, drawing=shape_b, target_shape=shape_c, mode="Distort", t=1.0, anchor="origin")
+        self.assertEqual(res_t1, expected_t1)
+
+        # Puntos intermedios t = 0.25 (A -> B al 50%) y t = 0.75 (B -> C al 50%)
+        res_t025 = shape_transform(None, drawing=shape_a, mid_shape=shape_b, target_shape=shape_c, mode="Distort2", t=0.25, anchor="origin")
+        expected_t025 = shape_transform(None, drawing=shape_a, target_shape=shape_b, mode="Distort", t=0.5, anchor="origin")
+        self.assertEqual(res_t025, expected_t025)
+
+        res_t075 = shape_transform(None, drawing=shape_a, mid_shape=shape_b, target_shape=shape_c, mode="Distort2", t=0.75, anchor="origin")
+        expected_t075 = shape_transform(None, drawing=shape_b, target_shape=shape_c, mode="Distort", t=0.5, anchor="origin")
+        self.assertEqual(res_t075, expected_t075)
+
+    def test_shape_transform_distort2_graph_engine_evaluation(self):
+        shape_a = "m 0 0 l 100 0 l 100 100 l 0 100"
+        shape_b = "m 0 0 l 100 0 l 50 100"
+        shape_c = "m 0 0 l 100 50 l 0 100"
+
+        node = {
+            "id": 201,
+            "type": "Shape/Shape Transform",
+            "properties": {
+                "mode": "Distort2",
+                "shape": shape_a,
+                "mid_shape": shape_b,
+                "target_shape": shape_c,
+                "t": "0.5",
+                "energy": "0.35",
+                "step_px": "0",
+                "anchor": "origin"
+            },
+            "inputs": []
+        }
+        engine_inst = GraphEngine({"nodes": [node], "links": []})
+        ctx = {"j": 1}
+        out_shape = engine_inst.evaluate_data_node(201, ctx)
+        self.assertTrue(isinstance(out_shape, str) and out_shape.startswith("m "))
+        expected = shape_transform(None, drawing=shape_a, target_shape=shape_b, mode="Distort", t=1.0, anchor="origin")
+        self.assertEqual(out_shape, expected)
+
+    def test_shape_transform_distort2_fallbacks(self):
+        shape_a = "m 0 0 l 100 0 l 100 100 l 0 100"
+        shape_c = "m 0 0 l 100 50 l 0 100"
+
+        # Si no hay mid_shape, opera como Distort directo
+        res = shape_transform(None, drawing=shape_a, mid_shape="", target_shape=shape_c, mode="Distort2", t=0.5, anchor="origin")
+        expected = shape_transform(None, drawing=shape_a, target_shape=shape_c, mode="Distort", t=0.5, anchor="origin")
+        self.assertEqual(res, expected)
+
+    def test_shape_transform_distort2_polyline_step(self):
+        shape_a = "m 0 0 l 100 0 l 100 100 l 0 100"
+        shape_b = "m 0 0 l 100 0 l 50 100"
+        shape_c = "m 0 0 l 100 50 l 0 100"
+
+        res_poly = shape_transform(None, drawing=shape_a, mid_shape=shape_b, target_shape=shape_c, mode="Distort2", t=0.3, step_px=5.0, anchor="origin")
+        self.assertTrue(isinstance(res_poly, str) and res_poly.startswith("m "))
+        self.assertIn("l ", res_poly)
+
 
 class TestConcentricBordersAndClip(unittest.TestCase):
     """Pruebas de generacion de bordes concentricos y gradientes de corte."""
 
     def test_concentric_borders_generation(self):
         shape = "m 0 0 l 100 0 l 100 100 l 0 100"
-        ctx = {"start_time": 0, "end_time": 1000}
+        ctx = {"start_time": 0, "end_time": 1000, "b_i": 2}
         res = shape_concentric_borders_node(ctx, shape=shape, loop_count=3, separation=4.0)
         self.assertIsNotNone(res)
+        self.assertEqual(ctx.get("b_i"), 2)
+        self.assertEqual(ctx.get("b_n"), 3)
+        self.assertEqual(ctx.get("ring_i"), 2)
+        self.assertEqual(ctx.get("ring_n"), 3)
+        self.assertNotIn("j_max", ctx)
 
     def test_clip_gradient_basic(self):
-        ctx = {"start_time": 0, "end_time": 1000}
+        ctx = {"start_time": 0, "end_time": 1000, "c_i": 3}
         res = clip_gradient_node(ctx, num_clips="4", angle="0")
         self.assertIsNotNone(res)
+        self.assertEqual(ctx.get("c_i"), 3)
+        self.assertEqual(ctx.get("c_n"), 4)
+        self.assertEqual(ctx.get("clip_i"), 3)
+        self.assertEqual(ctx.get("clip_n"), 4)
+        self.assertNotIn("j_max", ctx)
 
 
 if __name__ == "__main__":

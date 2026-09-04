@@ -269,28 +269,25 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
 
     total_pts = len(sampled_pts)
     if isinstance(context, dict):
-        context['p_n'] = total_pts
-        context['p_max'] = total_pts
-        context['particle_n'] = total_pts
-        context['particle_max'] = total_pts
+        context['tp_n'] = total_pts
+        context['tp_max'] = total_pts
+        context['text_p_n'] = total_pts
+        context['text_p_max'] = total_pts
         context['maxloop'] = total_pts
-        if 'j' not in context or context.get('in_auto_slicer_loop'):
-            context['maxj'] = total_pts
-            context['j_max'] = total_pts
 
     parent_x = float(getattr(unit, 'center', getattr(unit, 'x', getattr(line, 'center', getattr(line, 'x', 0))))) if (unit or line) else 0.0
     parent_y = float(getattr(unit, 'middle', getattr(unit, 'y', getattr(line, 'middle', getattr(line, 'y', 0))))) if (unit or line) else 0.0
 
-    j_val = int(context.get('p_i', context.get('particle_i', context.get('fx_i', context.get('i', context.get('j', 1)))))) if isinstance(context, dict) else 1
-    idx = max(0, min(j_val - 1, total_pts - 1))
+    tp_val = int(context.get('tp_i', context.get('text_p_i', context.get('p_i', context.get('fx_i', context.get('i', context.get('j', 1))))))) if isinstance(context, dict) else 1
+    idx = max(0, min(tp_val - 1, total_pts - 1))
     pt = sampled_pts[idx]
 
     abs_x = round(parent_x + float(pt[0]), 2)
     abs_y = round(parent_y + float(pt[1]), 2)
 
     if isinstance(context, dict):
-        context['p_i'] = j_val
-        context['particle_i'] = j_val
+        context['tp_i'] = tp_val
+        context['text_p_i'] = tp_val
         context['x'] = abs_x
         context['y'] = abs_y
         context['fx_pos_x'] = abs_x
@@ -396,9 +393,6 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
         context['particle_max'] = total_pixels
         context['total_pixels'] = total_pixels
         context['maxloop'] = total_pixels
-        if 'j' not in context or context.get('in_auto_slicer_loop'):
-            context['maxj'] = total_pixels
-            context['j_max'] = total_pixels
 
     j_val = int(context.get('p_i', context.get('particle_i', context.get('fx_i', context.get('i', context.get('j', 1)))))) if isinstance(context, dict) else 1
     idx = max(0, min(j_val - 1, total_pixels - 1))

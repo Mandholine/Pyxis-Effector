@@ -70,6 +70,14 @@ class TestParticleNodesCore(unittest.TestCase):
         self.assertIn(r"\fscy100", merged)
         self.assertIn(r"\1c&H00FFFF&", merged)
 
+    def test_particle_variables_isolation(self):
+        ctx = {'active_unit': PyxisUnit(), 'active_line': PyxisLine(), 'tp_i': 2, 'p_i': 5}
+        path_shape = "m 0 0 l 100 0 l 100 100 l 0 100"
+        particle_text_node(ctx, shape=path_shape, density=20.0, mode="Contorno v2")
+        self.assertEqual(ctx.get('tp_i'), 2)
+        self.assertGreater(ctx.get('tp_n', 0), 0)
+        self.assertEqual(ctx.get('text_p_i'), 2)
+
 
 class TestMaxLoopModuleMorph(unittest.TestCase):
     """Pruebas de morph y deformaciones morfologicas en bucles MaxLoop."""

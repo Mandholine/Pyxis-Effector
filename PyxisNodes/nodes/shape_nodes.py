@@ -1535,8 +1535,11 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
             return pt
 
     # Interpolate segments at t_val
-    all_eval_pts = []
+    min_x, max_x = float('inf'), float('-inf')
+    min_y, max_y = float('inf'), float('-inf')
     active_pairs = []
+    has_pts = False
+
     for pair_type, is_outer, bA, bB in cached_data['pairs']:
         if 'collapsing' in pair_type and t_val >= 0.999:
             continue
@@ -1550,8 +1553,15 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
         p0_x = p0_A[0] * (1.0 - t_val) + p0_B[0] * t_val
         p0_y = p0_A[1] * (1.0 - t_val) + p0_B[1] * t_val
         p0_mapped = to_dyn_bbox((p0_x, p0_y))
+
+        has_pts = True
+        px0, py0 = p0_mapped
+        if px0 < min_x: min_x = px0
+        if px0 > max_x: max_x = px0
+        if py0 < min_y: min_y = py0
+        if py0 > max_y: max_y = py0
+
         segs = []
-        all_eval_pts.append(p0_mapped)
         for k in range(M):
             segA, segB = bA[k], bB[k]
             p1_x = segA[2][0] * (1.0 - t_val) + segB[2][0] * t_val
@@ -1565,21 +1575,28 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
             p2_m = to_dyn_bbox((p2_x, p2_y))
             p3_m = to_dyn_bbox((p3_x, p3_y))
 
+            for pmx, pmy in (p1_m, p2_m, p3_m):
+                if pmx < min_x: min_x = pmx
+                if pmx > max_x: max_x = pmx
+                if pmy < min_y: min_y = pmy
+                if pmy > max_y: max_y = pmy
+
             segs.append(('b', p0_mapped, p1_m, p2_m, p3_m))
             p0_mapped = p3_m
-            all_eval_pts.extend([p1_m, p2_m, p3_m])
         active_pairs.append(segs)
 
-    if not all_eval_pts:
+    if not has_pts:
         return drawing
 
-    n_min_x, n_max_x = min(p[0] for p in all_eval_pts), max(p[0] for p in all_eval_pts)
-    n_min_y, n_max_y = min(p[1] for p in all_eval_pts), max(p[1] for p in all_eval_pts)
+    n_min_x, n_max_x = min_x, max_x
+    n_min_y, n_max_y = min_y, max_y
     n_cx = (n_min_x + n_max_x) / 2.0
     n_cy = (n_min_y + n_max_y) / 2.0
 
     if anchor_str == 'origin':
         off_x, off_y = -n_min_x, -n_min_y
+    elif anchor_str in ('abs', 'absoluto', 'none', 'screen', 'pantalla', 'raw'):
+        off_x, off_y = 0.0, 0.0
     elif anchor_str == 'zero':
         pos_x, pos_y = 0.0, 0.0
         if isinstance(context, dict):
@@ -1598,11 +1615,12 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
             try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
         off_x, off_y = -pos_x, -pos_y
-    else:
+    else:  # 'center' (default)
         off_x, off_y = -n_cx, -n_cy
 
     def fmt_num(v):
-        return int(v) if isinstance(v, (int, float)) and float(v).is_integer() else round(float(v), 2)
+        iv = int(v)
+        return iv if v == iv else round(v, 2)
 
     out_parts = []
     if s_px >= 0.5:
@@ -1640,14 +1658,15 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
 
 
 
-def shape_transform(context, drawing="", mode="Inflate", t=None, ratio=1.0, inflate_mode="Circle", anchor="center", angle_x=0.0, angle_y=0.0, radius=10.0, corner_mode="Round", curve=None, bend_t=1.0, axis="x", target_shape="", step_px=0.0, **kwargs):
+def shape_transform(context, drawing="", mode="Inflate", t=None, ratio=1.0, inflate_mode="Circle", anchor="center", angle_x=0.0, angle_y=0.0, radius=10.0, corner_mode="Round", curve=None, bend_t=1.0, axis="x", target_shape="", mid_shape="", step_px=0.0, **kwargs):
     """Aplica transformaciones geométricas avanzadas no nativas de ASS a un dibujo vectorial ASS o texto.
     Modos:
       - 'Inflate': Deformación morfológica radial (esferificación/abombamiento) hacia círculo o elipse.
       - 'Skew': Cizallamiento o inclinación planar 2D en X e Y.
       - 'Round Corners': Redondeo (arcos Bézier) o biselado (chaflán) de esquinas poliédricas.
       - 'Flexor': Curvado y deformación a lo largo de una spline directriz o arco paramétrico.
-      - 'Distort': Deformación polar hacia el contorno de una forma objetivo (morphing).
+      - 'Distort': Deformación polar hacia el contorno de una forma objetivo (morphing de 2 formas: t0 -> t1).
+      - 'Distort2': Deformación morfológica de 3 etapas (t0: origen -> t0.5: intermedia -> t1: destino).
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
@@ -1698,6 +1717,74 @@ def shape_transform(context, drawing="", mode="Inflate", t=None, ratio=1.0, infl
             pass
         ax = axis if axis else kwargs.get("axis", "x")
         return _shape_flexor(raw_shp, curve=c_curve, t=b_t, bend=b_bend, axis=ax, anchor=anchor, context=context)
+    elif "distort2" in mode_clean or "distort 2" in mode_clean or "distort_2" in mode_clean:
+        mid = mid_shape if mid_shape else kwargs.get("mid_shape", kwargs.get("shape_mid", kwargs.get("shape2", "")))
+        mid = resolve_shape_value(mid, context)
+        if mid and not mid.lower().startswith("m ") and not mid.lower().startswith("m-") and not mid.lower().startswith("m0"):
+            from font_vector_engine import FontVectorEngine
+            unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
+            line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+            styleref = getattr(line, 'styleref', None) if line else None
+            if not styleref and unit:
+                styleref = getattr(unit, 'styleref', None)
+                if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
+                    styleref = getattr(unit.line, 'styleref', None)
+            fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
+            fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
+            b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
+            i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
+            v_mid = FontVectorEngine.text_to_shape(mid, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
+            if v_mid and v_mid.strip():
+                mid = v_mid
+
+        tgt = target_shape if target_shape else kwargs.get("target_shape", "")
+        tgt = resolve_shape_value(tgt, context)
+        if tgt and not tgt.lower().startswith("m ") and not tgt.lower().startswith("m-") and not tgt.lower().startswith("m0"):
+            from font_vector_engine import FontVectorEngine
+            unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
+            line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+            styleref = getattr(line, 'styleref', None) if line else None
+            if not styleref and unit:
+                styleref = getattr(unit, 'styleref', None)
+                if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
+                    styleref = getattr(unit.line, 'styleref', None)
+            fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
+            fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
+            b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
+            i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
+            v_tgt = FontVectorEngine.text_to_shape(tgt, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
+            if v_tgt and v_tgt.strip():
+                tgt = v_tgt
+
+        t_morph = t if (t is not None and str(t).strip() != "") else kwargs.pop("t", 1.0)
+        from node_engine import _eval_num_expr
+        try:
+            if isinstance(t_morph, (int, float)):
+                t_num = float(t_morph)
+            elif t_morph is not None and str(t_morph).strip() != "":
+                t_num = float(_eval_num_expr(t_morph, context, 1.0))
+            else:
+                t_num = 1.0
+        except Exception:
+            t_num = 1.0
+
+        t_num = max(0.0, min(1.0, t_num))
+        s_px = step_px if (step_px is not None and str(step_px).strip() != "") else kwargs.pop("step_px", kwargs.pop("step", 0.0))
+        e_val = kwargs.pop("energy", kwargs.pop("fluidez", kwargs.pop("fluidity", 0.35)))
+
+        if not mid:
+            return _shape_distort(raw_shp, target_shape=tgt, t=t_num, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+
+        if not tgt:
+            return _shape_distort(raw_shp, target_shape=mid, t=t_num, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+
+        if t_num <= 0.5:
+            t_local = t_num * 2.0
+            return _shape_distort(raw_shp, target_shape=mid, t=t_local, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+        else:
+            t_local = (t_num - 0.5) * 2.0
+            return _shape_distort(mid, target_shape=tgt, t=t_local, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+
     elif "distort" in mode_clean or "deform" in mode_clean or "morph" in mode_clean:
         tgt = target_shape if target_shape else kwargs.get("target_shape", "")
         tgt = resolve_shape_value(tgt, context)
@@ -1797,9 +1884,15 @@ def shape_concentric_borders_node(
     total_rings = loops_n
 
     if isinstance(context, dict):
-        j = int(context.get('j', context.get('fx_i', 1)))
-        context['j_max'] = total_rings
+        b_i_val = int(context.get('b_i', context.get('ring_i', context.get('j', context.get('fx_i', 1)))))
+        context['b_i'] = b_i_val
+        context['b_n'] = total_rings
+        context['b_max'] = total_rings
+        context['ring_i'] = b_i_val
+        context['ring_n'] = total_rings
+        context['ring_max'] = total_rings
         context['maxloop'] = total_rings
+        j = b_i_val
     else:
         j = 1
 
@@ -1887,9 +1980,15 @@ def clip_gradient_node(context, num_clips="5", angle="0", padding="4", overlap="
     ang = float(_eval_num_expr(angle, context, 0.0)) % 360.0
 
     if isinstance(context, dict):
-        j = int(context.get('j', context.get('fx_i', 1)))
-        context['j_max'] = N
+        c_i_val = int(context.get('c_i', context.get('clip_i', context.get('j', context.get('fx_i', 1)))))
+        context['c_i'] = c_i_val
+        context['c_n'] = N
+        context['c_max'] = N
+        context['clip_i'] = c_i_val
+        context['clip_n'] = N
+        context['clip_max'] = N
         context['maxloop'] = N
+        j = c_i_val
     else:
         j = 1
 
@@ -2852,13 +2951,142 @@ def shape_walker_node(
         subdivs=sub_val
     )
 
-    pos_str = f"\\pos({tx:.2f},{ty:.2f})".rstrip('0').rstrip('.') if (tx != 0 or ty != 0) else ""
+    # Coordenadas base de alineación del objeto activo (fx. -> unit. -> line. -> 0.0)
+    parent_x = 0.0
+    parent_y = 0.0
+    if isinstance(context, dict) and ('fx_pos_x' in context or 'pos_x' in context):
+        try:
+            parent_x = float(context.get('fx_pos_x', context.get('pos_x', 0.0)))
+        except (ValueError, TypeError):
+            parent_x = 0.0
+    elif unit is not None:
+        try:
+            parent_x = float(getattr(unit, 'center', getattr(unit, 'x', 0.0)))
+        except (ValueError, TypeError):
+            parent_x = 0.0
+    elif line is not None:
+        try:
+            parent_x = float(getattr(line, 'center', getattr(line, 'x', 0.0)))
+        except (ValueError, TypeError):
+            parent_x = 0.0
 
-    return final_shp, pos_str, round(angle, 2), round(cut_len, 2), round(tx, 2), round(ty, 2)
+    if isinstance(context, dict) and ('fx_pos_y' in context or 'pos_y' in context):
+        try:
+            parent_y = float(context.get('fx_pos_y', context.get('pos_y', 0.0)))
+        except (ValueError, TypeError):
+            parent_y = 0.0
+    elif unit is not None:
+        try:
+            parent_y = float(getattr(unit, 'middle', getattr(unit, 'y', 0.0)))
+        except (ValueError, TypeError):
+            parent_y = 0.0
+    elif line is not None:
+        try:
+            parent_y = float(getattr(line, 'middle', getattr(line, 'y', 0.0)))
+        except (ValueError, TypeError):
+            parent_y = 0.0
+
+    abs_x = round(parent_x + float(tx), 2)
+    abs_y = round(parent_y + float(ty), 2)
+
+    pos_str = f"\\pos({_format_num(abs_x)},{_format_num(abs_y)})" if (abs_x != 0 or abs_y != 0) else ""
+
+    return final_shp, pos_str, round(angle, 2), round(cut_len, 2), abs_x, abs_y
 
 
 NODE_REGISTRY["Shape/Shape Walker"] = shape_walker_node
 NODE_REGISTRY["Shape Walker"] = shape_walker_node
+
+
+def shape_stroke_node(
+    context=None,
+    shape="",
+    width=4.0,
+    join_mode="Round",
+    cap_mode="Bezier",
+    miter_limit=2.0
+):
+    """Nodo Shape Stroke / Trazo con Grosor (Paridad 100% con ke.shape.line / shape:offset).
+    Convierte cualquier línea, spline abierta o contorno cerrado en un polígono ASSDraw cerrado con grosor real.
+    """
+    from node_engine import _eval_num_expr
+    from clipper_engine import ClipperEngine
+
+    unit = context.get('active_unit') if isinstance(context, dict) else None
+    if not unit and isinstance(context, dict):
+        unit = context.get('char') or context.get('syl') or context.get('word')
+    line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+    if not line and unit and hasattr(unit, 'line'):
+        line = getattr(unit, 'line', None)
+
+    shp_val = resolve_shape_value(shape, context)
+
+    # Si no se proporciona forma, fallback al texto de la unidad activa
+    if not shp_val:
+        shp_val = getattr(unit, 'shape_drawing', getattr(unit, 'shape', getattr(unit, 'drawing', ''))) if unit else ''
+        if not shp_val and line:
+            shp_val = getattr(line, 'shape_drawing', getattr(line, 'shape', getattr(line, 'drawing', '')))
+        if not shp_val and unit:
+            shp_val = getattr(unit, 'text_stripped', getattr(unit, 'text', ''))
+        if not shp_val and line:
+            shp_val = getattr(line, 'text_stripped', getattr(line, 'text', ''))
+
+    # Si es texto plano o un glifo, vectorizar con FontVectorEngine
+    if shp_val and not shp_val.lower().startswith("m ") and not shp_val.lower().startswith("m-") and not shp_val.lower().startswith("m0"):
+        from font_vector_engine import FontVectorEngine
+        styleref = getattr(line, 'styleref', None) if line else None
+        if not styleref and unit:
+            styleref = getattr(unit, 'styleref', None)
+            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
+                styleref = getattr(unit.line, 'styleref', None)
+
+        fn = str(getattr(styleref, 'fontname', 'Arial')) if (styleref and getattr(styleref, 'fontname', None)) else "Arial"
+        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
+        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
+        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
+        sc_x = float(getattr(styleref, 'scale_x', 100.0)) if styleref else 100.0
+        sc_y = float(getattr(styleref, 'scale_y', 100.0)) if styleref else 100.0
+
+        raw_text_src = getattr(unit, 'text', '') or getattr(line, 'raw_text', '') or getattr(line, 'text', '')
+        if raw_text_src:
+            fn_m = re.search(r'\\fn([^\\}]+)', raw_text_src)
+            if fn_m: fn = fn_m.group(1).strip()
+            fs_m = re.search(r'\\fs(\d+)', raw_text_src)
+            if fs_m: fs = int(fs_m.group(1))
+            fscx_m = re.search(r'\\fscx(\d+(?:\.\d+)?)', raw_text_src)
+            if fscx_m: sc_x = float(fscx_m.group(1))
+            fscy_m = re.search(r'\\fscy(\d+(?:\.\d+)?)', raw_text_src)
+            if fscy_m: sc_y = float(fscy_m.group(1))
+            b_m = re.search(r'\\b([01])', raw_text_src)
+            if b_m: b_val = (b_m.group(1) == '1')
+            i_m = re.search(r'\\i([01])', raw_text_src)
+            if i_m: i_val = (i_m.group(1) == '1')
+
+        v_shp = FontVectorEngine.text_to_shape(shp_val, font_name=fn, font_size=fs, bold=b_val, italic=i_val, scale_x=sc_x, scale_y=sc_y)
+        if v_shp and v_shp.strip():
+            shp_val = v_shp
+
+    if not shp_val or not shp_val.strip():
+        return ""
+
+    w_val = max(0.01, _eval_num_expr(width, context, 4.0))
+    miter_val = max(1.0, _eval_num_expr(miter_limit, context, 2.0))
+    jm_str = str(join_mode).strip()
+    cm_str = str(cap_mode).strip()
+
+    return ClipperEngine.stroke_shape(
+        shp_val,
+        width=w_val,
+        join_mode=jm_str,
+        cap_mode=cm_str,
+        miter_limit=miter_val
+    )
+
+
+NODE_REGISTRY["Shape/Shape Stroke"] = shape_stroke_node
+NODE_REGISTRY["Shape Stroke"] = shape_stroke_node
+NODE_REGISTRY["Shape/Stroke"] = shape_stroke_node
+NODE_REGISTRY["Stroke"] = shape_stroke_node
 
 
 # -----------------------------------------------------------------------------

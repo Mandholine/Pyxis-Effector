@@ -629,20 +629,50 @@ def _eval_num_expr(val, context=None, default=0.0):
         if "line" in eval_locals and ("l" not in eval_locals or eval_locals["l"] is None):
             eval_locals["l"] = eval_locals["line"]
 
+        if "maxj" not in eval_locals:
+            eval_locals["maxj"] = eval_locals.get("fx_n", eval_locals.get("maxloop", 1))
         if "maxloop" not in eval_locals:
-            eval_locals["maxloop"] = eval_locals.get("j_max", eval_locals.get("fx_n", 1))
+            eval_locals["maxloop"] = eval_locals.get("maxj", eval_locals.get("fx_n", 1))
         if "max_loop" not in eval_locals:
-            eval_locals["max_loop"] = eval_locals.get("j_max", eval_locals.get("fx_n", 1))
+            eval_locals["max_loop"] = eval_locals.get("maxj", eval_locals.get("fx_n", 1))
         if "j" not in eval_locals and "fx_i" in eval_locals:
             eval_locals["j"] = eval_locals["fx_i"]
-        if "j_max" not in eval_locals and "fx_n" in eval_locals:
-            eval_locals["j_max"] = eval_locals["fx_n"]
         if "a_i" not in eval_locals and "fx_i" in eval_locals:
             eval_locals["a_i"] = eval_locals["fx_i"]
         if "a_n" not in eval_locals and "fx_n" in eval_locals:
             eval_locals["a_n"] = eval_locals["fx_n"]
         if "a_max" not in eval_locals:
             eval_locals["a_max"] = eval_locals.get("a_n", eval_locals.get("maxloop", 1))
+        if "s_i" not in eval_locals and "fx_i" in eval_locals:
+            eval_locals["s_i"] = eval_locals["fx_i"]
+        if "s_n" not in eval_locals and "fx_n" in eval_locals:
+            eval_locals["s_n"] = eval_locals["fx_n"]
+        if "s_max" not in eval_locals:
+            eval_locals["s_max"] = eval_locals.get("s_n", eval_locals.get("maxloop", 1))
+        if "p_i" not in eval_locals and "fx_i" in eval_locals:
+            eval_locals["p_i"] = eval_locals["fx_i"]
+        if "p_n" not in eval_locals and "fx_n" in eval_locals:
+            eval_locals["p_n"] = eval_locals["fx_n"]
+        if "p_max" not in eval_locals:
+            eval_locals["p_max"] = eval_locals.get("p_n", eval_locals.get("maxloop", 1))
+        if "tp_i" not in eval_locals and "fx_i" in eval_locals:
+            eval_locals["tp_i"] = eval_locals["fx_i"]
+        if "tp_n" not in eval_locals and "fx_n" in eval_locals:
+            eval_locals["tp_n"] = eval_locals["fx_n"]
+        if "tp_max" not in eval_locals:
+            eval_locals["tp_max"] = eval_locals.get("tp_n", eval_locals.get("maxloop", 1))
+        if "b_i" not in eval_locals and "fx_i" in eval_locals:
+            eval_locals["b_i"] = eval_locals["fx_i"]
+        if "b_n" not in eval_locals and "fx_n" in eval_locals:
+            eval_locals["b_n"] = eval_locals["fx_n"]
+        if "b_max" not in eval_locals:
+            eval_locals["b_max"] = eval_locals.get("b_n", eval_locals.get("maxloop", 1))
+        if "c_i" not in eval_locals and "fx_i" in eval_locals:
+            eval_locals["c_i"] = eval_locals["fx_i"]
+        if "c_n" not in eval_locals and "fx_n" in eval_locals:
+            eval_locals["c_n"] = eval_locals["fx_n"]
+        if "c_max" not in eval_locals:
+            eval_locals["c_max"] = eval_locals.get("c_n", eval_locals.get("maxloop", 1))
 
         if "fx" not in eval_locals or eval_locals["fx"] is None or not isinstance(eval_locals["fx"], FxContext):
             eval_locals["fx"] = FxContext(eval_locals)
@@ -702,6 +732,7 @@ class GraphEngine:
         inputs = target_node.get('inputs', [])
         if len(inputs) <= input_index: return False
         inp = inputs[input_index]
+        if not inp or not isinstance(inp, dict): return False
         return bool(inp.get('link') is not None or (isinstance(inp.get('links'), list) and len(inp.get('links')) > 0))
 
     def get_input_value(self, target_node, input_index, context):
@@ -709,32 +740,35 @@ class GraphEngine:
             inputs = target_node.get('inputs', [])
             if input_index < len(inputs):
                 inp = inputs[input_index]
-                p_name = inp.get('property') or inp.get('name')
-                props = target_node.get('properties', {})
-                if p_name:
-                    val = _get_prop_value(props, p_name, default="")
-                    if val != "":
-                        if str(val).strip().lower().startswith("shape."):
-                            from nodes.shape_nodes import resolve_shape_value
+                if inp and isinstance(inp, dict):
+                    p_name = inp.get('property') or inp.get('name')
+                    props = target_node.get('properties', {})
+                    if p_name:
+                        val = _get_prop_value(props, p_name, default="")
+                        if val != "":
+                            if str(val).strip().lower().startswith("shape."):
+                                from nodes.shape_nodes import resolve_shape_value
+                                return resolve_shape_value(val, context)
+                            return str(val)
+                    if inp.get('name'):
+                        val = _get_prop_value(props, inp.get('name'), default="")
+                        if val != "":
+                            if str(val).strip().lower().startswith("shape."):
+                                from nodes.shape_nodes import resolve_shape_value
                             return resolve_shape_value(val, context)
                         return str(val)
-                if inp.get('name'):
-                    val = _get_prop_value(props, inp.get('name'), default="")
-                    if val != "":
-                        if str(val).strip().lower().startswith("shape."):
+                    if 'value' in inp and inp['value'] is not None and str(inp['value']).strip() != "":
+                        raw_val = str(inp['value']).strip()
+                        if raw_val.lower().startswith("shape."):
                             from nodes.shape_nodes import resolve_shape_value
-                            return resolve_shape_value(val, context)
-                        return str(val)
-                if 'value' in inp and inp['value'] is not None and str(inp['value']).strip() != "":
-                    raw_val = str(inp['value']).strip()
-                    if raw_val.lower().startswith("shape."):
-                        from nodes.shape_nodes import resolve_shape_value
-                        return resolve_shape_value(raw_val, context)
-                    return raw_val
+                            return resolve_shape_value(raw_val, context)
+                        return raw_val
             return ""
         inputs = target_node.get('inputs', [])
         if input_index < len(inputs):
             inp = inputs[input_index]
+            if not inp or not isinstance(inp, dict):
+                return ""
             link_ids = []
             if isinstance(inp.get('links'), list) and len(inp['links']) > 0:
                 link_ids = inp['links']
@@ -854,7 +888,7 @@ class GraphEngine:
 
     def _update_module_context(self, context):
         j = float(context.get('j', context.get('fx_i', 1)))
-        maxj = float(context.get('j_max', context.get('fx_n', context.get('maxj', 1))))
+        maxj = float(context.get('maxj', context.get('fx_n', 1)))
         
         module = round((j - 1.0) / (maxj - 1.0), 4) if maxj > 1 else 0.0
         context['module'] = module
@@ -869,7 +903,12 @@ class GraphEngine:
         et = _to_int_or_default(et_raw, default_et, context=context)
 
         tags_raw = "" if _is_empty_value(tags_raw) else str(tags_raw).strip()
-        return_raw = getattr(active_unit, 'text_stripped', '') if _is_empty_value(return_raw) else str(return_raw).strip()
+        return_connected = bool(context and context.get('_return_port_connected'))
+        return_node_is_shape = bool(context and context.get('_return_node_is_shape'))
+        if not return_connected:
+            return_raw = getattr(active_unit, 'text_stripped', '') if _is_empty_value(return_raw) else str(return_raw).strip()
+        else:
+            return_raw = "" if _is_empty_value(return_raw) else str(return_raw).strip()
 
         # If return_raw contains override tags or \clip / \iclip, extract inner tags cleanly
         if return_raw:
@@ -884,11 +923,11 @@ class GraphEngine:
                 return_raw = return_raw.replace(clip_str, '').strip()
 
         # If return_raw was solely a clip tag and is now empty, restore active_unit text if available
-        if not return_raw and active_unit:
+        if not return_connected and not return_raw and active_unit:
             return_raw = getattr(active_unit, 'text_stripped', getattr(active_unit, 'text', ''))
 
         # Detect ASSDraw vector shape in Return and inject \p1 tag automatically if missing
-        if return_raw and (return_raw.startswith("m ") or re.search(r'\bm\s+-?\d+', return_raw)):
+        if (return_raw and (return_raw.startswith("m ") or re.search(r'\bm\s+-?\d+', return_raw))) or (return_node_is_shape and return_connected):
             if not re.search(r'\\p\d+', tags_raw):
                 tags_raw += "\\p1"
 
@@ -1539,15 +1578,20 @@ class GraphEngine:
 
                 total_pieces = len(pieces)
 
-                # Auto-Loop Transparente: Obtener iteración actual j y ajustar maxloop del contexto
-                j_val = int(context.get('j', context.get('J', 1)))
+                # Auto-Loop Transparente: Obtener iteración actual s_i y ajustar variables de cortes (Slices)
+                s_val = int(context.get('s_i', context.get('slice_i', context.get('j', context.get('J', 1)))))
                 
-                # Auto-ajustar total de iteraciones maxloop del slicer
-                context['j_max'] = total_pieces
+                # Auto-ajustar total de iteraciones de cortes del slicer
+                context['s_i'] = s_val
+                context['s_n'] = total_pieces
+                context['s_max'] = total_pieces
+                context['slice_i'] = s_val
+                context['slice_n'] = total_pieces
+                context['slice_max'] = total_pieces
                 context['maxloop'] = total_pieces
 
-                # Seleccionar la pieza correspondiente a la iteración j
-                piece_idx = max(0, min(j_val - 1, total_pieces - 1))
+                # Seleccionar la pieza correspondiente a la iteración s_i
+                piece_idx = max(0, min(s_val - 1, total_pieces - 1))
                 piece = pieces[piece_idx]
                 cx, cy = float(piece.get("cx", 0)), float(piece.get("cy", 0))
 
@@ -1757,6 +1801,50 @@ class GraphEngine:
 
                     axis_val = str(_get_prop_value(props, "axis", "x")).strip()
                     return shape_transform(context, drawing=shp_val, mode="Flexor", curve=curve_in, bend_t=bend_t, axis=axis_val, anchor=anchor_val)
+                elif "distort2" in modo_clean or "distort 2" in modo_clean or "distort_2" in modo_clean:
+                    mid_val = self.get_input_value(node, 1, context)
+                    if mid_val is None or mid_val == "": mid_val = str(_get_prop_value(props, "mid_shape", _get_prop_value(props, "shape_mid", ""))).strip()
+                    mid_val = resolve_shape_value(mid_val, context)
+
+                    tgt_val = self.get_input_value(node, 2, context)
+                    if tgt_val is None or tgt_val == "": tgt_val = str(_get_prop_value(props, "target_shape", "")).strip()
+                    tgt_val = resolve_shape_value(tgt_val, context)
+
+                    in_t = self.get_input_value(node, 3, context)
+                    if in_t is None or in_t == "": in_t = _get_prop_value(props, "t", "1.0")
+                    t_val = _eval_num_expr(in_t, context, 1.0)
+
+                    in_slot_4 = self.get_input_value(node, 4, context)
+                    in_slot_5 = self.get_input_value(node, 5, context)
+                    in_slot_6 = self.get_input_value(node, 6, context)
+                    known_anchors = {"center", "origin", "zero", "pos", "topleft", "bottomleft", "topright", "bottomright", "relativo", "absoluto"}
+
+                    prop_energy = _get_prop_value(props, "energy", _get_prop_value(props, "fluidez", _get_prop_value(props, "fluidity", "0.35")))
+                    prop_step = _get_prop_value(props, "step_px", _get_prop_value(props, "step", "0"))
+                    prop_anchor = _get_prop_value(props, "anchor", "center")
+
+                    energy_val = _eval_num_expr(prop_energy, context, 0.35)
+                    step_val = _eval_num_expr(prop_step, context, 0.0)
+                    anchor_val = str(prop_anchor).strip()
+
+                    if in_slot_4 is not None and str(in_slot_4).strip() != "":
+                        s4_str = str(in_slot_4).strip().lower()
+                        if s4_str in known_anchors:
+                            anchor_val = str(in_slot_4).strip()
+                        else:
+                            energy_val = _eval_num_expr(in_slot_4, context, energy_val)
+
+                    if in_slot_5 is not None and str(in_slot_5).strip() != "":
+                        s5_str = str(in_slot_5).strip().lower()
+                        if s5_str in known_anchors:
+                            anchor_val = str(in_slot_5).strip()
+                        else:
+                            step_val = _eval_num_expr(in_slot_5, context, step_val)
+
+                    if in_slot_6 is not None and str(in_slot_6).strip() != "":
+                        anchor_val = str(in_slot_6).strip()
+
+                    return shape_transform(context, drawing=shp_val, mode="Distort2", mid_shape=mid_val, target_shape=tgt_val, t=t_val, step_px=step_val, energy=energy_val, anchor=anchor_val)
                 elif "distort" in modo_clean or "deform" in modo_clean or "morph" in modo_clean:
                     tgt_val = self.get_input_value(node, 1, context)
                     if tgt_val is None or tgt_val == "": tgt_val = str(_get_prop_value(props, "target_shape", "")).strip()
@@ -2360,6 +2448,44 @@ class GraphEngine:
                 return cut_shp
             except Exception as e:
                 return f"[Err Shape Walker: {e}]"
+
+        # ---------------------------------------------------------------------
+        # 4B2b. SHAPE STROKE (Multi-Slot: Shape Out, Width)
+        # ---------------------------------------------------------------------
+        elif node_type in ["Shape/Shape Stroke", "Shape Stroke", "Shape/Stroke", "Stroke"]:
+            try:
+                is_connected = self.is_port_connected(node, 0)
+                shp_raw = self.get_input_value(node, 0, context)
+                if not is_connected and shp_raw == "":
+                    shp_raw = str(_get_prop_value(props, "shape", "")).strip()
+
+                w_raw = self.get_input_value(node, 1, context)
+                if w_raw == "": w_raw = str(_get_prop_value(props, "width", _get_prop_value(props, "grosor", _get_prop_value(props, "ancho", "4.0")))).strip()
+
+                cap_raw = self.get_input_value(node, 2, context)
+                if cap_raw == "": cap_raw = str(_get_prop_value(props, "cap_mode", _get_prop_value(props, "cap", "Bezier"))).strip()
+
+                join_raw = str(_get_prop_value(props, "join_mode", _get_prop_value(props, "join", "Round"))).strip()
+                miter_raw = str(_get_prop_value(props, "miter_limit", "2.0")).strip()
+
+                if output_slot_index == 1:
+                    return str(w_raw)
+
+                # Si el puerto estaba conectado y devolvió "" (ej. Recorredor al inicio con progreso 0.0), el trazo es ""
+                if is_connected and not shp_raw:
+                    return ""
+
+                from nodes.shape_nodes import shape_stroke_node
+                return shape_stroke_node(
+                    context,
+                    shape=shp_raw,
+                    width=w_raw,
+                    cap_mode=cap_raw,
+                    join_mode=join_raw,
+                    miter_limit=miter_raw
+                )
+            except Exception as e:
+                return f"[Err Shape Stroke: {e}]"
 
         # ---------------------------------------------------------------------
         # 4B3. SHAPE ARRAY (Multi-Slot: Shape, \pos Tag, X, Y, Angle, a_i, a_n, Col/Ring, Row/IdxRing)
@@ -3070,7 +3196,7 @@ class GraphEngine:
             if output_slot_index == 1:
                 return str(context.get(var_name, context.get('j', context.get('fx_i', 1))))
             elif output_slot_index == 2:
-                return str(context.get(var_name + '_max', context.get('j_max', context.get('fx_n', 1))))
+                return str(context.get(var_name + '_max', context.get('maxj', context.get('fx_n', 1))))
             return ""
 
         elif node_type in ["Color Picker"]:
@@ -3150,8 +3276,8 @@ class GraphEngine:
                 str_n = str(raw_n).strip().lower()
                 if str_n in ["n", "total", "max"]:
                     val_n = float(context.get("n", context.get("fx_n", context.get("maxloop", 1.0)))) if isinstance(context, dict) else 1.0
-                elif str_n in ["j_max", "max_j", "maxloop"]:
-                    val_n = float(context.get("j_max", context.get("maxloop", 1.0))) if isinstance(context, dict) else 1.0
+                elif str_n in ["maxj", "max_j", "maxloop"]:
+                    val_n = float(context.get("maxj", context.get("maxloop", 1.0))) if isinstance(context, dict) else 1.0
                 else:
                     val_n = float(_eval_num_expr(raw_n, context, 1.0))
 
@@ -3357,6 +3483,18 @@ class GraphEngine:
                         if self.is_cancelled: break
                         loop_ctx = context.copy()
                         loop_ctx['in_auto_slicer_loop'] = True
+                        loop_ctx['s_i'] = auto_j
+                        loop_ctx['s_n'] = auto_n
+                        loop_ctx['s_max'] = auto_n
+                        loop_ctx['slice_i'] = auto_j
+                        loop_ctx['slice_n'] = auto_n
+                        loop_ctx['slice_max'] = auto_n
+                        loop_ctx['tp_i'] = auto_j
+                        loop_ctx['tp_n'] = auto_n
+                        loop_ctx['tp_max'] = auto_n
+                        loop_ctx['text_p_i'] = auto_j
+                        loop_ctx['text_p_n'] = auto_n
+                        loop_ctx['text_p_max'] = auto_n
                         loop_ctx['p_i'] = auto_j
                         loop_ctx['p_n'] = auto_n
                         loop_ctx['p_max'] = auto_n
@@ -3370,9 +3508,21 @@ class GraphEngine:
                         loop_ctx['array_i'] = auto_j
                         loop_ctx['array_n'] = auto_n
                         loop_ctx['array_max'] = auto_n
+                        loop_ctx['b_i'] = auto_j
+                        loop_ctx['b_n'] = auto_n
+                        loop_ctx['b_max'] = auto_n
+                        loop_ctx['ring_i'] = auto_j
+                        loop_ctx['ring_n'] = auto_n
+                        loop_ctx['ring_max'] = auto_n
+                        loop_ctx['c_i'] = auto_j
+                        loop_ctx['c_n'] = auto_n
+                        loop_ctx['c_max'] = auto_n
+                        loop_ctx['clip_i'] = auto_j
+                        loop_ctx['clip_n'] = auto_n
+                        loop_ctx['clip_max'] = auto_n
                         if 'j' not in context:
                             loop_ctx['j'] = auto_j
-                            loop_ctx['j_max'] = auto_n
+                            loop_ctx['maxj'] = auto_n
                         loop_ctx['fx_i'] = auto_j
                         loop_ctx['fx_n'] = auto_n
                         self.execute_loops_recursive([], loop_ctx, output_node, active_unit, check_cancel, progress_tracker, progress_callback)
@@ -3456,7 +3606,19 @@ class GraphEngine:
                         queue_order = props[k]
                         break
 
-            if not self.is_port_connected(output_node, 5): 
+            is_ret_conn = self.is_port_connected(output_node, 5)
+            context['_return_port_connected'] = is_ret_conn
+            if is_ret_conn:
+                inp_5 = output_node.get('inputs', [])[5] if len(output_node.get('inputs', [])) > 5 else None
+                link_id = inp_5.get('link') if isinstance(inp_5, dict) else None
+                link_obj = next((l for l in self.links if l[0] == link_id), None) if link_id else None
+                src_node = self.nodes.get(link_obj[1]) if link_obj else None
+                src_type = str(src_node.get('type', '')).lower() if src_node else ''
+                context['_return_node_is_shape'] = any(kw in src_type for kw in ['shape', 'stroke', 'walker', 'slicer', 'border', 'drawing', 'particle', 'pixel', 'curva', 'bezier'])
+            else:
+                context['_return_node_is_shape'] = False
+
+            if not is_ret_conn: 
                 retorno_str = getattr(active_unit, 'text_stripped', '')
             
             # Auto-extracción y fusión limpia (deduplicada) de TODOS los tags embebidos en retorno_str {\tag...}
@@ -3476,6 +3638,11 @@ class GraphEngine:
             )
 
             if not _final_text_has_content(retorno_str) and not str(tags_str).strip(): return
+
+            # Si es modo dibujo vectorial (\p1) o el puerto de retorno proviene de un nodo de forma, y el dibujo resultante está vacío:
+            # Abortar la generación de la línea por completo para no emitir eventos vacíos sin píxeles al archivo .ass
+            if (r'\p1' in tags_str or (is_ret_conn and context.get('_return_node_is_shape'))) and not str(retorno_str).strip():
+                return
 
             queue_id = queue_id.strip() if queue_id else "default"
             queue_order = _to_int_or_default(queue_order, 0, context=context)
@@ -3615,7 +3782,7 @@ class GraphEngine:
                     ctx = context.copy()
                     ctx[var_name], ctx[var_name + '_max'] = i, veces 
                     ctx['fx_i'], ctx['fx_n'] = i, veces
-                    ctx['j_max'] = veces
+                    ctx['maxj'] = veces
                     ctx['j'] = i
 
                     frame_st = unit_st + (i - 1) * step_ms
@@ -3653,7 +3820,7 @@ class GraphEngine:
                     ctx = context.copy()
                     ctx[var_name], ctx[var_name + '_max'] = i, veces 
                     ctx['fx_i'], ctx['fx_n'] = i, veces
-                    ctx['j_max'] = veces
+                    ctx['maxj'] = veces
                     ctx['j'] = i
                     self.bind_active_unit(ctx, active_unit)
                     self.execute_loops_recursive(rest_chain, ctx, output_node, active_unit, check_cancel, progress_tracker, progress_callback)

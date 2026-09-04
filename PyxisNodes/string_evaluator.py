@@ -155,12 +155,8 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if "line" not in eval_locals and hasattr(unit_obj, "line") and unit_obj.line:
             eval_locals["line"] = unit_obj.line
 
-    if "line" in eval_locals and ("l" not in eval_locals or eval_locals["l"] is None):
-        eval_locals["l"] = eval_locals["line"]
-
-    val_max_j = eval_locals.get("maxj", eval_locals.get("j_max", eval_locals.get("fx_n", 1)))
+    val_max_j = eval_locals.get("maxj", eval_locals.get("fx_n", 1))
     eval_locals["maxj"] = val_max_j
-    eval_locals["j_max"] = val_max_j
     if "maxloop" not in eval_locals:
         eval_locals["maxloop"] = eval_locals.get("max_loop", val_max_j)
     if "max_loop" not in eval_locals:
