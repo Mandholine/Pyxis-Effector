@@ -16,7 +16,7 @@
  * For any question you can visit: https://discord.gg/rYsARc3fB9
  */
 
-/* Biblioteca permanente de templates Pyxis Engine 1.0.6.
+/* Biblioteca permanente de templates Pyxis Engine 1.0.7.
  * Cargar después del script principal de index.html.
  */
 (function () {
@@ -49,14 +49,127 @@
         });
     }
 
-    function update_checkpoint() {
-        if (!graph_ready()) return;
-        if (typeof window.syncWidgetsToProperties === "function") {
-            window.syncWidgetsToProperties();
+    function canonicalize(obj) {
+        if (obj === null || obj === undefined) return null;
+        if (typeof obj !== "object") {
+            if (typeof obj === "number") {
+                return Math.round(obj * 1000) / 1000;
+            }
+            return obj;
         }
-        sync_graph_widgets();
+        if (Array.isArray(obj)) {
+            return obj.map(canonicalize);
+        }
+        var sortedKeys = Object.keys(obj).sort();
+        var result = {};
+        for (var i = 0; i < sortedKeys.length; i++) {
+            var key = sortedKeys[i];
+            var val = obj[key];
+            if (val !== undefined) {
+                result[key] = canonicalize(val);
+            }
+        }
+        return result;
+    }
+
+    function get_graph_content_signature(graph_obj) {
+        if (!graph_obj) return "";
+        var serialized = null;
+        if (typeof graph_obj.serialize === "function") {
+            if (typeof window.syncWidgetsToProperties === "function") {
+                window.syncWidgetsToProperties();
+            }
+            sync_graph_widgets();
+            serialized = graph_obj.serialize();
+        } else if (typeof graph_obj === "object") {
+            serialized = graph_obj.graph || graph_obj;
+        } else if (typeof graph_obj === "string") {
+            try {
+                var parsed = JSON.parse(graph_obj);
+                serialized = parsed.graph || parsed;
+            } catch (e) {
+                return "";
+            }
+        }
+
+        if (!serialized || !Array.isArray(serialized.nodes)) return "";
+
+        var clean_nodes = (serialized.nodes || []).map(function (n) {
+            if (!n) return null;
+            var clean_inputs = (n.inputs || []).map(function (i) {
+                return {
+                    name: i.name || "",
+                    type: i.type || "",
+                    link: (i.link === undefined || i.link === null) ? null : i.link
+                };
+            });
+            var clean_outputs = (n.outputs || []).map(function (o) {
+                var links = Array.isArray(o.links)
+                    ? o.links.filter(function(x) { return x !== null && x !== undefined; }).slice().sort(function(a,b){return a-b;})
+                    : [];
+                return {
+                    name: o.name || "",
+                    type: o.type || "",
+                    links: links
+                };
+            });
+            return {
+                id: n.id,
+                type: n.type,
+                pos: Array.isArray(n.pos) ? [Math.round(n.pos[0] * 10) / 10, Math.round(n.pos[1] * 10) / 10] : [0, 0],
+                size: Array.isArray(n.size) ? [Math.round(n.size[0] * 10) / 10, Math.round(n.size[1] * 10) / 10] : [0, 0],
+                properties: canonicalize(n.properties || {}),
+                flags: {
+                    collapsed: !!(n.flags && n.flags.collapsed),
+                    pinned: !!(n.flags && n.flags.pinned)
+                },
+                mode: (n.mode === undefined || n.mode === null) ? 0 : n.mode,
+                title: n.title || "",
+                inputs: clean_inputs,
+                outputs: clean_outputs
+            };
+        }).filter(Boolean);
+
+        clean_nodes.sort(function (a, b) {
+            return (a && b) ? (a.id - b.id) : 0;
+        });
+
+        var clean_links = (serialized.links || []).map(function (l) {
+            if (!l) return null;
+            if (Array.isArray(l)) {
+                return [l[0], l[1], l[2], l[3], l[4], String(l[5] || "")];
+            }
+            return [l.id, l.origin_id, l.origin_slot, l.target_id, l.target_slot, String(l.type || "")];
+        }).filter(Boolean);
+
+        clean_links.sort(function (a, b) {
+            return (a[0] - b[0]);
+        });
+
+        var clean_groups = (serialized.groups || []).map(function (g) {
+            if (!g) return null;
+            return {
+                title: g.title || "",
+                bounding: Array.isArray(g.bounding) ? g.bounding.map(function(v){ return Math.round(v * 10) / 10; }) : null,
+                color: g.color || ""
+            };
+        }).filter(Boolean);
+
+        clean_groups.sort(function (a, b) {
+            return (a.title || "").localeCompare(b.title || "");
+        });
+
+        return JSON.stringify(canonicalize({ nodes: clean_nodes, links: clean_links, groups: clean_groups }));
+    }
+
+    function update_checkpoint(custom_target) {
+        if (custom_target) {
+            window.__pyxis_template_checkpoint = get_graph_content_signature(custom_target);
+            return;
+        }
+        if (!graph_ready()) return;
         try {
-            window.__pyxis_template_checkpoint = JSON.stringify(graph.serialize());
+            window.__pyxis_template_checkpoint = get_graph_content_signature(graph);
         } catch (e) {
             console.error("Pyxis: no se pudo guardar el checkpoint del template", e);
         }
@@ -64,22 +177,18 @@
 
     function has_changes() {
         if (!graph_ready()) return false;
-        if (typeof window.syncWidgetsToProperties === "function") {
-            window.syncWidgetsToProperties();
-        }
-        sync_graph_widgets();
-        var current_json = "";
+        var current_sig = "";
         try {
-            current_json = JSON.stringify(graph.serialize());
+            current_sig = get_graph_content_signature(graph);
         } catch (e) {
             console.error("Pyxis: error al serializar grafo para verificar cambios", e);
             return false;
         }
 
         if (window.__pyxis_template_checkpoint === undefined || window.__pyxis_template_checkpoint === null) {
-            return graph._nodes && graph._nodes.length > 0;
+            return false;
         }
-        return current_json !== window.__pyxis_template_checkpoint;
+        return current_sig !== window.__pyxis_template_checkpoint;
     }
 
     function check_unknown_nodes(graph_data) {
@@ -144,13 +253,89 @@
         style.textContent = `
             .pyxis-template-button { margin-left: 8px; }
             .pyxis-template-overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,.78); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); display:flex; align-items:center; justify-content:center; }
-            .pyxis-template-dialog { width: 780px; max-height: 85vh; overflow:hidden; background: var(--bg-panel, #161b22); border: 1px solid var(--border-subtle, rgba(255,255,255,0.1)); border-radius: 14px; padding: 22px; color: var(--text-main, #f3f4f6); font-family: var(--font-sans, sans-serif); box-shadow: 0 20px 50px rgba(0,0,0,0.7); }
-            .pyxis-template-dialog h2 { margin:0 0 14px; color: var(--accent-primary, #10b981); font-size: 18px; font-weight: 700; }
-            .pyxis-template-toolbar { display:flex; gap:10px; margin-bottom:14px; }
-            .pyxis-template-toolbar input, .pyxis-template-toolbar select { background: var(--bg-input, #12151b); color: var(--text-main, #f3f4f6); border:1px solid var(--border-subtle, rgba(255,255,255,0.1)); padding:9px 12px; border-radius:8px; font-family:inherit; font-size:13px; }
-            .pyxis-template-toolbar input { flex:2; }
-            .pyxis-template-toolbar select { flex:1; min-width: 140px; }
-            .pyxis-template-list { max-height:48vh; overflow:auto; border:1px solid var(--border-subtle, rgba(255,255,255,0.1)); border-radius:8px; background: var(--bg-card, #181d24); }
+            .pyxis-template-dialog {
+                width: 780px;
+                max-width: 94vw;
+                max-height: 85vh;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                background: var(--bg-panel, #161b22);
+                border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+                border-radius: 14px;
+                padding: 22px;
+                color: var(--text-main, #f3f4f6);
+                font-family: var(--font-sans, sans-serif);
+                box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+            }
+            .pyxis-template-dialog h2 { margin:0 0 14px; color: var(--accent-primary, #10b981); font-size: 18px; font-weight: 700; flex-shrink: 0; }
+            .pyxis-template-toolbar { display:flex; gap:10px; margin-bottom:14px; flex-shrink: 0; }
+            .pyxis-template-toolbar input {
+                flex: 2;
+                background: var(--bg-input, #12151b);
+                color: var(--text-main, #f3f4f6);
+                border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+                padding: 9px 14px;
+                border-radius: 8px;
+                font-family: inherit;
+                font-size: 13px;
+                outline: none;
+            }
+            .pyxis-template-toolbar select {
+                flex: 1;
+                min-width: 175px;
+                background-color: var(--bg-input, #12151b);
+                color: var(--text-main, #f3f4f6);
+                border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+                padding: 9px 36px 9px 14px;
+                border-radius: 8px;
+                font-family: inherit;
+                font-size: 13px;
+                outline: none;
+                cursor: pointer;
+                appearance: none;
+                -webkit-appearance: none;
+                -moz-appearance: none;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 14px center;
+                background-size: 14px;
+            }
+            .pyxis-template-toolbar select:focus, .pyxis-template-toolbar input:focus {
+                border-color: var(--accent-primary, #10b981);
+            }
+            .pyxis-template-toolbar select option {
+                background: #181d24;
+                color: #f3f4f6;
+                padding: 8px 12px;
+            }
+            .pyxis-template-list {
+                max-height: 380px;
+                min-height: 120px;
+                overflow-y: auto !important;
+                overflow-x: hidden;
+                overscroll-behavior: contain;
+                border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+                border-radius: 8px;
+                background: var(--bg-card, #181d24);
+                scrollbar-width: thin;
+                scrollbar-color: rgba(255, 255, 255, 0.35) rgba(0, 0, 0, 0.25);
+            }
+            .pyxis-template-list::-webkit-scrollbar {
+                width: 8px;
+            }
+            .pyxis-template-list::-webkit-scrollbar-track {
+                background: rgba(0, 0, 0, 0.25);
+                border-radius: 4px;
+            }
+            .pyxis-template-list::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.3);
+                border-radius: 4px;
+                border: 1px solid rgba(0, 0, 0, 0.2);
+            }
+            .pyxis-template-list::-webkit-scrollbar-thumb:hover {
+                background: var(--accent-primary, #10b981);
+            }
             .pyxis-template-row { display:flex; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid var(--border-subtle, rgba(255,255,255,0.06)); cursor:pointer; transition: background 0.15s ease; }
             .pyxis-template-row:hover, .pyxis-template-row.selected { background: rgba(16, 185, 129, 0.12); }
             .pyxis-template-star { font-size: 18px; cursor: pointer; color: #555; user-select: none; transition: color 0.15s, transform 0.15s; }
@@ -160,9 +345,9 @@
             .pyxis-template-info { flex:1; min-width:0; }
             .pyxis-template-name { color: var(--accent-primary, #10b981); font-weight:bold; display: flex; align-items: center; font-size: 14px; }
             .pyxis-template-comment, .pyxis-template-meta { color: var(--text-muted, #9ca3af); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
-            .pyxis-template-actions { display:flex; align-items: center; gap:10px; margin-top:16px; }
+            .pyxis-template-actions { display:flex; align-items: center; gap:10px; margin-top:16px; flex-shrink: 0; }
             .pyxis-template-empty { color: var(--text-muted, #9ca3af); padding:30px; text-align:center; font-size: 14px; }
-            .pyxis-template-error { color:#ef4444; min-height:18px; margin-top:8px; font-size:13px; }
+            .pyxis-template-error { color:#ef4444; min-height:18px; margin-top:8px; font-size:13px; flex-shrink: 0; }
         `;
         document.head.appendChild(style);
     }
@@ -208,6 +393,12 @@
             localStorage.setItem("pyxis_active_template_id", meta.template_id);
             localStorage.setItem("pyxis_active_template_name", meta.name);
             localStorage.setItem("pyxis_last_used_template_id", meta.template_id);
+            if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_user_config === "function") {
+                window.pywebview.api.save_user_config({
+                    active_template_id: meta.template_id,
+                    active_template_name: meta.name
+                });
+            }
             update_checkpoint();
             if (typeof window.updateTemplateUIState === "function") window.updateTemplateUIState();
             if (typeof window.__pyxis_schedule_save === "function") window.__pyxis_schedule_save(50);
@@ -715,8 +906,15 @@
                     localStorage.setItem("pyxis_active_template_id", window.__pyxis_active_template_id);
                     localStorage.setItem("pyxis_active_template_name", window.__pyxis_active_template_name);
                     localStorage.setItem("pyxis_last_used_template_id", window.__pyxis_active_template_id);
+                    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_user_config === "function") {
+                        window.pywebview.api.save_user_config({
+                            active_template_id: window.__pyxis_active_template_id,
+                            active_template_name: window.__pyxis_active_template_name
+                        });
+                    }
                 }
 
+                if (typeof window.syncWidgetsToProperties === "function") window.syncWidgetsToProperties();
                 update_checkpoint();
                 
                 setTimeout(function() {
@@ -809,7 +1007,7 @@
         window.open_save_as_dialog = open_save_as_dialog;
     }
 
-    function wait_ready() {
+    async function wait_ready() {
         window.open_template_library_modal = open_library;
         window.open_save_dialog = open_save_dialog;
         window.open_save_as_dialog = open_save_as_dialog;
@@ -818,15 +1016,35 @@
         window.update_checkpoint = update_checkpoint;
 
         if (api_ready() && graph_ready() && window.__pyxis_graph_initialized === true) {
-            if (!window.__pyxis_active_template_id) {
-                var storedId = localStorage.getItem("pyxis_active_template_id");
-                var storedName = localStorage.getItem("pyxis_active_template_name");
-                if (storedId && storedName) {
-                    window.__pyxis_active_template_id = storedId;
-                    window.__pyxis_active_template_name = storedName;
+            var activeId = window.__pyxis_active_template_id;
+            var activeName = window.__pyxis_active_template_name;
+
+            if (activeId && activeName) {
+                window.__pyxis_active_template_id = activeId;
+                window.__pyxis_active_template_name = activeName;
+                try {
+                    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.load_template === "function") {
+                        var doc = await window.pywebview.api.load_template(activeId);
+                        if (doc && doc.graph) {
+                            window.__pyxis_template_checkpoint = get_graph_content_signature(doc.graph);
+                            window.__pyxis_active_template_name = (doc.metadata && doc.metadata.name) || activeName;
+                        } else {
+                            update_checkpoint();
+                        }
+                    } else {
+                        update_checkpoint();
+                    }
+                } catch (e) {
+                    update_checkpoint();
                 }
+            } else {
+                window.__pyxis_active_template_id = null;
+                window.__pyxis_active_template_name = null;
+                localStorage.removeItem("pyxis_active_template_id");
+                localStorage.removeItem("pyxis_active_template_name");
+                update_checkpoint();
             }
-            update_checkpoint();
+
             install_toolbar();
             if (typeof window.updateTemplateUIState === "function") {
                 window.updateTemplateUIState();

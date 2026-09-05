@@ -49,7 +49,7 @@ class TestGraphEngineCore(unittest.TestCase):
         self.sample_line.syls = [self.sample_syl]
 
     def test_version_current(self):
-        self.assertEqual(PYXIS_ENGINE_VERSION, "1.0.6")
+        self.assertEqual(PYXIS_ENGINE_VERSION, "1.0.7")
 
     def test_remember_and_recall_memory(self):
         engine = GraphEngine({"nodes": [], "links": []})

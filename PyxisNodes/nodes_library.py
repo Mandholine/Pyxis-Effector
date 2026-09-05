@@ -288,9 +288,32 @@ system_node(
 
 system_node(
     "Shape", "Shape Manipulator", node_kind="data", color="#5B2C6F",
-    inputs=["Shape / Texto", "Scale X", "Scale Y", "Angle", "Offset X", "Offset Y", "Border Offset", "Anchor"],
+    inputs=["Shape / Texto", "Factor (t)", "Scale X", "Scale Y", "Anchor"],
     outputs=["Shape"],
-    properties={"shape": "", "scale_x": "100", "scale_y": "100", "angle": "0", "offset_x": "0", "offset_y": "0", "offset_border": "0.0", "anchor": "center", "mode": "Escalar"},
+    properties={"shape": "", "t": "1.0", "scale_x": "100", "scale_y": "100", "angle": "0", "offset_x": "0", "offset_y": "0", "offset_border": "2.0", "factor": "100", "density": "2.0", "angle_x": "0", "angle_y": "0", "angle_z": "0", "axis": "y", "anchor": "center", "mode": "Escalar"},
+    widgets=[]
+)
+
+system_node(
+    "Shape", "Shape Filter", node_kind="data", color="#5B2C6F",
+    inputs=["Shape / Texto", "Expr X", "Expr Y", "Factor (t)", "Subdivs"],
+    outputs=["Shape"],
+    properties={
+        "shape": "",
+        "mode": "Vértices",
+        "expr_x": "x",
+        "expr_y": "y",
+        "t": "1.0",
+        "subdivs": "0",
+        "rot_step": "0",
+        "scale_step": "100",
+        "offset_x": "0",
+        "offset_y": "0",
+        "anchor": "center",
+        "radius_x": "5.0",
+        "radius_y": "5.0",
+        "seed": "0"
+    },
     widgets=[]
 )
 

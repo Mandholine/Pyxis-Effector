@@ -69,12 +69,12 @@ sys.stderr = GLOBAL_STDERR_STREAM
 import atexit
 import webview
 
-PYXIS_ENGINE_VERSION = "1.0.6"
+PYXIS_ENGINE_VERSION = "1.0.7"
 
 if sys.platform == "win32":
     try:
         import ctypes
-        my_app_id = "Mandholine.Pyxis.NodeEngine.1.0.6"
+        my_app_id = "Mandholine.Pyxis.NodeEngine.1.0.7"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
     except Exception:
         pass
@@ -359,7 +359,7 @@ class PyxisAPI:
                         pass
 
                     print("==========================================================", flush=True)
-                    print(" [Pyxis Engine v1.0.6] Consola de Python (Modo Depuración)", flush=True)
+                    print(" [Pyxis Engine v1.0.7] Consola de Python (Modo Depuración)", flush=True)
                     print(" Presione F1 en Pyxis Nodes para mostrar/ocultar esta consola.", flush=True)
                     print("==========================================================", flush=True)
 
@@ -534,7 +534,9 @@ class PyxisAPI:
             "bg_media_type": "none",
             "convert_video": True,
             "daemon_mode": True,
-            "language": "es"
+            "language": "es",
+            "active_template_id": None,
+            "active_template_name": None
         }
         try:
             config_path = self._get_config_path()
@@ -548,16 +550,6 @@ class PyxisAPI:
             config["has_bg_image"] = bg_info["has_bg"]
             config["bg_media_type"] = bg_info["media_type"]
             config["is_default_bg"] = bg_info.get("is_default", False)
-
-            # Si se está usando el fondo por defecto (default_back.webp),
-            # asegurar modo rellenar (cover), opacidad al 85% y malla en modo puntos (1)
-            if bg_info.get("is_default", False):
-                if config.get("bg_image_opacity") in [0.5, "0.5", None]:
-                    config["bg_image_opacity"] = 0.85
-                if config.get("grid_mode") in [0, "0", None]:
-                    config["grid_mode"] = 1
-                if config.get("bg_image_mode") in ["contain", None]:
-                    config["bg_image_mode"] = "cover"
         except Exception as e:
             print("Pyxis: error al leer user_config", e)
         return config
@@ -602,12 +594,23 @@ class PyxisAPI:
                     try: os.remove(poster_p)
                     except OSError: pass
 
-            is_daemon = bool(config_data.get("daemon_mode", True))
-            saved_theme = config_data.get("theme", "teal")
+            config_path = self._get_config_path()
+            existing_config = {}
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        loaded_existing = json.load(f)
+                        if isinstance(loaded_existing, dict):
+                            existing_config = loaded_existing
+                except Exception:
+                    pass
+
+            is_daemon = bool(config_data["daemon_mode"]) if "daemon_mode" in config_data else bool(existing_config.get("daemon_mode", True))
+            saved_theme = config_data.get("theme", existing_config.get("theme", "teal"))
             if saved_theme in ["obsidian", "cyber", "slate", "nordic"]:
                 saved_theme = "teal"
 
-            no_bg = is_removing_bg or (config_data.get("has_bg_image") is False and not is_removing_bg and config_data.get("no_bg", False))
+            no_bg = is_removing_bg or (config_data.get("has_bg_image") is False and not is_removing_bg and config_data.get("no_bg", existing_config.get("no_bg", False)))
             if config_data.get("has_bg_image") is True:
                 no_bg = False
 
@@ -616,22 +619,53 @@ class PyxisAPI:
             else:
                 bg_info = self._get_bg_media_info()
 
+            active_tpl_id = config_data.get("active_template_id", existing_config.get("active_template_id", None))
+            active_tpl_name = config_data.get("active_template_name", existing_config.get("active_template_name", None))
+            if "active_template_id" in config_data and config_data["active_template_id"] is None:
+                active_tpl_id = None
+                active_tpl_name = None
+
+            grid_mode = config_data["grid_mode"] if "grid_mode" in config_data else existing_config.get("grid_mode", 1)
+            try:
+                grid_mode = int(grid_mode)
+            except (ValueError, TypeError):
+                grid_mode = 1
+
+            undo_steps = config_data["undo_steps"] if "undo_steps" in config_data else existing_config.get("undo_steps", 30)
+            try:
+                undo_steps = int(undo_steps)
+            except (ValueError, TypeError):
+                undo_steps = 30
+
+            bg_image_mode = config_data["bg_image_mode"] if "bg_image_mode" in config_data else existing_config.get("bg_image_mode", "cover")
+            
+            bg_image_opacity = config_data["bg_image_opacity"] if "bg_image_opacity" in config_data else existing_config.get("bg_image_opacity", 0.85)
+            try:
+                bg_image_opacity = float(bg_image_opacity)
+            except (ValueError, TypeError):
+                bg_image_opacity = 0.85
+
+            convert_video = bool(config_data["convert_video"]) if "convert_video" in config_data else bool(existing_config.get("convert_video", True))
+            language = config_data.get("language", existing_config.get("language", "es"))
+            window_state = config_data.get("window_state", existing_config.get("window_state", getattr(self, "_saved_window_state", {})))
+
             clean_config = {
                 "theme": saved_theme,
-                "grid_mode": config_data.get("grid_mode", 1),
-                "undo_steps": config_data.get("undo_steps", 30),
-                "bg_image_mode": config_data.get("bg_image_mode", "cover"),
-                "bg_image_opacity": config_data.get("bg_image_opacity", 0.85),
+                "grid_mode": grid_mode,
+                "undo_steps": undo_steps,
+                "bg_image_mode": bg_image_mode,
+                "bg_image_opacity": bg_image_opacity,
                 "has_bg_image": bg_info["has_bg"],
                 "bg_media_type": bg_info["media_type"],
                 "is_default_bg": bg_info.get("is_default", False),
                 "no_bg": no_bg,
-                "convert_video": bool(config_data.get("convert_video", True)),
+                "convert_video": convert_video,
                 "daemon_mode": is_daemon,
-                "language": config_data.get("language", "es"),
-                "window_state": config_data.get("window_state", getattr(self, "_saved_window_state", {}))
+                "language": language,
+                "window_state": window_state,
+                "active_template_id": active_tpl_id,
+                "active_template_name": active_tpl_name
             }
-            config_path = self._get_config_path()
             _atomic_write(config_path, json.dumps(clean_config, ensure_ascii=False, indent=2))
 
             if hasattr(self, "_daemon_server") and self._daemon_server:

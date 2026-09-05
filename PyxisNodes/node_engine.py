@@ -14,7 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# node_engine.py (v1.0.6)
+# node_engine.py (v1.0.7)
 import math
 import os
 import re
@@ -1705,50 +1705,97 @@ class GraphEngine:
 
                 modo_clean = modo.lower()
                 if "borde" in modo_clean:
-                    offset_border = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "offset_border", "2.0"), context, 2.0)
-                    scale_x = 100.0
-                    scale_y = 100.0
-                    angle = 0.0
-                    offset_x = 0.0
-                    offset_y = 0.0
+                    t_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    offset_border = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "offset_border", "2.0"), context, 2.0)
                     anchor = str(_get_prop_value(props, "anchor", "center")).strip()
-                elif "rotar" in modo_clean:
-                    angle = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "angle", "0"), context, 0.0)
-                    scale_x = 100.0
-                    scale_y = 100.0
-                    offset_x = 0.0
-                    offset_y = 0.0
-                    offset_border = 0.0
-                    anchor = str(self.get_input_value(node, 2, context) or _get_prop_value(props, "anchor", "center")).strip()
+                    return shape_manipulator(context, drawing=shp_val, offset_border=offset_border, mode=anchor, op_mode="Bordes", t=t_val)
                 elif "deformar" in modo_clean:
-                    offset_x = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "offset_x", "0"), context, 0.0)
-                    offset_y = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "offset_y", "0"), context, 0.0)
-                    factor = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "factor", "100"), context, 100.0)
-                    scale_x = factor
-                    scale_y = factor
-                    angle = 0.0
-                    offset_border = 0.0
+                    t_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    offset_x = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "offset_x", "0"), context, 0.0)
+                    offset_y = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "offset_y", "0"), context, 0.0)
+                    factor = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "factor", "100"), context, 100.0)
                     anchor = str(_get_prop_value(props, "anchor", "center")).strip()
+                    return shape_manipulator(context, drawing=shp_val, scale_x=factor / 100.0, scale_y=factor / 100.0, offset_x=offset_x, offset_y=offset_y, mode=anchor, op_mode="Deformar", t=t_val)
                 elif "posici" in modo_clean or "posic" in modo_clean:
-                    offset_x = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "offset_x", "0"), context, 0.0)
-                    offset_y = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "offset_y", "0"), context, 0.0)
-                    scale_x = 100.0
-                    scale_y = 100.0
-                    angle = 0.0
-                    offset_border = 0.0
+                    t_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    offset_x = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "offset_x", "0"), context, 0.0)
+                    offset_y = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "offset_y", "0"), context, 0.0)
+                    anchor = str(self.get_input_value(node, 4, context) or _get_prop_value(props, "anchor", "center")).strip()
+                    return shape_manipulator(context, drawing=shp_val, offset_x=offset_x, offset_y=offset_y, mode=anchor, op_mode="Posición", t=t_val)
+                elif "redibuj" in modo_clean or "redraw" in modo_clean:
+                    t_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    density = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "density", _get_prop_value(props, "factor", "2.0")), context, 2.0)
                     anchor = str(self.get_input_value(node, 3, context) or _get_prop_value(props, "anchor", "center")).strip()
+                    return shape_manipulator(context, drawing=shp_val, mode=anchor, op_mode="Redibujar", density=density, t=t_val)
+                elif "giro" in modo_clean or "3d" in modo_clean or "matrix" in modo_clean or "matriz" in modo_clean or "rotar" in modo_clean or "rot" in modo_clean:
+                    t_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    angle_x = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "angle_x", "0"), context, 0.0)
+                    angle_y = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "angle_y", "0"), context, 0.0)
+                    angle_z = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "angle_z", _get_prop_value(props, "angle", "0")), context, 0.0)
+                    anchor = str(self.get_input_value(node, 5, context) or _get_prop_value(props, "anchor", "center")).strip()
+                    return shape_manipulator(context, drawing=shp_val, mode=anchor, op_mode="Giro 3D", angle_x=angle_x, angle_y=angle_y, angle_z=angle_z, t=t_val)
+                elif "refle" in modo_clean or "reflect" in modo_clean or "espejo" in modo_clean:
+                    t_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    axis = str(self.get_input_value(node, 2, context) or _get_prop_value(props, "axis", "y")).strip()
+                    offset_x = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "offset_x", "0"), context, 0.0)
+                    offset_y = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "offset_y", "0"), context, 0.0)
+                    anchor = str(self.get_input_value(node, 5, context) or _get_prop_value(props, "anchor", "center")).strip()
+                    return shape_manipulator(context, drawing=shp_val, mode=anchor, op_mode="Reflejar", axis=axis, offset_x=offset_x, offset_y=offset_y, t=t_val)
                 else:  # "Escalar" o modo completo
-                    scale_x = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "scale_x", "100"), context, 100.0)
-                    scale_y = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "scale_y", "100"), context, 100.0)
-                    angle = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "angle", "0"), context, 0.0)
-                    offset_x = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "offset_x", "0"), context, 0.0)
-                    offset_y = _eval_num_expr(self.get_input_value(node, 5, context) or _get_prop_value(props, "offset_y", "0"), context, 0.0)
-                    offset_border = _eval_num_expr(self.get_input_value(node, 6, context) or _get_prop_value(props, "offset_border", "0.0"), context, 0.0)
-                    anchor = str(self.get_input_value(node, 7, context) or _get_prop_value(props, "anchor", "center")).strip()
-
-                return shape_manipulator(context, drawing=shp_val, scale_x=scale_x / 100.0, scale_y=scale_y / 100.0, rot=angle, offset_x=offset_x, offset_y=offset_y, offset_border=offset_border, mode=anchor)
+                    t_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    scale_x = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "scale_x", "100"), context, 100.0)
+                    scale_y = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "scale_y", "100"), context, 100.0)
+                    anchor = str(self.get_input_value(node, 4, context) or _get_prop_value(props, "anchor", "center")).strip()
+                    return shape_manipulator(context, drawing=shp_val, scale_x=scale_x / 100.0, scale_y=scale_y / 100.0, mode=anchor, op_mode="Escalar", t=t_val)
             except Exception as e:
                 return f"[Err Shape Manipulator: {e}]"
+
+        if node_type in ["Shape/Shape Filter", "Shape Filter", "Shape/Filter", "Filter"]:
+            try:
+                modo = str(props.get("mode", props.get("modo", "Vértices"))).strip()
+                shp_val = self.get_input_value(node, 0, context)
+                if shp_val == "": shp_val = str(_get_prop_value(props, "shape", "")).strip()
+                from nodes.shape_nodes import resolve_shape_value, shape_filter
+                shp_val = resolve_shape_value(shp_val, context)
+                if not shp_val:
+                    unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
+                    line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+                    shp_val = getattr(unit, 'text_stripped', getattr(unit, 'text', '')) or getattr(line, 'text_stripped', getattr(line, 'text', ''))
+
+                modo_clean = modo.lower().replace("é", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u")
+                if "vert" in modo_clean or "expr" in modo_clean:
+                    expr_x = self.get_input_value(node, 1, context)
+                    if expr_x is None or str(expr_x).strip() == "": expr_x = _get_prop_value(props, "expr_x", "x")
+                    expr_y = self.get_input_value(node, 2, context)
+                    if expr_y is None or str(expr_y).strip() == "": expr_y = _get_prop_value(props, "expr_y", "y")
+                    t_val = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    subdivs = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "subdivs", "0"), context, 0.0)
+                    return shape_filter(context, drawing=shp_val, mode="Vértices", expr_x=expr_x, expr_y=expr_y, t=t_val, subdivs=subdivs)
+
+                elif "grup" in modo_clean or "group" in modo_clean or "piez" in modo_clean:
+                    t_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    rot_step = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "rot_step", "0"), context, 0.0)
+                    scale_step = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "scale_step", "100"), context, 100.0)
+                    offset_x = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "offset_x", "0"), context, 0.0)
+                    offset_y = _eval_num_expr(self.get_input_value(node, 5, context) or _get_prop_value(props, "offset_y", "0"), context, 0.0)
+                    anchor = str(self.get_input_value(node, 6, context) or _get_prop_value(props, "anchor", "center")).strip()
+                    return shape_filter(context, drawing=shp_val, mode="Grupo", t=t_val, rot_step=rot_step, scale_step=scale_step, offset_x=offset_x, offset_y=offset_y, anchor=anchor)
+
+                elif "ruid" in modo_clean or "noise" in modo_clean or "rand" in modo_clean:
+                    radius_x = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "radius_x", "5.0"), context, 5.0)
+                    radius_y = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "radius_y", "5.0"), context, 5.0)
+                    subdivs = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "subdivs", "2.0"), context, 2.0)
+                    seed = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "seed", "0"), context, 0)
+                    return shape_filter(context, drawing=shp_val, mode="Ruido", radius_x=radius_x, radius_y=radius_y, subdivs=subdivs, seed=seed)
+
+                else:
+                    props_copy = dict(props)
+                    props_copy.pop("mode", None)
+                    props_copy.pop("modo", None)
+                    props_copy.pop("shape", None)
+                    return shape_filter(context, drawing=shp_val, mode=modo, **props_copy)
+            except Exception as e:
+                return f"[Err Shape Filter: {e}]"
 
         if node_type in ["Shape/Shape Transform", "Shape Transform", "Shape/Trans. Shape", "Trans. Shape"]:
             try:
@@ -1764,43 +1811,51 @@ class GraphEngine:
 
                 modo_clean = modo.lower()
                 if "skew" in modo_clean or "cizall" in modo_clean or "inclin" in modo_clean:
-                    in_ax = self.get_input_value(node, 1, context)
+                    in_t = self.get_input_value(node, 1, context)
+                    if in_t is None or in_t == "": in_t = _get_prop_value(props, "t", "1.0")
+                    t_val = _eval_num_expr(in_t, context, 1.0)
+
+                    in_ax = self.get_input_value(node, 2, context)
                     if in_ax is None or in_ax == "": in_ax = _get_prop_value(props, "angle_x", _get_prop_value(props, "ang_x", _get_prop_value(props, "angle", "0")))
                     angle_x = _eval_num_expr(in_ax, context, 0.0)
 
-                    in_ay = self.get_input_value(node, 2, context)
+                    in_ay = self.get_input_value(node, 3, context)
                     if in_ay is None or in_ay == "": in_ay = _get_prop_value(props, "angle_y", _get_prop_value(props, "ang_y", "0"))
                     angle_y = _eval_num_expr(in_ay, context, 0.0)
 
-                    in_anc = self.get_input_value(node, 3, context)
+                    in_anc = self.get_input_value(node, 4, context)
                     if in_anc is None or in_anc == "": in_anc = _get_prop_value(props, "anchor", _get_prop_value(props, "anclaje", "center"))
                     anchor_val = str(in_anc).strip()
-                    return shape_transform(context, drawing=shp_val, mode="Skew", angle_x=angle_x, angle_y=angle_y, anchor=anchor_val)
+                    return shape_transform(context, drawing=shp_val, mode="Skew", t=t_val, angle_x=angle_x, angle_y=angle_y, anchor=anchor_val)
                 elif "round" in modo_clean or "redond" in modo_clean or "esquina" in modo_clean:
-                    in_rad = self.get_input_value(node, 1, context)
+                    in_t = self.get_input_value(node, 1, context)
+                    if in_t is None or in_t == "": in_t = _get_prop_value(props, "t", "1.0")
+                    t_val = _eval_num_expr(in_t, context, 1.0)
+
+                    in_rad = self.get_input_value(node, 2, context)
                     if in_rad is None or in_rad == "": in_rad = _get_prop_value(props, "radius", "10.0")
                     radius_val = _eval_num_expr(in_rad, context, 10.0)
 
-                    in_anc = self.get_input_value(node, 2, context)
+                    in_anc = self.get_input_value(node, 3, context)
                     if in_anc is None or in_anc == "": in_anc = _get_prop_value(props, "anchor", "center")
                     anchor_val = str(in_anc).strip()
 
                     corner_mode = str(_get_prop_value(props, "corner_mode", "Round")).strip()
-                    return shape_transform(context, drawing=shp_val, mode="Round Corners", radius=radius_val, corner_mode=corner_mode, anchor=anchor_val)
+                    return shape_transform(context, drawing=shp_val, mode="Round Corners", t=t_val, radius=radius_val, corner_mode=corner_mode, anchor=anchor_val)
                 elif "flexor" in modo_clean or "curv" in modo_clean or "dobl" in modo_clean:
-                    curve_in = self.get_input_value(node, 1, context)
-                    if curve_in is None or curve_in == "": curve_in = str(_get_prop_value(props, "curve", "30")).strip()
+                    in_t = self.get_input_value(node, 1, context)
+                    if in_t is None or in_t == "": in_t = _get_prop_value(props, "t", _get_prop_value(props, "bend_t", "1.0"))
+                    bend_t = _eval_num_expr(in_t, context, 1.0)
 
-                    in_bt = self.get_input_value(node, 2, context)
-                    if in_bt is None or in_bt == "": in_bt = _get_prop_value(props, "bend_t", "1.0")
-                    bend_t = _eval_num_expr(in_bt, context, 1.0)
+                    curve_in = self.get_input_value(node, 2, context)
+                    if curve_in is None or curve_in == "": curve_in = str(_get_prop_value(props, "curve", "30")).strip()
 
                     in_anc = self.get_input_value(node, 3, context)
                     if in_anc is None or in_anc == "": in_anc = _get_prop_value(props, "anchor", "center")
                     anchor_val = str(in_anc).strip()
 
                     axis_val = str(_get_prop_value(props, "axis", "x")).strip()
-                    return shape_transform(context, drawing=shp_val, mode="Flexor", curve=curve_in, bend_t=bend_t, axis=axis_val, anchor=anchor_val)
+                    return shape_transform(context, drawing=shp_val, mode="Flexor", curve=curve_in, t=bend_t, bend_t=bend_t, axis=axis_val, anchor=anchor_val)
                 elif "distort2" in modo_clean or "distort 2" in modo_clean or "distort_2" in modo_clean:
                     mid_val = self.get_input_value(node, 1, context)
                     if mid_val is None or mid_val == "": mid_val = str(_get_prop_value(props, "mid_shape", _get_prop_value(props, "shape_mid", ""))).strip()
@@ -1902,6 +1957,132 @@ class GraphEngine:
                     return shape_transform(context, drawing=shp_val, mode="Inflate", t=t_val, ratio=ratio_val, inflate_mode=inf_mode, anchor=anchor_val)
             except Exception as e:
                 return f"[Err Shape Transform: {e}]"
+
+        if node_type in ["Shape/Shape Multi", "Shape Multi"]:
+            try:
+                modo = str(props.get("mode", props.get("modo", "Cuadros Concéntricos"))).strip()
+                from nodes.shape_nodes import shape_multi, resolve_shape_value
+                modo_clean = modo.lower().replace("é", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u")
+
+                if "cuadro" in modo_clean or "cuadrad" in modo_clean or "multi1" in modo_clean:
+                    size_val = _eval_num_expr(self.get_input_value(node, 0, context) or _get_prop_value(props, "size", "100.0"), context, 100.0)
+                    px_val = self.get_input_value(node, 1, context)
+                    if px_val is None or str(px_val).strip() == "": px_val = _get_prop_value(props, "px", "4")
+                    sep_val = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "separation", _get_prop_value(props, "sep", "0.0")), context, 0.0)
+                    t_val = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    anc_val = self.get_input_value(node, 4, context)
+                    if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+                    return shape_multi(context, mode="Cuadros Concéntricos", size=size_val, px=px_val, separation=sep_val, t=t_val, anchor=anc_val)
+
+                elif "franja" in modo_clean or "diagonal" in modo_clean or "multi2" in modo_clean:
+                    w_val = _eval_num_expr(self.get_input_value(node, 0, context) or _get_prop_value(props, "width", "70.0"), context, 70.0)
+                    h_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "height", "50.0"), context, 50.0)
+                    px_val = self.get_input_value(node, 2, context)
+                    if px_val is None or str(px_val).strip() == "": px_val = _get_prop_value(props, "px", "6")
+                    sep_val = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "separation", _get_prop_value(props, "sep", "0.0")), context, 0.0)
+                    t_val = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    anc_val = self.get_input_value(node, 5, context)
+                    if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+                    return shape_multi(context, mode="Franjas Diagonales", width=w_val, height=h_val, px=px_val, separation=sep_val, t=t_val, anchor=anc_val)
+
+                elif "anillo" in modo_clean or "multi3" in modo_clean or "ring" in modo_clean:
+                    shp_val = self.get_input_value(node, 0, context)
+                    if shp_val == "": shp_val = str(_get_prop_value(props, "shape", "")).strip()
+                    shp_val = resolve_shape_value(shp_val, context)
+                    size_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "size", "100.0"), context, 100.0)
+                    bord_val = self.get_input_value(node, 2, context)
+                    if bord_val is None or str(bord_val).strip() == "": bord_val = _get_prop_value(props, "bord", "4")
+                    sep_val = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "separation", _get_prop_value(props, "sep", "0.0")), context, 0.0)
+                    t_val = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    anc_val = self.get_input_value(node, 5, context)
+                    if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+                    return shape_multi(context, drawing=shp_val, mode="Anillos Concéntricos", size=size_val, bord=bord_val, separation=sep_val, t=t_val, anchor=anc_val)
+
+                elif "poligon" in modo_clean or "multi4" in modo_clean:
+                    size_val = _eval_num_expr(self.get_input_value(node, 0, context) or _get_prop_value(props, "size", "64.0"), context, 64.0)
+                    sides_val = int(_eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "sides", "6"), context, 6))
+                    rings_val = int(_eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "rings", "1"), context, 1))
+                    n_val = int(_eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "n_layers", "25"), context, 25))
+                    sep_val = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "separation", _get_prop_value(props, "sep", "0.0")), context, 0.0)
+                    t_val = _eval_num_expr(self.get_input_value(node, 5, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    anc_val = self.get_input_value(node, 6, context)
+                    if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+                    return shape_multi(context, mode="Mosaico Poligonal", size=size_val, sides=sides_val, rings=rings_val, n_layers=n_val, separation=sep_val, t=t_val, anchor=anc_val)
+
+                elif "multi-forma" in modo_clean or "multiforma" in modo_clean or "multi5" in modo_clean:
+                    shp_val = self.get_input_value(node, 0, context)
+                    if shp_val == "": shp_val = str(_get_prop_value(props, "shape", "")).strip()
+                    w_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "width", "60.0"), context, 60.0)
+                    h_val = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "height", "50.0"), context, 50.0)
+                    dx_val = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "dx", "0.0"), context, 0.0)
+                    dy_val = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "dy", "0.0"), context, 0.0)
+                    anc_val = self.get_input_value(node, 5, context)
+                    if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+                    return shape_multi(context, drawing=shp_val, mode="Mosaico Multi-Forma", width=w_val, height=h_val, dx=dx_val, dy=dy_val, anchor=anc_val)
+
+                elif "segment" in modo_clean or "borde" in modo_clean or "multi6" in modo_clean:
+                    num_inputs = len(node.get("inputs", []))
+                    if num_inputs >= 8 or (num_inputs > 0 and node.get("inputs", [])[0].get("name") in ["Forma Base", "Shape", "Forma"]):
+                        shp_val = self.get_input_value(node, 0, context)
+                        if shp_val == "": shp_val = str(_get_prop_value(props, "shape", "")).strip()
+                        w_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "width", "104.0"), context, 104.0)
+                        h_val = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "height", "104.0"), context, 104.0)
+                        bord_val = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "bord", "4.0"), context, 4.0)
+                        space_val = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "separation", _get_prop_value(props, "space", "0.0")), context, 0.0)
+                        len_val = _eval_num_expr(self.get_input_value(node, 5, context) or _get_prop_value(props, "length", "20.0"), context, 20.0)
+                        t_val = _eval_num_expr(self.get_input_value(node, 6, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                        anc_val = self.get_input_value(node, 7, context)
+                        if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+                    else:
+                        shp_val = str(_get_prop_value(props, "shape", "")).strip()
+                        w_val = _eval_num_expr(self.get_input_value(node, 0, context) or _get_prop_value(props, "width", "104.0"), context, 104.0)
+                        h_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "height", "104.0"), context, 104.0)
+                        bord_val = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "bord", "4.0"), context, 4.0)
+                        space_val = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "separation", _get_prop_value(props, "space", "0.0")), context, 0.0)
+                        len_val = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "length", "20.0"), context, 20.0)
+                        t_val = _eval_num_expr(self.get_input_value(node, 5, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                        anc_val = self.get_input_value(node, 6, context)
+                        if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+                    return shape_multi(context, drawing=shp_val, mode="Borde Segmentado", width=w_val, height=h_val, bord=bord_val, space=space_val, length=len_val, separation=space_val, t=t_val, anchor=anc_val)
+
+                elif "roseta" in modo_clean or "pastel" in modo_clean or "radial" in modo_clean or "multi7" in modo_clean:
+                    parts_val = int(_eval_num_expr(self.get_input_value(node, 0, context) or _get_prop_value(props, "parts", "12"), context, 12))
+                    r_out_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "r_out", "50.0"), context, 50.0)
+                    r_in_val = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "r_in", "0.0"), context, 0.0)
+                    sep_val = _eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "separation", _get_prop_value(props, "sep", "0.0")), context, 0.0)
+                    t_val = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    anc_val = self.get_input_value(node, 5, context)
+                    if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+                    return shape_multi(context, mode="Roseta Radial", parts=parts_val, r_out=r_out_val, r_in=r_in_val, separation=sep_val, t=t_val, anchor=anc_val)
+
+                elif "tunel" in modo_clean or "cascada" in modo_clean or "multi8" in modo_clean or "tunnel" in modo_clean:
+                    shp_val = self.get_input_value(node, 0, context)
+                    if shp_val == "": shp_val = str(_get_prop_value(props, "shape", "")).strip()
+                    shp_val = resolve_shape_value(shp_val, context)
+                    s1_val = _eval_num_expr(self.get_input_value(node, 1, context) or _get_prop_value(props, "size1", "100.0"), context, 100.0)
+                    s2_val = _eval_num_expr(self.get_input_value(node, 2, context) or _get_prop_value(props, "size2", "10.0"), context, 10.0)
+                    loop_val = int(_eval_num_expr(self.get_input_value(node, 3, context) or _get_prop_value(props, "loop", "8"), context, 8))
+                    sep_val = _eval_num_expr(self.get_input_value(node, 4, context) or _get_prop_value(props, "separation", _get_prop_value(props, "sep", "0.0")), context, 0.0)
+
+                    num_inputs = len(node.get("inputs", []))
+                    if num_inputs >= 8 or (num_inputs > 5 and str(node.get("inputs", [])[5].get("name", "")).lower().startswith("dir") or str(node.get("inputs", [])[5].get("name", "")).lower().startswith("áng") or str(node.get("inputs", [])[5].get("name", "")).lower().startswith("ang")):
+                        ang_val = self.get_input_value(node, 5, context)
+                        if ang_val is None or str(ang_val).strip() == "": ang_val = _get_prop_value(props, "angle", _get_prop_value(props, "direction", "0.0"))
+                        t_val = _eval_num_expr(self.get_input_value(node, 6, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                        anc_val = self.get_input_value(node, 7, context)
+                        if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+                    else:
+                        ang_val = _get_prop_value(props, "angle", _get_prop_value(props, "direction", "0.0"))
+                        t_val = _eval_num_expr(self.get_input_value(node, 5, context) or _get_prop_value(props, "t", "1.0"), context, 1.0)
+                        anc_val = self.get_input_value(node, 6, context)
+                        if anc_val is None or str(anc_val).strip() == "": anc_val = _get_prop_value(props, "anchor", "center")
+
+                    return shape_multi(context, drawing=shp_val, mode="Túnel / Cascada", size1=s1_val, size2=s2_val, loop=loop_val, separation=sep_val, angle=ang_val, t=t_val, anchor=anc_val)
+
+                else:
+                    return shape_multi(context, mode=modo)
+            except Exception as e:
+                return f"[Err Shape Multi: {e}]"
 
         elif node_type in ["Functions/Polar to Cartesian", "Polar to Cartesian"]:
             try:
@@ -2528,6 +2709,9 @@ class GraphEngine:
                     w_target_raw = str(props.get("width", "0")).strip()
                     h_target_raw = str(props.get("height", "0")).strip()
 
+                    t_raw = str(props.get("t", props.get("progress", props.get("factor_t", "1.0")))).strip()
+                    num_inputs = len(node.get("inputs", []))
+
                     if "form" in mode_norm:
                         in_f = self.get_input_value(node, 1, context)
                         if in_f != "": formation_raw = in_f
@@ -2535,10 +2719,18 @@ class GraphEngine:
                         if in_sp != "": sp_raw = in_sp
                         in_sc = self.get_input_value(node, 3, context)
                         if in_sc != "": sc_raw = in_sc
-                        in_anc = self.get_input_value(node, 4, context)
-                        if in_anc != "": anchor_raw = in_anc
-                        in_ord = self.get_input_value(node, 5, context)
-                        if in_ord != "": order_raw = in_ord
+                        if num_inputs >= 7:
+                            in_t = self.get_input_value(node, 4, context)
+                            if in_t != "": t_raw = in_t
+                            in_anc = self.get_input_value(node, 5, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 6, context)
+                            if in_ord != "": order_raw = in_ord
+                        else:
+                            in_anc = self.get_input_value(node, 4, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 5, context)
+                            if in_ord != "": order_raw = in_ord
                     elif "ring" in mode_norm or "anillo" in mode_norm:
                         in_rng = self.get_input_value(node, 1, context)
                         if in_rng != "": rings_raw = in_rng
@@ -2552,10 +2744,18 @@ class GraphEngine:
                         if in_rot != "": rot_step_raw = in_rot
                         in_sc = self.get_input_value(node, 6, context)
                         if in_sc != "": sc_raw = in_sc
-                        in_anc = self.get_input_value(node, 7, context)
-                        if in_anc != "": anchor_raw = in_anc
-                        in_ord = self.get_input_value(node, 8, context)
-                        if in_ord != "": order_raw = in_ord
+                        if num_inputs >= 10:
+                            in_t = self.get_input_value(node, 7, context)
+                            if in_t != "": t_raw = in_t
+                            in_anc = self.get_input_value(node, 8, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 9, context)
+                            if in_ord != "": order_raw = in_ord
+                        else:
+                            in_anc = self.get_input_value(node, 7, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 8, context)
+                            if in_ord != "": order_raw = in_ord
                     elif "spiral" in mode_norm or "espiral" in mode_norm:
                         in_cnt = self.get_input_value(node, 1, context)
                         if in_cnt != "": count_raw = in_cnt
@@ -2567,10 +2767,18 @@ class GraphEngine:
                         if in_as != "": a_step_raw = in_as
                         in_sc = self.get_input_value(node, 5, context)
                         if in_sc != "": sc_raw = in_sc
-                        in_anc = self.get_input_value(node, 6, context)
-                        if in_anc != "": anchor_raw = in_anc
-                        in_ord = self.get_input_value(node, 7, context)
-                        if in_ord != "": order_raw = in_ord
+                        if num_inputs >= 9:
+                            in_t = self.get_input_value(node, 6, context)
+                            if in_t != "": t_raw = in_t
+                            in_anc = self.get_input_value(node, 7, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 8, context)
+                            if in_ord != "": order_raw = in_ord
+                        else:
+                            in_anc = self.get_input_value(node, 6, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 7, context)
+                            if in_ord != "": order_raw = in_ord
                     elif "scatter" in mode_norm or "dispers" in mode_norm:
                         in_cnt = self.get_input_value(node, 1, context)
                         if in_cnt != "": count_raw = in_cnt
@@ -2582,10 +2790,18 @@ class GraphEngine:
                         if in_sd != "": seed_raw = in_sd
                         in_sc = self.get_input_value(node, 5, context)
                         if in_sc != "": sc_raw = in_sc
-                        in_anc = self.get_input_value(node, 6, context)
-                        if in_anc != "": anchor_raw = in_anc
-                        in_ord = self.get_input_value(node, 7, context)
-                        if in_ord != "": order_raw = in_ord
+                        if num_inputs >= 9:
+                            in_t = self.get_input_value(node, 6, context)
+                            if in_t != "": t_raw = in_t
+                            in_anc = self.get_input_value(node, 7, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 8, context)
+                            if in_ord != "": order_raw = in_ord
+                        else:
+                            in_anc = self.get_input_value(node, 6, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 7, context)
+                            if in_ord != "": order_raw = in_ord
                     elif "hex" in mode_norm or "panal" in mode_norm:
                         in_c = self.get_input_value(node, 1, context)
                         if in_c != "": cols_raw = in_c
@@ -2595,10 +2811,18 @@ class GraphEngine:
                         if in_sp != "": sp_raw = in_sp
                         in_sc = self.get_input_value(node, 4, context)
                         if in_sc != "": sc_raw = in_sc
-                        in_anc = self.get_input_value(node, 5, context)
-                        if in_anc != "": anchor_raw = in_anc
-                        in_ord = self.get_input_value(node, 6, context)
-                        if in_ord != "": order_raw = in_ord
+                        if num_inputs >= 8:
+                            in_t = self.get_input_value(node, 5, context)
+                            if in_t != "": t_raw = in_t
+                            in_anc = self.get_input_value(node, 6, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 7, context)
+                            if in_ord != "": order_raw = in_ord
+                        else:
+                            in_anc = self.get_input_value(node, 5, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 6, context)
+                            if in_ord != "": order_raw = in_ord
                     else:
                         in_c = self.get_input_value(node, 1, context)
                         if in_c != "": cols_raw = in_c
@@ -2610,10 +2834,20 @@ class GraphEngine:
                         if in_sy != "": sp_y_raw = in_sy
                         in_sc = self.get_input_value(node, 5, context)
                         if in_sc != "": sc_raw = in_sc
-                        in_anc = self.get_input_value(node, 6, context)
-                        if in_anc != "": anchor_raw = in_anc
-                        in_ord = self.get_input_value(node, 7, context)
-                        if in_ord != "": order_raw = in_ord
+                        if num_inputs >= 9:
+                            in_t = self.get_input_value(node, 6, context)
+                            if in_t != "": t_raw = in_t
+                            in_anc = self.get_input_value(node, 7, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 8, context)
+                            if in_ord != "": order_raw = in_ord
+                        else:
+                            in_anc = self.get_input_value(node, 6, context)
+                            if in_anc != "": anchor_raw = in_anc
+                            in_ord = self.get_input_value(node, 7, context)
+                            if in_ord != "": order_raw = in_ord
+
+                    t_val = _eval_num_expr(t_raw, context, default=1.0)
 
                     from nodes.shape_nodes import shape_array_node
                     cached_res = shape_array_node(
@@ -2623,6 +2857,7 @@ class GraphEngine:
                         width=w_target_raw,
                         height=h_target_raw,
                         scale=sc_raw,
+                        t=t_val,
                         anchor=anchor_raw,
                         order=order_raw,
                         mode=modo_raw,

@@ -69,7 +69,18 @@
         if (!graph_ready()) return "";
         sync_widgets();
         try {
-            return JSON.stringify(graph.serialize());
+            var serialized = graph.serialize();
+            if (serialized && typeof serialized === "object") {
+                if (!serialized.extra) serialized.extra = {};
+                if (window.__pyxis_active_template_id) {
+                    serialized.extra.active_template_id = window.__pyxis_active_template_id;
+                    serialized.extra.active_template_name = window.__pyxis_active_template_name || "Plantilla";
+                } else {
+                    delete serialized.extra.active_template_id;
+                    delete serialized.extra.active_template_name;
+                }
+            }
+            return JSON.stringify(serialized);
         } catch (error) {
             console.error("Pyxis: no se pudo serializar la sesión", error);
             return "";
@@ -121,6 +132,9 @@
                 widget.callback = function (value) {
                     if (old_callback) old_callback.apply(this, arguments);
                     schedule_save(50);
+                    if (typeof window.updateTemplateUIState === "function") {
+                        setTimeout(window.updateTemplateUIState, 50);
+                    }
                 };
                 widget.__pyxis_persistence_hooked = true;
             });
@@ -130,6 +144,9 @@
     function on_graph_mutation() {
         hook_widgets();
         schedule_save(50);
+        if (typeof window.updateTemplateUIState === "function") {
+            setTimeout(window.updateTemplateUIState, 50);
+        }
     }
 
     function start() {
@@ -191,9 +208,15 @@
         if (window.canvas && window.canvas.canvas) {
             window.canvas.canvas.addEventListener("mouseup", function () {
                 schedule_save(100);
+                if (typeof window.updateTemplateUIState === "function") {
+                    setTimeout(window.updateTemplateUIState, 50);
+                }
             });
             window.canvas.canvas.addEventListener("touchend", function () {
                 schedule_save(100);
+                if (typeof window.updateTemplateUIState === "function") {
+                    setTimeout(window.updateTemplateUIState, 50);
+                }
             });
         }
     }

@@ -78,7 +78,7 @@
                 <img src="icon.png" class="brand-icon" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover;">
                 <span>PYXIS EFFECTOR</span>
             </div>
-            <span class="brand-badge">v1.0.6</span>
+            <span class="brand-badge">v1.0.7</span>
 
             <!-- Botones de Acción de Programa -->
             <button class="pyxis-btn" id="btn-save-main" onclick="triggerSave()" data-i18n-tooltip="topbar.save_tooltip" data-tooltip="Guardar cambios en la plantilla activa">
@@ -344,6 +344,12 @@
                         localStorage.setItem("pyxis_active_template_id", meta.template_id);
                         localStorage.setItem("pyxis_active_template_name", meta.name);
                         localStorage.setItem("pyxis_last_used_template_id", meta.template_id);
+                        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_user_config === "function") {
+                            window.pywebview.api.save_user_config({
+                                active_template_id: meta.template_id,
+                                active_template_name: meta.name
+                            });
+                        }
                     }
                     if (typeof window.syncWidgetsToProperties === "function") {
                         window.syncWidgetsToProperties();
@@ -6174,10 +6180,20 @@
                 propKey: "mode",
                 modes: [
                     { full: "Escalar", short: "Escalar" },
-                    { full: "Rotar", short: "Rotar" },
                     { full: "Bordes", short: "Bordes" },
                     { full: "Deformar", short: "Deformar" },
-                    { full: "Posición", short: "Posición" }
+                    { full: "Posición", short: "Posición" },
+                    { full: "Redibujar", short: "Redraw" },
+                    { full: "Giro 3D", short: "Giro 3D" },
+                    { full: "Reflejar", short: "Reflect" }
+                ]
+            },
+            "Shape Filter": {
+                propKey: "mode",
+                modes: [
+                    { full: "Vértices", short: "Vértices" },
+                    { full: "Grupo", short: "Grupo" },
+                    { full: "Ruido", short: "Ruido" }
                 ]
             },
             "Shape Transform": {
@@ -6189,6 +6205,19 @@
                     { full: "Flexor", short: "Flexor" },
                     { full: "Distort", short: "Distort" },
                     { full: "Distort2", short: "Distort2" }
+                ]
+            },
+            "Shape Multi": {
+                propKey: "mode",
+                modes: [
+                    { full: "Cuadros Concéntricos", short: "Cuadros" },
+                    { full: "Franjas Diagonales", short: "Diagonales" },
+                    { full: "Anillos Concéntricos", short: "Anillos" },
+                    { full: "Mosaico Poligonal", short: "Poligonal" },
+                    { full: "Mosaico Multi-Forma", short: "Multi-Forma" },
+                    { full: "Borde Segmentado", short: "Borde Seg." },
+                    { full: "Roseta Radial", short: "Roseta" },
+                    { full: "Túnel / Cascada", short: "Túnel" }
                 ]
             },
             "IMG to Shape": {
@@ -6618,9 +6647,11 @@
                                 (key === "Bezier Curve" ? (title.includes("Bezier") || title.includes("Bézier") || title.includes("Curva") || (node && node.type && String(node.type).includes("Bezier"))) :
                                 (key === "Shape Walker" ? (title.includes("Shape Walker") || title.includes("Recorredor") || (node && node.type && String(node.type).includes("Shape Walker"))) :
                                 (key === "Shape Manipulator" ? (title.includes("Shape Manipulator") || title.includes("Manipulador") || (node && node.type && String(node.type).includes("Shape Manipulator"))) :
+                                (key === "Shape Filter" ? (title.includes("Shape Filter") || title.includes("Filtro") || (node && node.type && String(node.type).includes("Shape Filter"))) :
                                 (key === "Shape Transform" ? (title.includes("Shape Transform") || title.includes("Trans. Shape") || (node && node.type && String(node.type).includes("Shape Transform"))) :
+                                (key === "Shape Multi" ? (title.includes("Shape Multi") || (node && node.type && String(node.type).includes("Shape Multi"))) :
                                 (key === "Shape Array" ? (title.includes("Shape Array") || title.includes("Array") || (node && node.type && String(node.type).includes("Shape Array"))) :
-                                (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key))))))))));
+                                (key === "Shapes Library" ? (title.includes("Shapes Library")) : title.includes(key))))))))))));
                 if (matches) {
                     const entry = DYNAMIC_NODE_MODES[key];
                     const modeList = Array.isArray(entry) ? entry : (entry.modes || []);
@@ -7052,30 +7083,76 @@
             "Shape Manipulator": {
                 "Escalar": [
                     { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Scale X", default: "100", property: "scale_x" },
                     { name: "Scale Y", default: "100", property: "scale_y" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
-                "Rotar": [
-                    { name: "Shape / Texto", default: "", property: "shape" },
-                    { name: "Angle (°)", default: "0", property: "angle" },
-                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
-                ],
                 "Bordes": [
                     { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Offset (px)", default: "2.0", property: "offset_border" }
                 ],
                 "Deformar": [
                     { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Offset X", default: "0", property: "offset_x" },
                     { name: "Offset Y", default: "0", property: "offset_y" },
                     { name: "Factor Def", default: "100", property: "factor" }
                 ],
                 "Posición": [
                     { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Offset X", default: "0", property: "offset_x" },
                     { name: "Offset Y", default: "0", property: "offset_y" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Redibujar": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Nivel / Paso", default: "2.0", property: "density" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Giro 3D": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Giro X", default: "0", property: "angle_x" },
+                    { name: "Giro Y", default: "0", property: "angle_y" },
+                    { name: "Giro Z", default: "0", property: "angle_z" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Reflejar": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Eje", default: "y", property: "axis", type: "button" },
+                    { name: "Offset X", default: "0", property: "offset_x" },
+                    { name: "Offset Y", default: "0", property: "offset_y" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ]
+            },
+            "Shape Filter": {
+                "Vértices": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Expr X", default: "x", property: "expr_x" },
+                    { name: "Expr Y", default: "y", property: "expr_y" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Subdivs", default: "0", property: "subdivs" }
+                ],
+                "Grupo": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Giro Paso", default: "0", property: "rot_step" },
+                    { name: "Escala Paso", default: "100", property: "scale_step" },
+                    { name: "Offset X", default: "0", property: "offset_x" },
+                    { name: "Offset Y", default: "0", property: "offset_y" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Ruido": [
+                    { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Radio X", default: "5.0", property: "radius_x" },
+                    { name: "Radio Y", default: "5.0", property: "radius_y" },
+                    { name: "Subdivs", default: "2.0", property: "subdivs" },
+                    { name: "Semilla", default: "0", property: "seed" }
                 ]
             },
             "Shape Transform": {
@@ -7087,19 +7164,21 @@
                 ],
                 "Skew": [
                     { name: "Shape / Texto", default: "", property: "shape" },
-                    { name: "Angle X (°)", default: "0", property: "angle_x" },
-                    { name: "Angle Y (°)", default: "0", property: "angle_y" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Angle X", default: "0", property: "angle_x" },
+                    { name: "Angle Y", default: "0", property: "angle_y" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "Round Corners": [
                     { name: "Shape / Texto", default: "", property: "shape" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Radius (px)", default: "10.0", property: "radius" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "Flexor": [
                     { name: "Shape / Texto", default: "", property: "shape" },
-                    { name: "Curve / Angle (°)", default: "30", property: "curve" },
-                    { name: "Factor (t)", default: "1.0", property: "bend_t" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Curve / Angle", default: "30", property: "curve" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "Distort": [
@@ -7117,6 +7196,76 @@
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Fluidez / Energy", default: "0.35", property: "energy" },
                     { name: "Step (px)", default: "0", property: "step_px" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ]
+            },
+            "Shape Multi": {
+                "Cuadros Concéntricos": [
+                    { name: "Tamaño", default: "100.0", property: "size" },
+                    { name: "Grosores (Px)", default: "4", property: "px" },
+                    { name: "Separación", default: "0.0", property: "separation" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Franjas Diagonales": [
+                    { name: "Ancho", default: "70.0", property: "width" },
+                    { name: "Alto", default: "50.0", property: "height" },
+                    { name: "Grosor Franja", default: "6", property: "px" },
+                    { name: "Separación", default: "0.0", property: "separation" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Anillos Concéntricos": [
+                    { name: "Forma Base", default: "", property: "shape" },
+                    { name: "Tamaño", default: "100.0", property: "size" },
+                    { name: "Grosor Borde", default: "4", property: "bord" },
+                    { name: "Separación", default: "0.0", property: "separation" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Mosaico Poligonal": [
+                    { name: "Tamaño", default: "64.0", property: "size" },
+                    { name: "Lados", default: "6", property: "sides" },
+                    { name: "Anillos", default: "1", property: "rings" },
+                    { name: "Capas (N)", default: "25", property: "n_layers" },
+                    { name: "Separación", default: "0.0", property: "separation" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Mosaico Multi-Forma": [
+                    { name: "Formas", default: "", property: "shape" },
+                    { name: "Ancho", default: "60.0", property: "width" },
+                    { name: "Alto", default: "50.0", property: "height" },
+                    { name: "Espaciado X", default: "0.0", property: "dx" },
+                    { name: "Espaciado Y", default: "0.0", property: "dy" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Borde Segmentado": [
+                    { name: "Forma Base", default: "", property: "shape" },
+                    { name: "Ancho", default: "104.0", property: "width" },
+                    { name: "Alto", default: "104.0", property: "height" },
+                    { name: "Grosor Borde", default: "4.0", property: "bord" },
+                    { name: "Separación", default: "0.0", property: "separation" },
+                    { name: "Largo Segmento", default: "20.0", property: "length" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Roseta Radial": [
+                    { name: "Rebanadas", default: "12", property: "parts" },
+                    { name: "Radio Exterior", default: "50.0", property: "r_out" },
+                    { name: "Radio Interior", default: "0.0", property: "r_in" },
+                    { name: "Separación", default: "0.0", property: "separation" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
+                ],
+                "Túnel / Cascada": [
+                    { name: "Forma Base", default: "", property: "shape" },
+                    { name: "Tamaño Inicial", default: "100.0", property: "size1" },
+                    { name: "Tamaño Final", default: "10.0", property: "size2" },
+                    { name: "Pasos (Loop)", default: "8", property: "loop" },
+                    { name: "Separación", default: "0.0", property: "separation" },
+                    { name: "Ángulo", default: "0.0", property: "angle" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ]
             },
@@ -7550,6 +7699,7 @@
                     { name: "Spacing X", default: "0", property: "spacing_x" },
                     { name: "Spacing Y", default: "0", property: "spacing_y" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
                     { name: "Order", default: "79", property: "order" }
                 ],
@@ -7558,6 +7708,7 @@
                     { name: "Formation", default: "", property: "formation" },
                     { name: "Spacing", default: "0", property: "spacing" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
                     { name: "Order", default: "79", property: "order" }
                 ],
@@ -7569,6 +7720,7 @@
                     { name: "Radius Step", default: "30", property: "radius_step" },
                     { name: "Rotate Step", default: "0", property: "rotate_step" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
                     { name: "Order", default: "79", property: "order" }
                 ],
@@ -7579,6 +7731,7 @@
                     { name: "Max Radius", default: "100", property: "max_radius" },
                     { name: "Angle Step", default: "0", property: "angle_step" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
                     { name: "Order", default: "79", property: "order" }
                 ],
@@ -7589,6 +7742,7 @@
                     { name: "Height", default: "100", property: "area_height" },
                     { name: "Seed", default: "1", property: "seed" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
                     { name: "Order", default: "79", property: "order" }
                 ],
@@ -7598,6 +7752,7 @@
                     { name: "Rows", default: "3", property: "rows" },
                     { name: "Spacing", default: "0", property: "spacing" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "piezas", property: "anchor", type: "button" },
                     { name: "Order", default: "79", property: "order" }
                 ]
@@ -7889,15 +8044,8 @@
 
                             ctx.save();
                             ctx.font = "bold 11px monospace";
-                            ctx.fillStyle = "#94a3b8";
-                            ctx.textAlign = "left";
-                            
-                            const isImgToPx = n.title && (n.title.includes("IMG to pixels") || n.title.includes("Imagen a Partículas"));
-                            if (!isImgToPx) {
-                                ctx.fillText("Anchor:", 22, drawY + 13);
-                            }
 
-                            const btnX = isImgToPx ? 22 : 80;
+                            const btnX = 22;
                             const btnW = 75;
                             const btnH = 18;
 
@@ -8177,6 +8325,54 @@
                             if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                             if (canvas && canvas.draw) canvas.draw(true, true);
                             if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("cap_mode-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (portName === "Eje" || portName === "Axis" || propKey === "axis") {
+                        const AXIS_MODES = [
+                            { full: "y", short: "Eje Y (Horiz)" },
+                            { full: "x", short: "Eje X (Vert)" },
+                            { full: "xy", short: "Ambos (XY)" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curAxis = String((n.properties && n.properties.axis) ? n.properties.axis : (w.value || "y")).toLowerCase();
+                            const aObj = AXIS_MODES.find(m => m.full.toLowerCase() === curAxis || m.short.toLowerCase() === curAxis) || AXIS_MODES[0];
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#94a3b8";
+                            ctx.textAlign = "left";
+                            const axisLabel = (window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot("Eje:") : "Eje:";
+                            ctx.fillText(axisLabel, 22, drawY + 13);
+
+                            const btnX = 65;
+                            const btnW = 90;
+                            const btnH = 18;
+
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#8b5cf6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#a7f3d0";
+                            ctx.textAlign = "center";
+                            ctx.fillText(aObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curAxis = String((node.properties && node.properties.axis) ? node.properties.axis : "y").toLowerCase();
+                            const curIdx = AXIS_MODES.findIndex(m => m.full.toLowerCase() === curAxis || m.short.toLowerCase() === curAxis);
+                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % AXIS_MODES.length);
+                            const nextObj = AXIS_MODES[nextIdx];
+                            node.properties.axis = nextObj.full;
+                            w.value = nextObj.full;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("axis-change");
                             if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                         };
                     }
@@ -13981,13 +14177,23 @@ function setupDynamicInlineNode(node) {
             },
             "Shape": {
                 "Shape Manipulator": {
-                    "node_kind": "data", "inputs": ["Shape / Texto", "Scale X", "Scale Y", "Anchor"], "outputs": ["Shape"], "color": "#5B2C6F",
-                    "properties": { "shape": "", "scale_x": "1.0", "scale_y": "1.0", "angle": "0", "offset_x": "0", "offset_y": "0", "offset_border": "2.0", "factor": "1.0", "anchor": "center", "mode": "Escalar" },
+                    "node_kind": "data", "inputs": ["Shape / Texto", "Factor (t)", "Scale X", "Scale Y", "Anchor"], "outputs": ["Shape"], "color": "#5B2C6F",
+                    "properties": { "shape": "", "t": "1.0", "scale_x": "100", "scale_y": "100", "angle": "0", "offset_x": "0", "offset_y": "0", "offset_border": "2.0", "factor": "100", "density": "2.0", "angle_x": "0", "angle_y": "0", "angle_z": "0", "axis": "y", "anchor": "center", "mode": "Escalar" },
+                    "widgets": []
+                },
+                "Shape Filter": {
+                    "node_kind": "data", "inputs": ["Shape / Texto", "Expr X", "Expr Y", "Factor (t)", "Subdivs"], "outputs": ["Shape"], "color": "#5B2C6F",
+                    "properties": { "shape": "", "mode": "Vértices", "expr_x": "x", "expr_y": "y", "t": "1.0", "subdivs": "0", "rot_step": "0", "scale_step": "100", "offset_x": "0", "offset_y": "0", "anchor": "center", "radius_x": "5.0", "radius_y": "5.0", "seed": "0" },
                     "widgets": []
                 },
                 "Shape Transform": {
                     "node_kind": "data", "inputs": ["Shape / Texto", "Factor (t)", "Ratio", "Anchor"], "outputs": ["Shape"], "color": "#7D3C98",
                     "properties": { "shape": "", "mode": "Inflate", "t": "0.5", "ratio": "1.0", "inflate_mode": "Circle", "angle_x": "0", "angle_y": "0", "radius": "10.0", "corner_mode": "Round", "curve": "30", "bend_t": "1.0", "axis": "x", "target_shape": "", "mid_shape": "", "energy": "0.35", "step_px": "0", "anchor": "center" },
+                    "widgets": []
+                },
+                "Shape Multi": {
+                    "node_kind": "data", "inputs": ["Tamaño", "Grosores (Px)", "Factor (t)"], "outputs": ["Shape"], "color": "#5B2C6F",
+                    "properties": { "mode": "Cuadros Concéntricos", "size": "100.0", "px": "4", "width": "70.0", "height": "50.0", "bord": "4", "space": "0.0", "length": "20.0", "sides": "6", "rings": "1", "n_layers": "25", "dx": "0.0", "dy": "0.0", "parts": "12", "r_out": "50.0", "r_in": "0.0", "size1": "100.0", "size2": "10.0", "loop": "8", "angle": "0.0", "t": "1.0", "shape": "" },
                     "widgets": []
                 }
             },
@@ -14139,6 +14345,12 @@ function setupDynamicInlineNode(node) {
             localStorage.removeItem("pyxis_active_template_id");
             localStorage.removeItem("pyxis_active_template_name");
             localStorage.removeItem("pyxis_last_used_template_id");
+            if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_user_config === "function") {
+                window.pywebview.api.save_user_config({
+                    active_template_id: null,
+                    active_template_name: null
+                });
+            }
 
             if (typeof window.update_template_checkpoint === "function") {
                 window.update_template_checkpoint();
@@ -14199,7 +14411,10 @@ function setupDynamicInlineNode(node) {
 
             if (window.pywebview && window.pywebview.api) {
                 try { sessionData = await window.pywebview.api.get_session_graph(); } catch (error) {}
-                try { userConfig = await window.pywebview.api.get_user_config(); } catch (error) {}
+                try {
+                    userConfig = await window.pywebview.api.get_user_config();
+                    if (userConfig) window.userConfig = userConfig;
+                } catch (error) {}
                 if (window.PyxisThemeManager && typeof window.PyxisThemeManager.syncCustomThemesWithBackend === "function") {
                     try { await window.PyxisThemeManager.syncCustomThemesWithBackend(); } catch (error) {}
                 }
@@ -14514,11 +14729,13 @@ function setupDynamicInlineNode(node) {
                             const valid_nodes = graph._nodes ? graph._nodes.filter(n => n && !n.has_errors && n.type) : [];
                             if (valid_nodes.length > 0) {
                                 loadedSuccessfully = true;
-                                const activeTplId = (saved_graph.extra && saved_graph.extra.active_template_id) || localStorage.getItem("pyxis_active_template_id");
-                                const activeTplName = (saved_graph.extra && saved_graph.extra.active_template_name) || localStorage.getItem("pyxis_active_template_name");
-                                if (activeTplId && activeTplName) {
-                                    window.__pyxis_active_template_id = activeTplId;
-                                    window.__pyxis_active_template_name = activeTplName;
+                                const activeTplId = (saved_graph.extra && saved_graph.extra.active_template_id) ? saved_graph.extra.active_template_id : null;
+                                const activeTplName = (saved_graph.extra && saved_graph.extra.active_template_name) ? saved_graph.extra.active_template_name : null;
+                                window.__pyxis_active_template_id = activeTplId;
+                                window.__pyxis_active_template_name = activeTplName;
+                                if (!activeTplId) {
+                                    localStorage.removeItem("pyxis_active_template_id");
+                                    localStorage.removeItem("pyxis_active_template_name");
                                 }
                             }
                         }
@@ -14531,6 +14748,9 @@ function setupDynamicInlineNode(node) {
                     loadDefaultGraph();
                 }
 
+                if (typeof syncWidgetsToProperties === "function") {
+                    syncWidgetsToProperties();
+                }
                 resetView();
                 requestAnimationFrame(() => resetView());
                 setTimeout(resetView, 100);

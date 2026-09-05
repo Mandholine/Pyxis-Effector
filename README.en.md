@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/Mandholine/Pyxis-Effector/releases">
-    <img src="https://img.shields.io/badge/version-1.0.6-blue.svg" alt="Version">
+    <img src="https://img.shields.io/badge/version-1.0.7-blue.svg" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-GPL--3.0-green.svg" alt="GPL-3.0 License">
