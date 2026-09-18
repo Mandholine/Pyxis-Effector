@@ -16,73 +16,73 @@
 
 """Pruebas unitarias para el servidor daemon IPC y gestion del ciclo de vida de bloqueos."""
 
-import os
-import tempfile
-import unittest
-from pyxis_daemon import PyxisDaemonServer
+import os 
+import tempfile 
+import unittest 
+from pyxis_daemon import PyxisDaemonServer 
 
 
-class DummyWindow:
-    def __init__(self):
-        self.shown = False
-        self.restored = False
-        self.focused = False
-        self.js_evaluated = []
+class DummyWindow :
+    def __init__ (self ):
+        self .shown =False 
+        self .restored =False 
+        self .focused =False 
+        self .js_evaluated =[]
 
-    def show(self):
-        self.shown = True
+    def show (self ):
+        self .shown =True 
 
-    def restore(self):
-        self.restored = True
+    def restore (self ):
+        self .restored =True 
 
-    def focus(self):
-        self.focused = True
+    def focus (self ):
+        self .focused =True 
 
-    def evaluate_js(self, code):
-        self.js_evaluated.append(code)
-
-
-class DummyAPI:
-    def __init__(self):
-        self.temp_ass = "old.ass"
-        self.result_file = "old_res.txt"
-        self.lock_file = "old_lock.txt"
-        self.session_file = "old_session.json"
-        self.aegisub_version = "3.4.0"
-
-    def release_lock(self):
-        if self.lock_file and os.path.exists(self.lock_file):
-            try:
-                os.remove(self.lock_file)
-            except Exception:
-                pass
-        self.lock_file = None
+    def evaluate_js (self ,code ):
+        self .js_evaluated .append (code )
 
 
-class TestDaemonIPC(unittest.TestCase):
+class DummyAPI :
+    def __init__ (self ):
+        self .temp_ass ="old.ass"
+        self .result_file ="old_res.txt"
+        self .lock_file ="old_lock.txt"
+        self .session_file ="old_session.json"
+        self .aegisub_version ="3.4.0"
+
+    def release_lock (self ):
+        if self .lock_file and os .path .exists (self .lock_file ):
+            try :
+                os .remove (self .lock_file )
+            except Exception :
+                pass 
+        self .lock_file =None 
+
+
+class TestDaemonIPC (unittest .TestCase ):
     """Pruebas de inicializacion del servidor daemon y endpoints IPC."""
 
-    def test_daemon_server_initialization(self):
-        api = DummyAPI()
-        window = DummyWindow()
-        server = PyxisDaemonServer(main_api=api, window=window)
-        self.assertIsNotNone(server)
-        self.assertEqual(server.main_api.aegisub_version, "3.4.0")
+    def test_daemon_server_initialization (self ):
+        api =DummyAPI ()
+        window =DummyWindow ()
+        server =PyxisDaemonServer (main_api =api ,window =window )
+        self .assertIsNotNone (server )
+        self .assertEqual (server .main_api .aegisub_version ,"3.4.0")
 
-    def test_lock_file_lifecycle(self):
-        temp_dir = tempfile.mkdtemp()
-        lock_path = os.path.join(temp_dir, "test.lock")
-        with open(lock_path, "w", encoding="utf-8") as f:
-            f.write("1")
+    def test_lock_file_lifecycle (self ):
+        temp_dir =tempfile .mkdtemp ()
+        lock_path =os .path .join (temp_dir ,"test.lock")
+        with open (lock_path ,"w",encoding ="utf-8")as f :
+            f .write ("1")
 
-        api = DummyAPI()
-        api.lock_file = lock_path
-        self.assertTrue(os.path.exists(lock_path))
+        api =DummyAPI ()
+        api .lock_file =lock_path 
+        self .assertTrue (os .path .exists (lock_path ))
 
-        api.release_lock()
-        self.assertFalse(os.path.exists(lock_path))
-        self.assertIsNone(api.lock_file)
+        api .release_lock ()
+        self .assertFalse (os .path .exists (lock_path ))
+        self .assertIsNone (api .lock_file )
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ =="__main__":
+    unittest .main ()

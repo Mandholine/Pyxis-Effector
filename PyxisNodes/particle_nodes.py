@@ -14,8 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# particle_nodes.py
-"""Nodos del motor de partículas desde contornos de texto (bord_to_pixels_v2) e imágenes raster (Pillow/NumPy)."""
+"""Particle engine nodes from text outlines (bord_to_pixels_v2) and raster images (Pillow/NumPy)."""
 
 import os
 import re
@@ -24,7 +23,21 @@ import numpy as np
 from font_vector_engine import FontVectorEngine
 from clipper_engine import ClipperEngine
 from gpu_engine import get_gpu_manager
-from nodes.shape_nodes import resolve_shape_value
+try:
+    from nodes.shape_nodes import resolve_shape_value
+except (ImportError, ModuleNotFoundError):
+    try:
+        from shape_nodes import resolve_shape_value
+    except (ImportError, ModuleNotFoundError):
+        import importlib.util
+        _sn_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nodes", "shape_nodes.py")
+        if os.path.exists(_sn_path):
+            _spec = importlib.util.spec_from_file_location("_shape_nodes", _sn_path)
+            _mod = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            resolve_shape_value = _mod.resolve_shape_value
+        else:
+            resolve_shape_value = None
 
 _GLOBAL_PARTICLE_PTS_CACHE = {}
 _GLOBAL_PARTICLE_IMG_CACHE = {}
@@ -89,25 +102,25 @@ def sort_particles(items, order_code="79", get_xy=lambda item: (item[0], item[1]
     except Exception:
         return items
 
-    if order_str == "5": # Centro -> Afuera (Explosión radial)
+    if order_str == "5":
         cx, cy = np.mean(xs), np.mean(ys)
         dist_sq = (xs - cx)**2 + (ys - cy)**2
         indices = np.argsort(dist_sq)
-    elif order_str in ["-5", "5_inv"]: # Afuera -> Centro (Implosión radial)
+    elif order_str in ["-5", "5_inv"]:
         cx, cy = np.mean(xs), np.mean(ys)
         dist_sq = (xs - cx)**2 + (ys - cy)**2
         indices = np.argsort(-dist_sq)
-    elif order_str == "13": # Abajo-Izq -> Arriba-Der
+    elif order_str == "13":
         indices = np.lexsort((xs, -ys))
-    elif order_str == "97": # Arriba-Der -> Abajo-Izq
+    elif order_str == "97":
         indices = np.lexsort((-xs, ys))
-    elif order_str == "31": # Abajo-Der -> Arriba-Izq
+    elif order_str == "31":
         indices = np.lexsort((-xs, -ys))
-    elif order_str == "71": # Arriba -> Abajo por columnas
+    elif order_str == "71":
         indices = np.lexsort((ys, xs))
-    elif order_str == "17": # Abajo -> Arriba por columnas
+    elif order_str == "17":
         indices = np.lexsort((-ys, xs))
-    else: # 79 (Default): Arriba-Izq -> Abajo-Der
+    else:
         indices = np.lexsort((xs, ys))
 
     if isinstance(items, list):
@@ -124,9 +137,22 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
     unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
     line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
     
-    shp_val = resolve_shape_value(shape, context)
-    if not shp_val:
-        shp_val = getattr(unit, 'text_stripped', getattr(unit, 'text', '')) or getattr(line, 'text_stripped', getattr(line, 'text', 'm 0 0 l 100 0 l 100 100 l 0 100'))
+    shp_input = str(shape or "").strip()
+    shp_val = ""
+
+    if shp_input:
+        if shp_input.lower().startswith("m ") or shp_input.lower().startswith("m-") or shp_input.lower().startswith("m0"):
+            shp_val = shp_input
+        else:
+            shp_val = resolve_shape_value(shp_input, context)
+
+    is_assdraw = bool(shp_val and (str(shp_val).strip().startswith("m ") or str(shp_val).strip().startswith("m-") or str(shp_val).strip().startswith("m0")))
+    if not is_assdraw:
+        from font_vector_engine import FontVectorEngine
+        target_text = shp_input if shp_input else None
+        shp_val = FontVectorEngine.from_context(text=target_text, context=context)
+        if not shp_val or not (str(shp_val).strip().startswith("m ") or str(shp_val).strip().startswith("m-") or str(shp_val).strip().startswith("m0")):
+            shp_val = "m 0 0 l 100 0 l 100 50 l 0 50"
 
     d_val = max(0.5, float(_eval_num_expr(density, context, 10.0)))
     r_val = max(0.0, float(_eval_num_expr(redraw_dist, context, 0.0)))
@@ -138,57 +164,6 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
     sampled_pts = _GLOBAL_PARTICLE_PTS_CACHE.get(cache_key)
 
     if sampled_pts is None:
-        # Si es texto plano (no comando m x y), convertirlo a forma vectorial
-        if shp_val and not shp_val.lower().startswith("m ") and not shp_val.lower().startswith("m-"):
-            fn = "Arial"
-            fs = int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-            b_val = False
-            i_val = False
-            sc_x = 100.0
-            sc_y = 100.0
-
-            styleref = getattr(line, 'styleref', None) if line else None
-            if not styleref and unit:
-                styleref = getattr(unit, 'styleref', None)
-                if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                    styleref = getattr(unit.line, 'styleref', None)
-
-            if styleref:
-                fn = str(getattr(styleref, 'fontname', fn))
-                try:
-                    fs = int(float(getattr(styleref, 'fontsize', fs)))
-                except Exception:
-                    pass
-                b_val = bool(getattr(styleref, 'bold', False))
-                i_val = bool(getattr(styleref, 'italic', False))
-                try:
-                    sc_x = float(getattr(styleref, 'scale_x', 100.0))
-                except Exception:
-                    pass
-                try:
-                    sc_y = float(getattr(styleref, 'scale_y', 100.0))
-                except Exception:
-                    pass
-
-            raw_text_src = getattr(unit, 'text', '') or getattr(line, 'raw_text', '') or getattr(line, 'text', '')
-            if raw_text_src:
-                fn_m = re.search(r'\\fn([^\\}]+)', raw_text_src)
-                if fn_m: fn = fn_m.group(1).strip()
-                fs_m = re.search(r'\\fs(\d+)', raw_text_src)
-                if fs_m: fs = int(fs_m.group(1))
-                fscx_m = re.search(r'\\fscx(\d+(?:\.\d+)?)', raw_text_src)
-                if fscx_m: sc_x = float(fscx_m.group(1))
-                fscy_m = re.search(r'\\fscy(\d+(?:\.\d+)?)', raw_text_src)
-                if fscy_m: sc_y = float(fscy_m.group(1))
-                b_m = re.search(r'\\b([01])', raw_text_src)
-                if b_m: b_val = (b_m.group(1) == '1')
-                i_m = re.search(r'\\i([01])', raw_text_src)
-                if i_m: i_val = (i_m.group(1) == '1')
-
-            v_shp = FontVectorEngine.text_to_shape(shp_val, font_name=fn, font_size=fs, bold=b_val, italic=i_val, scale_x=sc_x, scale_y=sc_y)
-            if v_shp and v_shp.strip():
-                shp_val = v_shp
-
         contours = ClipperEngine.parse_assdraw(shp_val)
         if not contours:
             contours = [np.array([[0,0], [100,0], [100,50], [0,50]], dtype=np.float64)]
@@ -196,8 +171,7 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
         np.random.seed(abs(s_val) % 100000)
         sampled_pts = []
 
-        if "relleno" in mode_clean or "interior" in mode_clean:
-            # Modo Relleno Interior por Rejilla 2D con filtro previo de Bounding Box (40x+ aceleración)
+        if "relleno" in mode_clean or "interior" in mode_clean or "fill" in mode_clean or "inner" in mode_clean:
             all_pts = np.vstack(contours)
             min_x, min_y = np.min(all_pts, axis=0)
             max_x, max_y = np.max(all_pts, axis=0)
@@ -221,12 +195,10 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
                             pt = pt + np.random.uniform(-r_val, r_val, size=2)
                         sampled_pts.append(pt * sc_val)
         else:
-            # Modo Contorno / Borde con muestreo por longitud de arco acumulada para densidad 100% uniforme
             for cnt in contours:
                 if len(cnt) < 2:
                     continue
                 
-                # Cerrar el contorno si el último punto no es idéntico al primero
                 if np.linalg.norm(cnt[0] - cnt[-1]) > 1e-5:
                     pts = np.vstack([cnt, cnt[0:1]])
                 else:
@@ -263,12 +235,12 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
         if not sampled_pts:
             sampled_pts = [np.array([0.0, 0.0])]
 
-        # Aplicar Ordenamiento Numpad
         sampled_pts = sort_particles(sampled_pts, order_code=order, get_xy=lambda pt: (pt[0], pt[1]))
         _GLOBAL_PARTICLE_PTS_CACHE[cache_key] = sampled_pts
 
     total_pts = len(sampled_pts)
     if isinstance(context, dict):
+        context['p_n'] = total_pts
         context['tp_n'] = total_pts
         context['tp_max'] = total_pts
         context['text_p_n'] = total_pts
@@ -278,7 +250,7 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
     parent_x = float(getattr(unit, 'center', getattr(unit, 'x', getattr(line, 'center', getattr(line, 'x', 0))))) if (unit or line) else 0.0
     parent_y = float(getattr(unit, 'middle', getattr(unit, 'y', getattr(line, 'middle', getattr(line, 'y', 0))))) if (unit or line) else 0.0
 
-    tp_val = int(context.get('tp_i', context.get('text_p_i', context.get('p_i', context.get('fx_i', context.get('i', context.get('j', 1))))))) if isinstance(context, dict) else 1
+    tp_val = int(context.get('tp_i', context.get('p_i', context.get('text_p_i', context.get('fx_i', context.get('i', context.get('j', 1))))))) if isinstance(context, dict) else 1
     idx = max(0, min(tp_val - 1, total_pts - 1))
     pt = sampled_pts[idx]
 
@@ -286,6 +258,7 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
     abs_y = round(parent_y + float(pt[1]), 2)
 
     if isinstance(context, dict):
+        context['p_i'] = tp_val
         context['tp_i'] = tp_val
         context['text_p_i'] = tp_val
         context['x'] = abs_x
@@ -293,14 +266,22 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
         context['fx_pos_x'] = abs_x
         context['fx_pos_y'] = abs_y
 
-    p_shape_str = resolve_shape_value(particle_shape, context)
-    if not p_shape_str:
+    p_shape_clean = str(particle_shape or "").strip()
+    if p_shape_clean:
+        p_shape_str = resolve_shape_value(p_shape_clean, context)
+    else:
+        p_shape_str = "m 0 0 l 2 0 l 2 2 l 0 2"
+
+    if not p_shape_str or not (str(p_shape_str).strip().startswith("m ") or str(p_shape_str).strip().startswith("m-") or str(p_shape_str).strip().startswith("m0")):
         p_shape_str = "m 0 0 l 2 0 l 2 2 l 0 2"
 
     return abs_x, abs_y, p_shape_str, total_pts
 
 
-def particle_image_node(context, image_path="", particle_shape="", frame="1", step=2, alpha_threshold=128, scale=1.0, anchor="Center", order="79"):
+from decorators import pyxis_node, NODE_REGISTRY
+
+@pyxis_node("Functions", "IMG to pixels", ["Image Path", "Particle", "Frame", "Step", "Alpha", "Scale", "Anchor", "Order"])
+def particle_image_node(context, image_path="", particle_shape="", frame="1", step=2, alpha_threshold=128, scale=1.0, anchor="center", order="79", frame_idx=None, **kwargs):
     """Muestrea archivos de imagen (PNG, JPG, WEBP, GIF) en partículas ASS coloreadas usando Pillow, NumPy y Numpad ordering."""
     from node_engine import _eval_num_expr
     unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
@@ -315,12 +296,21 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
     sc = float(_eval_num_expr(scale, context, 1.0))
     anchor_clean = str(anchor or "Center").strip().lower()
 
+    p_shape_clean = str(particle_shape or "").strip()
+    box_size = round(st * sc, 2) if (st * sc) > 1.0 else 1.0
+    fallback_p_shape = f"m 0 0 l {box_size} 0 l {box_size} {box_size} l 0 {box_size}"
+
     if not path_str or not os.path.exists(path_str):
-        box_size = round(st * sc, 2) if (st * sc) > 1.0 else 1.0
-        fallback_shape = resolve_shape_value(particle_shape, context) or f"m 0 0 l {box_size} 0 l {box_size} {box_size} l 0 {box_size}"
+        fallback_shape = (resolve_shape_value(p_shape_clean, context) if p_shape_clean else "") or fallback_p_shape
+        if not fallback_shape or not (str(fallback_shape).strip().startswith("m ") or str(fallback_shape).strip().startswith("m-") or str(fallback_shape).strip().startswith("m0")):
+            fallback_shape = fallback_p_shape
+        if isinstance(context, dict):
+            context['ip_n'] = 1
+            context['ip_i'] = 1
         return parent_x, parent_y, "&HFFFFFF&", "&H00&", fallback_shape, 1
 
-    fr_val = int(_eval_num_expr(frame, context, 1.0))
+    target_frame = frame_idx if frame_idx is not None else kwargs.get("frame_idx", frame)
+    fr_val = int(_eval_num_expr(target_frame, context, 1.0))
     raw_idx = max(0, fr_val - 1) if fr_val >= 1 else max(0, fr_val)
 
     from img_tracer_engine import _is_animated_gif, _get_or_extract_gif_frames
@@ -344,7 +334,6 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
             arr = np.array(img)
             h, w, c = arr.shape
 
-            # Cálculo de anclaje
             if "center" in anchor_clean or "centro" in anchor_clean:
                 off_x, off_y = -w * sc / 2.0, -h * sc / 2.0
             elif "topright" in anchor_clean:
@@ -353,7 +342,7 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
                 off_x, off_y = 0.0, -h * sc
             elif "bottomright" in anchor_clean:
                 off_x, off_y = -w * sc, -h * sc
-            else: # TopLeft / Default
+            else:
                 off_x, off_y = 0.0, 0.0
 
             y_indices, x_indices = np.where(arr[:, :, 3] >= th)
@@ -387,15 +376,15 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
     total_pixels = len(items)
 
     if isinstance(context, dict):
-        context['p_n'] = total_pixels
-        context['p_max'] = total_pixels
-        context['particle_n'] = total_pixels
-        context['particle_max'] = total_pixels
+        context['ip_n'] = total_pixels
+        context['ip_max'] = total_pixels
+        context['img_p_n'] = total_pixels
+        context['img_p_max'] = total_pixels
         context['total_pixels'] = total_pixels
         context['maxloop'] = total_pixels
 
-    j_val = int(context.get('p_i', context.get('particle_i', context.get('fx_i', context.get('i', context.get('j', 1)))))) if isinstance(context, dict) else 1
-    idx = max(0, min(j_val - 1, total_pixels - 1))
+    ip_val = int(context.get('ip_i', context.get('img_p_i', context.get('fx_i', context.get('i', context.get('j', 1)))))) if isinstance(context, dict) else 1
+    idx = max(0, min(ip_val - 1, total_pixels - 1))
 
     item = items[idx]
     px = item[0] * sc + off_x
@@ -406,17 +395,23 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
     col_ass = rgb_to_ass_color(item[2], item[3], item[4])
     alpha_ass = f"&H{255 - int(item[5]):02X}&"
 
-    p_shape_str = resolve_shape_value(particle_shape, context)
-    if not p_shape_str:
-        box_size = round(st * sc, 2) if (st * sc) > 1.0 else 1.0
-        p_shape_str = f"m 0 0 l {box_size} 0 l {box_size} {box_size} l 0 {box_size}"
+    if p_shape_clean:
+        p_shape_str = resolve_shape_value(p_shape_clean, context)
+    else:
+        p_shape_str = fallback_p_shape
+    if not p_shape_str or not (str(p_shape_str).strip().startswith("m ") or str(p_shape_str).strip().startswith("m-") or str(p_shape_str).strip().startswith("m0")):
+        p_shape_str = fallback_p_shape
 
     if isinstance(context, dict):
-        context['p_i'] = j_val
-        context['particle_i'] = j_val
+        context['ip_i'] = ip_val
+        context['img_p_i'] = ip_val
         context['x'] = abs_x
         context['y'] = abs_y
         context['fx_pos_x'] = abs_x
         context['fx_pos_y'] = abs_y
     return abs_x, abs_y, col_ass, alpha_ass, p_shape_str, total_pixels
-
+ 
+NODE_REGISTRY["Functions/IMG to pixels"] = particle_image_node
+NODE_REGISTRY["IMG to pixels"] = particle_image_node
+NODE_REGISTRY["Functions/IMG to Pixels"] = particle_image_node
+NODE_REGISTRY["IMG to Pixels"] = particle_image_node

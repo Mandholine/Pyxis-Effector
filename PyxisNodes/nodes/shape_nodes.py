@@ -14,167 +14,148 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# PyxisNodes/nodes/shape_nodes.py
-"""Nodos de figuras vectoriales fijas (~100x100) de Kara Effector (sin entradas, 1 salida Dato)."""
+"""Vector shape library and shape manipulation nodes."""
 
 import re
 import math
 import numpy as np
-from decorators import pyxis_node
+from decorators import pyxis_node, NODE_REGISTRY
 
-# -----------------------------------------------------------------------------
-# SHAPE FUNCIONES INTERNAS PARA SHAPES LIB
-# -----------------------------------------------------------------------------
-def shape_circulo(context):
+def shape_circle(context):
     return "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0 "
 
-def shape_cuadrado(context):
+def shape_square(context):
     return "m 0 0 l 0 100 l 100 100 l 100 0 l 0 0 "
 
-def shape_rectangulo(context):
+def shape_rectangle(context):
     return "m 0 0 l 0 100 l 100 100 l 100 0 l 0 0 "
 
-def shape_triangulo(context):
+def shape_triangle(context):
     return "m 50 0 l 0 86 l 100 86 l 50 0 "
 
-def shape_rombo(context):
+def shape_rhombus(context):
     return "m 50 0 l 0 50 l 50 100 l 100 50 l 50 0 "
 
-def shape_esquinas_redondeadas(context):
+def shape_rounded_corners(context):
     return "m 20 0 b 8 0 0 8 0 20 l 0 80 b 0 92 8 100 20 100 l 80 100 b 92 100 100 92 100 80 l 100 20 b 100 8 92 0 80 0 l 20 0 "
 
-def shape_pentagono(context):
+def shape_pentagon(context):
     return "m 50 0 l 0 36 l 19 95 l 81 95 l 100 36 l 50 0 "
 
-def shape_hexagono(context):
+def shape_hexagon(context):
     return "m 100 43.301 l 75 0 l 25 0 l 0 43.301 l 25 86.602 l 75 86.602 l 100 43.301 "
 
-def shape_octagono(context):
+def shape_octagon(context):
     return "m 29 0 l 0 29 l 0 71 l 29 100 l 71 100 l 100 71 l 100 29 l 71 0 l 29 0 "
 
-def shape_estrella(context):
+def shape_star(context):
     return "m 38 36 l 0 36 l 31 59 l 20 95 l 50 72 l 81 94 l 69 59 l 100 36 l 62 36 l 50 0 l 38 36 "
 
-def shape_corazon(context):
+def shape_heart(context):
     return "m 50 25 b 32 0 0 16 0 40 b 0 68 24 71 50 106 b 75 71 100 68 100 40 b 100 16 68 0 50 25 "
 
-# -----------------------------------------------------------------------------
-# SHAPE/ESTRELLAS
-# -----------------------------------------------------------------------------
-def shape_estrella_1t(context):
+def shape_star_1t(context):
     return "m 0 35 l 29 56 l 33 55 b 37 44 42 66 34 58 l 30 60 l 18 95 l 48 73 l 48 69 b 38 63 60 63 51 69 l 51 73 l 81 95 l 70 60 l 65 58 b 57 65 63 44 66 55 l 71 56 l 100 35 l 63 35 l 61 39 b 64 48 47 36 59 36 l 61 33 l 50 0 l 38 33 l 40 36 b 52 36 36 49 38 39 l 36 35 l 0 35 "
 
-def shape_estrella_2t(context):
+def shape_star_2t(context):
     return "m 31 26 b 0 29 0 29 14 58 b 0 87 0 87 31 89 b 50 116 50 116 69 89 b 100 87 100 87 86 58 b 100 29 100 29 69 26 b 50 0 50 0 31 26 l 33 29 b 50 16 50 16 67 29 b 86 37 86 37 83 58 b 86 79 86 79 67 87 b 50 100 50 100 33 87 b 14 79 14 79 17 58 b 14 37 14 37 33 29 "
 
-def shape_estrella_3t(context):
+def shape_star_3t(context):
     return "m 31 26 b 0 29 0 29 14 58 b 0 87 0 87 31 89 b 50 116 50 116 69 89 b 100 87 100 87 86 58 b 100 29 100 29 69 26 b 50 0 50 0 31 26 "
 
-def shape_estrella_4t(context):
+def shape_star_4t(context):
     return "m 25 72 l 18 61 l 0 87 l 33 87 b 42 72 53 53 25 72 m 50 87 l 37 87 l 50 116 l 67 87 b 58 72 47 53 50 87 m 75 72 l 69 83 l 100 87 l 83 58 b 66 58 45 58 75 72 m 75 43 l 82 54 l 100 29 l 67 29 b 58 45 47 63 75 43 m 50 29 l 63 29 l 50 0 l 33 29 b 42 45 53 63 50 29 m 25 43 l 31 32 l 0 29 l 16 58 b 34 58 54 58 25 43 "
 
-def shape_estrella_5t(context):
+def shape_star_5t(context):
     return "m 33 29 l 0 29 l 50 116 l 100 29 l 33 29 l 50 0 l 100 87 l 0 87 l 33 29 "
 
-def shape_estrella_6t(context):
+def shape_star_6t(context):
     return "m 36 33 b 0 36 0 36 27 60 b 20 95 20 95 50 77 b 81 95 81 95 73 60 b 100 36 100 36 64 33 b 50 0 50 0 36 33 m 61 35 b 95 38 95 38 69 59 b 78 90 78 90 50 73 b 23 90 23 90 31 59 b 6 38 6 38 39 35 b 50 6 50 6 61 35 "
 
-def shape_estrella_7t(context):
+def shape_star_7t(context):
     return "m 36 33 b 0 36 0 36 27 60 b 20 95 20 95 50 77 b 81 95 81 95 73 60 b 100 36 100 36 64 33 b 50 0 50 0 36 33 "
 
-def shape_estrella_8t(context):
+def shape_star_8t(context):
     return "m 39 36 b 0 36 0 36 31 59 b 20 95 20 95 50 72 b 81 95 81 95 69 59 b 100 36 100 36 62 36 b 50 0 50 0 39 36 "
 
-def shape_estrella_9t(context):
+def shape_star_9t(context):
     return "m 0 29 l 16 58 l 0 87 l 33 87 l 50 116 l 67 87 l 100 87 l 84 58 l 100 29 l 67 29 l 50 0 l 33 29 l 0 29 l 10 35 l 37 35 l 50 12 l 63 35 l 90 35 l 77 58 l 90 81 l 63 81 l 50 104 l 37 81 l 10 81 l 23 58 l 10 35 "
 
-def shape_estrella_10t(context):
+def shape_star_10t(context):
     return "m 0 29 l 16 58 l 0 87 l 33 87 l 50 116 l 67 87 l 100 87 l 84 58 l 100 29 l 67 29 l 50 0 l 33 29 l 0 29 "
 
-# -----------------------------------------------------------------------------
-# SHAPE/ESPECIALES
-# -----------------------------------------------------------------------------
-def shape_corazon_2t(context):
+def shape_heart_2t(context):
     return "m 50 25 b 32 0 0 16 0 40 b 0 68 24 71 50 100 b 75 71 100 68 100 40 b 100 16 68 0 50 25 m 79 27 b 74 25 76 20 81 22 b 90 26 93 36 93 43 b 93 48 87 48 87 43 b 87 39 86 30 79 27 "
 
-def shape_corazon_borde(context):
+def shape_heart_border(context):
     return "m 50 25 b 32 0 0 16 0 40 b 0 68 24 71 50 100 b 75 71 100 68 100 40 b 100 16 68 0 50 25 l 50 28 b 69 2 98 18 98 40 b 98 66 74 69 50 97 b 25 69 2 66 2 40 b 2 18 31 2 50 28 "
 
-def shape_destello_1t(context):
+def shape_flare_1t(context):
     return "m 0 0 l 47 50 l 0 100 l 50 53 l 100 100 l 53 50 l 100 0 l 50 47 l 0 0 m 42 50 b 42 61 58 61 58 50 b 58 39 42 39 42 50 "
 
-def shape_destello_2t(context):
+def shape_flare_2t(context):
     return "m 0 0 l 45 50 l 0 100 l 50 55 l 100 100 l 55 50 l 100 0 l 50 45 l 0 0 m 40 50 b 40 64 60 64 60 50 b 60 36 40 36 40 50 "
 
-def shape_destello_3t(context):
+def shape_flare_3t(context):
     return "m 0 0 b 35 39 61 65 100 100 b 65 61 39 35 0 0 m 100 0 b 61 35 35 61 0 100 b 39 65 65 39 100 0 "
 
-def shape_destello_4t(context):
+def shape_flare_4t(context):
     return "m 50 100 b 52 69 52 31 50 0 b 48 31 48 69 50 100 m 0 50 b 31 52 69 52 100 50 b 69 48 31 48 0 50 "
 
-def shape_trebol(context):
+def shape_clover(context):
     return "m 1 99 l 4 106 b 21 99 44 83 53 56 b 51 73 40 88 56 98 b 72 106 80 90 77 82 b 85 86 100 82 100 69 b 100 58 87 52 64 54 b 52 55 51 50 68 48 b 85 46 94 40 95 29 b 96 18 80 10 70 19 b 70 0 40 0 40 21 b 40 33 47 37 50 43 b 54 50 52 54 47 47 b 39 38 31 26 19 27 b 0 29 0 49 13 53 b 0 58 3 80 19 79 b 39 78 40 62 51 55 b 42 79 23 92 1 99 "
 
-def shape_pluma(context):
+def shape_feather(context):
     return "m 0 0 b 0 20 10 28 27 34 b 10 33 47 49 54 55 b 62 62 72 77 78 75 l 80 78 l 90 79 b 94 86 96 94 97 100 l 100 100 b 99 93 96 84 93 78 b 100 56 88 41 73 30 l 73 39 l 69 28 b 62 24 55 23 49 19 l 48 24 l 45 19 b 31 10 13 12 0 0 m 91 74 l 88 75 b 79 49 57 40 46 35 b 22 25 8 15 2 5 b 11 17 22 23 48 34 b 64 41 82 51 91 74 "
 
-def shape_pluma_2(context):
+def shape_feather_2(context):
     return "m 99 8 l 87 18 b 83 13 75 18 75 23 b 69 19 68 29 62 27 b 53 27 50 21 44 21 b 38 15 31 11 21 8 b 14 2 7 0 4 2 b 0 16 11 37 29 43 b 40 49 65 50 78 31 b 83 34 93 29 89 20 l 100 9 "
 
-def shape_engranaje(context):
+def shape_gear(context):
     return "m 3 70 l 3 70 l 17 69 l 25 78 l 22 92 l 30 97 l 40 86 l 53 86 l 60 99 l 70 96 l 68 82 l 79 73 l 92 78 l 97 69 l 86 60 l 86 46 l 100 38 l 96 29 l 82 31 l 74 21 l 77 7 l 70 3 l 60 14 l 46 13 l 38 0 l 30 2 l 30 18 l 20 26 l 6 23 l 1 31 l 13 41 l 12 53 l 0 61 l 3 70 m 24 49 b 24 15 74 15 74 49 b 74 83 24 83 24 49 "
 
-def shape_burbuja(context):
+def shape_bubble(context):
     return "m 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 m 50 1 b 79 1 99 21 99 50 b 99 76 80 93 68 96 b 62 98 66 94 50 94 b 34 94 38 98 32 96 b 20 93 1 78 1 50 b 1 22 22 1 50 1 m 88 22 b 79 11 75 14 85 24 b 92 38 94 33 88 22 m 12 15 b 12 19 18 19 18 15 b 18 11 12 11 12 15 m 14 16 l 15 30 l 16 16 l 30 15 l 16 14 l 15 0 l 14 14 l 0 15 m 50 94 b 63 94 61 100 52 100 b 42 100 38 94 50 94 "
 
 def shape_pixel(context):
     return "m 0 0 l 0 1 l 1 1 l 1 0 "
 
-# -----------------------------------------------------------------------------
-# SHAPE/NOTAS
-# -----------------------------------------------------------------------------
-def shape_nota_musical_1(context):
+def shape_musical_note_1(context):
     return "m 33 70 b 16 57 0 67 0 82 b 0 93 9 100 19 100 b 28 100 40 93 40 73 l 40 15 b 46 18 53 25 56 36 b 56 18 48 8 33 0 l 33 70 "
 
-def shape_nota_musical_2(context):
+def shape_musical_note_2(context):
     return "m 33 70 b 16 57 0 67 0 82 b 0 93 9 100 19 100 b 28 100 40 93 40 73 l 40 27 l 93 18 l 93 55 b 76 42 60 52 60 67 b 60 78 69 85 79 85 b 88 85 100 78 100 58 l 100 0 l 33 12 l 33 70 "
 
-def shape_nota_musical_3(context):
+def shape_musical_note_3(context):
     return "m 33 70 b 16 57 0 67 0 82 b 0 93 9 100 19 100 b 28 100 40 93 40 73 l 40 36 l 93 27 l 93 55 b 76 42 60 52 60 67 b 60 78 69 85 79 85 b 88 85 100 78 100 58 l 100 0 l 33 12 l 33 70 m 40 29 l 40 18 l 93 8 l 93 20 l 40 29 "
 
-def shape_nota_musical_4(context):
+def shape_musical_note_4(context):
     return "m 33 70 b 16 57 0 67 0 82 b 0 93 9 100 19 100 b 28 100 40 93 40 73 l 40 28 l 93 18 l 93 55 b 76 42 60 52 60 67 b 60 78 69 85 79 85 b 88 85 100 78 100 58 l 100 0 l 33 12 l 33 70 m 35 73 l 35 13 l 98 2 l 98 59 b 98 77 87 83 79 83 b 70 83 62 77 62 67 b 62 53 76 44 95 58 l 95 16 l 38 27 l 38 74 b 38 91 27 98 19 98 b 10 98 2 91 2 82 b 2 68 16 59 35 73 "
 
-# -----------------------------------------------------------------------------
-# SHAPE/SAKURA
-# -----------------------------------------------------------------------------
-def shape_flor_sakura(context):
+def shape_sakura_flower(context):
     return "m 50 40 l 35 0 b 10 10 0 32 0 61 b 0 88 15 117 50 130 b 85 117 100 88 100 61 b 100 32 90 10 65 0 l 50 40 "
 
-def shape_flor_sakura_1t(context):
+def shape_sakura_flower_1t(context):
     return "m 41 57 b 23 57 1 53 0 82 b 26 97 34 76 44 60 l 11 76 l 41 57 m 47 62 b 38 78 23 95 50 110 b 76 95 62 78 52 62 l 50 99 l 47 62 m 56 60 b 66 76 73 97 100 82 b 99 53 77 57 58 57 l 89 76 l 56 60 m 44 50 b 34 33 26 13 0 27 b 1 57 23 53 41 53 l 11 33 l 44 50 m 52 47 b 62 32 76 15 50 0 b 23 15 38 32 47 47 l 50 12 l 52 47 m 58 53 b 77 53 99 57 100 27 b 73 13 66 33 56 50 l 89 33 l 58 53 "
 
-def shape_flor_sakura_2t(context):
+def shape_sakura_flower_2t(context):
     return "m 50 52 l 50 40 l 16 20 l 0 28 l 0 46 l 15 55 l 27 46 l 14 36 l 50 52 m 46 54 l 35 48 l 0 67 l 0 86 l 16 94 l 30 86 l 30 72 l 14 79 l 46 54 m 46 59 l 34 67 l 34 104 l 50 114 l 66 104 l 66 88 l 52 81 l 50 100 l 46 59 m 50 62 l 50 75 l 84 94 l 100 86 l 100 67 l 85 60 l 73 67 l 87 79 l 50 62 m 54 60 l 66 65 l 100 46 l 100 28 l 84 20 l 69 28 l 70 44 l 87 36 l 54 60 m 54 55 l 66 47 l 66 10 l 50 0 l 34 10 l 34 26 l 48 34 l 50 14 l 54 55 "
 
-def shape_flor_sakura_3t(context):
+def shape_sakura_flower_3t(context):
     return "m 47 49 b 25 49 10 52 0 63 l 0 78 l 12 85 b 21 85 26 80 31 75 b 33 69 36 63 39 58 l 18 67 l 47 49 m 44 55 b 35 70 30 84 32 102 l 47 110 l 60 102 b 61 92 61 85 59 80 b 54 76 50 70 48 65 l 47 89 l 44 55 m 48 58 b 55 73 66 88 82 92 l 95 84 l 95 69 b 90 64 85 62 78 60 b 73 61 66 62 60 61 l 79 75 l 48 58 m 53 57 b 71 60 91 54 100 46 l 100 31 l 86 22 b 79 24 72 28 68 33 b 67 39 65 45 61 50 l 80 40 l 53 57 m 56 53 b 65 39 69 24 68 8 l 53 0 l 39 8 b 38 15 38 21 41 27 b 45 31 49 36 52 41 l 53 20 l 56 53 m 52 49 b 47 34 31 21 18 15 l 4 24 l 4 39 b 9 44 15 47 23 48 b 29 46 35 46 41 46 l 22 33 l 52 49 "
 
 
-# -----------------------------------------------------------------------------
-# TRANSFORMADOR DE FORMAS VECTORIALES
-# -----------------------------------------------------------------------------
 import math
 
-def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offset_x=0.0, offset_y=0.0, offset_border=0.0, mode="center", op_mode="Escalar", density=2.0, angle_x=0.0, angle_y=0.0, angle_z=0.0, axis="y", t=1.0, **kwargs):
-    """Aplica manipulaciones vectoriales avanzadas (Escalar, Bordes, Deformar, Posición, Redibujar, Giro 3D, Reflejar).
-    Modos de anclaje (Shapery):
-      - 'center': Centra el shape alrededor de (0,0) [Shape to center].
-      - 'origin': Alinea la esquina superior izquierda del bounding box a (0,0) [Shape to origin].
-      - 'zero': Traslada el shape a las coordenadas de pantalla/canvas (pos_x, pos_y) [Shape to 0,0].
-      - 'pos': Hace el shape relativo a la posición (pos_x, pos_y) [Shape to pos].
+def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offset_x=0.0, offset_y=0.0, offset_border=0.0, mode="center", op_mode="scale", density=2.0, angle_x=0.0, angle_y=0.0, angle_z=0.0, axis="y", t=1.0, **kwargs):
+    """Applies advanced vector manipulations (Scale, Borders, Deform, Position, Redraw, 3D Rotation, Reflect).
+    Anchor modes (Shapery):
+      - 'center': Centers shape around (0,0) [Shape to center].
+      - 'origin': Aligns top-left corner of bounding box to (0,0) [Shape to origin].
+      - 'zero': Translates shape to screen/canvas coordinates (pos_x, pos_y) [Shape to 0,0].
+      - 'pos': Makes shape relative to position (pos_x, pos_y) [Shape to pos].
     """
-    raw_shp = resolve_shape_value(drawing, context)
+    raw_shp = resolve_shape_value(drawing if drawing else kwargs.get("shape", ""), context)
     if not raw_shp:
         return ""
 
@@ -184,7 +165,7 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
     except Exception:
         t_val = 1.0
 
-    op = str(op_mode or kwargs.get("operacion", kwargs.get("modo", "Escalar"))).strip().lower()
+    op = str(op_mode or kwargs.get("operation", kwargs.get("mode", "Scale"))).strip().lower()
 
     if "redibuj" in op or "redraw" in op:
         d = density if (density is not None and str(density).strip() != "") else kwargs.get("factor", 2.0)
@@ -195,27 +176,10 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
         az = angle_z if (angle_z is not None and str(angle_z).strip() != "") else kwargs.get("ang_z", kwargs.get("rot", kwargs.get("angle", rot)))
         return _shape_rotate_3d(raw_shp, angle_x=ax, angle_y=ay, angle_z=az, anchor=mode, t=t_val, context=context)
     elif "refle" in op or "reflect" in op or "espejo" in op:
-        ax_val = axis if (axis is not None and str(axis).strip() != "") else kwargs.get("eje", "y")
+        ax_val = axis if (axis is not None and str(axis).strip() != "") else kwargs.get("axis", "y")
         ox = offset_x if (offset_x is not None and str(offset_x).strip() != "") else kwargs.get("off_x", 0.0)
         oy = offset_y if (offset_y is not None and str(offset_y).strip() != "") else kwargs.get("off_y", 0.0)
         return _shape_reflect(raw_shp, axis=ax_val, offset_x=ox, offset_y=oy, anchor=mode, t=t_val, context=context)
-
-    if not raw_shp.lower().startswith("m ") and not raw_shp.lower().startswith("m-") and not raw_shp.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        v_shp = FontVectorEngine.text_to_shape(raw_shp, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-        if v_shp and v_shp.strip():
-            raw_shp = v_shp
 
     delta = _eval_num_expr(offset_border, context, 0.0) if (offset_border is not None and offset_border != "") else 0.0
     delta = delta * t_val
@@ -283,7 +247,10 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
     elif anchor_str == "pos":
         ref_x, ref_y = pos_x, pos_y
         base_x, base_y = 0.0, 0.0
-    else:  # "center" (default)
+    elif "rel" in anchor_str or "pieza" in anchor_str:
+        ref_x, ref_y = 0.0, 0.0
+        base_x, base_y = 0.0, 0.0
+    else:
         ref_x, ref_y = cx, cy
         base_x, base_y = 0.0, 0.0
 
@@ -328,31 +295,13 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
 
 
 def _shape_redraw_bezier(drawing, factor=2.0, anchor="center", t=1.0, context=None):
-    """Redibuja una forma vectorial:
-    - factor > 0: Densifica / complejiza subdividiendo curvas Bézier y rectas preservando suavidad C1.
-    - factor < 0: Simplifica / Low-Poly convirtiendo curvas en polilíneas facetadas de pocos vértices.
+    """Redraws a vector shape:
+    - factor > 0: Densifies / refines by subdividing Bézier curves and lines preserving C1 continuity.
+    - factor < 0: Simplifies / Low-Poly by converting curves into faceted polylines with fewer vertices.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
         return ""
-
-    if not raw_shp.lower().startswith("m ") and not raw_shp.lower().startswith("m-") and not raw_shp.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        v_shp = FontVectorEngine.text_to_shape(raw_shp, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-        if v_shp and v_shp.strip():
-            raw_shp = v_shp
-
     from node_engine import _eval_num_expr
     try:
         f_val = float(_eval_num_expr(factor, context, 2.0))
@@ -394,12 +343,11 @@ def _shape_redraw_bezier(drawing, factor=2.0, anchor="center", t=1.0, context=No
                             xk = p0[0] + u * (p1[0] - p0[0])
                             yk = p0[1] + u * (p1[1] - p0[1])
                             out_tokens.append(f"l {_format_num(xk)} {_format_num(yk)}")
-                else:  # f_val < 0 (simplificación)
+                else:
                     out_tokens.append(f"l {_format_num(p1[0])} {_format_num(p1[1])}")
 
             elif stype in ('b', 'c'):
                 p0, p1, p2, p3 = seg['p0'], seg['p1'], seg['p2'], seg['p3']
-                # Aproximar longitud de arco con 16 cuerdas
                 sub_pts = []
                 for s_idx in range(17):
                     u = s_idx / 16.0
@@ -425,7 +373,7 @@ def _shape_redraw_bezier(drawing, factor=2.0, anchor="center", t=1.0, context=No
                             cur_curve = right_s
                         rp1, rp2, rp3 = cur_curve['p1'], cur_curve['p2'], cur_curve['p3']
                         out_tokens.append(f"b {_format_num(rp1[0])} {_format_num(rp1[1])} {_format_num(rp2[0])} {_format_num(rp2[1])} {_format_num(rp3[0])} {_format_num(rp3[1])}")
-                else:  # f_val < 0 (Low-Poly / Facetado)
+                else:
                     step = max(1.0, abs(f_val))
                     n_poly = max(1, int(round(b_len / step)))
                     for k in range(1, n_poly + 1):
@@ -439,27 +387,10 @@ def _shape_redraw_bezier(drawing, factor=2.0, anchor="center", t=1.0, context=No
 
 
 def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="center", t=1.0, context=None):
-    """Aplica rotación 3D (Euler X/Y/Z tipo \\frx, \\fry y \\frz) a una forma vectorial ASS con proyección de perspectiva."""
+    """Applies 3D rotation (Euler X/Y/Z like frx, fry, and frz) to an ASS vector shape with perspective projection."""
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
         return ""
-
-    if not raw_shp.lower().startswith("m ") and not raw_shp.lower().startswith("m-") and not raw_shp.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        v_shp = FontVectorEngine.text_to_shape(raw_shp, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-        if v_shp and v_shp.strip():
-            raw_shp = v_shp
 
     from node_engine import _eval_num_expr
     try:
@@ -496,7 +427,7 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
     anchor_str = str(anchor or "center").strip().lower()
     if anchor_str == "origin":
         ref_x, ref_y = min_x, min_y
-    else:  # center / default
+    else:
         ref_x, ref_y = cx, cy
 
     rad_x = math.radians(ax_deg)
@@ -518,7 +449,6 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
                     rx = x_val - ref_x
                     ry = y_val - ref_y
 
-                    # 1. Rotación en eje Z (\frz, plano 2D)
                     if az_deg != 0.0:
                         x0 = rx * cos_z - ry * sin_z
                         y0 = rx * sin_z + ry * cos_z
@@ -526,7 +456,6 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
                         x0 = rx
                         y0 = ry
 
-                    # 2. Rotación en eje X (\frx)
                     if ax_deg != 0.0:
                         y1 = y0 * cos_x
                         z1 = y0 * sin_x
@@ -536,7 +465,6 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
                         y1 = y0
                         z1 = 0.0
 
-                    # 3. Rotación en eje Y (\fry)
                     if ay_deg != 0.0:
                         x2 = x1 * cos_y + z1 * sin_y
                         z2 = -x1 * sin_y + z1 * cos_y
@@ -546,7 +474,6 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
                         y2 = y1
                         z2 = z1
 
-                    # 4. Proyección en perspectiva suave (distancia focal 1000px si z2 != 0)
                     if z2 != 0.0:
                         dist = 1000.0
                         denom = dist + z2
@@ -573,27 +500,10 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
 
 
 def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center", t=1.0, context=None):
-    """Aplica reflexión especular en los ejes X, Y o XY con desplazamiento de pivote e interpolación t."""
+    """Applies specular reflection along X, Y, or XY axes with pivot offset and interpolation t."""
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
         return ""
-
-    if not raw_shp.lower().startswith("m ") and not raw_shp.lower().startswith("m-") and not raw_shp.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        v_shp = FontVectorEngine.text_to_shape(raw_shp, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-        if v_shp and v_shp.strip():
-            raw_shp = v_shp
 
     from node_engine import _eval_num_expr
     try:
@@ -630,7 +540,7 @@ def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center
     anchor_str = str(anchor or "center").strip().lower()
     if anchor_str == "origin":
         ref_x, ref_y = min_x, min_y
-    else:  # center / default
+    else:
         ref_x, ref_y = cx, cy
 
     piv_x = ref_x + off_x
@@ -638,11 +548,11 @@ def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center
 
     axis_str = str(axis or "y").strip().lower()
     if "x" in axis_str and "y" not in axis_str:
-        axis_mode = "x"  # Espejo Vertical (invierte Y)
+        axis_mode = "x"
     elif "y" in axis_str and "x" not in axis_str:
-        axis_mode = "y"  # Espejo Horizontal (invierte X)
+        axis_mode = "y"
     else:
-        axis_mode = "xy"  # Ambos (invierte X e Y)
+        axis_mode = "xy"
 
     out_tokens = []
     i = 0
@@ -659,7 +569,7 @@ def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center
                     elif axis_mode == "x":
                         refl_x = x_val
                         refl_y = 2.0 * piv_y - y_val
-                    else:  # "xy"
+                    else:
                         refl_x = 2.0 * piv_x - x_val
                         refl_y = 2.0 * piv_y - y_val
 
@@ -683,10 +593,10 @@ def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center
 
 
 
-def _shape_inflate(drawing, t=0.5, ratio=1.0, mode="circle", anchor="center", context=None):
-    """Aplica deformación morfológica radial (esferificación/abombamiento) a un dibujo ASS.
-    Modo 'circle': infla radialmente hacia una circunferencia circunscrita.
-    Modo 'ellipse': infla radialmente hacia una elipse circunscrita adaptada al aspecto del bounding box.
+def _shape_inflate(drawing, t=1.0, ratio=1.0, mode="circle", anchor="center", context=None):
+    """Applies radial morphological deformation (spherification/bulge) to an ASS drawing.
+    Mode 'circle': radially inflates toward a circumscribed circle.
+    Mode 'ellipse': radially inflates toward a circumscribed ellipse adapted to bounding box aspect.
     """
     if not drawing or not isinstance(drawing, str):
         return ""
@@ -736,10 +646,11 @@ def _shape_inflate(drawing, t=0.5, ratio=1.0, mode="circle", anchor="center", co
         return drawing
 
     from node_engine import _eval_num_expr
-    t_val = _eval_num_expr(t, context, 0.5) if (t is not None and t != "") else 0.5
-    ratio_val = _eval_num_expr(ratio, context, 1.0) if (ratio is not None and ratio != "") else 1.0
+    t_val = _eval_num_expr(t, context, 1.0) if (t is not None and str(t).strip() != "") else 1.0
+    ratio_val = _eval_num_expr(ratio, context, 1.0) if (ratio is not None and str(ratio).strip() != "") else 1.0
 
-    # Subdividir segmentos rectos si t != 0 para que los bordes planos puedan curvarse
+    k = t_val * ratio_val
+
     max_step = max(5.0, min(w, h) / 16.0)
     subdivided_cmds = []
     last_pt = None
@@ -749,7 +660,7 @@ def _shape_inflate(drawing, t=0.5, ratio=1.0, mode="circle", anchor="center", co
             subdivided_cmds.append((cmd, pt))
             continue
 
-        if last_pt is not None and cmd == 'l' and abs(t_val) > 0.001:
+        if last_pt is not None and cmd == 'l' and abs(k) > 0.001:
             dx = pt[0] - last_pt[0]
             dy = pt[1] - last_pt[1]
             dist = math.hypot(dx, dy)
@@ -765,7 +676,7 @@ def _shape_inflate(drawing, t=0.5, ratio=1.0, mode="circle", anchor="center", co
     mode_str = str(mode or "circle").strip().lower()
     is_circle = mode_str in ("circle", "circulo")
     diameter = math.sqrt((w * w + h * h) / 2.0)
-    r1 = (diameter if is_circle else w) * math.sqrt(2.0) / 2.0 * ratio_val
+    r1 = (diameter if is_circle else w) * math.sqrt(2.0) / 2.0
     r2 = (diameter if is_circle else h) * math.sqrt(2.0) / 2.0
 
     EPSILON = 1e-6
@@ -784,10 +695,10 @@ def _shape_inflate(drawing, t=0.5, ratio=1.0, mode="circle", anchor="center", co
             _cos = math.cos(angle)
             _sin = math.sin(angle)
             denom = math.sqrt(r2 * r2 * _cos * _cos + r1 * r1 * _sin * _sin)
-            radius = (r1 * r2) / denom if denom > EPSILON else r1
+            target_radius = (r1 * r2) / denom if denom > EPSILON else r1
             ux = dx / dist
             uy = dy / dist
-            new_dist = dist * (1.0 - t_val) + radius * t_val
+            new_dist = dist * (1.0 - k) + target_radius * k
             nx = cx + ux * new_dist
             ny = cy + uy * new_dist
             inflated_pts.append((cmd, [nx, ny]))
@@ -822,7 +733,7 @@ def _shape_inflate(drawing, t=0.5, ratio=1.0, mode="circle", anchor="center", co
             try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
         off_x, off_y = -pos_x, -pos_y
-    else:  # "center" (default)
+    else:
         off_x, off_y = -new_cx, -new_cy
 
     out_tokens = []
@@ -848,8 +759,8 @@ def _shape_inflate(drawing, t=0.5, ratio=1.0, mode="circle", anchor="center", co
 
 
 def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, context=None, **kwargs):
-    """Aplica cizallamiento 2D / inclinación planar angular (Skew / Shear) a un dibujo ASS con modulación t.
-    Transformación afín planar limpia:
+    """Applies 2D skew / angular planar shear (Skew / Shear) to an ASS drawing with modulation t.
+    Clean planar affine transformation:
       x' = base_x + rel_x + rel_y * tan(rad(angle_x * t))
       y' = base_y + rel_y + rel_x * tan(rad(angle_y * t))
     """
@@ -886,7 +797,6 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, conte
     if abs(t_val) < 1e-6:
         return drawing
 
-    # Evaluación numérica robusta de ángulos con soporte de expresiones y alias
     ax_in = angle_x if (angle_x is not None and str(angle_x).strip() != "") else kwargs.get("angle_x", kwargs.get("angle", kwargs.get("ang_x", kwargs.get("skew_x", 0.0))))
     ay_in = angle_y if (angle_y is not None and str(angle_y).strip() != "") else kwargs.get("angle_y", kwargs.get("ang_y", kwargs.get("skew_y", 0.0)))
 
@@ -918,7 +828,6 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, conte
 
     anchor_str = str(anchor or "center").strip().lower()
 
-    # Limitar ángulos a (-89.9°, 89.9°) para evitar asíntotas infinitas
     ax = max(-89.9, min(89.9, ax))
     ay = max(-89.9, min(89.9, ay))
 
@@ -942,7 +851,7 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, conte
     elif anchor_str == "pos":
         ref_x, ref_y = pos_x, pos_y
         base_x, base_y = 0.0, 0.0
-    else:  # "center" (default)
+    else:
         ref_x, ref_y = cx, cy
         base_x, base_y = 0.0, 0.0
 
@@ -958,7 +867,6 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, conte
                     rel_x = x_val - ref_x
                     rel_y = y_val - ref_y
 
-                    # Transformación afín exacta de Skew
                     nx = base_x + rel_x + rel_y * tan_x
                     ny = base_y + rel_y + rel_x * tan_y
 
@@ -986,7 +894,7 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, conte
 
 
 def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=1.0, context=None, **kwargs):
-    """Redondea (Round con curvas Bézier) o bisela (Bevel con rectas) las esquinas poliédricas de un dibujo ASS con modulación t.
+    """Rounds (Round with Bézier curves) or bevels (Bevel with lines) polyhedral corners of an ASS drawing with modulation t.
     """
     if not drawing or not isinstance(drawing, str):
         return ""
@@ -1045,6 +953,7 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=
 
     mode_str = str(mode or "Round").strip().lower()
     is_bevel = mode_str in ("bevel", "bisel", "chaflan")
+    is_miter = mode_str in ("miter", "square", "filoso", "lowpoly", "esquina", "recto", "facet", "faceta")
     negative = rad < 0
     abs_rad = abs(rad)
 
@@ -1094,7 +1003,30 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=
                 if is_bevel:
                     p2 = ipol(p_curr, p_next, t1)
                     res_cmds.append(('l', p2))
-                else:  # Round
+                elif is_miter:
+                    p2 = ipol(p_curr, p_prev, 0.42 * t0)
+                    p3 = ipol(p_curr, p_next, 0.42 * t1)
+                    p4 = ipol(p_curr, p_next, t1)
+                    if negative:
+                        dx = p4[0] - p1[0]
+                        dy = p4[1] - p1[1]
+                        chord_len = math.hypot(dx, dy)
+                        if chord_len > 1e-6:
+                            nx = -dy / chord_len
+                            ny = dx / chord_len
+                            for cp in (p2, p3):
+                                vx = cp[0] - p1[0]
+                                vy = cp[1] - p1[1]
+                                dot_n = vx * nx + vy * ny
+                                cp[0] -= 2.0 * dot_n * nx
+                                cp[1] -= 2.0 * dot_n * ny
+                    p_mid = [
+                        0.125 * p1[0] + 0.375 * p2[0] + 0.375 * p3[0] + 0.125 * p4[0],
+                        0.125 * p1[1] + 0.375 * p2[1] + 0.375 * p3[1] + 0.125 * p4[1]
+                    ]
+                    res_cmds.append(('l', p_mid))
+                    res_cmds.append(('l', p4))
+                else:
                     p2 = ipol(p_curr, p_prev, 0.42 * t0)
                     p3 = ipol(p_curr, p_next, 0.42 * t1)
                     p4 = ipol(p_curr, p_next, t1)
@@ -1121,6 +1053,29 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=
             res_cmds.append(('l', p1))
             if is_bevel:
                 res_cmds.append(('l', start_pt))
+            elif is_miter:
+                p2 = ipol(p_curr, p_prev, 0.42 * t0)
+                p3 = ipol(p_curr, p_next, 0.42 * t1)
+                p4 = start_pt
+                if negative:
+                    dx = p4[0] - p1[0]
+                    dy = p4[1] - p1[1]
+                    chord_len = math.hypot(dx, dy)
+                    if chord_len > 1e-6:
+                        nx = -dy / chord_len
+                        ny = dx / chord_len
+                        for cp in (p2, p3):
+                            vx = cp[0] - p1[0]
+                            vy = cp[1] - p1[1]
+                            dot_n = vx * nx + vy * ny
+                            cp[0] -= 2.0 * dot_n * nx
+                            cp[1] -= 2.0 * dot_n * ny
+                p_mid = [
+                    0.125 * p1[0] + 0.375 * p2[0] + 0.375 * p3[0] + 0.125 * p4[0],
+                    0.125 * p1[1] + 0.375 * p2[1] + 0.375 * p3[1] + 0.125 * p4[1]
+                ]
+                res_cmds.append(('l', p_mid))
+                res_cmds.append(('l', start_pt))
             else:
                 p2 = ipol(p_curr, p_prev, 0.42 * t0)
                 p3 = ipol(p_curr, p_next, 0.42 * t1)
@@ -1137,6 +1092,16 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=
                 if is_bevel:
                     p2 = ipol(p_curr, p_next, t1)
                     res_cmds.append(('l', p2))
+                elif is_miter:
+                    p2 = ipol(p_curr, p_prev, 0.42 * t0)
+                    p3 = ipol(p_curr, p_next, 0.42 * t1)
+                    p4 = ipol(p_curr, p_next, t1)
+                    p_mid = [
+                        0.125 * p1[0] + 0.375 * p2[0] + 0.375 * p3[0] + 0.125 * p4[0],
+                        0.125 * p1[1] + 0.375 * p2[1] + 0.375 * p3[1] + 0.125 * p4[1]
+                    ]
+                    res_cmds.append(('l', p_mid))
+                    res_cmds.append(('l', p4))
                 else:
                     p2 = ipol(p_curr, p_prev, 0.42 * t0)
                     p3 = ipol(p_curr, p_next, 0.42 * t1)
@@ -1182,7 +1147,7 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=
             try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
         off_x, off_y = -pos_x, -pos_y
-    else:  # "center" (default)
+    else:
         off_x, off_y = -cx, -cy
 
     out_tokens = []
@@ -1205,7 +1170,7 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=
 
 
 def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="center", context=None):
-    """Deforma y curva un dibujo vectorial ASS a lo largo de una spline directriz o arco paramétrico."""
+    """Bends and curves an ASS vector shape along a guide spline or parametric arc."""
     if not drawing or not isinstance(drawing, str):
         return ""
 
@@ -1238,7 +1203,6 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
 
     anchor_str = str(anchor or "center").strip().lower()
 
-    # Subdividir segmentos largos del contorno para deformación suave
     subdivided = []
     i = 0
     curr_pt = None
@@ -1449,7 +1413,7 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
             try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
         off_x, off_y = -pos_x, -pos_y
-    else:  # "center" (default)
+    else:
         off_x, off_y = -n_cx, -n_cy
 
     out_tokens = []
@@ -1488,11 +1452,11 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
 _SHAPE_DISTORT_CONTOUR_CACHE = {}
 
 def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center", energy=0.35, context=None, **kwargs):
-    """Deforma un dibujo vectorial ASS hacia el contorno morfológico de una forma objetivo (Morphing vectorial avanzado).
-    - Si step_px == 0.0 (por defecto): Realiza morphing continuo analítico preservando curvas y líneas escasas nativas ('b' y 'm') de suavidad C1 sin sobre-densidad.
-    - Si step_px >= 0.5: Normaliza ambas formas en polilíneas densas ('l') remuestreadas por longitud de arco cada ~step_px píxeles.
-    - Soporte topológico y de frases: Agrupación en Islas Jerárquicas (Glyph Islands) con Mapeo Proporcional (Mitosis y Fusión).
-    - Modulación Líquida (Propuesta 2): Durante 0 < t < 1, los manejadores Bézier modulan una onda elástica proporcional a `energy`, haciendo que incluso formas idénticas respiren y ondeen como líquido en lugar de quedarse estáticas.
+    """Deforms an ASS vector drawing toward the morphological contour of a target shape (advanced vector morphing).
+    - If step_px == 0.0 (default): Continuous analytical morphing preserving native curves and lines ('b' and 'm') with C1 smoothness.
+    - If step_px >= 0.5: Normalizes both shapes into dense polylines ('l') resampled by arc length every ~step_px pixels.
+    - Topological and phrase support: Hierarchical Glyph Islands with Proportional Mapping (Mitosis and Fusion).
+    - Fluid modulation: During 0 < t < 1, Bézier handles modulate an elastic wave proportional to energy.
     """
     if not drawing or not isinstance(drawing, str):
         return ""
@@ -1694,7 +1658,6 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
                 area, center, bbox = get_bezier_stats(b_list)
                 data.append({'beziers': b_list, 'area': area, 'center': center, 'bbox': bbox})
 
-            # Clasificación jerárquica por contención geométrica
             sorted_data = sorted(data, key=lambda c: abs(c['area']), reverse=True)
             outers = []
             holes = []
@@ -1796,7 +1759,6 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
         if NA == 0 or NB == 0:
             return drawing
 
-        # Mapeo Proporcional: Mitosis (1-a-N) cuando NA <= NB, Fusión (N-a-1) cuando NA > NB
         island_pairs_idx = []
         if NA <= NB:
             for j in range(NB):
@@ -1809,7 +1771,6 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
                 j = min(NB - 1, max(0, int(round(u_i * (NB - 1)))))
                 island_pairs_idx.append((i, j))
 
-        # Permutación Cruzada Topológica (Cross-Morphing) para formas o palabras idénticas
         is_identical = []
         for i_A, j_B in island_pairs_idx:
             isl_A = islands_A[i_A]
@@ -1834,15 +1795,12 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
         for cl in clusters:
             cl_len = len(cl)
             if cl_len == 2:
-                # Intercambio directo entre los 2 vecinos adyacentes (distancia = 1 letra)
                 idx0, idx1 = cl[0], cl[1]
                 t0 = island_pairs_idx[idx0][1]
                 t1 = island_pairs_idx[idx1][1]
                 island_pairs_idx[idx0] = (island_pairs_idx[idx0][0], t1)
                 island_pairs_idx[idx1] = (island_pairs_idx[idx1][0], t0)
             elif cl_len > 2:
-                # Intercambio local por parejas y tríadas adyacentes (máxima distancia <= 1 o 2 letras)
-                # Evita que la última letra cruce toda la palabra hacia el otro extremo
                 targets = [island_pairs_idx[idx][1] for idx in cl]
                 new_targets = list(targets)
                 i = 0
@@ -1857,14 +1815,13 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
                         new_targets[i + 1] = targets[i + 2]
                         new_targets[i + 2] = targets[i]
                         i += 3
-                    else: # rem == 1
+                    else:
                         new_targets[i - 1] = targets[i]
                         new_targets[i] = targets[i - 1]
                         i += 1
                 for c_i, t_i in zip(cl, new_targets):
                     island_pairs_idx[c_i] = (island_pairs_idx[c_i][0], t_i)
             elif cl_len == 1 and len(island_pairs_idx) > 1:
-                # Letra idéntica aislada: intercambiar destino con la letra vecina inmediata
                 c_idx = cl[0]
                 swap_idx = c_idx + 1 if (c_idx + 1 < len(island_pairs_idx)) else (c_idx - 1)
                 t_curr = island_pairs_idx[c_idx][1]
@@ -1898,7 +1855,6 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
                     eq_hA, eq_hB = align_bezier_phase_fixed(eq_hA, eq_hB)
                     pairs.append(('normal', False, eq_hA, eq_hB))
                 elif h_idx < len(holes_A):
-                    # Hueco que desaparece: se contrae hacia el cuerpo sólido de la letra destino
                     hA_b = ensure_bezier_winding(holes_A[h_idx]['beziers'], should_be_cw=False)
                     cx_hA, cy_hA = holes_A[h_idx]['center']
                     dest_pt = get_closest_point_on_outline(isl_B, (cx_hA, cy_hA))
@@ -1906,7 +1862,6 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
                     coll_B = [('b', dest_pt, dest_pt, dest_pt, dest_pt) for _ in range(len(eq_hA))]
                     pairs.append(('collapsing_hole', False, eq_hA, coll_B))
                 else:
-                    # Hueco que emerge: nace desde el cuerpo sólido de la letra origen (oculto bajo el relleno)
                     hB_b = ensure_bezier_winding(holes_B[h_idx]['beziers'], should_be_cw=False)
                     cx_hB, cy_hB = holes_B[h_idx]['center']
                     origin_pt = get_closest_point_on_outline(isl_A, (cx_hB, cy_hB))
@@ -1924,7 +1879,6 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
             _SHAPE_DISTORT_CONTOUR_CACHE.clear()
         _SHAPE_DISTORT_CONTOUR_CACHE[cache_key] = cached_data
 
-    # Interpolación dinámica de la caja delimitadora (Bounding Box)
     bbox_A = cached_data.get('bbox_A')
     bbox_B = cached_data.get('bbox_B')
     if bbox_A and bbox_B:
@@ -1943,7 +1897,6 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
         def to_dyn_bbox(pt):
             return pt
 
-    # Interpolate segments at t_val
     min_x, max_x = float('inf'), float('-inf')
     min_y, max_y = float('inf'), float('-inf')
     active_pairs = []
@@ -2024,7 +1977,7 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
             try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
         off_x, off_y = -pos_x, -pos_y
-    else:  # 'center' (default)
+    else:
         off_x, off_y = -n_cx, -n_cy
 
     def fmt_num(v):
@@ -2033,7 +1986,6 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
 
     out_parts = []
     if s_px >= 0.5:
-        # Polyline mode ('l')
         for segs in active_pairs:
             if not segs:
                 continue
@@ -2052,7 +2004,6 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
                     by = um**3 * p0[1] + 3 * um**2 * u * p1[1] + 3 * um * u**2 * p2[1] + u**3 * p3[1]
                     out_parts.append(f'l {fmt_num(bx + off_x)} {fmt_num(by + off_y)}')
     else:
-        # Sparse Bezier Mode ('b')
         for segs in active_pairs:
             if not segs:
                 continue
@@ -2067,46 +2018,25 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
 
 
 
-def shape_transform(context, drawing="", mode="Inflate", t=None, ratio=1.0, inflate_mode="Circle", anchor="center", angle_x=0.0, angle_y=0.0, radius=10.0, corner_mode="Round", curve=None, bend_t=1.0, axis="x", target_shape="", mid_shape="", step_px=0.0, **kwargs):
-    """Aplica transformaciones geométricas avanzadas no nativas de ASS a un dibujo vectorial ASS o texto.
-    Modos:
-      - 'Inflate': Deformación morfológica radial (esferificación/abombamiento) hacia círculo o elipse.
-      - 'Skew': Cizallamiento o inclinación planar 2D en X e Y.
-      - 'Round Corners': Redondeo (arcos Bézier) o biselado (chaflán) de esquinas poliédricas.
-      - 'Flexor': Curvado y deformación a lo largo de una spline directriz o arco paramétrico.
-      - 'Distort': Deformación polar hacia el contorno de una forma objetivo (morphing de 2 formas: t0 -> t1).
-      - 'Distort2': Deformación morfológica de 3 etapas (t0: origen -> t0.5: intermedia -> t1: destino).
+def shape_transform(context, drawing="", mode="inflate", t=None, ratio=1.0, inflate_mode="circle", anchor="center", angle_x=0.0, angle_y=0.0, radius=10.0, corner_mode="round", curve=None, bend_t=1.0, axis="x", target_shape="", mid_shape="", step_px=0.0, **kwargs):
+    """Applies advanced non-native ASS geometric transformations to an ASS vector drawing or text.
+    Modes:
+      - 'Inflate': Radial morphological deformation (spherification/bulge) toward circle or ellipse.
+      - 'Skew': 2D planar shear or tilt along X and Y.
+      - 'Round Corners': Rounding (Bézier arcs) or beveling (chamfer) of polyhedral corners.
+      - 'Flexor': Bending and deformation along a guide spline or parametric arc.
+      - 'Distort': Polar deformation toward target shape contour (2-shape morphing: t0 -> t1).
+      - 'Distort2': 3-stage morphological deformation (t0: source -> t0.5: intermediate -> t1: target).
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
-        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-        raw_shp = getattr(unit, 'text_stripped', getattr(unit, 'text', '')) or getattr(line, 'text_stripped', getattr(line, 'text', ''))
-
-    if not raw_shp:
         return ""
-
-    if not raw_shp.lower().startswith("m ") and not raw_shp.lower().startswith("m-") and not raw_shp.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        v_shp = FontVectorEngine.text_to_shape(raw_shp, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-        if v_shp and v_shp.strip():
-            raw_shp = v_shp
 
     mode_clean = str(mode or "Inflate").strip().lower()
     if "inflate" in mode_clean or "inflar" in mode_clean:
-        t_inf = t if (t is not None and str(t).strip() != "") else kwargs.get("t", 0.5)
-        return _shape_inflate(raw_shp, t=t_inf, ratio=ratio, mode=inflate_mode, anchor=anchor, context=context)
+        t_inf = t if (t is not None and str(t).strip() != "") else kwargs.get("t", 1.0)
+        ratio_inf = ratio if (ratio is not None and str(ratio).strip() != "") else kwargs.get("ratio", 1.0)
+        return _shape_inflate(raw_shp, t=t_inf, ratio=ratio_inf, mode=inflate_mode, anchor=anchor, context=context)
     elif "skew" in mode_clean or "cizall" in mode_clean or "inclin" in mode_clean or "oblique" in mode_clean:
         t_skew = t if (t is not None and str(t).strip() != "") else kwargs.get("t", 1.0)
         ax = angle_x if (angle_x is not None and str(angle_x).strip() != "") else (kwargs.get("angle_x", kwargs.get("angle", kwargs.get("ang_x", kwargs.get("skew_x", 0.0)))))
@@ -2131,41 +2061,9 @@ def shape_transform(context, drawing="", mode="Inflate", t=None, ratio=1.0, infl
     elif "distort2" in mode_clean or "distort 2" in mode_clean or "distort_2" in mode_clean:
         mid = mid_shape if mid_shape else kwargs.get("mid_shape", kwargs.get("shape_mid", kwargs.get("shape2", "")))
         mid = resolve_shape_value(mid, context)
-        if mid and not mid.lower().startswith("m ") and not mid.lower().startswith("m-") and not mid.lower().startswith("m0"):
-            from font_vector_engine import FontVectorEngine
-            unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-            line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-            styleref = getattr(line, 'styleref', None) if line else None
-            if not styleref and unit:
-                styleref = getattr(unit, 'styleref', None)
-                if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                    styleref = getattr(unit.line, 'styleref', None)
-            fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-            fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-            b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-            i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-            v_mid = FontVectorEngine.text_to_shape(mid, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-            if v_mid and v_mid.strip():
-                mid = v_mid
 
         tgt = target_shape if target_shape else kwargs.get("target_shape", "")
         tgt = resolve_shape_value(tgt, context)
-        if tgt and not tgt.lower().startswith("m ") and not tgt.lower().startswith("m-") and not tgt.lower().startswith("m0"):
-            from font_vector_engine import FontVectorEngine
-            unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-            line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-            styleref = getattr(line, 'styleref', None) if line else None
-            if not styleref and unit:
-                styleref = getattr(unit, 'styleref', None)
-                if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                    styleref = getattr(unit.line, 'styleref', None)
-            fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-            fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-            b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-            i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-            v_tgt = FontVectorEngine.text_to_shape(tgt, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-            if v_tgt and v_tgt.strip():
-                tgt = v_tgt
 
         t_morph = t if (t is not None and str(t).strip() != "") else kwargs.pop("t", 1.0)
         from node_engine import _eval_num_expr
@@ -2199,22 +2097,6 @@ def shape_transform(context, drawing="", mode="Inflate", t=None, ratio=1.0, infl
     elif "distort" in mode_clean or "deform" in mode_clean or "morph" in mode_clean:
         tgt = target_shape if target_shape else kwargs.get("target_shape", "")
         tgt = resolve_shape_value(tgt, context)
-        if tgt and not tgt.lower().startswith("m ") and not tgt.lower().startswith("m-") and not tgt.lower().startswith("m0"):
-            from font_vector_engine import FontVectorEngine
-            unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-            line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-            styleref = getattr(line, 'styleref', None) if line else None
-            if not styleref and unit:
-                styleref = getattr(unit, 'styleref', None)
-                if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                    styleref = getattr(unit.line, 'styleref', None)
-            fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-            fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-            b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-            i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-            v_tgt = FontVectorEngine.text_to_shape(tgt, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-            if v_tgt and v_tgt.strip():
-                tgt = v_tgt
         t_morph = t if (t is not None and str(t).strip() != "") else kwargs.pop("t", 1.0)
         s_px = step_px if (step_px is not None and str(step_px).strip() != "") else kwargs.pop("step_px", kwargs.pop("step", 0.0))
         e_val = kwargs.pop("energy", kwargs.pop("fluidez", kwargs.pop("fluidity", 0.35)))
@@ -2228,17 +2110,16 @@ def shape_concentric_borders_node(
     separation=5.0,
     overlap=0.5,
     scale=1.0,
-    mode="Hueco (borders)",
+    mode="hollow",
     loop_count=5,
-    out_mode="Shape",
-    anchor="relativo"
+    out_mode="shape",
+    anchor="relative"
 ):
-    """Genera anillos y rebordes vectoriales concéntricos continuos capa a capa con Clipper (shape.borders / shape.filled_borders).
-    Soporta salidas como Forma (relativa o absoluta), \\clip(drawing) o \\iclip(drawing) para máscaras vectoriales.
+    """Generates continuous concentric rings and outlines layer-by-layer using Clipper (shape.borders / shape.filled_borders).
+    Supports outputs as Shape (relative or absolute), \\clip(drawing), or \\iclip(drawing) for vector masks.
     """
     from node_engine import _eval_num_expr
     from clipper_engine import ClipperEngine
-    from font_vector_engine import FontVectorEngine
 
     unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
     line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
@@ -2248,32 +2129,12 @@ def shape_concentric_borders_node(
 
     shp_val = resolve_shape_value(shape, context)
     if not shp_val:
-        shp_val = getattr(unit, 'text_stripped', getattr(unit, 'text', '')) or getattr(line, 'text_stripped', getattr(line, 'text', 'm 0 0 l 100 0 l 100 100 l 0 100'))
-
-    # Si es texto plano, convertir a vector con FontVectorEngine
-    if shp_val and not shp_val.lower().startswith("m ") and not shp_val.lower().startswith("m-"):
-        fn = "Arial"
-        fs = 40
-        b_val = False
-        i_val = False
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit and hasattr(unit, 'line') and getattr(unit, 'line', None):
-            styleref = getattr(unit.line, 'styleref', None)
-        if styleref:
-            fn = str(getattr(styleref, 'fontname', fn))
-            try: fs = int(float(getattr(styleref, 'fontsize', fs)))
-            except: pass
-            b_val = bool(getattr(styleref, 'bold', False))
-            i_val = bool(getattr(styleref, 'italic', False))
-        v_shp = FontVectorEngine.text_to_shape(shp_val, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-        if v_shp and v_shp.strip():
-            shp_val = v_shp
+        return ""
 
     sc_val = max(0.01, float(_eval_num_expr(scale, context, 1.0)))
     if sc_val != 1.0:
         shp_val = ClipperEngine.transform_shape(shp_val, mode="Escalar", factor=sc_val)
 
-    # Parsear separaciones (puede ser float o lista "5, 10, 15")
     sep_str = str(separation).strip()
     try:
         if "," in sep_str:
@@ -2287,10 +2148,9 @@ def shape_concentric_borders_node(
 
     ov_val = max(0.0, float(_eval_num_expr(overlap, context, 0.5)))
     loops_n = max(1, int(_eval_num_expr(loop_count, context, 5.0)))
-    mode_str = str(mode).strip().lower()
-    is_filled_base = "relleno" in mode_str or "filled" in mode_str
+    mode_str = str(mode or "hollow").strip().lower()
+    is_filled_base = "relleno" in mode_str or "filled" in mode_str or "solid" in mode_str
 
-    # Índices de iteración
     loops_n = max(1, int(_eval_num_expr(loop_count, context, 5.0)))
     total_rings = loops_n
 
@@ -2307,14 +2167,12 @@ def shape_concentric_borders_node(
     else:
         j = 1
 
-    # Generación y caché de anillos concéntricos
     prev_dist = 0.0
     cumulative_dist = 0.0
     rings = {}
 
     for i in range(1, total_rings + 1):
         if is_filled_base and i == 1:
-            # Loop 1 en modo Relleno Base: forma base rellena
             rings[i] = ClipperEngine.offset_shape(shp_val, ov_val) if ov_val > 0 else shp_val
         else:
             sep_idx = (i - 2) if is_filled_base else (i - 1)
@@ -2333,13 +2191,11 @@ def shape_concentric_borders_node(
     ring_idx = max(1, min(j, total_rings))
     current_ring_shape = rings.get(ring_idx, shp_val)
 
-    # Calcular centroide BBox
     contours = ClipperEngine.parse_assdraw(current_ring_shape)
     _, _, _, _, cx, cy, _, _ = ClipperEngine.get_bbox(contours)
 
-    # Procesar Tipo de Salida y Anclaje (Forma, \clip, \iclip, Relativo / Absoluto)
-    out_mode_str = str(out_mode).strip().lower()
-    anchor_str = str(anchor).strip().lower()
+    out_mode_str = str(out_mode or "shape").strip().lower()
+    anchor_str = str(anchor or "relative").strip().lower()
 
     if "iclip" in out_mode_str:
         abs_shp = ClipperEngine.transform_shape(current_ring_shape, mode="Offset", offset_x=parent_x, offset_y=parent_y)
@@ -2357,10 +2213,48 @@ def shape_concentric_borders_node(
     return final_output, pos_str, ring_idx, total_rings
 
 
-# -----------------------------------------------------------------------------
-# CLIP GRADIENT (text.gradienth / text.gradientv / text.gradientangle optimizado Libass)
-# -----------------------------------------------------------------------------
-def clip_gradient_node(context, num_clips="5", angle="0", padding="4", overlap="0.5", order="Normal", out_mode="Clip"):
+NODE_REGISTRY["Shape/Concentric Borders"] = shape_concentric_borders_node
+NODE_REGISTRY["Concentric Borders"] = shape_concentric_borders_node
+
+
+def sort_1d_indices(count: int, order: str = "normal", seed: int = 42) -> list:
+    """Genera la lista de índices permutados para ordenamientos 1D (franjas y secuencias).
+
+    Modos Canónicos:
+    - 'normal': [0, 1, 2, ..., count-1]
+    - 'reverse': [count-1, ..., 2, 1, 0]
+    - 'center_to_edges': inicia en el centro y se abre simétricamente hacia los extremos.
+    - 'edges_to_center': inicia en los extremos y converge simétricamente al centro.
+    - 'random': distribución pseudoaleatoria determinista.
+    """
+    import random
+    N = max(1, int(count))
+    indices = list(range(N))
+    order_str = str(order).strip().lower()
+
+    if "invert" in order_str or "rev" in order_str:
+        indices.reverse()
+    elif "center_to_edges" in order_str or (order_str.startswith("centr") and ("extremo" in order_str or "edge" in order_str or "end" in order_str or "out" in order_str)):
+        mid = (N - 1) / 2.0
+        indices.sort(key=lambda idx: abs(idx - mid))
+    elif "edges_to_center" in order_str or ((order_str.startswith("extrem") or order_str.startswith("edge") or order_str.startswith("out")) and ("centr" in order_str or "center" in order_str)):
+        mid = (N - 1) / 2.0
+        indices.sort(key=lambda idx: -abs(idx - mid))
+    elif "centr" in order_str or "center" in order_str:
+        mid = (N - 1) / 2.0
+        indices.sort(key=lambda idx: abs(idx - mid))
+    elif "extrem" in order_str or "edge" in order_str or "out" in order_str:
+        mid = (N - 1) / 2.0
+        indices.sort(key=lambda idx: -abs(idx - mid))
+    elif "aleat" in order_str or "rand" in order_str:
+        rnd = random.Random(seed + N)
+        rnd.shuffle(indices)
+
+    return indices
+
+
+@pyxis_node("Functions", "Clip Gradient", ["Stripes", "Angle", "Padding", "Overlap", "Order"])
+def clip_gradient_node(context, num_clips="5", angle="0", padding="4", overlap="0.5", order="normal", out_mode="clip"):
     """
     Nodo Clip Gradient:
     Genera franjas rectangulares de alto rendimiento (Libass) escalonadas para degradados.
@@ -2374,7 +2268,6 @@ def clip_gradient_node(context, num_clips="5", angle="0", padding="4", overlap="
     unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
     line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
 
-    # Dimensiones y posición del contexto
     parent_x = float(getattr(unit, 'center', getattr(unit, 'x', getattr(line, 'center', getattr(line, 'x', 0.0))))) if (unit or line) else 0.0
     parent_y = float(getattr(unit, 'middle', getattr(unit, 'y', getattr(line, 'middle', getattr(line, 'y', 0.0))))) if (unit or line) else 0.0
     w_val = float(getattr(unit, 'width', getattr(line, 'width', 50.0))) if (unit or line) else 50.0
@@ -2407,7 +2300,6 @@ def clip_gradient_node(context, num_clips="5", angle="0", padding="4", overlap="
     is_iclip = "iclip" in out_mode_str
     is_shape = "shape" in out_mode_str or "forma" in out_mode_str or "vector" in out_mode_str or "assdraw" in out_mode_str
 
-    # Bounding box: relativo centrado en (0, 0) para Forma, absoluto para \clip / \iclip
     if is_shape:
         b_left = -w_val / 2.0 - pad
         b_right = w_val / 2.0 + pad
@@ -2426,27 +2318,13 @@ def clip_gradient_node(context, num_clips="5", angle="0", padding="4", overlap="
     b_w = max(1.0, b_right - b_left)
     b_h = max(1.0, b_bottom - b_top)
 
-    # Mapeo de secuencia / orden
-    order_str = str(order).strip().lower()
-    indices = list(range(N)) # 0 to N-1
-    if "invert" in order_str or "rev" in order_str:
-        indices.reverse()
-    elif "centro" in order_str and "extremo" in order_str: # Centro a Extremos
-        mid = (N - 1) / 2.0
-        indices.sort(key=lambda idx: abs(idx - mid))
-    elif "extremo" in order_str and "centro" in order_str: # Extremos al Centro
-        mid = (N - 1) / 2.0
-        indices.sort(key=lambda idx: -abs(idx - mid))
-    elif "aleat" in order_str or "rand" in order_str:
-        rnd = random.Random(42 + N)
-        rnd.shuffle(indices)
+    indices = sort_1d_indices(N, order=order)
 
     curr_j = max(1, min(j, N))
-    k = indices[curr_j - 1] # Índice geométrico de la franja (0 a N-1)
+    k = indices[curr_j - 1]
 
     progress = 0.0 if N == 1 else round(k / (N - 1), 4)
 
-    # Condicional: 0° (horizontal) y 90° (vertical) son rectangulares nativos AABB
     if ang in (0.0, 180.0, 360.0):
         strip_w = b_w / N
         k_eff = (N - 1 - k) if ang == 180.0 else k
@@ -2478,7 +2356,6 @@ def clip_gradient_node(context, num_clips="5", angle="0", padding="4", overlap="
             clip_res = f"\\clip({x1},{y1},{x2},{y2})"
 
     else:
-        # Ángulo arbitrario / diagonal -> Polígono rectangular rotado de 4 vértices
         rad = math.radians(ang)
         cos_a = math.cos(rad)
         sin_a = math.sin(rad)
@@ -2513,19 +2390,20 @@ def clip_gradient_node(context, num_clips="5", angle="0", padding="4", overlap="
 
 
 from decorators import NODE_REGISTRY
-NODE_REGISTRY["Shape/Shape Manipulator"] = shape_manipulator
-NODE_REGISTRY["Shape Manipulator"] = shape_manipulator
-NODE_REGISTRY["Shape/Shape Transform"] = shape_transform
-NODE_REGISTRY["Shape Transform"] = shape_transform
+NODE_REGISTRY["Shape/Manipulator"] = shape_manipulator
+NODE_REGISTRY["Manipulator"] = shape_manipulator
+NODE_REGISTRY["Shape/Manipulator"] = shape_manipulator
+NODE_REGISTRY["Manipulator"] = shape_manipulator
+NODE_REGISTRY["Shape/Transform"] = shape_transform
+NODE_REGISTRY["Transform"] = shape_transform
+NODE_REGISTRY["Shape/Transform"] = shape_transform
+NODE_REGISTRY["Transform"] = shape_transform
 NODE_REGISTRY["Shape/Concentric Borders"] = shape_concentric_borders_node
 NODE_REGISTRY["Concentric Borders"] = shape_concentric_borders_node
 NODE_REGISTRY["Functions/Clip Gradient"] = clip_gradient_node
 NODE_REGISTRY["Clip Gradient"] = clip_gradient_node
 
 
-# -----------------------------------------------------------------------------
-# NODO MAESTRO UNIFICADO SHAPES LIB
-# -----------------------------------------------------------------------------
 RAW_PRESET_SHAPES = {
     "Circulo": "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0",
     "circle": "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0",
@@ -2698,15 +2576,36 @@ SHAPES_LIB_MAP = {}
 for _k, _v in RAW_PRESET_SHAPES.items():
     SHAPES_LIB_MAP[_k] = lambda ctx=None, p=_v: p
 
-# Aliases adicionales con acentos y variaciones
 for _k, _v in list(RAW_PRESET_SHAPES.items()):
     clean = _k.lower().replace(" ", "").replace(".", "").replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u")
     SHAPES_LIB_MAP[clean] = lambda ctx=None, p=_v: p
 
 def resolve_shape_value(shp_val, context=None):
-    """Resuelve cualquier referencia a forma vectorial, incluyendo sintaxis 'shape.nombre' o nombres directos de la librería."""
-    if not shp_val:
-        return ""
+    """Resuelve cualquier referencia a forma vectorial, incluyendo sintaxis 'shape.nombre' or direct library names."""
+    if isinstance(shp_val, (list, tuple)):
+        return [resolve_shape_value(item, context) for item in shp_val if item is not None and str(item).strip() != ""]
+
+    if isinstance(shp_val, str) and shp_val.strip().startswith("[") and shp_val.strip().endswith("]"):
+        try:
+            import json
+            parsed = json.loads(shp_val)
+            if isinstance(parsed, list):
+                return [resolve_shape_value(item, context) for item in parsed if item is not None and str(item).strip() != ""]
+        except Exception:
+            pass
+
+    if not shp_val or str(shp_val).strip() == "":
+        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
+        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+        txt = ""
+        if unit:
+            txt = getattr(unit, 'text_stripped', getattr(unit, 'text', ''))
+        elif line:
+            txt = getattr(line, 'text_stripped', getattr(line, 'text', ''))
+        if not txt:
+            return ""
+        shp_val = txt
+
     s_val = str(shp_val).strip()
     shape_name = s_val[6:].strip() if s_val.lower().startswith("shape.") else s_val
     clean = shape_name.lower().replace(" ", "").replace(".", "").replace("_", "").replace("-", "")
@@ -2724,11 +2623,145 @@ def resolve_shape_value(shp_val, context=None):
             return v
     if s_val.lower().startswith("shape."):
         return RAW_PRESET_SHAPES.get("Circulo", "")
+
+    if s_val.lower().startswith("m ") or s_val.lower().startswith("m-") or s_val.lower().startswith("m0"):
+        return s_val
+
+    try:
+        from font_vector_engine import FontVectorEngine
+        v_shp = FontVectorEngine.from_context(text=s_val, context=context)
+        if v_shp and (v_shp.strip().startswith("m ") or v_shp.strip().startswith("m-") or v_shp.strip().startswith("m0")):
+            return v_shp
+        if v_shp and v_shp.strip():
+            return v_shp
+    except Exception:
+        pass
+
     return s_val
 
+
+def get_drawing_bbox(drawing_or_list):
+    """Calculates (min_x, min_y, max_x, max_y) bounding box of one or more ASS vector drawings."""
+    if not drawing_or_list:
+        return None
+    drawings = drawing_or_list if isinstance(drawing_or_list, (list, tuple)) else [drawing_or_list]
+    all_xs = []
+    all_ys = []
+    for d in drawings:
+        if not d or not isinstance(d, str):
+            continue
+        tokens = d.split()
+        coords = []
+        for token in tokens:
+            try:
+                coords.append(float(token))
+            except ValueError:
+                pass
+        if coords and len(coords) >= 2:
+            all_xs.extend(coords[0::2])
+            all_ys.extend(coords[1::2])
+    if all_xs and all_ys:
+        return (min(all_xs), min(all_ys), max(all_xs), max(all_ys))
+    return None
+
+
+def apply_geometric_anchor(drawing, anchor="center", context=None, ref_bbox=None):
+    """Relocates an ASS vector shape according to geometric anchor mode:
+      - 'center': Centra el shape alrededor de (0,0) [Center] (usando ref_bbox si se provee, preservando la posición relativa de sub-piezas).
+      - 'origin': Alinea la esquina superior izquierda del bounding box a (0,0) [Origin] (usando ref_bbox si se provee).
+      - 'zero': Traslada el shape a las coordenadas de pantalla/canvas (pos_x, pos_y) [0,0].
+      - 'pos': Hace el shape relativo a la posición (pos_x, pos_y) [Pos].
+      - 'piece' / 'pieza' / 'local': Centra individualmente la pieza en (0,0) ignorando ref_bbox [Pieza].
+    """
+    if not drawing or not str(drawing).strip():
+        return ""
+    anchor_str = str(anchor or "center").strip().lower()
+
+    tokens = str(drawing).split()
+    coords = []
+    for token in tokens:
+        try:
+            coords.append(float(token))
+        except ValueError:
+            pass
+
+    min_x, max_x = 0.0, 0.0
+    min_y, max_y = 0.0, 0.0
+    cx, cy = 0.0, 0.0
+
+    if coords and len(coords) >= 2:
+        xs = coords[0::2]
+        ys = coords[1::2]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        cx = (min_x + max_x) / 2.0
+        cy = (min_y + max_y) / 2.0
+
+    if ref_bbox is not None and anchor_str not in ("piece", "pieza", "piezas", "local", "individual"):
+        if isinstance(ref_bbox, dict):
+            min_x = float(ref_bbox.get("x1", ref_bbox.get("min_x", ref_bbox.get(0, min_x))))
+            min_y = float(ref_bbox.get("y1", ref_bbox.get("min_y", ref_bbox.get(1, min_y))))
+            max_x = float(ref_bbox.get("x2", ref_bbox.get("max_x", ref_bbox.get(2, max_x))))
+            max_y = float(ref_bbox.get("y2", ref_bbox.get("max_y", ref_bbox.get(3, max_y))))
+        elif isinstance(ref_bbox, (list, tuple)) and len(ref_bbox) >= 4:
+            min_x, min_y, max_x, max_y = float(ref_bbox[0]), float(ref_bbox[1]), float(ref_bbox[2]), float(ref_bbox[3])
+        cx = (min_x + max_x) / 2.0
+        cy = (min_y + max_y) / 2.0
+
+    pos_x, pos_y = 0.0, 0.0
+    if isinstance(context, dict):
+        unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+        try:
+            pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
+        except: pos_x = 0.0
+        try:
+            pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
+        except: pos_y = 0.0
+
+    if anchor_str in ("origin", "origen", "org_padre", "padre"):
+        ref_x, ref_y = min_x, min_y
+        base_x, base_y = 0.0, 0.0
+    elif anchor_str in ("zero", "0,0", "0", "absoluto"):
+        ref_x, ref_y = cx, cy
+        base_x, base_y = pos_x, pos_y
+    elif anchor_str in ("pos", "position", "posicion", "posic", "solo_pos"):
+        ref_x, ref_y = pos_x, pos_y
+        base_x, base_y = 0.0, 0.0
+    elif anchor_str in ("piece", "pieza", "piezas", "local", "individual"):
+        ref_x, ref_y = cx, cy
+        base_x, base_y = 0.0, 0.0
+    else:
+        ref_x, ref_y = cx, cy
+        base_x, base_y = 0.0, 0.0
+
+    out_tokens = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        try:
+            x_val = float(token)
+            if i + 1 < len(tokens):
+                try:
+                    y_val = float(tokens[i + 1])
+                    rel_x = (x_val - ref_x) + base_x
+                    rel_y = (y_val - ref_y) + base_y
+                    out_tokens.append(f"{rel_x:.2f}".rstrip('0').rstrip('.'))
+                    out_tokens.append(f"{rel_y:.2f}".rstrip('0').rstrip('.'))
+                    i += 2
+                    continue
+                except ValueError:
+                    pass
+            out_tokens.append(token)
+            i += 1
+        except ValueError:
+            out_tokens.append(token)
+            i += 1
+    return " ".join(out_tokens)
+
+
 def eval_shapes_lib_node(context=None, **kwargs):
-    """Manejador unificado para el Nodo Maestro Shapes Lib con soporte para 80 formas."""
-    forma = str(kwargs.get("forma", kwargs.get("shape", kwargs.get("modo", "Circulo")))).strip()
+    """Unified handler for Master Shapes Lib Node supporting 80 shapes."""
+    forma = str(kwargs.get("shape", kwargs.get("forma", kwargs.get("mode", "Circle")))).strip()
     if forma.lower().startswith("shape."):
         return resolve_shape_value(forma, context)
     if forma in SHAPES_LIB_MAP:
@@ -2744,13 +2777,12 @@ def eval_shapes_lib_node(context=None, **kwargs):
             
     return RAW_PRESET_SHAPES.get("Circulo", "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0 ")
 
-NODE_REGISTRY["Shape/Shapes Library"] = eval_shapes_lib_node
-NODE_REGISTRY["Shapes Library"] = eval_shapes_lib_node
+NODE_REGISTRY["Shape/Library"] = eval_shapes_lib_node
+NODE_REGISTRY["Library"] = eval_shapes_lib_node
+NODE_REGISTRY["Shape/Library"] = eval_shapes_lib_node
+NODE_REGISTRY["Library"] = eval_shapes_lib_node
 
 
-# -----------------------------------------------------------------------------
-# CORTE PARAMÉTRICO POR LONGITUD DE ARCO (Shape Cut / Write-on / Trim Paths)
-# -----------------------------------------------------------------------------
 
 def parse_assdraw_segments(shape_str):
     """Parsea comandos ASSdraw (m, l, b, c) en una lista de contornos con segmentos estructurados."""
@@ -2798,7 +2830,7 @@ def parse_assdraw_segments(shape_str):
                     current_start = (x, y)
                     current_pt = (x, y)
                     current_segments = []
-                    current_cmd = 'l'  # Repetición implícita de coordenadas tras 'm' se convierte en 'l'
+                    current_cmd = 'l'
                     i += 2
                 except ValueError:
                     i += 1
@@ -2862,7 +2894,7 @@ def parse_assdraw_segments(shape_str):
 
 
 def _eval_bezier_pt(p0, p1, p2, p3, u):
-    """Evalúa un punto en una curva Bézier cúbica para el parámetro u in [0, 1]."""
+    """Evaluates a point on a cubic Bézier curve for parameter u in [0, 1]."""
     om = 1.0 - u
     om2 = om * om
     om3 = om2 * om
@@ -2874,7 +2906,7 @@ def _eval_bezier_pt(p0, p1, p2, p3, u):
 
 
 def _eval_bezier_tangent(p0, p1, p2, p3, u):
-    """Evalúa el vector tangente (dx, dy) de una curva Bézier cúbica en u."""
+    """Evaluates tangent vector (dx, dy) of a cubic Bézier curve at u."""
     om = 1.0 - u
     om2 = om * om
     u2 = u * u
@@ -2887,7 +2919,7 @@ def _eval_bezier_tangent(p0, p1, p2, p3, u):
 
 
 def _segment_arc_length(seg, subdivs=30):
-    """Calcula la longitud de arco real de un segmento (línea o Bézier cúbica)."""
+    """Calculates real arc length of a segment (line or cubic Bézier)."""
     stype = seg['type']
     if stype == 'l':
         p0, p1 = seg['p0'], seg['p1']
@@ -2912,14 +2944,13 @@ def _segment_arc_length(seg, subdivs=30):
 
 
 def _map_dist_to_bezier_u(dist, chord_lens, sub):
-    """Mapea una distancia acumulada a un parámetro analítico u in [0, 1] en una curva Bézier."""
+    """Maps accumulated distance to analytical parameter u in [0, 1] on a Bézier curve."""
     tot = chord_lens[-1]
     if tot <= 1e-9 or dist <= 0.0:
         return 0.0
     if dist >= tot:
         return 1.0
 
-    # Búsqueda de intervalo en la tabla de cuerdas
     for i in range(len(chord_lens) - 1):
         d0 = chord_lens[i]
         d1 = chord_lens[i + 1]
@@ -2952,14 +2983,11 @@ def de_casteljau_split(seg, u):
 
     elif stype == 'b':
         p0, p1, p2, p3 = seg['p0'], seg['p1'], seg['p2'], seg['p3']
-        # Nivel 1
         b01 = (p0[0] * (1.0 - u) + p1[0] * u, p0[1] * (1.0 - u) + p1[1] * u)
         b12 = (p1[0] * (1.0 - u) + p2[0] * u, p1[1] * (1.0 - u) + p2[1] * u)
         b23 = (p2[0] * (1.0 - u) + p3[0] * u, p2[1] * (1.0 - u) + p3[1] * u)
-        # Nivel 2
         b012 = (b01[0] * (1.0 - u) + b12[0] * u, b01[1] * (1.0 - u) + b12[1] * u)
         b123 = (b12[0] * (1.0 - u) + b23[0] * u, b12[1] * (1.0 - u) + b23[1] * u)
-        # Nivel 3 (punto en la curva)
         b0123 = (b012[0] * (1.0 - u) + b123[0] * u, b012[1] * (1.0 - u) + b123[1] * u)
 
         dx, dy = _eval_bezier_tangent(p0, p1, p2, p3, u)
@@ -2972,7 +3000,7 @@ def de_casteljau_split(seg, u):
 
 
 def _cut_segment_interval(seg, u_start, u_end, subdivs=30):
-    """Recorta un segmento manteniendo únicamente la sección [u_start, u_end]."""
+    """Trims a segment keeping only section [u_start, u_end]."""
     u_start = max(0.0, min(1.0, float(u_start)))
     u_end = max(0.0, min(1.0, float(u_end)))
 
@@ -2984,14 +3012,12 @@ def _cut_segment_interval(seg, u_start, u_end, subdivs=30):
     tip_p = cur_seg.get('p1' if cur_seg['type'] == 'l' else 'p3', (0.0, 0.0))
     tan = (1.0, 0.0)
 
-    # 1. Cortar extremo superior u_end
     if u_end < 0.999999:
         left_s, _, tip_p, tan = de_casteljau_split(cur_seg, u_end)
         cur_seg = left_s
     else:
         _, _, tip_p, tan = de_casteljau_split(cur_seg, 1.0)
 
-    # 2. Cortar extremo inferior u_start
     if u_start > 0.000001:
         u_eff = u_start / u_end if u_end > 1e-9 else 0.0
         _, right_s, _, _ = de_casteljau_split(cur_seg, u_eff)
@@ -3001,16 +3027,13 @@ def _cut_segment_interval(seg, u_start, u_end, subdivs=30):
 
 
 def _format_num(val):
-    """Formatea números flotantes de manera compacta para ASSdraw."""
+    """Formats floating-point numbers compactly for ASSdraw."""
     f = float(val)
     if f.is_integer():
         return str(int(f))
     return f"{f:.2f}".rstrip('0').rstrip('.')
 
 
-# -----------------------------------------------------------------------------
-# SHAPE WALKER / RECORREDOR (Corte Paramétrico por Longitud de Arco / Trim Paths)
-# -----------------------------------------------------------------------------
 
 def parse_assdraw_segments(shape_str):
     """Parsea comandos ASSdraw (m, l, b, c) en una lista de contornos con segmentos estructurados."""
@@ -3088,7 +3111,7 @@ def parse_assdraw_segments(shape_str):
 
 
 def shape_walker_core(shape_str, progress=1.0, start_t=0.0, mode="Global", invert=False, subdivs=30):
-    """Núcleo de recorrido paramétrico vectorial por longitud de arco para ASSdraw.
+    """Parametric vector arc length traversal core for ASSdraw.
     
     Parámetros:
       - shape_str: Código vectorial ASSdraw (m ...).
@@ -3106,7 +3129,6 @@ def shape_walker_core(shape_str, progress=1.0, start_t=0.0, mode="Global", inver
 
     sub = max(5, int(subdivs))
 
-    # Pre-calcular longitudes de cada contorno y de cada segmento
     contour_data = []
     total_shape_len = 0.0
 
@@ -3135,12 +3157,10 @@ def shape_walker_core(shape_str, progress=1.0, start_t=0.0, mode="Global", inver
         p0 = contours[0]['start']
         return f"m {_format_num(p0[0])} {_format_num(p0[1])} ", p0[0], p0[1], 0.0, 0.0, 0.0
 
-    # Normalizar rangos [t0, t1]
     t0 = max(0.0, min(1.0, float(start_t)))
     t1 = max(0.0, min(1.0, float(progress)))
 
     if invert:
-        # Invertir progreso: el trazado comienza desde el final
         t0_eff = 1.0 - t1
         t1_eff = 1.0 - t0
         t0, t1 = t0_eff, t1_eff
@@ -3149,7 +3169,7 @@ def shape_walker_core(shape_str, progress=1.0, start_t=0.0, mode="Global", inver
         return "", 0.0, 0.0, 0.0, 0.0, total_shape_len
 
     mode_str = str(mode).strip().lower()
-    is_per_contour = "contorno" in mode_str or "paralel" in mode_str or "glyph" in mode_str or "letter" in mode_str
+    is_per_contour = "contorno" in mode_str or "paralel" in mode_str or "parallel" in mode_str or "outline" in mode_str or "glyph" in mode_str or "letter" in mode_str or "piece" in mode_str or "contour" in mode_str
 
     out_tokens = []
     tip_pt = (0.0, 0.0)
@@ -3157,7 +3177,6 @@ def shape_walker_core(shape_str, progress=1.0, start_t=0.0, mode="Global", inver
     current_cut_len = 0.0
 
     if not is_per_contour:
-        # MODO GLOBAL (Continuo)
         target_d0 = t0 * total_shape_len
         target_d1 = t1 * total_shape_len
         global_accum = 0.0
@@ -3211,7 +3230,6 @@ def shape_walker_core(shape_str, progress=1.0, start_t=0.0, mode="Global", inver
                         out_tokens.append(f"b {_format_num(p1[0])} {_format_num(p1[1])} {_format_num(p2[0])} {_format_num(p2[1])} {_format_num(p3[0])} {_format_num(p3[1])}")
 
     else:
-        # MODO POR CONTORNO (Paralelo)
         for c_idx, c_obj in enumerate(contour_data):
             c_len = c_obj['total_len']
             if c_len <= 1e-9:
@@ -3268,11 +3286,11 @@ def shape_walker_node(
     shape="",
     progress=1.0,
     start_t=0.0,
-    mode="Global (Continuo)",
+    mode="global",
     invert=False,
     subdivs=30
 ):
-    r"""Nodo Shape Walker / Recorredor (Corte Paramétrico por Longitud de Arco / Write-on).
+    r"""Shape Walker Node (Parametric Arc-Length Trimming / Write-on).
     Soporta entradas como Código ASSdraw o Texto plano auto-vectorizado.
     Retorna tupla: (Shape Out, \pos Tag, Angle (\frz), Length, Tip X, Tip Y).
     """
@@ -3287,50 +3305,8 @@ def shape_walker_node(
 
     shp_val = resolve_shape_value(shape, context)
 
-    # Si la entrada shape está vacía o es por defecto, tomar el objeto activo del Main Loop (char / syl / word / line)
     if not shp_val:
-        shp_val = getattr(unit, 'shape_drawing', getattr(unit, 'shape', getattr(unit, 'drawing', ''))) if unit else ''
-        if not shp_val and line:
-            shp_val = getattr(line, 'shape_drawing', getattr(line, 'shape', getattr(line, 'drawing', '')))
-        if not shp_val and unit:
-            shp_val = getattr(unit, 'text_stripped', getattr(unit, 'text', ''))
-        if not shp_val and line:
-            shp_val = getattr(line, 'text_stripped', getattr(line, 'text', ''))
-
-    # Si es texto plano o un glifo, vectorizar automáticamente con FontVectorEngine
-    if shp_val and not shp_val.lower().startswith("m ") and not shp_val.lower().startswith("m-") and not shp_val.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if (styleref and getattr(styleref, 'fontname', None)) else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        sc_x = float(getattr(styleref, 'scale_x', 100.0)) if styleref else 100.0
-        sc_y = float(getattr(styleref, 'scale_y', 100.0)) if styleref else 100.0
-
-        raw_text_src = getattr(unit, 'text', '') or getattr(line, 'raw_text', '') or getattr(line, 'text', '')
-        if raw_text_src:
-            fn_m = re.search(r'\\fn([^\\}]+)', raw_text_src)
-            if fn_m: fn = fn_m.group(1).strip()
-            fs_m = re.search(r'\\fs(\d+)', raw_text_src)
-            if fs_m: fs = int(fs_m.group(1))
-            fscx_m = re.search(r'\\fscx(\d+(?:\.\d+)?)', raw_text_src)
-            if fscx_m: sc_x = float(fscx_m.group(1))
-            fscy_m = re.search(r'\\fscy(\d+(?:\.\d+)?)', raw_text_src)
-            if fscy_m: sc_y = float(fscy_m.group(1))
-            b_m = re.search(r'\\b([01])', raw_text_src)
-            if b_m: b_val = (b_m.group(1) == '1')
-            i_m = re.search(r'\\i([01])', raw_text_src)
-            if i_m: i_val = (i_m.group(1) == '1')
-
-        v_shp = FontVectorEngine.text_to_shape(shp_val, font_name=fn, font_size=fs, bold=b_val, italic=i_val, scale_x=sc_x, scale_y=sc_y)
-        if v_shp and v_shp.strip():
-            shp_val = v_shp
+        return "", "", 0.0, 0.0, 0.0, 0.0
 
     p_val = _eval_num_expr(progress, context, 1.0)
     s_val = _eval_num_expr(start_t, context, 0.0)
@@ -3340,7 +3316,7 @@ def shape_walker_node(
         inv_bool = bool(invert)
     else:
         inv_str = str(invert).strip().lower()
-        if inv_str in ("1", "true", "yes", "si", "sí", "invertido", "invert"):
+        if inv_str in ("1", "true", "yes", "si", "sí", "invertido", "invert", "inverted"):
             inv_bool = True
         elif inv_str in ("0", "false", "no", "normal", "0.0", ""):
             inv_bool = False
@@ -3362,7 +3338,6 @@ def shape_walker_node(
         subdivs=sub_val
     )
 
-    # Coordenadas base de alineación del objeto activo (fx. -> unit. -> line. -> 0.0)
     parent_x = 0.0
     parent_y = 0.0
     if isinstance(context, dict) and ('fx_pos_x' in context or 'pos_x' in context):
@@ -3405,19 +3380,21 @@ def shape_walker_node(
     return final_shp, pos_str, round(angle, 2), round(cut_len, 2), abs_x, abs_y
 
 
-NODE_REGISTRY["Shape/Shape Walker"] = shape_walker_node
-NODE_REGISTRY["Shape Walker"] = shape_walker_node
+NODE_REGISTRY["Shape/Walker"] = shape_walker_node
+NODE_REGISTRY["Walker"] = shape_walker_node
+NODE_REGISTRY["Shape/Walker"] = shape_walker_node
+NODE_REGISTRY["Walker"] = shape_walker_node
 
 
 def shape_stroke_node(
     context=None,
     shape="",
     width=4.0,
-    join_mode="Round",
-    cap_mode="Bezier",
+    join_mode="round",
+    cap_mode="bezier",
     miter_limit=2.0
 ):
-    """Nodo Shape Stroke / Trazo con Grosor (Paridad 100% con ke.shape.line / shape:offset).
+    """Shape Stroke Node / Outlined Stroke (Paridad 100% con ke.shape.line / shape:offset).
     Convierte cualquier línea, spline abierta o contorno cerrado en un polígono ASSDraw cerrado con grosor real.
     """
     from node_engine import _eval_num_expr
@@ -3431,52 +3408,6 @@ def shape_stroke_node(
         line = getattr(unit, 'line', None)
 
     shp_val = resolve_shape_value(shape, context)
-
-    # Si no se proporciona forma, fallback al texto de la unidad activa
-    if not shp_val:
-        shp_val = getattr(unit, 'shape_drawing', getattr(unit, 'shape', getattr(unit, 'drawing', ''))) if unit else ''
-        if not shp_val and line:
-            shp_val = getattr(line, 'shape_drawing', getattr(line, 'shape', getattr(line, 'drawing', '')))
-        if not shp_val and unit:
-            shp_val = getattr(unit, 'text_stripped', getattr(unit, 'text', ''))
-        if not shp_val and line:
-            shp_val = getattr(line, 'text_stripped', getattr(line, 'text', ''))
-
-    # Si es texto plano o un glifo, vectorizar con FontVectorEngine
-    if shp_val and not shp_val.lower().startswith("m ") and not shp_val.lower().startswith("m-") and not shp_val.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if (styleref and getattr(styleref, 'fontname', None)) else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        sc_x = float(getattr(styleref, 'scale_x', 100.0)) if styleref else 100.0
-        sc_y = float(getattr(styleref, 'scale_y', 100.0)) if styleref else 100.0
-
-        raw_text_src = getattr(unit, 'text', '') or getattr(line, 'raw_text', '') or getattr(line, 'text', '')
-        if raw_text_src:
-            fn_m = re.search(r'\\fn([^\\}]+)', raw_text_src)
-            if fn_m: fn = fn_m.group(1).strip()
-            fs_m = re.search(r'\\fs(\d+)', raw_text_src)
-            if fs_m: fs = int(fs_m.group(1))
-            fscx_m = re.search(r'\\fscx(\d+(?:\.\d+)?)', raw_text_src)
-            if fscx_m: sc_x = float(fscx_m.group(1))
-            fscy_m = re.search(r'\\fscy(\d+(?:\.\d+)?)', raw_text_src)
-            if fscy_m: sc_y = float(fscy_m.group(1))
-            b_m = re.search(r'\\b([01])', raw_text_src)
-            if b_m: b_val = (b_m.group(1) == '1')
-            i_m = re.search(r'\\i([01])', raw_text_src)
-            if i_m: i_val = (i_m.group(1) == '1')
-
-        v_shp = FontVectorEngine.text_to_shape(shp_val, font_name=fn, font_size=fs, bold=b_val, italic=i_val, scale_x=sc_x, scale_y=sc_y)
-        if v_shp and v_shp.strip():
-            shp_val = v_shp
-
     if not shp_val or not shp_val.strip():
         return ""
 
@@ -3494,24 +3425,28 @@ def shape_stroke_node(
     )
 
 
-NODE_REGISTRY["Shape/Shape Stroke"] = shape_stroke_node
-NODE_REGISTRY["Shape Stroke"] = shape_stroke_node
+NODE_REGISTRY["Shape/Stroke"] = shape_stroke_node
+NODE_REGISTRY["Stroke"] = shape_stroke_node
 NODE_REGISTRY["Shape/Stroke"] = shape_stroke_node
 NODE_REGISTRY["Stroke"] = shape_stroke_node
 
 
-# -----------------------------------------------------------------------------
-# SHAPE ARRAY / ARREGLOS Y FORMACIONES VECTORIALES
-# -----------------------------------------------------------------------------
 _GLOBAL_SHAPE_ARRAY_CACHE = {}
 
 def clear_shape_array_caches():
-    """Limpia la caché global de formaciones y arreglos de Shape Array."""
+    """Clears global formations and arrays cache for Shape Array."""
     _GLOBAL_SHAPE_ARRAY_CACHE.clear()
 
 
+_GLOBAL_MULTI_GRID_CACHE = {}
+
+def clear_multi_caches():
+    """Clears global grid and sorting cache for Shape Multi."""
+    _GLOBAL_MULTI_GRID_CACHE.clear()
+
+
 def point_in_contour_vectorized(points_x, points_y, contour):
-    """Prueba rápida y vectorizada de punto en contorno (Ray-Casting en NumPy)."""
+    """Fast vectorized point-in-polygon test (Ray-Casting in NumPy)."""
     if len(contour) < 3 or len(points_x) == 0:
         return np.zeros(len(points_x), dtype=bool)
     x = contour[:, 0]
@@ -3554,7 +3489,7 @@ def shape_array_core(
     width=0.0,
     height=0.0,
     scale=1.0,
-    mode="Grid",
+    mode="grid",
     cols=5,
     rows=3,
     spacing_x=0.0,
@@ -3572,21 +3507,21 @@ def shape_array_core(
     area_width=150.0,
     area_height=100.0,
     seed=1,
-    anchor="piezas",
+    anchor="pieces",
     order="79",
-    out_mode="Loops",
+    out_mode="loops",
     active_index=1,
     parent_x=0.0,
     parent_y=0.0,
     context=None
 ):
-    """Motor de cálculo geométrico y generación para Shape Array.
+    """Geometric calculation and generation engine for Shape Array.
     Soporta modos Grid, Formation, Rings, Spiral, Scatter y Hex,
     con dimensionamiento previo, ordenamiento Numpad y anclaje local o relativo."""
     if context is None:
         context = {}
 
-    mode_clean = str(mode or "Grid").strip().lower()
+    mode_clean = str(mode or "grid").strip().lower()
     target_w = float(width) if width not in ("", None) else 0.0
     target_h = float(height) if height not in ("", None) else 0.0
     sc_val = max(0.001, float(scale) if scale not in ("", None) else 1.0)
@@ -3643,7 +3578,6 @@ def shape_array_core(
     from clipper_engine import ClipperEngine
     from particle_nodes import sort_particles, _point_in_contour
 
-    # 1. Normalizar y parsear partículas (lista cíclica o forma individual)
     raw_p_list = []
     if isinstance(particle, list):
         raw_p_list = [str(p) for p in particle if str(p).strip()]
@@ -3660,17 +3594,11 @@ def shape_array_core(
 
     resolved_particles = []
     for p_str in raw_p_list:
-        r_shp = resolve_shape_value(p_str, context) or p_str
-        if r_shp and not r_shp.lower().startswith("m ") and not r_shp.lower().startswith("m-") and not r_shp.lower().startswith("m0"):
-            from font_vector_engine import FontVectorEngine
-            v_shp = FontVectorEngine.text_to_shape(r_shp)
-            if v_shp and v_shp.strip():
-                r_shp = v_shp
+        r_shp = resolve_shape_value(p_str, context)
         if not r_shp or not r_shp.strip():
             r_shp = "m 0 0 l 10 0 l 10 10 l 0 10"
         resolved_particles.append(r_shp)
 
-    # 2. Calcular Bounding Box y re-escalado de partículas según ancho/alto/scale
     prepared_particles = []
     eff_widths = []
     eff_heights = []
@@ -3687,7 +3615,6 @@ def shape_array_core(
         sx *= sc_val
         sy *= sc_val
 
-        # Normalizar y centrar partícula en (0,0)
         norm_shp = shape_manipulator(context, drawing=p_shp, scale_x=sx, scale_y=sy, mode="center")
         prepared_particles.append(norm_shp)
         eff_widths.append(pw * sx)
@@ -3696,32 +3623,22 @@ def shape_array_core(
     max_eff_w = max(eff_widths) if eff_widths else 10.0
     max_eff_h = max(eff_heights) if eff_heights else 10.0
 
-    # 3. Generación geométrica según el modo
     raw_items = []
 
     if "form" in mode_clean or "guia" in mode_clean:
-        # Modo FORMATION: Relleno interior de forma
-        f_shp = resolve_shape_value(formation, context) or formation
-        if f_shp and not f_shp.lower().startswith("m ") and not f_shp.lower().startswith("m-"):
-            from font_vector_engine import FontVectorEngine
-            v_shp = FontVectorEngine.text_to_shape(f_shp)
-            if v_shp and v_shp.strip():
-                f_shp = v_shp
-
+        f_shp = resolve_shape_value(formation, context)
         if not f_shp or not f_shp.strip():
             f_shp = "m 0 0 l 100 0 l 100 100 l 0 100"
 
         f_cnts = ClipperEngine.parse_assdraw(f_shp)
         f_min_x, f_min_y, f_max_x, f_max_y, fcx, fcy, fw, fh = ClipperEngine.get_bbox(f_cnts)
 
-        # Si ancho/alto se definieron y se aplican a la formación
         f_scale_x = (target_w / fw) if (target_w > 0 and fw > 0) else 1.0
         f_scale_y = (target_h / fh) if (target_h > 0 and fh > 0) else 1.0
         if f_scale_x != 1.0 or f_scale_y != 1.0:
             f_cnts = [np.column_stack(((c[:, 0] - fcx) * f_scale_x + fcx, (c[:, 1] - fcy) * f_scale_y + fcy)) for c in f_cnts]
             f_min_x, f_min_y, f_max_x, f_max_y, fcx, fcy, fw, fh = ClipperEngine.get_bbox(f_cnts)
 
-        # 1. Muestreo de posición pura en la formación (basado en el tamaño de partícula, sin distorsión de margen)
         step_x = max(1.0, max_eff_w)
         step_y = max(1.0, max_eff_h)
 
@@ -3765,11 +3682,9 @@ def shape_array_core(
                 c_idx = int((idx_pt % grid_cols_cnt) + 1)
                 r_idx = int((idx_pt // grid_cols_cnt) + 1)
 
-                # Posición base dentro de la formación
                 rel_x = gx - fcx
                 rel_y = gy - fcy
 
-                # 2. Aplicar espaciado/margen DESPUÉS de posicionar en la formación
                 final_x = rel_x + (c_idx - c_center) * eff_sp_x
                 final_y = rel_y + (r_idx - r_center) * eff_sp_y
 
@@ -3787,27 +3702,32 @@ def shape_array_core(
             raw_items.append({"x": 0.0, "y": 0.0, "col": 1, "row": 1, "angle": 0.0, "ring": 1, "idx_ring": 1})
 
     elif "ring" in mode_clean or "anillo" in mode_clean or "radial" in mode_clean:
-        # Modo RINGS: Anillos concéntricos polares
         n_rings = max(1, int(float(rings)) if rings not in ("", None) else 3)
         base_r = float(radius) if radius not in ("", None) else 50.0
         dr = float(radius_step) if radius_step not in ("", None) else 30.0
         d_rot = float(rotate_step) if rotate_step not in ("", None) else 0.0
         eff_diam = max(1.0, max(max_eff_w, max_eff_h))
 
-        c_per_ring_val = None
+        counts_list = []
         if count_per_ring not in ("", None):
-            try:
-                c_per_ring_val = max(1, int(float(count_per_ring)))
-            except Exception:
-                c_per_ring_val = None
+            if isinstance(count_per_ring, (list, tuple)):
+                counts_list = [max(1, int(float(v))) for v in count_per_ring if str(v).strip()]
+            else:
+                s_c = str(count_per_ring).strip()
+                if "," in s_c:
+                    counts_list = [max(1, int(float(v.strip()))) for v in s_c.split(",") if v.strip()]
+                else:
+                    try:
+                        counts_list = [max(1, int(float(s_c)))]
+                    except Exception:
+                        counts_list = []
 
         eff_step = max(1.0, eff_diam + sp_val)
         for k in range(n_rings):
             cur_r = base_r + k * dr
-            if c_per_ring_val is not None:
-                nk = c_per_ring_val
+            if counts_list:
+                nk = counts_list[k % len(counts_list)]
             else:
-                # Auto-densidad: Perímetro / Diámetro efectivo
                 perimeter = 2.0 * math.pi * max(0.1, abs(cur_r))
                 nk = max(1, int(round(perimeter / eff_step)))
 
@@ -3830,7 +3750,6 @@ def shape_array_core(
                 })
 
     elif "spiral" in mode_clean or "espiral" in mode_clean:
-        # Modo SPIRAL
         n_pts = max(1, int(float(count)) if count not in ("", None) else 20)
         n_turns = float(turns) if turns not in ("", None) else 2.0
         max_r = float(max_radius) if max_radius not in ("", None) else 100.0
@@ -3854,7 +3773,6 @@ def shape_array_core(
             })
 
     elif "scatter" in mode_clean or "dispers" in mode_clean or "rand" in mode_clean:
-        # Modo SCATTER
         n_pts = max(1, int(float(count)) if count not in ("", None) else 20)
         aw = max(1.0, float(area_width) if area_width not in ("", None) else 150.0)
         ah = max(1.0, float(area_height) if area_height not in ("", None) else 100.0)
@@ -3875,7 +3793,6 @@ def shape_array_core(
             })
 
     elif "hex" in mode_clean or "panal" in mode_clean:
-        # Modo HEX (Honeycomb)
         n_cols = max(1, int(float(cols)) if cols not in ("", None) else 5)
         n_rows = max(1, int(float(rows)) if rows not in ("", None) else 3)
         sp_val = float(spacing) if spacing not in ("", None) else 0.0
@@ -3901,7 +3818,6 @@ def shape_array_core(
                 })
 
     else:
-        # Modo GRID por defecto
         n_cols = max(1, int(float(cols)) if cols not in ("", None) else 5)
         n_rows = max(1, int(float(rows)) if rows not in ("", None) else 3)
         sp_x = float(spacing_x) if spacing_x not in ("", None) else (float(spacing) if spacing not in ("", None) else 0.0)
@@ -3930,10 +3846,8 @@ def shape_array_core(
     if not raw_items:
         raw_items = [{"x": 0.0, "y": 0.0, "col": 1, "row": 1, "angle": 0.0, "ring": 0, "idx_ring": 0}]
 
-    # 4. Ordenamiento Numpad
     sorted_items = sort_particles(raw_items, order_code=order, get_xy=lambda it: (it["x"], it["y"]))
 
-    # 5. Generar piezas en coordenadas relativas y forma monolítica unificada
     pieces = []
     combined_parts = []
     for i, it in enumerate(sorted_items):
@@ -3969,10 +3883,10 @@ def shape_array_node(
     height=0.0,
     scale=1.0,
     t=1.0,
-    anchor="piezas",
+    anchor="pieces",
     order="79",
-    mode="Grid",
-    out_mode="Loops",
+    mode="grid",
+    out_mode="loops",
     cols=5,
     rows=3,
     spacing_x=0.0,
@@ -3989,10 +3903,12 @@ def shape_array_node(
     angle_step=0.0,
     area_width=150.0,
     area_height=100.0,
-    seed=1
+    seed=1,
+    tags="",
+    **kwargs
 ):
-    r"""Nodo Shape Array: Arreglos y formaciones vectoriales al por mayor.
-    Soporta modos Loops (con contadores a_i y a_n) y Shape (dibujo monolítico) con factor t de progreso.
+    r"""Shape Array Node: High-throughput vector formations and arrays.
+    Soporta modos Loops (con contadores a_i y a_n) y Shape (dibujo monolítico) con factor t de progreso y fusión de tags.
     Retorna tupla: (Shape, \pos Tag, X, Y, Angle (\frz), Index (a_i), Total (a_n), Col/Ring, Row/IdxRing).
     """
     if context is None:
@@ -4052,23 +3968,36 @@ def shape_array_node(
     visible_count = max(0, int(round(total_pieces * t_clamped)))
 
     if "shape" in out_mode_clean and "loop" not in out_mode_clean:
-        # Modo Shape Monolítico:
+        if isinstance(context, dict):
+            context['a_i'] = 1
+            context['a_n'] = 1
+            context['a_max'] = 1
+            context['maxloop'] = 1
+
         if visible_count <= 0:
             pos_str = f"\\pos({parent_x:.2f},{parent_y:.2f})".rstrip('0').rstrip('.') if (parent_x != 0 or parent_y != 0) else ""
             return "", pos_str, round(parent_x, 2), round(parent_y, 2), 0.0, 0, total_pieces, 1, 1
 
         active_pieces = pieces[:visible_count]
         if "abs" in anchor_mode:
-            combined_code = " ".join([shape_manipulator(context, drawing=p["code"], offset_x=parent_x + p["cx"], offset_y=parent_y + p["cy"], mode="center") for p in active_pieces])
+            piece_drawings = [shape_manipulator(context, drawing=p["code"], offset_x=parent_x + p["cx"], offset_y=parent_y + p["cy"], mode="center") for p in active_pieces]
         elif "origin" in anchor_mode:
-            combined_code = " ".join([shape_manipulator(context, drawing=p["code"], offset_x=p["cx"], offset_y=p["cy"], mode="origin") for p in active_pieces])
+            piece_drawings = [shape_manipulator(context, drawing=p["code"], offset_x=p["cx"], offset_y=p["cy"], mode="origin") for p in active_pieces]
+        elif "rel" in anchor_mode:
+            piece_drawings = [p.get("code") or p.get("rel_code") for p in active_pieces]
         else:
-            combined_code = " ".join([p.get("rel_code") or shape_manipulator(context, drawing=p["code"], offset_x=p["cx"], offset_y=p["cy"], mode="center") for p in active_pieces])
+            piece_drawings = [p.get("rel_code") or shape_manipulator(context, drawing=p["code"], offset_x=p["cx"], offset_y=p["cy"], mode="center") for p in active_pieces]
+
+        tags_val = tags if tags else (kwargs.get("tag") or "")
+        if tags_val and str(tags_val).strip():
+            from clipper_engine import ClipperEngine
+            combined_code = ClipperEngine.fusion_shapes_tags(piece_drawings, tags=tags_val)
+        else:
+            combined_code = " ".join(piece_drawings)
 
         pos_str = f"\\pos({parent_x:.2f},{parent_y:.2f})".rstrip('0').rstrip('.') if (parent_x != 0 or parent_y != 0) else ""
         return combined_code, pos_str, round(parent_x, 2), round(parent_y, 2), 0.0, 1, total_pieces, 1, 1
 
-    # Modo Loops: Selecciona la pieza actual según a_i
     if isinstance(context, dict):
         context['a_n'] = total_pieces
         context['a_max'] = total_pieces
@@ -4076,7 +4005,6 @@ def shape_array_node(
 
     a_i_val = int(float(context.get('a_i', context.get('j', context.get('fx_i', context.get('i', 1)))))) if isinstance(context, dict) else 1
     
-    # Si el índice actual excede las piezas visibles por el factor t o no hay visibles, ocultar partícula
     if visible_count <= 0 or a_i_val > visible_count:
         pos_str = f"\\pos({parent_x:.2f},{parent_y:.2f})".rstrip('0').rstrip('.') if (parent_x != 0 or parent_y != 0) else ""
         return "", pos_str, round(parent_x, 2), round(parent_y, 2), 0.0, a_i_val, total_pieces, 1, 1
@@ -4092,9 +4020,8 @@ def shape_array_node(
     col_val = piece["col"]
     row_val = piece["row"]
 
-    # Configuración de anclaje según el estándar de Shape Slicer
     if any(k in anchor_mode for k in ["pieza", "piece", "local", "true"]):
-        piece_code = piece["code"] # centrado en (0,0)
+        piece_code = piece["code"]
         if isinstance(context, dict):
             context['pos_x'] = px
             context['pos_y'] = py
@@ -4103,14 +4030,14 @@ def shape_array_node(
             context['org_x'] = px
             context['org_y'] = py
     elif "solo_pos" in anchor_mode or "pos" in anchor_mode:
-        piece_code = piece["code"] # centrado en (0,0)
+        piece_code = piece["code"]
         if isinstance(context, dict):
             context['pos_x'] = px
             context['pos_y'] = py
             context['pos_overridden'] = True
             context['has_org'] = False
     elif "org" in anchor_mode or "padre" in anchor_mode:
-        piece_code = piece["code"] # centrado en (0,0)
+        piece_code = piece["code"]
         if isinstance(context, dict):
             context['pos_x'] = px
             context['pos_y'] = py
@@ -4134,7 +4061,7 @@ def shape_array_node(
             context['pos_y'] = 0.0
             context['pos_overridden'] = True
             context['has_org'] = False
-    else: # default piezas
+    else:
         piece_code = piece["code"]
         if isinstance(context, dict):
             context['pos_x'] = px
@@ -4158,13 +4085,12 @@ def shape_array_node(
     return piece_code, pos_str, round(px, 2), round(py, 2), round(ang, 2), a_i_val, total_pieces, col_val, row_val
 
 
-NODE_REGISTRY["Shape/Shape Array"] = shape_array_node
-NODE_REGISTRY["Shape Array"] = shape_array_node
+NODE_REGISTRY["Shape/Array"] = shape_array_node
+NODE_REGISTRY["Array"] = shape_array_node
+NODE_REGISTRY["Shape/Array"] = shape_array_node
+NODE_REGISTRY["Array"] = shape_array_node
 
 
-# -----------------------------------------------------------------------------
-# SHAPE FILTER (Vértices, Grupo, Ruido)
-# -----------------------------------------------------------------------------
 
 def _split_shape_contours(raw_shp):
     """Separa un dibujo ASS en sus subcontornos independientes (piezas que inician con 'm')."""
@@ -4185,29 +4111,12 @@ def _split_shape_contours(raw_shp):
 
 
 def _shape_filter_vertices(drawing, expr_x="x", expr_y="y", t=1.0, subdivs=0, context=None):
-    """Modo Vértices: Evalúa expresiones matemáticas analíticas por cada vértice.
+    """Vertices Mode: Evaluates analytical mathematical expressions for each vertex.
     Soporta Factor (t) para interpolación progresiva y subdivisión previa.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
         return ""
-
-    if not raw_shp.lower().startswith("m ") and not raw_shp.lower().startswith("m-") and not raw_shp.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        v_shp = FontVectorEngine.text_to_shape(raw_shp, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-        if v_shp and v_shp.strip():
-            raw_shp = v_shp
 
     from node_engine import _eval_num_expr
     try:
@@ -4223,7 +4132,6 @@ def _shape_filter_vertices(drawing, expr_x="x", expr_y="y", t=1.0, subdivs=0, co
     if sub_val > 0:
         raw_shp = _shape_redraw_bezier(raw_shp, factor=sub_val, context=context)
 
-    # Calcular Bounding Box y extraer coordenadas
     all_coords = []
     tokens = raw_shp.strip().split()
     cmd = None
@@ -4263,7 +4171,6 @@ def _shape_filter_vertices(drawing, expr_x="x", expr_y="y", t=1.0, subdivs=0, co
     cy = (min_y + max_y) / 2.0
     total_pts = len(all_coords)
 
-    # Base math environment
     base_env = {
         "cx": cx, "cy": cy, "Cx": cx, "Cy": cy,
         "width": width, "height": height,
@@ -4334,29 +4241,12 @@ def _shape_filter_vertices(drawing, expr_x="x", expr_y="y", t=1.0, subdivs=0, co
 
 
 def _shape_filter_group(drawing, rot_step=0.0, scale_step=100.0, offset_x=0.0, offset_y=0.0, t=1.0, anchor="center", context=None):
-    """Modo Grupo: Itera sobre los subcontornos ('m ...') de una forma multitrazo
+    """Group Mode: Iterates over sub-contours ('m ...') of a multi-contour shape
     aplicando rotación, escala y offset acumulados por pieza, modulados por Factor (t).
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
         return ""
-
-    if not raw_shp.lower().startswith("m ") and not raw_shp.lower().startswith("m-") and not raw_shp.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        v_shp = FontVectorEngine.text_to_shape(raw_shp, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-        if v_shp and v_shp.strip():
-            raw_shp = v_shp
 
     from node_engine import _eval_num_expr
     try:
@@ -4410,29 +4300,12 @@ def _shape_filter_group(drawing, rot_step=0.0, scale_step=100.0, offset_x=0.0, o
 
 
 def _shape_filter_noise(drawing, radius_x=5.0, radius_y=5.0, subdivs=2.0, seed=0, context=None):
-    """Modo Ruido: Perturba pseudo-aleatoriamente los vértices dentro de [-rx, +rx] y [-ry, +ry].
+    """Noise Mode: Pseudo-randomly perturbs vertices dentro de [-rx, +rx] y [-ry, +ry].
     Soporta subdivisión previa y semilla determinista.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
         return ""
-
-    if not raw_shp.lower().startswith("m ") and not raw_shp.lower().startswith("m-") and not raw_shp.lower().startswith("m0"):
-        from font_vector_engine import FontVectorEngine
-        unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
-        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
-        styleref = getattr(line, 'styleref', None) if line else None
-        if not styleref and unit:
-            styleref = getattr(unit, 'styleref', None)
-            if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
-                styleref = getattr(unit.line, 'styleref', None)
-        fn = str(getattr(styleref, 'fontname', 'Arial')) if styleref else "Arial"
-        fs = int(float(getattr(styleref, 'fontsize', 40))) if (styleref and getattr(styleref, 'fontsize', None)) else int(getattr(unit, 'height', getattr(line, 'height', 40)) or 40)
-        b_val = bool(getattr(styleref, 'bold', False)) if styleref else False
-        i_val = bool(getattr(styleref, 'italic', False)) if styleref else False
-        v_shp = FontVectorEngine.text_to_shape(raw_shp, font_name=fn, font_size=fs, bold=b_val, italic=i_val)
-        if v_shp and v_shp.strip():
-            raw_shp = v_shp
 
     from node_engine import _eval_num_expr
     try:
@@ -4496,7 +4369,7 @@ def _shape_filter_noise(drawing, radius_x=5.0, radius_y=5.0, subdivs=2.0, seed=0
 def shape_filter(
     context,
     drawing="",
-    mode="Vértices",
+    mode="vertices",
     expr_x="x",
     expr_y="y",
     t=1.0,
@@ -4511,7 +4384,7 @@ def shape_filter(
     seed=0,
     **kwargs
 ):
-    """Punto de entrada unificado para el nodo Shape Filter con 3 modos operativos:
+    """Unified entry point for Shape Filter node with 3 operational modes:
     - Vértices: Expresiones analíticas por vértice con interpolación progresiva (t) y subdivisión.
     - Grupo: Iterador de transformaciones por subcontorno/pieza ('m ...') modulado por Factor (t).
     - Ruido: Perturbación aleatoria por vértice dentro de radio X/Y con semilla determinista.
@@ -4553,15 +4426,12 @@ def shape_filter(
     return _shape_filter_vertices(drawing=drawing, expr_x=expr_x, expr_y=expr_y, t=t, subdivs=subdivs, context=context)
 
 
-NODE_REGISTRY["Shape/Shape Filter"] = shape_filter
-NODE_REGISTRY["Shape Filter"] = shape_filter
+NODE_REGISTRY["Shape/Filter"] = shape_filter
+NODE_REGISTRY["Filter"] = shape_filter
 NODE_REGISTRY["Shape/Filter"] = shape_filter
 NODE_REGISTRY["Filter"] = shape_filter
 
 
-# -----------------------------------------------------------------------------
-# SHAPE MULTI (multi1 a multi8 de Effector 2)
-# -----------------------------------------------------------------------------
 
 def _parse_multi_pattern(val, default_val=4.0):
     """
@@ -4622,7 +4492,7 @@ def _parse_multi_pattern(val, default_val=4.0):
 
 
 def _get_drawing_bbox(drawing):
-    """Calcula la caja delimitadora (min_x, max_x, min_y, max_y) de un dibujo ASS."""
+    """Calculates bounding box (min_x, max_x, min_y, max_y) of an ASS drawing."""
     tokens = str(drawing).split()
     coords = []
     for tok in tokens:
@@ -4638,7 +4508,7 @@ def _get_drawing_bbox(drawing):
 
 
 def _invert_shape_contour(raw_shp):
-    """Invierte la orientación de los contornos para sustracción en ASS (empezando con nuevo subcamino m)."""
+    """Inverts contour orientation for subtraction in ASS (empezando con nuevo subcamino m)."""
     contours = parse_assdraw_segments(raw_shp)
     if not contours:
         return ""
@@ -4661,8 +4531,103 @@ def _invert_shape_contour(raw_shp):
     return " ".join(out_tokens) + " "
 
 
-def _gen_multi1_concentric_squares(size=100.0, px_pattern="4", separation=0.0, t=1.0, anchor="center", context=None):
-    """multi1: Marcos cuadrados concéntricos con alternancia de grosores, huecos y separación."""
+def _finish_multi_pieces(pieces, anchor="center", tags="", context=None, return_list=False, canonical_center=None, t=1.0):
+    if not pieces:
+        return [] if return_list else ""
+    valid_pieces = [p for p in pieces if p and str(p).strip()]
+    if not valid_pieces:
+        return [] if return_list else ""
+
+    anchor_str = str(anchor or "center").strip().lower()
+
+    all_coords = []
+    piece_tokens_list = []
+    for p in valid_pieces:
+        toks = p.split()
+        piece_tokens_list.append(toks)
+        for tok in toks:
+            try:
+                all_coords.append(float(tok))
+            except ValueError:
+                pass
+
+    min_x, max_x, min_y, max_y = 0.0, 0.0, 0.0, 0.0
+    cx, cy = 0.0, 0.0
+    if all_coords and len(all_coords) >= 2:
+        xs = all_coords[0::2]
+        ys = all_coords[1::2]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        cx = (min_x + max_x) / 2.0
+        cy = (min_y + max_y) / 2.0
+
+    pos_x, pos_y = 0.0, 0.0
+    if isinstance(context, dict):
+        unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+        line_obj = context.get('active_line') or context.get('line')
+        try:
+            pos_x = float(context.get('fx_pos_x', context.get('x', context.get('pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(line_obj, 'x', getattr(line_obj, 'center', 0.0))))))))
+        except Exception: pos_x = 0.0
+        try:
+            pos_y = float(context.get('fx_pos_y', context.get('y', context.get('pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(line_obj, 'y', getattr(line_obj, 'middle', 0.0))))))))
+        except Exception: pos_y = 0.0
+
+    if anchor_str == "origin":
+        ref_x, ref_y = min_x, min_y
+        base_x, base_y = 0.0, 0.0
+    elif anchor_str == "zero":
+        ref_x, ref_y = cx, cy
+        base_x, base_y = pos_x, pos_y
+    elif anchor_str == "pos":
+        ref_x, ref_y = pos_x, pos_y
+        base_x, base_y = 0.0, 0.0
+    elif "rel" in anchor_str and not return_list:
+        ref_x, ref_y = 0.0, 0.0
+        base_x, base_y = 0.0, 0.0
+    else:  # "center", "piezas", "piece", "relativo", "org_padre", "solo_pos", "absoluto"
+        if canonical_center is not None:
+            ref_x, ref_y = canonical_center
+        else:
+            ref_x, ref_y = cx, cy
+        base_x, base_y = 0.0, 0.0
+
+    anchored_pieces = []
+    for toks in piece_tokens_list:
+        out_tokens = []
+        i = 0
+        while i < len(toks):
+            token = toks[i]
+            try:
+                x_val = float(token)
+                if i + 1 < len(toks):
+                    try:
+                        y_val = float(toks[i + 1])
+                        rel_x = (x_val - ref_x) + base_x
+                        rel_y = (y_val - ref_y) + base_y
+                        out_tokens.append(f"{rel_x:.2f}".rstrip('0').rstrip('.'))
+                        out_tokens.append(f"{rel_y:.2f}".rstrip('0').rstrip('.'))
+                        i += 2
+                        continue
+                    except ValueError:
+                        pass
+                out_tokens.append(token)
+                i += 1
+            except ValueError:
+                out_tokens.append(token)
+                i += 1
+        anchored_pieces.append(" ".join(out_tokens))
+
+    if return_list:
+        return anchored_pieces
+
+    if tags and str(tags).strip():
+        from clipper_engine import ClipperEngine
+        return ClipperEngine.fusion_shapes_tags(anchored_pieces, tags=tags)
+    return " ".join(anchored_pieces)
+
+
+def _gen_multi1_concentric_squares(size=100.0, px_pattern="4", separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
+    """multi1: Concentric square frames with alternating thicknesses, gaps, and spacing."""
     s_val = float(size) if size is not None else 100.0
     sep_val = float(separation) if separation is not None else 0.0
     t_clamped = max(0.0, min(1.0, float(t)))
@@ -4697,12 +4662,11 @@ def _gen_multi1_concentric_squares(size=100.0, px_pattern="4", separation=0.0, t
             )
         i += 1
 
-    combined = "".join(shp_parts)
-    return shape_manipulator(context, drawing=combined, mode=anchor)
+    return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(px1 / 2.0, px1 / 2.0), t=t_clamped)
 
 
-def _gen_multi2_diagonal_stripes(width=70.0, height=50.0, px_pattern="6", separation=0.0, t=1.0, anchor="center", context=None):
-    """multi2: Franjas diagonales a 45° dentro de un rectángulo con separación o solapamiento."""
+def _gen_multi2_diagonal_stripes(width=70.0, height=50.0, px_pattern="6", separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
+    """multi2: 45° diagonal stripes inside rectangle with spacing or overlap."""
     w_val = max(1.0, float(width) if width is not None else 70.0)
     h_val = max(1.0, float(height) if height is not None else 50.0)
     sep_val = float(separation) if separation is not None else 0.0
@@ -4712,11 +4676,10 @@ def _gen_multi2_diagonal_stripes(width=70.0, height=50.0, px_pattern="6", separa
     max_c = total_diag * t_clamped
 
     if t_clamped < 0.0001:
-        return ""
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_val / 2.0, h_val / 2.0), t=t_clamped)
 
     from clipper_engine import ClipperEngine
 
-    # Centrado simétrico del patrón a lo largo del eje diagonal (0 -> W+H)
     period = sum([p[0] + sep_val for p in pattern])
     if period <= 0.001:
         period = 10.0
@@ -4757,28 +4720,32 @@ def _gen_multi2_diagonal_stripes(width=70.0, height=50.0, px_pattern="6", separa
         i += 1
 
     if not bands:
-        return ""
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_val / 2.0, h_val / 2.0), t=t_clamped)
 
-    all_bands = "".join(bands)
     clip_box = f"m 0 0 l {_format_num(w_val)} 0 l {_format_num(w_val)} {_format_num(h_val)} l 0 {_format_num(h_val)} "
-    res = ClipperEngine.boolean_intersection(all_bands, clip_box)
-    if not res or not res.strip():
-        return ""
-
-    return shape_manipulator(context, drawing=res, mode=anchor)
+    discrete_stripes = [ClipperEngine.boolean_intersection(b, clip_box) for b in bands]
+    discrete_stripes = [s for s in discrete_stripes if s and s.strip()]
+    return _finish_multi_pieces(discrete_stripes, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_val / 2.0, h_val / 2.0), t=t_clamped)
 
 
-def _gen_multi3_concentric_rings(base_shape=None, size=100.0, bord_pattern="4", separation=0.0, t=1.0, anchor="center", context=None):
-    """multi3: Anillos concéntricos huecos a partir de cualquier forma base con separación."""
+def _gen_multi3_concentric_rings(base_shape=None, size=100.0, bord_pattern="4", separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
+    """multi3: Concentric rings with smooth Bezier preset scaling for geometric presets, and Clipper-offset contour rings for text and complex drawings."""
+    is_preset_shape = False
     if not base_shape or not str(base_shape).strip():
         base_shape = RAW_PRESET_SHAPES["Circulo"]
+        is_preset_shape = True
     else:
-        base_shape = resolve_shape_value(base_shape, context)
-        if not base_shape:
+        resolved = resolve_shape_value(base_shape, context)
+        if not resolved or not str(resolved).strip():
             base_shape = RAW_PRESET_SHAPES["Circulo"]
+            is_preset_shape = True
+        else:
+            base_shape = resolved
+            if base_shape in RAW_PRESET_SHAPES.values():
+                is_preset_shape = True
 
     size_val = float(size) if size is not None else 100.0
-    sep_val = float(separation) if separation is not None else 0.0
+    sep_val = max(0.0, float(separation)) if separation is not None else 0.0
     t_clamped = max(0.0, min(1.0, float(t)))
     target_size = max(1.0, size_val * t_clamped)
 
@@ -4787,33 +4754,75 @@ def _gen_multi3_concentric_rings(base_shape=None, size=100.0, bord_pattern="4", 
     bi_val = max(0.1, bi_val)
 
     bounds = _get_drawing_bbox(base_shape)
-    w = max(0.001, bounds[1] - bounds[0])
-    h = max(0.001, bounds[3] - bounds[2])
+    w = max(0.001, bounds[1] - bounds[0]) if bounds else 100.0
+    h = max(0.001, bounds[3] - bounds[2]) if bounds else 100.0
     max_dim = max(w, h)
+    cx = (bounds[0] + bounds[1]) / 2.0 if bounds else 0.0
+    cy = (bounds[2] + bounds[3]) / 2.0 if bounds else 0.0
 
-    def _scale_to(shp_code, dim):
-        sc = dim / max_dim
-        return shape_manipulator(context, drawing=shp_code, scale_x=sc, scale_y=sc, mode="center")
+    manip_mode = anchor if ("rel" in str(anchor).lower() or "pieza" in str(anchor).lower()) else "center"
 
-    smax = bi_val
+    if is_preset_shape:
+        def _scale_to(shp_code, dim):
+            sc = dim / max_dim
+            return shape_manipulator(context, drawing=shp_code, scale_x=sc, scale_y=sc, mode=manip_mode)
+
+        smax = bi_val
+        shp_parts = []
+        if not is_gap1 and bi_val > 0:
+            shp_parts.append(_scale_to(base_shape, bi_val))
+
+        i = 1
+        while smax <= target_size and i < 1000:
+            bi, is_gap = pattern[i % len(pattern)]
+            smax += 2 * bi + sep_val
+            if not is_gap and bi > 0:
+                shp1 = _scale_to(base_shape, smax)
+                inner_dim = max(0.1, smax - 2 * bi)
+                shp2 = _scale_to(base_shape, inner_dim)
+                scon = shp1.strip() + " " + _invert_shape_contour(shp2).strip() + " "
+                shp_parts.append(scon)
+            i += 1
+        return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
+
+    from clipper_engine import ClipperEngine
+
     shp_parts = []
     if not is_gap1 and bi_val > 0:
-        shp_parts.append(_scale_to(base_shape, bi_val))
+        shp_parts.append(base_shape)
 
+    max_expansion = target_size / 2.0
+    cumulative_dist = 0.0
     i = 1
-    while smax <= target_size and i < 1000:
+    offset_cache = {0.0: base_shape}
+    while cumulative_dist < max_expansion and i < 50:
         bi, is_gap = pattern[i % len(pattern)]
-        smax += 2 * bi + sep_val
         if not is_gap and bi > 0:
-            shp1 = _scale_to(base_shape, smax)
-            inner_dim = max(0.1, smax - 2 * bi)
-            shp2 = _scale_to(base_shape, inner_dim)
-            scon = shp1.strip() + " " + _invert_shape_contour(shp2).strip() + " "
-            shp_parts.append(scon)
+            inner_dist = cumulative_dist + sep_val
+            outer_dist = inner_dist + bi
+            if outer_dist > max_expansion and i > 1:
+                outer_dist = max_expansion
+            if outer_dist > inner_dist:
+                if inner_dist not in offset_cache:
+                    offset_cache[inner_dist] = ClipperEngine.offset_shape(base_shape, inner_dist) if inner_dist > 0.01 else base_shape
+                inner_shp = offset_cache[inner_dist]
+
+                if outer_dist not in offset_cache:
+                    offset_cache[outer_dist] = ClipperEngine.offset_shape(base_shape, outer_dist)
+                outer_shp = offset_cache[outer_dist]
+
+                diff_shp = ClipperEngine.boolean_difference(outer_shp, inner_shp)
+                if diff_shp and diff_shp.strip():
+                    shp_parts.append(diff_shp)
+            cumulative_dist = outer_dist
+        else:
+            cumulative_dist += bi + sep_val
         i += 1
 
-    combined = " ".join(shp_parts)
-    return shape_manipulator(context, drawing=combined, mode=anchor)
+    if not shp_parts:
+        shp_parts = [base_shape]
+
+    return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(cx, cy), t=t_clamped)
 
 
 def _polygon_centroid_2d(pts):
@@ -4838,14 +4847,17 @@ def _polygon_centroid_2d(pts):
     return cx, cy
 
 
-def _gen_multi4_polygonal_mosaic(size=64.0, sides=6, rings=1, n_layers=25, separation=0.0, t=1.0, anchor="center", context=None):
-    """multi4: Polígono regular segmentado en sectores y anillos con separación por offset/encogimiento centroidal de cada pieza."""
+def _gen_multi4_polygonal_mosaic(size=64.0, sides=6, rings=1, n_layers=25, separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False, order="Normal"):
+    """multi4: Regular polygon segmented into sectors and rings with centroidal offset/shrink spacing for each piece and appearance ordering."""
     s_val = float(size) if size is not None else 64.0
     loop1 = max(3, int(sides)) if sides is not None else 6
     loop2 = max(1, int(rings)) if rings is not None else 1
     n_val = max(1, int(n_layers)) if n_layers is not None else 25
     sep_val = float(separation) if separation is not None else 0.0
     t_clamped = max(0.0, min(1.0, float(t)))
+
+    if t_clamped < 0.0001:
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
 
     sizer = 2 * math.ceil(s_val / 2.0)
     px = max(1.0, round(0.5 * sizer / loop2))
@@ -4861,66 +4873,161 @@ def _gen_multi4_polygonal_mosaic(size=64.0, sides=6, rings=1, n_layers=25, separ
         scale = max(0.0, 1.0 - (sep / (2.0 * max(0.1, avg_r))))
         return [(cx + scale * (p[0] - cx), cy + scale * (p[1] - cy)) for p in pts]
 
-    def multi40(size40, loop40, px40):
-        s40 = 2 * math.ceil(size40 / 2.0)
-        p40 = s40 / 2.0 if px40 >= s40 / 2.0 else px40
-        angle = 360.0 / loop40
-        shapes = []
-        n_steps = int(round(360.0 / angle))
-        r_inner = s40 / 2.0 - p40
-        r_outer = s40 / 2.0
-
-        for k in range(1, n_steps + 1):
-            a_cur = angle * k
-            a_prev = angle * (k - 1)
-
-            if r_inner < 0.001:
-                pts = [
-                    (0.0, 0.0),
-                    (r_outer * math.cos(math.radians(a_cur)), r_outer * math.sin(math.radians(a_cur))),
-                    (r_outer * math.cos(math.radians(a_prev)), r_outer * math.sin(math.radians(a_prev))),
-                ]
-            else:
-                pts = [
-                    (r_inner * math.cos(math.radians(a_cur)), r_inner * math.sin(math.radians(a_cur))),
-                    (r_outer * math.cos(math.radians(a_cur)), r_outer * math.sin(math.radians(a_cur))),
-                    (r_outer * math.cos(math.radians(a_prev)), r_outer * math.sin(math.radians(a_prev))),
-                    (r_inner * math.cos(math.radians(a_prev)), r_inner * math.sin(math.radians(a_prev))),
-                ]
-
-            shrunk_pts = _shrink_piece(pts, sep_val)
-            cmd_parts = [f"m {_format_num(shrunk_pts[0][0])} {_format_num(shrunk_pts[0][1])}"]
-            for p in shrunk_pts[1:]:
-                cmd_parts.append(f"l {_format_num(p[0])} {_format_num(p[1])}")
-            shapes.append(" ".join(cmd_parts) + " ")
-        return "".join(shapes)
-
-    # Pre-calcular todos los anillos concéntricos desde el exterior hacia el centro
     ring_specs = []
     pn = sizer / 2.0
-    while pn > 0:
+    i = 0
+    while pn > 0 and i < min(loop2, n_val):
         p_curr = pn if px >= pn else px
         ring_specs.append((pn * 2.0, p_curr))
         pn -= px
+        i += 1
 
-    max_steps = max(1, int(round(n_val * t_clamped))) if t_clamped > 0.001 else 0
+    ring_specs.reverse()
 
-    shp_parts = []
-    for idx, (sz40, px40) in enumerate(ring_specs):
-        if idx >= max_steps:
-            break
-        shp_parts.append(multi40(sz40, loop1, px40))
+    total_sectors = len(ring_specs) * loop1
+    visible_sectors = max(1, int(round(total_sectors * t_clamped))) if t_clamped > 0.001 else 0
 
-    combined = "".join(shp_parts)
-    res_shp = shape_manipulator(context, drawing=combined, mode="origin")
-    if loop1 % 2 == 1:
-        rot_ang = ((-1.0) ** ((loop1 - 1) / 2.0)) * 90.0 / loop1
-        res_shp = shape_manipulator(context, drawing=res_shp, rot=rot_ang, mode="origin")
-    return shape_manipulator(context, drawing=res_shp, mode=anchor)
+    order_str = str(order or "Normal").strip().lower()
+    is_custom_order = order_str not in ("normal", "raw", "none", "0", "")
+
+    if is_custom_order:
+        grid_key = ("multi4_custom", round(s_val, 2), loop1, loop2, n_val, round(sep_val, 2), order_str)
+        full_tiles = _GLOBAL_MULTI_GRID_CACHE.get(grid_key)
+        if full_tiles is None:
+            all_entries = []
+            for r_idx, (sz40, px40) in enumerate(ring_specs):
+                s40 = 2 * math.ceil(sz40 / 2.0)
+                p40 = s40 / 2.0 if px40 >= s40 / 2.0 else px40
+                angle = 360.0 / loop1
+                r_inner = s40 / 2.0 - p40
+                r_outer = s40 / 2.0
+
+                for k in range(1, loop1 + 1):
+                    a_cur = angle * k
+                    a_prev = angle * (k - 1)
+
+                    if r_inner < 0.001:
+                        pts = [
+                            (0.0, 0.0),
+                            (r_outer * math.cos(math.radians(a_cur)), r_outer * math.sin(math.radians(a_cur))),
+                            (r_outer * math.cos(math.radians(a_prev)), r_outer * math.sin(math.radians(a_prev))),
+                        ]
+                    else:
+                        pts = [
+                            (r_inner * math.cos(math.radians(a_cur)), r_inner * math.sin(math.radians(a_cur))),
+                            (r_outer * math.cos(math.radians(a_cur)), r_outer * math.sin(math.radians(a_cur))),
+                            (r_outer * math.cos(math.radians(a_prev)), r_outer * math.sin(math.radians(a_prev))),
+                            (r_inner * math.cos(math.radians(a_prev)), r_inner * math.sin(math.radians(a_prev))),
+                        ]
+
+                    shrunk_pts = _shrink_piece(pts, sep_val)
+                    cmd_parts = [f"m {_format_num(shrunk_pts[0][0])} {_format_num(shrunk_pts[0][1])}"]
+                    for p in shrunk_pts[1:]:
+                        cmd_parts.append(f"l {_format_num(p[0])} {_format_num(p[1])}")
+                    piece_str = " ".join(cmd_parts) + " "
+                    if loop1 % 2 == 1:
+                        rot_ang = ((-1.0) ** ((loop1 - 1) / 2.0)) * 90.0 / loop1
+                        piece_str = shape_manipulator(context, drawing=piece_str, rot=rot_ang, mode="origin")
+                    
+                    c_x, c_y = _polygon_centroid_2d(shrunk_pts)
+                    min_px = min(p[0] for p in shrunk_pts)
+                    max_px = max(p[0] for p in shrunk_pts)
+                    min_py = min(p[1] for p in shrunk_pts)
+                    max_py = max(p[1] for p in shrunk_pts)
+                    all_entries.append({
+                        'figure': piece_str,
+                        'min_x': min_px, 'min_y': min_py,
+                        'max_x': max_px, 'max_y': max_py,
+                        'cx': c_x, 'cy': c_y,
+                        'w': max_px - min_px, 'h': max_py - min_py,
+                        'row': r_idx, 'col': k
+                    })
+
+            from clipper_engine import ClipperEngine
+            sorted_entries = ClipperEngine.sort_islands_by_order(all_entries, order=order)
+            full_tiles = [e['figure'] for e in sorted_entries]
+            if len(_GLOBAL_MULTI_GRID_CACHE) > 512:
+                _GLOBAL_MULTI_GRID_CACHE.clear()
+            _GLOBAL_MULTI_GRID_CACHE[grid_key] = full_tiles
+
+        individual_tiles = full_tiles[:visible_sectors]
+        parts_to_finish = individual_tiles
+    else:
+        grid_key = ("multi4_normal", round(s_val, 2), loop1, loop2, n_val, round(sep_val, 2))
+        full_ring_data = _GLOBAL_MULTI_GRID_CACHE.get(grid_key)
+        if full_ring_data is None:
+            full_rings = []
+            for sz40, px40 in ring_specs:
+                s40 = 2 * math.ceil(sz40 / 2.0)
+                p40 = s40 / 2.0 if px40 >= s40 / 2.0 else px40
+                angle = 360.0 / loop1
+                r_inner = s40 / 2.0 - p40
+                r_outer = s40 / 2.0
+
+                r_pieces = []
+                for k in range(1, loop1 + 1):
+                    a_cur = angle * k
+                    a_prev = angle * (k - 1)
+
+                    if r_inner < 0.001:
+                        pts = [
+                            (0.0, 0.0),
+                            (r_outer * math.cos(math.radians(a_cur)), r_outer * math.sin(math.radians(a_cur))),
+                            (r_outer * math.cos(math.radians(a_prev)), r_outer * math.sin(math.radians(a_prev))),
+                        ]
+                    else:
+                        pts = [
+                            (r_inner * math.cos(math.radians(a_cur)), r_inner * math.sin(math.radians(a_cur))),
+                            (r_outer * math.cos(math.radians(a_cur)), r_outer * math.sin(math.radians(a_cur))),
+                            (r_outer * math.cos(math.radians(a_prev)), r_outer * math.sin(math.radians(a_prev))),
+                            (r_inner * math.cos(math.radians(a_prev)), r_inner * math.sin(math.radians(a_prev))),
+                        ]
+
+                    shrunk_pts = _shrink_piece(pts, sep_val)
+                    cmd_parts = [f"m {_format_num(shrunk_pts[0][0])} {_format_num(shrunk_pts[0][1])}"]
+                    for p in shrunk_pts[1:]:
+                        cmd_parts.append(f"l {_format_num(p[0])} {_format_num(p[1])}")
+                    piece_str = " ".join(cmd_parts) + " "
+                    if loop1 % 2 == 1:
+                        rot_ang = ((-1.0) ** ((loop1 - 1) / 2.0)) * 90.0 / loop1
+                        piece_str = shape_manipulator(context, drawing=piece_str, rot=rot_ang, mode="origin")
+                    r_pieces.append(piece_str)
+                full_rings.append(r_pieces)
+            if len(_GLOBAL_MULTI_GRID_CACHE) > 512:
+                _GLOBAL_MULTI_GRID_CACHE.clear()
+            _GLOBAL_MULTI_GRID_CACHE[grid_key] = full_rings
+            full_ring_data = full_rings
+
+        ring_drawings = []
+        individual_tiles = []
+        sectors_remaining = visible_sectors
+
+        for r_pieces in full_ring_data:
+            if sectors_remaining <= 0:
+                break
+            n_steps = min(len(r_pieces), sectors_remaining)
+            taken_pieces = r_pieces[:n_steps]
+            ring_drawings.append("".join(taken_pieces))
+            individual_tiles.extend(taken_pieces)
+            sectors_remaining -= n_steps
+
+        parts_to_finish = ring_drawings if (tags and str(tags).strip()) else individual_tiles
+
+    if return_list:
+        return _finish_multi_pieces(individual_tiles, anchor=anchor, tags=tags, context=context, return_list=True, canonical_center=(0.0, 0.0), t=t_clamped)
+    else:
+        return _finish_multi_pieces(parts_to_finish, anchor=anchor, tags=tags, context=context, return_list=False, canonical_center=(0.0, 0.0), t=t_clamped)
 
 
-def _gen_multi5_multi_shape_mosaic(shapes=None, width=60.0, height=50.0, dx=0.0, dy=0.0, anchor="center", context=None):
-    """multi5: Mosaico periódico de permutación cíclica (cuadrado latino) de formas con separación X/Y."""
+def _gen_multi5_multi_shape_mosaic(shapes=None, width=60.0, height=50.0, dx=0.0, dy=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False, order="Normal"):
+    """multi5: Periodic cyclic permutation mosaic (Latin square) of shapes with X/Y spacing and appearance ordering."""
+    t_clamped = max(0.0, min(1.0, float(t))) if t is not None else 1.0
+    w_target = max(1.0, float(width)) if width is not None else 60.0
+    h_target = max(1.0, float(height)) if height is not None else 50.0
+
+    if t_clamped < 0.0001:
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_target / 2.0, h_target / 2.0), t=t_clamped)
+
     if not shapes:
         shapes = [RAW_PRESET_SHAPES.get("rectangle", "m 0 0 l 0 8 8 8 8 0")]
     elif isinstance(shapes, (list, tuple)):
@@ -4928,7 +5035,6 @@ def _gen_multi5_multi_shape_mosaic(shapes=None, width=60.0, height=50.0, dx=0.0,
     else:
         s_str = str(shapes).strip()
         if "," in s_str:
-            # Lista de formas separadas por comas (nombres o dibujos ASS concatenados)
             raw_items = [s.strip() for s in s_str.split(",") if s.strip()]
             shapes = [resolve_shape_value(item, context) for item in raw_items if item]
         else:
@@ -4948,34 +5054,68 @@ def _gen_multi5_multi_shape_mosaic(shapes=None, width=60.0, height=50.0, dx=0.0,
 
     dx_val = float(dx) if dx is not None else 0.0
     dy_val = float(dy) if dy is not None else 0.0
-    w_target = max(1.0, float(width)) if width is not None else 60.0
-    h_target = max(1.0, float(height)) if height is not None else 50.0
+    order_str = str(order or "Normal").strip()
+    anchor_str = str(anchor or "center").strip()
 
-    cell_w = max(0.1, wmax + dx_val)
-    cell_h = max(0.1, hmax + dy_val)
+    grid_key = ("multi5", tuple(shapes), round(w_target, 2), round(h_target, 2), round(dx_val, 2), round(dy_val, 2), order_str, anchor_str)
+    sorted_shapes = _GLOBAL_MULTI_GRID_CACHE.get(grid_key)
+    if sorted_shapes is None:
+        n = len(shapes)
+        bboxes = [_get_drawing_bbox(s) for s in shapes]
+        widths = [max(1.0, b[1] - b[0]) for b in bboxes]
+        heights = [max(1.0, b[3] - b[2]) for b in bboxes]
+        wmax = max(widths)
+        hmax = max(heights)
 
-    cols = max(1, math.ceil(w_target / cell_w))
-    rows = max(1, math.ceil(h_target / cell_h))
+        cell_w = max(0.1, wmax + dx_val)
+        cell_h = max(0.1, hmax + dy_val)
 
-    placed_shapes = []
-    for r in range(rows):
-        for c in range(cols):
-            shape_idx = (c - r) % n
-            s = shapes[shape_idx]
-            s_centered = shape_manipulator(context, drawing=s, mode="center")
-            off_x = c * cell_w
-            off_y = r * cell_h
-            s_placed = shape_manipulator(context, drawing=s_centered, offset_x=off_x, offset_y=off_y, mode="origin")
-            placed_shapes.append(s_placed)
+        cols = max(1, math.ceil(w_target / cell_w))
+        rows = max(1, math.ceil(h_target / cell_h))
 
-    combined = " ".join(placed_shapes)
-    return shape_manipulator(context, drawing=combined, mode=anchor)
+        manip_mode = anchor if ("rel" in str(anchor).lower() or "pieza" in str(anchor).lower()) else "center"
+        placed_entries = []
+        for r in range(rows):
+            for c in range(cols):
+                shp_idx = (r + c) % n
+                base_s = shapes[shp_idx]
+                off_x = c * cell_w
+                off_y = r * cell_h
+                placed = shape_manipulator(context, drawing=base_s, offset_x=off_x, offset_y=off_y, mode=manip_mode)
+                cx_piece = off_x + cell_w / 2.0
+                cy_piece = off_y + cell_h / 2.0
+                placed_entries.append({
+                    'figure': placed,
+                    'min_x': off_x,
+                    'min_y': off_y,
+                    'max_x': off_x + cell_w,
+                    'max_y': off_y + cell_h,
+                    'cx': cx_piece,
+                    'cy': cy_piece,
+                    'w': cell_w,
+                    'h': cell_h,
+                    'row': r,
+                    'col': c
+                })
+
+        from clipper_engine import ClipperEngine
+        sorted_entries = ClipperEngine.sort_islands_by_order(placed_entries, order=order_str)
+        sorted_shapes = [e['figure'] for e in sorted_entries]
+        if len(_GLOBAL_MULTI_GRID_CACHE) > 512:
+            _GLOBAL_MULTI_GRID_CACHE.clear()
+        _GLOBAL_MULTI_GRID_CACHE[grid_key] = sorted_shapes
+
+    total_shapes = len(sorted_shapes)
+    visible_shapes = max(1, int(round(total_shapes * t_clamped))) if t_clamped > 0.001 else 0
+    placed_shapes = sorted_shapes[:visible_shapes]
+
+    return _finish_multi_pieces(placed_shapes, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_target / 2.0, h_target / 2.0), t=t_clamped)
 
 
-def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bord=4.0, space=0.0, length=20.0, separation=None, t=1.0, anchor="center", context=None):
-    """multi6: Borde perimetral segmentado (trazo discontinuo) a lo largo del contorno de cualquier figura o rectángulo."""
-    xsize = float(width) if width is not None else 104.0
-    ysize = float(height) if height is not None else 104.0
+def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bord=4.0, space=0.0, length=20.0, separation=None, t=1.0, anchor="center", context=None, tags="", return_list=False):
+    """multi6: Closed analytical rectangular segmented border or tracer along perimeter of any base shape."""
+    xsize = max(1.0, float(width) if width is not None else 104.0)
+    ysize = max(1.0, float(height) if height is not None else 104.0)
     bord_val = max(0.1, float(bord) if bord is not None else 4.0)
     space_val = float(separation if separation is not None else (space if space is not None else 0.0))
     len_val = max(0.1, float(length)) if length is not None else 20.0
@@ -4984,7 +5124,6 @@ def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bor
     resolved_base = resolve_shape_value(base_shape, context) if base_shape and str(base_shape).strip() else None
 
     if not resolved_base or not resolved_base.strip():
-        # Rectángulo por defecto de width x height
         xloop = max(1, math.ceil((xsize - bord_val) / max(0.1, len_val + space_val)))
         yloop = max(1, math.ceil((ysize - bord_val) / max(0.1, len_val + space_val)))
 
@@ -4992,35 +5131,31 @@ def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bor
         eff_ysize = yloop * (len_val + space_val) + bord_val - space_val
 
         blocks = []
-        # 1. Borde Superior (izquierda a derecha)
         for k in range(xloop):
             bx = k * (len_val + space_val)
             by = 0.0
             blocks.append((bx, by, len_val, bord_val))
 
-        # 2. Borde Derecho (arriba a abajo)
         for k in range(yloop):
             bx = eff_xsize - bord_val
             by = k * (len_val + space_val)
             blocks.append((bx, by, bord_val, len_val))
 
-        # 3. Borde Inferior (derecha a izquierda)
         for k in range(xloop):
             bx = eff_xsize - (k + 1) * (len_val + space_val) + space_val
             by = eff_ysize - bord_val
             blocks.append((bx, by, len_val, bord_val))
 
-        # 4. Borde Izquierdo (abajo a arriba)
         for k in range(yloop):
             bx = 0.0
             by = eff_ysize - (k + 1) * (len_val + space_val) + space_val
             blocks.append((bx, by, bord_val, len_val))
 
-        total_blocks = len(blocks)
-        visible_count = max(1, int(round(total_blocks * t_clamped))) if t_clamped > 0.001 else 0
+        tot = len(blocks)
+        vis_count = max(1, int(round(tot * t_clamped))) if t_clamped > 0.001 else 0
 
         shp_parts = []
-        for i in range(visible_count):
+        for i in range(vis_count):
             bx, by, bw, bh = blocks[i]
             shp_parts.append(
                 f"m {_format_num(bx)} {_format_num(by)} "
@@ -5030,23 +5165,21 @@ def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bor
                 f"l {_format_num(bx)} {_format_num(by)} "
             )
 
-        combined = "".join(shp_parts)
-        return shape_manipulator(context, drawing=combined, mode=anchor)
+        return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list)
 
-    # Cuando se pasa una forma base personalizada (Corazón, Estrella, Círculo, texto ASS, etc.)
     from clipper_engine import ClipperEngine
     import pyclipper
 
     bb = _get_drawing_bbox(resolved_base)
     sw = max(0.001, bb[1] - bb[0])
     sh = max(0.001, bb[3] - bb[2])
-    # Escalar forma si width/height están configurados explícitamente y son diferentes de los valores por defecto
     if xsize > 1.0 and ysize > 1.0 and (abs(xsize - 104.0) > 0.01 or abs(ysize - 104.0) > 0.01):
-        resolved_base = shape_manipulator(context, drawing=resolved_base, scale_x=xsize / sw, scale_y=ysize / sh, mode="center")
+        manip_mode = anchor if ("rel" in str(anchor).lower() or "pieza" in str(anchor).lower()) else "center"
+        resolved_base = shape_manipulator(context, drawing=resolved_base, scale_x=xsize / sw, scale_y=ysize / sh, mode=manip_mode)
 
     contours = ClipperEngine.parse_assdraw(resolved_base, bezier_steps=20, min_points=2)
     if not contours:
-        return ""
+        return [] if return_list else ""
 
     scale = 1000.0
     all_dash_shapes = []
@@ -5118,12 +5251,11 @@ def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bor
                 dash_ass = ClipperEngine.contours_to_assdraw([[[pt[0] / scale, pt[1] / scale] for pt in poly] for poly in sol])
                 all_dash_shapes.append(dash_ass)
 
-    combined = " ".join(all_dash_shapes)
-    return shape_manipulator(context, drawing=combined, mode=anchor)
+    return _finish_multi_pieces(all_dash_shapes, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(xsize / 2.0, ysize / 2.0), t=t_clamped)
 
 
-def _gen_multi7_radial_rosette(parts=12, r_out=50.0, r_in=0.0, separation=0.0, t=1.0, anchor="center", context=None):
-    """multi7: Sectores radiales (rebanadas de pastel) con curvas Bézier cúbicas ASS suaves y separación radial."""
+def _gen_multi7_radial_rosette(parts=12, r_out=50.0, r_in=0.0, separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
+    """multi7: Radial sectors (pie slices) with smooth cubic ASS Bézier curves and radial separation."""
     part = max(2, int(round(abs(float(parts))))) if parts is not None else 12
     r_outer = float(r_out) if r_out is not None else 50.0
     r_inner = float(r_in) if r_in is not None else 0.0
@@ -5198,12 +5330,11 @@ def _gen_multi7_radial_rosette(parts=12, r_out=50.0, r_in=0.0, separation=0.0, t
                 f"l {_format_num(x8)} {_format_num(y8)} "
             )
 
-    combined = "".join(shp_list)
-    return shape_manipulator(context, drawing=combined, mode=anchor)
+    return _finish_multi_pieces(shp_list, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
 
 
 def _resolve_direction_angle(angle_in, context=None, default=0.0):
-    """Convierte un ángulo o nombre de dirección cardinal/diagonal a grados float (0° = Arriba / Vertical Up, sentido horario)."""
+    """Converts angle or cardinal/diagonal direction name to float degrees (0° = Arriba / Vertical Up, sentido horario)."""
     if angle_in is None or angle_in == "":
         return default
     if isinstance(angle_in, (int, float)):
@@ -5230,8 +5361,8 @@ def _resolve_direction_angle(angle_in, context=None, default=0.0):
         return default
 
 
-def _gen_multi8_tunnel_cascade(base_shape=None, size1=100.0, size2=10.0, loop=8, separation=0.0, angle=0.0, t=1.0, anchor="center", context=None):
-    """multi8: Cascada de escalado progresivo concéntrico de cualquier forma con separación y dirección angular con offset de 270° (0° = Arriba)."""
+def _gen_multi8_tunnel_cascade(base_shape=None, size1=100.0, size2=10.0, loop=8, separation=0.0, angle=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
+    """multi8: Concentric progressive scaling cascade of any shape with spacing and angular direction with 270° offset (0° = Up)."""
     if not base_shape or not str(base_shape).strip():
         base_shape = RAW_PRESET_SHAPES["rectangle"]
     else:
@@ -5244,7 +5375,6 @@ def _gen_multi8_tunnel_cascade(base_shape=None, size1=100.0, size2=10.0, loop=8,
     s2 = abs(float(size2)) if size2 is not None else 10.0
     sep_val = float(separation) if separation is not None else 0.0
     ang_deg = _resolve_direction_angle(angle, context, default=0.0)
-    # Offset de 270° para que 0° apunte verticalmente hacia arriba
     rad = math.radians(ang_deg + 270.0)
     cos_ang = math.cos(rad)
     sin_ang = math.sin(rad)
@@ -5259,9 +5389,11 @@ def _gen_multi8_tunnel_cascade(base_shape=None, size1=100.0, size2=10.0, loop=8,
     h = max(0.001, bounds[3] - bounds[2])
     max_dim = max(w, h)
 
+    manip_mode = anchor if ("rel" in str(anchor).lower() or "pieza" in str(anchor).lower()) else "center"
+
     def _scale_to(shp_code, dim):
         sc = dim / max_dim
-        return shape_manipulator(context, drawing=shp_code, scale_x=sc, scale_y=sc, mode="center")
+        return shape_manipulator(context, drawing=shp_code, scale_x=sc, scale_y=sc, mode=manip_mode)
 
     shp_max = _scale_to(base_shape, maxsize)
 
@@ -5271,17 +5403,380 @@ def _gen_multi8_tunnel_cascade(base_shape=None, size1=100.0, size2=10.0, loop=8,
         cur_scale = cur_size / max(0.001, maxsize)
         off_x = (i - 1) * sep_val * cos_ang
         off_y = (i - 1) * sep_val * sin_ang
-        scaled = shape_manipulator(context, drawing=shp_max, scale_x=cur_scale, scale_y=cur_scale, offset_x=off_x, offset_y=off_y, mode="center")
+        scaled = shape_manipulator(context, drawing=shp_max, scale_x=cur_scale, scale_y=cur_scale, offset_x=off_x, offset_y=off_y, mode=manip_mode)
         result.append(scaled)
 
-    combined = " ".join(result)
-    return shape_manipulator(context, drawing=combined, mode=anchor)
+    return _finish_multi_pieces(result, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
+
+
+def _gen_multi_banner(width=200.0, height=50.0, tip_style="Arrow", fold_w=0.0, bord=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
+    """Parametric procedural banner with 23 named terminal styles (Flat, Arrow, Notch, Round, Concave, Chamfer, Slant, Brace, Fishtail, Crown, etc.)."""
+    W = max(1.0, float(width) if width is not None else 200.0)
+    H = max(1.0, float(height) if height is not None else 50.0)
+    t_clamped = max(0.0, min(1.0, float(t)))
+    if t_clamped < 0.0001:
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(W / 2.0, H / 2.0), t=t_clamped)
+
+    eff_w = max(1.0, W * t_clamped)
+    bord_val = max(0.0, float(bord) if bord is not None else 0.0)
+    fold_val = float(fold_w) if fold_w is not None and float(fold_w) > 0.0 else (H * 0.3)
+    F = min(fold_val, eff_w * 0.45)
+    M = H / 2.0
+
+    st = str(tip_style or "Arrow").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+
+    # Alias mapping to canonical style key
+    if st in ["flat", "plano", "rect", "square", "[]"]:
+        key = "flat"
+    elif st in ["notch", "vcut", "swallowtail", "muesca", "cut", "><"]:
+        key = "notch"
+    elif st in ["round", "capsula", "capsule", "pill", "redondo", "()"]:
+        key = "round"
+    elif st in ["concave", "concavo", ")("]:
+        key = "concave"
+    elif st in ["chamfer", "bevel", "bisel", "cyber"]:
+        key = "chamfer"
+    elif st in ["slant", "inclinado", "//"]:
+        key = "slant"
+    elif st in ["backslant", "slantinv", "\\\\"]:
+        key = "backslant"
+    elif st in ["trapezoid", "trapecio"]:
+        key = "trapezoid"
+    elif st in ["brace", "pergamino", "llave", "scrollbrace", "{}"]:
+        key = "brace"
+    elif st in ["fishtail", "colapez", "doublenotch"]:
+        key = "fishtail"
+    elif st in ["crown", "corona", "trident"]:
+        key = "crown"
+    elif st in ["shield", "escudo", "blason"]:
+        key = "shield"
+    elif st in ["wave", "onda", "sinusoidal", "scurve", "~~"]:
+        key = "wave"
+    elif st in ["sawtooth", "sierra", "dientes", "serration", "##"]:
+        key = "sawtooth"
+    elif st in ["step", "escalon", "almenado", "crenelated", "brick", "=="]:
+        key = "step"
+    elif st in ["hexagon", "hexagonal", "gem"]:
+        key = "hexagon"
+    elif st in ["ticket", "boleto", "tab"]:
+        key = "ticket"
+    elif st in ["diamond", "diamante", "rombo"]:
+        key = "diamond"
+    elif st in ["pennant", "banderin", "[>"]:
+        key = "pennant"
+    elif st in ["bannercut", "corte", "[<"]:
+        key = "bannercut"
+    elif st in ["scroll", "rollo"]:
+        key = "scroll"
+    elif st in ["flame", "fuego", "llama"]:
+        key = "flame"
+    else:
+        key = "arrow"
+
+    # Vector generation by key
+    tokens = []
+    pts_left = []
+    pts_right = []
+    left_bez = None
+    right_bez = None
+
+    if key == "flat":
+        pts_left = [(0.0, 0.0), (0.0, H)]
+        pts_right = [(eff_w, H), (eff_w, 0.0)]
+    elif key == "arrow":
+        pts_left = [(F, 0.0), (0.0, M), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w, M), (eff_w - F, 0.0)]
+    elif key == "notch":
+        pts_left = [(0.0, 0.0), (F, M), (0.0, H)]
+        pts_right = [(eff_w, H), (eff_w - F, M), (eff_w, 0.0)]
+    elif key == "chamfer":
+        cf = min(F, H * 0.35)
+        pts_left = [(cf, 0.0), (0.0, cf), (0.0, H - cf), (cf, H)]
+        pts_right = [(eff_w - cf, H), (eff_w, H - cf), (eff_w, cf), (eff_w - cf, 0.0)]
+    elif key == "slant":
+        pts_left = [(F, 0.0), (0.0, H)]
+        pts_right = [(eff_w - F, H), (eff_w, 0.0)]
+    elif key == "backslant":
+        pts_left = [(0.0, 0.0), (F, H)]
+        pts_right = [(eff_w, H), (eff_w - F, 0.0)]
+    elif key == "trapezoid":
+        pts_left = [(F, 0.0), (0.0, H)]
+        pts_right = [(eff_w, H), (eff_w - F, 0.0)]
+    elif key == "brace":
+        pts_left = [(F, 0.0), (0.55 * F, 0.15 * H), (0.55 * F, 0.35 * H), (0.0, M), (0.55 * F, 0.65 * H), (0.55 * F, 0.85 * H), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w - 0.55 * F, 0.85 * H), (eff_w - 0.55 * F, 0.65 * H), (eff_w, M), (eff_w - 0.55 * F, 0.35 * H), (eff_w - 0.55 * F, 0.15 * H), (eff_w - F, 0.0)]
+    elif key == "fishtail":
+        pts_left = [(0.0, 0.0), (F, 0.25 * H), (0.0, M), (F, 0.75 * H), (0.0, H)]
+        pts_right = [(eff_w, H), (eff_w - F, 0.75 * H), (eff_w, M), (eff_w - F, 0.25 * H), (eff_w, 0.0)]
+    elif key == "crown":
+        pts_left = [(F, 0.0), (0.0, 0.25 * H), (F, M), (0.0, 0.75 * H), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w, 0.75 * H), (eff_w - F, M), (eff_w, 0.25 * H), (eff_w - F, 0.0)]
+    elif key == "shield":
+        pts_left = [(0.0, 0.0), (0.0, 0.5 * H), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w, 0.5 * H), (eff_w, 0.0)]
+    elif key == "step":
+        pts_left = [(0.0, 0.0), (0.0, 0.3 * H), (F, 0.3 * H), (F, 0.7 * H), (0.0, 0.7 * H), (0.0, H)]
+        pts_right = [(eff_w, H), (eff_w, 0.7 * H), (eff_w - F, 0.7 * H), (eff_w - F, 0.3 * H), (eff_w, 0.3 * H), (eff_w, 0.0)]
+    elif key == "hexagon":
+        pts_left = [(F, 0.0), (0.0, 0.25 * H), (0.0, 0.75 * H), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w, 0.75 * H), (eff_w, 0.25 * H), (eff_w - F, 0.0)]
+    elif key == "sawtooth":
+        pts_left = [(F, 0.0), (0.0, 0.125 * H), (F, 0.25 * H), (0.0, 0.375 * H), (F, M), (0.0, 0.625 * H), (F, 0.75 * H), (0.0, 0.875 * H), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w, 0.875 * H), (eff_w - F, 0.75 * H), (eff_w, 0.625 * H), (eff_w - F, M), (eff_w, 0.375 * H), (eff_w - F, 0.25 * H), (eff_w, 0.125 * H), (eff_w - F, 0.0)]
+    elif key == "diamond":
+        pts_left = [(F, 0.0), (0.2 * F, 0.3 * H), (0.0, M), (0.2 * F, 0.7 * H), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w - 0.2 * F, 0.7 * H), (eff_w, M), (eff_w - 0.2 * F, 0.3 * H), (eff_w - F, 0.0)]
+    elif key == "pennant":
+        pts_left = [(0.0, 0.0), (0.0, H)]
+        pts_right = [(eff_w - F, H), (eff_w, M), (eff_w - F, 0.0)]
+    elif key == "bannercut":
+        pts_left = [(0.0, 0.0), (0.0, H)]
+        pts_right = [(eff_w, H), (eff_w - F, M), (eff_w, 0.0)]
+    elif key == "scroll":
+        pts_left = [(0.0, 0.0), (0.8 * F, 0.1 * H), (F, 0.2 * H), (F, 0.8 * H), (0.8 * F, 0.9 * H), (0.0, H)]
+        pts_right = [(eff_w, H), (eff_w - 0.8 * F, 0.9 * H), (eff_w - F, 0.8 * H), (eff_w - F, 0.2 * H), (eff_w - 0.8 * F, 0.1 * H), (eff_w, 0.0)]
+    elif key == "flame":
+        pts_left = [(F, 0.0), (0.2 * F, 0.2 * H), (0.6 * F, 0.35 * H), (0.0, M), (0.6 * F, 0.65 * H), (0.2 * F, 0.8 * H), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w - 0.2 * F, 0.8 * H), (eff_w - 0.6 * F, 0.65 * H), (eff_w, M), (eff_w - 0.6 * F, 0.35 * H), (eff_w - 0.2 * F, 0.2 * H), (eff_w - F, 0.0)]
+    elif key == "round":
+        left_bez = "round"
+        right_bez = "round"
+        pts_left = [(F, 0.0), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w - F, 0.0)]
+    elif key == "concave":
+        left_bez = "concave"
+        right_bez = "concave"
+        pts_left = [(0.0, 0.0), (0.0, H)]
+        pts_right = [(eff_w, H), (eff_w, 0.0)]
+    elif key == "ticket":
+        left_bez = "ticket"
+        right_bez = "ticket"
+        pts_left = [(0.0, 0.0), (0.0, H)]
+        pts_right = [(eff_w, H), (eff_w, 0.0)]
+    elif key == "wave":
+        left_bez = "wave"
+        right_bez = "wave"
+        pts_left = [(F, 0.0), (0.0, H)]
+        pts_right = [(eff_w - F, H), (eff_w, 0.0)]
+    else:
+        pts_left = [(F, 0.0), (0.0, M), (F, H)]
+        pts_right = [(eff_w - F, H), (eff_w, M), (eff_w - F, 0.0)]
+
+    # Construir trazado perimetral ASSDraw
+    if left_bez == "round":
+        kx = F * 0.55
+        ky = M * 0.55
+        tokens.append(f"m {_format_num(F)} 0")
+        tokens.append(f"b {_format_num(F - kx)} 0 0 {_format_num(M - ky)} 0 {_format_num(M)}")
+        tokens.append(f"b 0 {_format_num(M + ky)} {_format_num(F - kx)} {_format_num(H)} {_format_num(F)} {_format_num(H)}")
+    elif left_bez == "concave":
+        kx = F * 0.55
+        ky = M * 0.55
+        tokens.append("m 0 0")
+        tokens.append(f"b {_format_num(kx)} 0 {_format_num(F)} {_format_num(M - ky)} {_format_num(F)} {_format_num(M)}")
+        tokens.append(f"b {_format_num(F)} {_format_num(M + ky)} {_format_num(kx)} {_format_num(H)} 0 {_format_num(H)}")
+    elif left_bez == "ticket":
+        r_t = min(F, M * 0.7)
+        kt = r_t * 0.55
+        tokens.append("m 0 0")
+        tokens.append(f"l 0 {_format_num(M - r_t)}")
+        tokens.append(f"b {_format_num(kt)} {_format_num(M - r_t)} {_format_num(r_t)} {_format_num(M - r_t + kt)} {_format_num(r_t)} {_format_num(M)}")
+        tokens.append(f"b {_format_num(r_t)} {_format_num(M + r_t - kt)} {_format_num(kt)} {_format_num(M + r_t)} 0 {_format_num(M + r_t)}")
+        tokens.append(f"l 0 {_format_num(H)}")
+    elif left_bez == "wave":
+        tokens.append(f"m {_format_num(F)} 0")
+        tokens.append(f"b 0 0 0 {_format_num(M)} {_format_num(F/2)} {_format_num(M)}")
+        tokens.append(f"b {_format_num(F)} {_format_num(M)} {_format_num(F)} {_format_num(H)} 0 {_format_num(H)}")
+    else:
+        tokens.append(f"m {_format_num(pts_left[0][0])} {_format_num(pts_left[0][1])}")
+        for p in pts_left[1:]:
+            tokens.append(f"l {_format_num(p[0])} {_format_num(p[1])}")
+
+    # Borde inferior hacia inicio del extremo derecho
+    tokens.append(f"l {_format_num(pts_right[0][0])} {_format_num(pts_right[0][1])}")
+
+    if right_bez == "round":
+        kx = F * 0.55
+        ky = M * 0.55
+        tokens.append(f"b {_format_num(eff_w - F + kx)} {_format_num(H)} {_format_num(eff_w)} {_format_num(M + ky)} {_format_num(eff_w)} {_format_num(M)}")
+        tokens.append(f"b {_format_num(eff_w)} {_format_num(M - ky)} {_format_num(eff_w - F + kx)} 0 {_format_num(eff_w - F)} 0")
+    elif right_bez == "concave":
+        kx = F * 0.55
+        ky = M * 0.55
+        tokens.append(f"b {_format_num(eff_w - kx)} {_format_num(H)} {_format_num(eff_w - F)} {_format_num(M + ky)} {_format_num(eff_w - F)} {_format_num(M)}")
+        tokens.append(f"b {_format_num(eff_w - F)} {_format_num(M - ky)} {_format_num(eff_w - kx)} 0 {_format_num(eff_w)} 0")
+    elif right_bez == "ticket":
+        r_t = min(F, M * 0.7)
+        kt = r_t * 0.55
+        tokens.append(f"l {_format_num(eff_w)} {_format_num(M + r_t)}")
+        tokens.append(f"b {_format_num(eff_w - kt)} {_format_num(M + r_t)} {_format_num(eff_w - r_t)} {_format_num(M + r_t - kt)} {_format_num(eff_w - r_t)} {_format_num(M)}")
+        tokens.append(f"b {_format_num(eff_w - r_t)} {_format_num(M - r_t + kt)} {_format_num(eff_w - kt)} {_format_num(M - r_t)} {_format_num(eff_w)} {_format_num(M - r_t)}")
+        tokens.append(f"l {_format_num(eff_w)} 0")
+    elif right_bez == "wave":
+        tokens.append(f"b {_format_num(eff_w)} {_format_num(H)} {_format_num(eff_w)} {_format_num(M)} {_format_num(eff_w - F/2)} {_format_num(M)}")
+        tokens.append(f"b {_format_num(eff_w - F)} {_format_num(M)} {_format_num(eff_w - F)} 0 {_format_num(eff_w)} 0")
+    else:
+        for p in pts_right[1:]:
+            tokens.append(f"l {_format_num(p[0])} {_format_num(p[1])}")
+
+    # Cierre del borde superior hacia el inicio del extremo izquierdo
+    tokens.append(f"l {_format_num(pts_left[0][0])} {_format_num(pts_left[0][1])}")
+
+    banner_shp = " ".join(tokens) + " "
+
+    if bord_val > 0.0:
+        from clipper_engine import ClipperEngine
+        border_shp = ClipperEngine.stroke_shape(banner_shp, width=bord_val, join_mode="Miter", cap_mode="Square")
+        if return_list:
+            return _finish_multi_pieces([banner_shp, border_shp], anchor=anchor, tags=tags, context=context, return_list=True, canonical_center=(W / 2.0, H / 2.0), t=t_clamped)
+        else:
+            combined = f"{border_shp} {banner_shp}"
+            return _finish_multi_pieces([combined], anchor=anchor, tags=tags, context=context, return_list=False, canonical_center=(W / 2.0, H / 2.0), t=t_clamped)
+
+    if return_list:
+        p1 = f"m {_format_num(pts_left[0][0])} {_format_num(pts_left[0][1])} " + " ".join([f"l {_format_num(p[0])} {_format_num(p[1])}" for p in pts_left[1:]]) + f" l {_format_num(F)} {_format_num(H)} l {_format_num(F)} 0 l {_format_num(pts_left[0][0])} {_format_num(pts_left[0][1])} "
+        p2 = f"m {_format_num(F)} 0 l {_format_num(F)} {_format_num(H)} l {_format_num(eff_w - F)} {_format_num(H)} l {_format_num(eff_w - F)} 0 l {_format_num(F)} 0 "
+        p3 = f"m {_format_num(eff_w - F)} 0 l {_format_num(eff_w - F)} {_format_num(H)} " + " ".join([f"l {_format_num(p[0])} {_format_num(p[1])}" for p in pts_right]) + f" l {_format_num(eff_w - F)} 0 "
+        return _finish_multi_pieces([p1, p2, p3], anchor=anchor, tags=tags, context=context, return_list=True, canonical_center=(W / 2.0, H / 2.0), t=t_clamped)
+
+    return _finish_multi_pieces([banner_shp], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(W / 2.0, H / 2.0), t=t_clamped)
+
+
+def _arc_bezier_segments(r, a_start, a_end):
+    """Generates cubic Bézier segments ('b', cp1, cp2, cp3) for a circular arc of radius r
+    desde a_start hasta a_end centrado en el origen (0, 0).
+    """
+    total_delta = a_end - a_start
+    if abs(total_delta) < 1e-6 or r <= 0:
+        return []
+    n_seg = max(1, int(math.ceil(abs(total_delta) / (math.pi / 2.0))))
+    d_step = total_delta / n_seg
+    segments = []
+    for s in range(n_seg):
+        a1 = a_start + s * d_step
+        a2 = a1 + d_step
+        half = (a2 - a1) / 2.0
+        k = (4.0 / 3.0) * math.tan(half / 2.0)
+        cos1, sin1 = math.cos(a1), math.sin(a1)
+        cos2, sin2 = math.cos(a2), math.sin(a2)
+        p1 = (r * (cos1 - k * sin1), r * (sin1 + k * cos1))
+        p2 = (r * (cos2 + k * sin2), r * (sin2 - k * cos2))
+        p3 = (r * cos2, r * sin2)
+        segments.append((p1, p2, p3))
+    return segments
+
+
+def _gen_multi_gear(teeth=8, r_out=60.0, r_in=45.0, r_hole=15.0, slant=0.35, t=1.0, anchor="center", context=None, tags="", return_list=False):
+    """Parametric gear / sprocket: polar trapezoidal teeth, central hole cut and progressive construction with factor t."""
+    n_teeth = max(3, int(round(abs(float(teeth))))) if teeth is not None else 8
+    ro = max(1.0, float(r_out) if r_out is not None else 60.0)
+    ri = max(0.5, float(r_in) if r_in is not None else 45.0)
+    if ri >= ro:
+        ri = ro * 0.75
+    rh = max(0.0, float(r_hole) if r_hole is not None else 15.0)
+    if rh >= ri:
+        rh = ri * 0.5
+    slant_val = max(0.0, min(0.9, float(slant) if slant is not None else 0.35))
+    t_clamped = max(0.0, min(1.0, float(t)))
+    if t_clamped < 0.0001:
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
+
+    d_theta = 2.0 * math.pi / n_teeth
+    visible_teeth = max(1, int(round(n_teeth * t_clamped))) if t_clamped > 0.001 else 0
+
+    if return_list:
+        pieces = []
+        for i in range(visible_teeth):
+            th_base = i * d_theta
+            t0 = th_base
+            t1 = th_base + d_theta * (0.25 * slant_val)
+            t2 = th_base + d_theta * (0.5 - 0.25 * slant_val)
+            t3 = th_base + d_theta * 0.5
+            t4 = th_base + d_theta
+
+            p0 = (ri * math.cos(t0), ri * math.sin(t0))
+            p1 = (ro * math.cos(t1), ro * math.sin(t1))
+            p2 = (ro * math.cos(t2), ro * math.sin(t2))
+            p3 = (ri * math.cos(t3), ri * math.sin(t3))
+            p4 = (ri * math.cos(t4), ri * math.sin(t4))
+
+            c_in_0 = (rh * math.cos(t0), rh * math.sin(t0)) if rh > 0 else (0.0, 0.0)
+            c_in_4 = (rh * math.cos(t4), rh * math.sin(t4)) if rh > 0 else (0.0, 0.0)
+
+            toks = [
+                f"m {_format_num(c_in_0[0])} {_format_num(c_in_0[1])}",
+                f"l {_format_num(p0[0])} {_format_num(p0[1])}",
+                f"l {_format_num(p1[0])} {_format_num(p1[1])}",
+                f"l {_format_num(p2[0])} {_format_num(p2[1])}",
+                f"l {_format_num(p3[0])} {_format_num(p3[1])}",
+                f"l {_format_num(p4[0])} {_format_num(p4[1])}",
+                f"l {_format_num(c_in_4[0])} {_format_num(c_in_4[1])}"
+            ]
+            if rh > 0:
+                inner_segs = _arc_bezier_segments(rh, t4, t0)
+                for cp1, cp2, cp3 in inner_segs:
+                    toks.append(f"b {_format_num(cp1[0])} {_format_num(cp1[1])} {_format_num(cp2[0])} {_format_num(cp2[1])} {_format_num(cp3[0])} {_format_num(cp3[1])}")
+            else:
+                toks.append(f"l {_format_num(c_in_0[0])} {_format_num(c_in_0[1])}")
+
+            pieces.append(" ".join(toks) + " ")
+        return _finish_multi_pieces(pieces, anchor=anchor, tags=tags, context=context, return_list=True, canonical_center=(0.0, 0.0), t=t_clamped)
+
+    all_pts = []
+    num_to_draw = visible_teeth if t_clamped < 0.999 else n_teeth
+    for i in range(num_to_draw):
+        th_base = i * d_theta
+        t0 = th_base
+        t1 = th_base + d_theta * (0.25 * slant_val)
+        t2 = th_base + d_theta * (0.5 - 0.25 * slant_val)
+        t3 = th_base + d_theta * 0.5
+        t4 = th_base + d_theta
+
+        p0 = (ri * math.cos(t0), ri * math.sin(t0))
+        p1 = (ro * math.cos(t1), ro * math.sin(t1))
+        p2 = (ro * math.cos(t2), ro * math.sin(t2))
+        p3 = (ri * math.cos(t3), ri * math.sin(t3))
+        p4 = (ri * math.cos(t4), ri * math.sin(t4))
+        all_pts.extend([p0, p1, p2, p3, p4])
+
+    tokens = [f"m {_format_num(all_pts[0][0])} {_format_num(all_pts[0][1])}"]
+    for p in all_pts[1:]:
+        tokens.append(f"l {_format_num(p[0])} {_format_num(p[1])}")
+
+    if num_to_draw < n_teeth:
+        # Engranaje parcial (t < 1.0): el arco interior avanza exactamente con los dientes visibles
+        th_end = num_to_draw * d_theta
+        if rh > 0:
+            p_inner_end = (rh * math.cos(th_end), rh * math.sin(th_end))
+            tokens.append(f"l {_format_num(p_inner_end[0])} {_format_num(p_inner_end[1])}")
+            inner_segs = _arc_bezier_segments(rh, th_end, 0.0)
+            for cp1, cp2, cp3 in inner_segs:
+                tokens.append(f"b {_format_num(cp1[0])} {_format_num(cp1[1])} {_format_num(cp2[0])} {_format_num(cp2[1])} {_format_num(cp3[0])} {_format_num(cp3[1])}")
+            tokens.append(f"l {_format_num(all_pts[0][0])} {_format_num(all_pts[0][1])}")
+        else:
+            tokens.append(f"l 0 0 l {_format_num(all_pts[0][0])} {_format_num(all_pts[0][1])}")
+    else:
+        # Engranaje completo 360 grados: contorno exterior cerrado + orificio central como contorno independiente
+        tokens.append(f"l {_format_num(all_pts[0][0])} {_format_num(all_pts[0][1])}")
+        if rh > 0:
+            k = rh * 0.55228475
+            hole = (
+                f"m 0 {_format_num(-rh)} "
+                f"b {_format_num(-k)} {_format_num(-rh)} {_format_num(-rh)} {_format_num(-k)} {_format_num(-rh)} 0 "
+                f"b {_format_num(-rh)} {_format_num(k)} {_format_num(-k)} {_format_num(rh)} 0 {_format_num(rh)} "
+                f"b {_format_num(k)} {_format_num(rh)} {_format_num(rh)} {_format_num(k)} {_format_num(rh)} 0 "
+                f"b {_format_num(rh)} {_format_num(-k)} {_format_num(k)} {_format_num(-rh)} 0 {_format_num(-rh)}"
+            )
+            tokens.append(hole)
+
+    gear_shp = " ".join(tokens) + " "
+    return _finish_multi_pieces([gear_shp], anchor=anchor, tags=tags, context=context, return_list=False, canonical_center=(0.0, 0.0), t=t_clamped)
 
 
 def shape_multi(
     context,
     drawing="",
-    mode="Cuadros Concéntricos",
+    mode="concentric_squares",
     size=100.0,
     width=70.0,
     height=50.0,
@@ -5304,63 +5799,116 @@ def shape_multi(
     angle=0.0,
     t=1.0,
     anchor="center",
+    tags="",
+    out_mode="shape",
+    loop_mode="shape",
+    tip_style="Arrow",
+    fold_w=0.0,
+    slant=0.35,
+    r_hole=15.0,
+    order="normal",
     **kwargs
 ):
-    """Nodo maestro Shape Multi: 8 generadores de formas multipropósito (multi1 a multi8) con separación/superposición y anclaje."""
+    r"""Shape Multi master node: multi-purpose shape generators (multi1 to multi8, banner, gear) with spacing/overlap, anchor, and tag merging.
+    Supports 'Shape' mode (monolithic single-line unified drawing) and 'Loops' mode (piece-by-piece using counter m_i and setting m_n).
+    Supports 'Shape', '\clip', and '\iclip' formats at both individual piece and monolithic levels.
+    """
     from node_engine import _eval_num_expr
-    mode_str = str(mode or "Cuadros Concéntricos").strip()
+    mode_str = str(mode or "concentric_squares").strip()
     mode_clean = mode_str.lower().replace("é", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u")
 
     t_val = _eval_num_expr(t, context, 1.0) if (t is not None and t != "") else 1.0
     sep_val = _eval_num_expr(separation if separation is not None else kwargs.get("sep", kwargs.get("space", 0.0)), context, 0.0)
     anc_val = str(anchor if (anchor is not None and str(anchor).strip() != "") else kwargs.get("anclaje", kwargs.get("anchor_mode", "center"))).strip().lower()
+    tags_val = str(tags if (tags is not None and str(tags).strip() != "") else kwargs.get("tags_str", kwargs.get("tag", ""))).strip()
+    order_val = str(order if (order is not None and str(order).strip() != "") else kwargs.get("order", kwargs.get("orden", "normal"))).strip()
+    
+    loop_mode_clean = str(loop_mode if (loop_mode is not None and str(loop_mode).strip() != "") else kwargs.get("loop_mode", "shape")).strip().lower()
+    out_mode_clean = str(out_mode if (out_mode is not None and str(out_mode).strip() != "") else kwargs.get("out_mode", "shape")).strip().lower()
+    return_list = ("loop" in loop_mode_clean or "pieza" in loop_mode_clean or "bucle" in loop_mode_clean) or bool(kwargs.get("return_list", False))
 
-    if "cuadro" in mode_clean or "multi1" in mode_clean or "cuadrad" in mode_clean:
+    res = None
+    cache_dict = None
+    multi_sig = None
+
+    if return_list:
+        unit = context.get('active_unit') if isinstance(context, dict) else None
+        if not unit and isinstance(context, dict):
+            unit = context.get('char') or context.get('syl') or context.get('word')
+        if unit is not None:
+            if not hasattr(unit, '_multi_cache') or not isinstance(unit._multi_cache, dict):
+                unit._multi_cache = {}
+            cache_dict = unit._multi_cache
+        elif isinstance(context, dict):
+            if not isinstance(context.get('_multi_pieces'), dict):
+                context['_multi_pieces'] = {}
+            cache_dict = context['_multi_pieces']
+
+        if cache_dict is not None:
+            unit_id = id(unit) if unit else (id(context.get('line')) if isinstance(context, dict) and context.get('line') else 0)
+            multi_sig = (
+                unit_id, mode_clean, str(drawing),
+                str(size), str(width), str(height), str(px), str(bord),
+                str(length), str(sides), str(rings), str(n_layers),
+                str(dx), str(dy), str(parts), str(r_out), str(r_in),
+                str(size1), str(size2), str(loop),
+                round(float(sep_val), 2), str(angle),
+                round(float(t_val), 3),
+                anc_val, tags_val, out_mode_clean, loop_mode_clean,
+                order_val, str(tip_style), str(fold_w), str(slant), str(r_hole),
+                str(kwargs.get("space", ""))
+            )
+            if multi_sig in cache_dict:
+                res = cache_dict[multi_sig]
+
+    if res is not None:
+        pass
+    elif "cuadro" in mode_clean or "square" in mode_clean or "multi1" in mode_clean or "cuadrad" in mode_clean or "concentric_squares" in mode_clean or "pixel" in mode_clean:
         s_val = _eval_num_expr(size, context, 100.0) if (size is not None and size != "") else 100.0
         px_val = px if px is not None else kwargs.get("px_pattern", "4")
-        return _gen_multi1_concentric_squares(size=s_val, px_pattern=px_val, separation=sep_val, t=t_val, anchor=anc_val, context=context)
+        res = _gen_multi1_concentric_squares(size=s_val, px_pattern=px_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
 
-    elif "franja" in mode_clean or "diagonal" in mode_clean or "multi2" in mode_clean:
+    elif "franja" in mode_clean or "diagonal" in mode_clean or "stripe" in mode_clean or "multi2" in mode_clean or "diagonal_stripes" in mode_clean:
         w_val = _eval_num_expr(width, context, 70.0) if (width is not None and width != "") else 70.0
         h_val = _eval_num_expr(height, context, 50.0) if (height is not None and height != "") else 50.0
         px_val = px if px is not None else kwargs.get("px_pattern", "6")
-        return _gen_multi2_diagonal_stripes(width=w_val, height=h_val, px_pattern=px_val, separation=sep_val, t=t_val, anchor=anc_val, context=context)
+        res = _gen_multi2_diagonal_stripes(width=w_val, height=h_val, px_pattern=px_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
 
-    elif "anillo" in mode_clean or "multi3" in mode_clean or "ring" in mode_clean:
+    elif "anillo" in mode_clean or "multi3" in mode_clean or "ring" in mode_clean or "concentric_rings" in mode_clean:
         base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shape", "")
         s_val = _eval_num_expr(size, context, 100.0) if (size is not None and size != "") else 100.0
         bord_val = bord if bord is not None else kwargs.get("bord_pattern", "4")
-        return _gen_multi3_concentric_rings(base_shape=base_shp, size=s_val, bord_pattern=bord_val, separation=sep_val, t=t_val, anchor=anc_val, context=context)
+        res = _gen_multi3_concentric_rings(base_shape=base_shp, size=s_val, bord_pattern=bord_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
 
-    elif "poligon" in mode_clean or "multi4" in mode_clean:
-        s_val = _eval_num_expr(size, context, 64.0) if (size is not None and size != "") else 64.0
-        sides_val = int(_eval_num_expr(sides, context, 6)) if (sides is not None and sides != "") else 6
-        rings_val = int(_eval_num_expr(rings, context, 1)) if (rings is not None and rings != "") else 1
-        layers_val = int(_eval_num_expr(n_layers, context, 25)) if (n_layers is not None and n_layers != "") else 25
-        return _gen_multi4_polygonal_mosaic(size=s_val, sides=sides_val, rings=rings_val, n_layers=layers_val, separation=sep_val, t=t_val, anchor=anc_val, context=context)
-
-    elif "multi-forma" in mode_clean or "multiforma" in mode_clean or "multi5" in mode_clean:
+    elif "multi-forma" in mode_clean or "multiforma" in mode_clean or "multi-shape" in mode_clean or "multishape" in mode_clean or "multi5" in mode_clean or "multi_shape_mosaic" in mode_clean:
         base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shapes", kwargs.get("shape", ""))
         w_val = _eval_num_expr(width, context, 60.0) if (width is not None and width != "") else 60.0
         h_val = _eval_num_expr(height, context, 50.0) if (height is not None and height != "") else 50.0
         dx_val = _eval_num_expr(dx if dx is not None else kwargs.get("sep_x", 0.0), context, 0.0)
         dy_val = _eval_num_expr(dy if dy is not None else kwargs.get("sep_y", 0.0), context, 0.0)
-        return _gen_multi5_multi_shape_mosaic(shapes=base_shp, width=w_val, height=h_val, dx=dx_val, dy=dy_val, anchor=anc_val, context=context)
+        res = _gen_multi5_multi_shape_mosaic(shapes=base_shp, width=w_val, height=h_val, dx=dx_val, dy=dy_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
-    elif "segment" in mode_clean or "borde" in mode_clean or "multi6" in mode_clean:
+    elif "poligon" in mode_clean or "mosaic" in mode_clean or "polygon" in mode_clean or "multi4" in mode_clean or "honeycomb" in mode_clean or "polygonal_mosaic" in mode_clean:
+        s_val = _eval_num_expr(size, context, 64.0) if (size is not None and size != "") else 64.0
+        sides_val = int(_eval_num_expr(sides, context, 6)) if (sides is not None and sides != "") else 6
+        rings_val = int(_eval_num_expr(rings, context, 1)) if (rings is not None and rings != "") else 1
+        layers_val = int(_eval_num_expr(n_layers, context, 25)) if (n_layers is not None and n_layers != "") else 25
+        res = _gen_multi4_polygonal_mosaic(size=s_val, sides=sides_val, rings=rings_val, n_layers=layers_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
+
+    elif "segment" in mode_clean or "borde" in mode_clean or "border" in mode_clean or "multi6" in mode_clean:
         base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shape", "")
         w_val = _eval_num_expr(width, context, 104.0) if (width is not None and width != "") else 104.0
         h_val = _eval_num_expr(height, context, 104.0) if (height is not None and height != "") else 104.0
         bord_val = _eval_num_expr(bord, context, 4.0) if (bord is not None and bord != "") else 4.0
         space_val = _eval_num_expr(separation if separation != 0.0 else space, context, 0.0)
         len_val = _eval_num_expr(length, context, 20.0) if (length is not None and length != "") else 20.0
-        return _gen_multi6_segmented_border(base_shape=base_shp, width=w_val, height=h_val, bord=bord_val, space=space_val, length=len_val, separation=space_val, t=t_val, anchor=anc_val, context=context)
+        res = _gen_multi6_segmented_border(base_shape=base_shp, width=w_val, height=h_val, bord=bord_val, space=space_val, length=len_val, separation=space_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
 
-    elif "roseta" in mode_clean or "pastel" in mode_clean or "radial" in mode_clean or "multi7" in mode_clean:
+    elif "roseta" in mode_clean or "rosette" in mode_clean or "pastel" in mode_clean or "radial" in mode_clean or "multi7" in mode_clean:
         parts_val = int(_eval_num_expr(parts, context, 12)) if (parts is not None and parts != "") else 12
         r_out_val = _eval_num_expr(r_out, context, 50.0) if (r_out is not None and r_out != "") else 50.0
         r_in_val = _eval_num_expr(r_in, context, 0.0) if (r_in is not None and r_in != "") else 0.0
-        return _gen_multi7_radial_rosette(parts=parts_val, r_out=r_out_val, r_in=r_in_val, separation=sep_val, t=t_val, anchor=anc_val, context=context)
+        res = _gen_multi7_radial_rosette(parts=parts_val, r_out=r_out_val, r_in=r_in_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
 
     elif "tunel" in mode_clean or "cascada" in mode_clean or "multi8" in mode_clean or "tunnel" in mode_clean:
         base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shape", "")
@@ -5368,14 +5916,331 @@ def shape_multi(
         s2_val = _eval_num_expr(size2, context, 10.0) if (size2 is not None and size2 != "") else 10.0
         loop_val = int(_eval_num_expr(loop, context, 8)) if (loop is not None and loop != "") else 8
         ang_val = angle if angle is not None else kwargs.get("direction", kwargs.get("ang", 0.0))
-        return _gen_multi8_tunnel_cascade(base_shape=base_shp, size1=s1_val, size2=s2_val, loop=loop_val, separation=sep_val, angle=ang_val, t=t_val, anchor=anc_val, context=context)
+        res = _gen_multi8_tunnel_cascade(base_shape=base_shp, size1=s1_val, size2=s2_val, loop=loop_val, separation=sep_val, angle=ang_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
 
-    return _gen_multi1_concentric_squares(size=100.0, px_pattern="4", separation=sep_val, t=t_val, anchor=anc_val, context=context)
+    elif "banner" in mode_clean or "cartela" in mode_clean:
+        w_val = _eval_num_expr(width, context, 200.0) if (width is not None and width != "") else 200.0
+        h_val = _eval_num_expr(height, context, 50.0) if (height is not None and height != "") else 50.0
+        tip_val = str(tip_style if tip_style is not None else kwargs.get("style", "<>")).strip()
+        fold_val = _eval_num_expr(fold_w if fold_w is not None else kwargs.get("fold_width", 0.0), context, 0.0)
+        bord_param = kwargs.get("bord", None)
+        if bord_param is None and "border" in kwargs:
+            bord_param = kwargs.get("border")
+        if bord_param is None:
+            bord_param = bord if (bord is not None and str(bord).strip() not in ["", "4"]) else 0.0
+        bord_val = _eval_num_expr(bord_param, context, 0.0)
+        res = _gen_multi_banner(width=w_val, height=h_val, tip_style=tip_val, fold_w=fold_val, bord=bord_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
+
+    elif "gear" in mode_clean or "engranaje" in mode_clean or "rueda" in mode_clean:
+        teeth_val = int(_eval_num_expr(parts if parts is not None else kwargs.get("teeth", kwargs.get("n", 8)), context, 8))
+        ro_val = _eval_num_expr(r_out if r_out is not None else kwargs.get("radius", kwargs.get("outer_radius", 60.0)), context, 60.0)
+        ri_val = _eval_num_expr(r_in if r_in is not None else kwargs.get("root_radius", kwargs.get("inner_radius", 45.0)), context, 45.0)
+        rh_val = _eval_num_expr(r_hole if r_hole is not None else kwargs.get("hole_radius", 15.0), context, 15.0)
+        slant_val = _eval_num_expr(slant if slant is not None else kwargs.get("tooth_slant", 0.35), context, 0.35)
+        res = _gen_multi_gear(teeth=teeth_val, r_out=ro_val, r_in=ri_val, r_hole=rh_val, slant=slant_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
+
+    else:
+        res = _gen_multi1_concentric_squares(size=100.0, px_pattern="4", separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
+
+    if return_list:
+        pieces = res if isinstance(res, list) else ([res] if res else [])
+        if cache_dict is not None and multi_sig is not None and multi_sig not in cache_dict:
+            cache_dict[multi_sig] = pieces
+        total_pieces = len(pieces)
+        
+        unit = context.get('active_unit') if isinstance(context, dict) else None
+        if not unit and isinstance(context, dict):
+            unit = context.get('char') or context.get('syl') or context.get('word')
+        line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
+        if not line and unit and hasattr(unit, 'line'):
+            line = getattr(unit, 'line', None)
+
+        parent_x = float(context.get('pos_x', context.get('line_x', context.get('syl_x', context.get('x', 0.0))))) if isinstance(context, dict) else 0.0
+        parent_y = float(context.get('pos_y', context.get('line_y', context.get('syl_y', context.get('y', 0.0))))) if isinstance(context, dict) else 0.0
+        if unit:
+            if hasattr(unit, 'center') and unit.center is not None: parent_x = float(unit.center)
+            elif hasattr(unit, 'pos_x') and unit.pos_x is not None: parent_x = float(unit.pos_x)
+            elif hasattr(unit, 'x') and unit.x is not None: parent_x = float(unit.x)
+
+            if hasattr(unit, 'middle') and unit.middle is not None: parent_y = float(unit.middle)
+            elif hasattr(unit, 'pos_y') and unit.pos_y is not None: parent_y = float(unit.pos_y)
+            elif hasattr(unit, 'y') and unit.y is not None: parent_y = float(unit.y)
+        elif line:
+            if hasattr(line, 'center') and line.center is not None: parent_x = float(line.center)
+            elif hasattr(line, 'x') and line.x is not None: parent_x = float(line.x)
+            if hasattr(line, 'middle') and line.middle is not None: parent_y = float(line.middle)
+            elif hasattr(line, 'y') and line.y is not None: parent_y = float(line.y)
+
+        if total_pieces == 0:
+            pos_str = f"\\pos({parent_x:.2f},{parent_y:.2f})".rstrip('0').rstrip('.') if (parent_x != 0 or parent_y != 0) else ""
+            return "", pos_str, round(parent_x, 2), round(parent_y, 2), 0.0, 0, total_pieces, 1, 1
+
+        if isinstance(context, dict):
+            m_i_val = int(float(context.get('m_i', context.get('multi_i', context.get('j', context.get('J', 1))))))
+            context['m_i'] = m_i_val
+            context['m_n'] = total_pieces
+            context['m_max'] = total_pieces
+            context['multi_i'] = m_i_val
+            context['multi_n'] = total_pieces
+            context['multi_max'] = total_pieces
+            context['maxloop'] = total_pieces
+        else:
+            m_i_val = 1
+
+        idx = max(0, min(m_i_val - 1, total_pieces - 1))
+        piece_code = pieces[idx]
+
+        bbox_coords = []
+        for tok in piece_code.split():
+            try:
+                bbox_coords.append(float(tok))
+            except ValueError:
+                pass
+        if bbox_coords and len(bbox_coords) >= 2:
+            piece_cx = (min(bbox_coords[0::2]) + max(bbox_coords[0::2])) / 2.0
+            piece_cy = (min(bbox_coords[1::2]) + max(bbox_coords[1::2])) / 2.0
+        else:
+            piece_cx, piece_cy = 0.0, 0.0
+
+        abs_x = parent_x + piece_cx
+        abs_y = parent_y + piece_cy
+
+        anc_clean = str(anc_val or "center").strip().lower()
+        from clipper_engine import ClipperEngine
+
+        if "abs" in anc_clean or "absoluto" in anc_clean:
+            if isinstance(context, dict):
+                context['pos_overridden'] = False
+                context['has_org'] = False
+                context['pos_x'] = parent_x
+                context['pos_y'] = parent_y
+                context['fx_pos_x'] = parent_x
+                context['fx_pos_y'] = parent_y
+            final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=parent_x, offset_y=parent_y)
+        elif "rel" in anc_clean:
+            if isinstance(context, dict):
+                context['pos_overridden'] = False
+                context['has_org'] = True
+                context['org_x'] = parent_x
+                context['org_y'] = parent_y
+                context['pos_x'] = parent_x
+                context['pos_y'] = parent_y
+                context['fx_pos_x'] = parent_x
+                context['fx_pos_y'] = parent_y
+            final_code = piece_code
+        elif any(k in anc_clean for k in ["pieza", "piece", "true"]):
+            if isinstance(context, dict):
+                context['x'] = abs_x
+                context['y'] = abs_y
+                context['fx_pos_x'] = abs_x
+                context['fx_pos_y'] = abs_y
+                context['pos_x'] = abs_x
+                context['pos_y'] = abs_y
+                context['pos_overridden'] = True
+                context['has_org'] = True
+                context['org_x'] = abs_x
+                context['org_y'] = abs_y
+            final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=-piece_cx, offset_y=-piece_cy)
+        elif "org" in anc_clean:
+            if isinstance(context, dict):
+                context['x'] = abs_x
+                context['y'] = abs_y
+                context['fx_pos_x'] = abs_x
+                context['fx_pos_y'] = abs_y
+                context['pos_x'] = abs_x
+                context['pos_y'] = abs_y
+                context['pos_overridden'] = True
+                context['has_org'] = True
+                context['org_x'] = parent_x
+                context['org_y'] = parent_y
+            final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=-piece_cx, offset_y=-piece_cy)
+        elif "pos" in anc_clean:
+            if isinstance(context, dict):
+                context['x'] = abs_x
+                context['y'] = abs_y
+                context['fx_pos_x'] = abs_x
+                context['fx_pos_y'] = abs_y
+                context['pos_x'] = abs_x
+                context['pos_y'] = abs_y
+                context['pos_overridden'] = True
+                context['has_org'] = False
+            final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=-piece_cx, offset_y=-piece_cy)
+        else:  # "center" or default
+            if isinstance(context, dict):
+                context['pos_overridden'] = False
+                context['has_org'] = False
+                context['pos_x'] = parent_x
+                context['pos_y'] = parent_y
+                context['fx_pos_x'] = parent_x
+                context['fx_pos_y'] = parent_y
+            final_code = piece_code
+
+        if "iclip" in out_mode_clean:
+            abs_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=parent_x, offset_y=parent_y)
+            final_piece = f"{{\\iclip({abs_code})}}"
+        elif "clip" in out_mode_clean:
+            abs_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=parent_x, offset_y=parent_y)
+            final_piece = f"{{\\clip({abs_code})}}"
+        else:
+            final_piece = final_code
+
+        pos_str = f"\\pos({abs_x:.2f},{abs_y:.2f})".rstrip('0').rstrip('.')
+        return final_piece, pos_str, round(abs_x, 2), round(abs_y, 2), 0.0, m_i_val, total_pieces, 1, 1
+
+    combined_code = str(res)
+    if "iclip" in out_mode_clean:
+        final_res = f"{{\\iclip({combined_code})}}"
+    elif "clip" in out_mode_clean:
+        final_res = f"{{\\clip({combined_code})}}"
+    else:
+        final_res = combined_code
+
+    if isinstance(context, dict):
+        context['m_i'] = 1
+        context['m_n'] = 1
+        context['m_max'] = 1
+        context['maxloop'] = 1
+
+    return final_res
 
 
-NODE_REGISTRY["Shape/Shape Multi"] = shape_multi
-NODE_REGISTRY["Shape Multi"] = shape_multi
+NODE_REGISTRY["Shape/Multi"] = shape_multi
+NODE_REGISTRY["Multi"] = shape_multi
 
 
+def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=None, fill_type=None, clean_self_intersect=None, index_j=None, index_d=None, tags=None, tagmode=None, order=None, **kwargs):
+    """Shape Union & Divide node: Decomposes complex vector shapes into real islands (PolyTree),
+    merges multiple shapes using boolean Clipper, divides into naive subpaths or fuses with tags,
+    with support for geometric anchor modes ('pieces', 'relative', 'origin', 'pos', 'zero')
+    and numerical Numpad, radial and circular piece ordering (Order).
+    """
+    from clipper_engine import ClipperEngine
+    from node_engine import _eval_num_expr
 
+    raw_shp = resolve_shape_value(drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shape", kwargs.get("shape_in", kwargs.get("shape_a", ""))), context)
+    
+    _shp_b_in = shape_b if (shape_b is not None and str(shape_b).strip() != "") else kwargs.get("shape_2", kwargs.get("clip_shape", ""))
+    raw_shp_b = resolve_shape_value(_shp_b_in, context) if (_shp_b_in is not None and str(_shp_b_in).strip() != "") else ""
+
+    raw_mode = mode if (mode is not None and str(mode).strip() != "") else kwargs.get("mode", kwargs.get("modo", "divide"))
+    mode_clean = str(raw_mode).strip().lower()
+    raw_anchor = anchor if (anchor is not None and str(anchor).strip() != "") else kwargs.get("anchor", kwargs.get("anclaje", "pieces"))
+    anchor_clean = str(raw_anchor).strip().lower()
+    fill_clean = str(fill_type if (fill_type is not None and str(fill_type).strip() != "") else kwargs.get("fill_rule", kwargs.get("fill_type", "evenodd"))).strip().lower()
+    order_val = str(order if (order is not None and str(order).strip() != "") else kwargs.get("order", "79")).strip()
+
+    try:
+        raw_idx = index_d if index_d is not None else (index_j if index_j is not None else kwargs.get("idx", kwargs.get("d_i", kwargs.get("j", None))))
+        if raw_idx is None and isinstance(context, dict):
+            raw_idx = context.get('d_i', 1)
+        if raw_idx is None:
+            raw_idx = 1
+        idx_val = int(float(_eval_num_expr(raw_idx, context, 1)))
+    except Exception:
+        idx_val = 1
+
+    auto_clean = bool(clean_self_intersect if clean_self_intersect is not None else kwargs.get("clean", 1))
+
+    if "unir" in mode_clean or "union" in mode_clean or "merge" in mode_clean:
+        shapes_to_merge = []
+        if isinstance(raw_shp, list):
+            shapes_to_merge.extend(raw_shp)
+        elif raw_shp:
+            shapes_to_merge.append(raw_shp)
+
+        if isinstance(raw_shp_b, list):
+            shapes_to_merge.extend(raw_shp_b)
+        elif raw_shp_b:
+            shapes_to_merge.append(raw_shp_b)
+
+        global_bbox = get_drawing_bbox(shapes_to_merge)
+        merged = ClipperEngine.merge_multiple_shapes(shapes_to_merge, fill_rule=fill_clean)
+        anchored_merged = apply_geometric_anchor(merged, anchor=anchor_clean, context=context, ref_bbox=global_bbox) if merged else ""
+        if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
+            return [anchored_merged] if anchored_merged else []
+        return anchored_merged
+
+    elif "diferencia" in mode_clean or "difference" in mode_clean or "diff" in mode_clean:
+        if not raw_shp:
+            return ""
+        diff = ClipperEngine.boolean_difference(raw_shp, raw_shp_b)
+        global_bbox = get_drawing_bbox(raw_shp)
+        anchored_diff = apply_geometric_anchor(diff, anchor=anchor_clean, context=context, ref_bbox=global_bbox) if diff else ""
+        if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
+            return [anchored_diff] if anchored_diff else []
+        return anchored_diff
+
+    elif "intersec" in mode_clean or "intersect" in mode_clean:
+        if not raw_shp or not raw_shp_b:
+            return ""
+        inter = ClipperEngine.boolean_intersection(raw_shp, raw_shp_b)
+        global_bbox = get_drawing_bbox([raw_shp, raw_shp_b])
+        anchored_inter = apply_geometric_anchor(inter, anchor=anchor_clean, context=context, ref_bbox=global_bbox) if inter else ""
+        if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
+            return [anchored_inter] if anchored_inter else []
+        return anchored_inter
+
+    elif "fusi" in mode_clean or "fusion" in mode_clean:
+        shapes_list = []
+        if isinstance(raw_shp, list):
+            for item in raw_shp:
+                if isinstance(item, list):
+                    shapes_list.extend([str(s).strip() for s in item if str(s).strip()])
+                elif item and str(item).strip():
+                    shapes_list.append(str(item).strip())
+            if len(shapes_list) > 1 and order_val not in ("raw", "none", "0"):
+                entries = []
+                for s in shapes_list:
+                    cnt = ClipperEngine.parse_assdraw(s)
+                    if cnt:
+                        f_min_x, f_min_y, f_max_x, f_max_y, f_cx, f_cy, f_w, f_h = ClipperEngine.get_bbox(cnt)
+                    else:
+                        f_min_x = f_min_y = f_max_x = f_max_y = f_cx = f_cy = f_w = f_h = 0.0
+                    entries.append({'figure': s, 'min_x': f_min_x, 'min_y': f_min_y, 'max_x': f_max_y, 'max_y': f_max_y, 'cx': f_cx, 'cy': f_cy, 'w': f_w, 'h': f_h})
+                sorted_entries = ClipperEngine.sort_islands_by_order(entries, order=order_val)
+                shapes_list = [e['figure'] for e in sorted_entries]
+        elif raw_shp:
+            shapes_list.extend(ClipperEngine.decompose_shape_islands(raw_shp, fill_rule=fill_clean, bbox_mode="marco", clean_self_intersect=auto_clean, order=order_val))
+
+        if "rel" in anchor_clean:
+            anchored_list = shapes_list
+        else:
+            global_bbox = get_drawing_bbox(shapes_list)
+            anchored_list = [apply_geometric_anchor(p, anchor=anchor_clean, context=context, ref_bbox=global_bbox) for p in shapes_list]
+        tags_val = tags if (tags is not None and str(tags).strip() != "") else kwargs.get("tags_list", kwargs.get("tags", ""))
+        tag_mode_val = tagmode if (tagmode is not None and str(tagmode).strip() != "") else kwargs.get("tag_mode", kwargs.get("tagmode", "ipol"))
+        fused = ClipperEngine.fusion_shapes_tags(anchored_list, tags=tags_val, bbox_mode="marco", tag_mode=tag_mode_val)
+        if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
+            return [fused] if fused else []
+        return fused
+
+    elif "sub-ruta" in mode_clean or "subruta" in mode_clean or "subpath" in mode_clean or "naive" in mode_clean:
+        if not raw_shp:
+            return ""
+        pieces = ClipperEngine.decompose_shape_subpaths(raw_shp, bbox_mode="marco", order=order_val)
+        if not pieces:
+            return ""
+        global_bbox = get_drawing_bbox(raw_shp)
+        anchored_pieces = [apply_geometric_anchor(p, anchor=anchor_clean, context=context, ref_bbox=global_bbox) for p in pieces]
+        if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
+            return anchored_pieces
+        target_idx = max(1, min(len(anchored_pieces), idx_val)) - 1
+        return anchored_pieces[target_idx]
+
+    else:
+        if not raw_shp:
+            return ""
+        pieces = ClipperEngine.decompose_shape_islands(raw_shp, fill_rule=fill_clean, bbox_mode="marco", clean_self_intersect=auto_clean, order=order_val)
+        if not pieces:
+            return ""
+        global_bbox = get_drawing_bbox(raw_shp)
+        anchored_pieces = [apply_geometric_anchor(p, anchor=anchor_clean, context=context, ref_bbox=global_bbox) for p in pieces]
+        if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
+            return anchored_pieces
+        target_idx = max(1, min(len(anchored_pieces), idx_val)) - 1
+        return anchored_pieces[target_idx]
+
+
+NODE_REGISTRY["Shape/Union & Divide"] = shape_union_divide_node
+NODE_REGISTRY["Union & Divide"] = shape_union_divide_node
 

@@ -14,11 +14,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# gpu_engine.py
 """
-Motor de Aceleración por GPU para PyxisNodes.
-Soporta detección e inspección con prueba de vida en tiempo real (Live Health-Check Probe)
-para NVIDIA CUDA y OpenCL Universal (NVIDIA, AMD, Intel) con degradación transparente a CPU.
+GPU Acceleration Engine for PyxisNodes.
+Supports detection and live health-check probing for NVIDIA CUDA and Universal OpenCL (NVIDIA, AMD, Intel) with transparent CPU fallback.
 """
 
 import ctypes
@@ -50,29 +48,25 @@ class GpuEngineManager:
 
     def _run_live_health_check_probes(self):
         """
-        Prueba de vida activa en tiempo real:
-        1. Prueba CUDA con micro-kernel/asignación en VRAM.
-        2. Si falla o no responde, prueba OpenCL con micro-kernel C.
-        3. Si ambas fallan, asigna CPU Fallback sin colapsar el sistema.
+        Live health-check probe:
+        1. Test CUDA with micro-kernel/VRAM allocation.
+        2. If failed, test OpenCL with C micro-kernel.
+        3. If both fail, assign CPU fallback without crashing.
         """
-        # --- PROBA 1: CUDA LIVE HEALTH CHECK ---
         if self._probe_cuda_health():
             return
 
-        # --- PROBA 2: OPENCL LIVE HEALTH CHECK ---
         if self._probe_opencl_health():
             return
 
-        # --- FALLBACK A CPU ---
         self.backend = "CPU"
         self.device_name = "CPU Multi-Core Vectorized Engine"
         self.is_healthy = True
-        print(f"[Pyxis GPU Engine] Backend activo: {self.backend} ({self.device_name})", flush=True)
+        print(f"[Pyxis GPU Engine] Active backend: {self.backend} ({self.device_name})", flush=True)
 
     def _probe_cuda_health(self) -> bool:
-        """Prueba activa de vida para NVIDIA CUDA (CuPy / PyCUDA / Numba CUDA / Driver API)."""
+        """Live probe for NVIDIA CUDA (CuPy / PyCUDA / Numba CUDA / Driver API)."""
         try:
-            # Intentar primero con CuPy si estuviera disponible
             try:
                 import cupy as cp
                 arr = cp.array([1.0, 2.0, 3.0, 4.0], dtype=cp.float32)
@@ -81,12 +75,11 @@ class GpuEngineManager:
                     self.backend = "CUDA (CuPy)"
                     self.device_name = cp.cuda.runtime.getDeviceProperties(0)['name'].decode('utf-8')
                     self.is_healthy = True
-                    print(f"[Pyxis GPU Engine] CUDA Live Probe OK! Backend activo: {self.backend} - {self.device_name}", flush=True)
+                    print(f"[Pyxis GPU Engine] CUDA Live Probe OK! Active backend: {self.backend} - {self.device_name}", flush=True)
                     return True
             except Exception:
                 pass
 
-            # Intentar con Numba CUDA si estuviera disponible
             try:
                 from numba import cuda
                 if cuda.is_available():
@@ -110,20 +103,19 @@ class GpuEngineManager:
                         self.backend = "CUDA (Numba)"
                         self.device_name = str(dev_name)
                         self.is_healthy = True
-                        print(f"[Pyxis GPU Engine] CUDA Live Probe OK! Backend activo: {self.backend} - {self.device_name}", flush=True)
+                        print(f"[Pyxis GPU Engine] CUDA Live Probe OK! Active backend: {self.backend} - {self.device_name}", flush=True)
                         return True
             except Exception:
                 pass
 
         except Exception as e:
-            print(f"[Pyxis GPU Engine] CUDA Live Probe falló/incompatible ({e}). Evaluando OpenCL...", flush=True)
+            print(f"[Pyxis GPU Engine] CUDA Live Probe failed/incompatible ({e}). Evaluating OpenCL...", flush=True)
 
         return False
 
     def _probe_opencl_health(self) -> bool:
-        """Prueba activa de vida para OpenCL Universal (NVIDIA, AMD, Intel)."""
+        """Live probe for Universal OpenCL (NVIDIA, AMD, Intel)."""
         try:
-            # Intentar primero con PyOpenCL si estuviera disponible
             try:
                 import pyopencl as cl
                 platforms = cl.get_platforms()
@@ -160,38 +152,35 @@ class GpuEngineManager:
                             self.cl_queue = queue
                             self.cl_program = prg
                             self.is_healthy = True
-                            print(f"[Pyxis GPU Engine] OpenCL Live Probe OK! Backend activo: {self.backend} - {self.device_name}", flush=True)
+                            print(f"[Pyxis GPU Engine] OpenCL Live Probe OK! Active backend: {self.backend} - {self.device_name}", flush=True)
                             return True
             except Exception:
                 pass
 
-            # Intentar carga directa de OpenCL.dll en Windows vía Ctypes
             if sys.platform == "win32":
                 opencl_dll_path = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "OpenCL.dll")
                 if os.path.exists(opencl_dll_path):
                     try:
                         opencl_lib = ctypes.cdll.LoadLibrary(opencl_dll_path)
-                        # Comprobar que clGetPlatformIDs responde sin crash
                         num_platforms = ctypes.c_uint32()
                         res_code = opencl_lib.clGetPlatformIDs(0, None, ctypes.byref(num_platforms))
                         if res_code == 0 and num_platforms.value > 0:
                             self.backend = "OpenCL (Ctypes Native Runtime)"
                             self.device_name = f"OpenCL.dll Compatible Device ({num_platforms.value} Platform(s))"
                             self.is_healthy = True
-                            print(f"[Pyxis GPU Engine] OpenCL Live Probe OK! Backend activo: {self.backend} - {self.device_name}", flush=True)
+                            print(f"[Pyxis GPU Engine] OpenCL Live Probe OK! Active backend: {self.backend} - {self.device_name}", flush=True)
                             return True
                     except Exception as cl_err:
                         print(f"[Pyxis GPU Engine] OpenCL.dll probe exception: {cl_err}", flush=True)
 
         except Exception as e:
-            print(f"[Pyxis GPU Engine] OpenCL Live Probe falló ({e}). Usando CPU Fallback...", flush=True)
+            print(f"[Pyxis GPU Engine] OpenCL Live Probe failed ({e}). Using CPU Fallback...", flush=True)
 
         return False
 
     def transform_particles_gpu(self, coords_array, scale_x=1.0, scale_y=1.0, angle_deg=0.0, offset_x=0.0, offset_y=0.0):
-        """
-        Transforma arreglos de coordenadas N-dimensionales usando la GPU OpenCL con
-        Buffer Persistente de VRAM (Zero Allocation Overhead) para máximo rendimiento de hardware.
+        """Transform N-dimensional coordinate arrays using OpenCL GPU with
+        persistent VRAM buffer (zero allocation overhead) for maximum hardware performance.
         """
         if not isinstance(coords_array, np.ndarray) or coords_array.shape[0] == 0:
             return coords_array
@@ -218,20 +207,17 @@ class GpuEngineManager:
                 rad = np.radians(angle_deg)
                 cos_a, sin_a = np.float32(np.cos(rad)), np.float32(np.sin(rad))
 
-                # Reutilización de Buffer Persistente en VRAM para máxima velocidad de transferencia PCIe
                 req_bytes = n_pts * 8
                 if not hasattr(self, '_vram_buf_size') or self._vram_buf_size < req_bytes:
-                    alloc_bytes = max(req_bytes, 1024 * 1024 * 16) # 16 MB capacidad inicial VRAM
+                    alloc_bytes = max(req_bytes, 1024 * 1024 * 16)
                     self._cl_vram_buf = cl.Buffer(self.cl_context, cl.mem_flags.READ_WRITE, size=alloc_bytes)
                     self._vram_buf_size = alloc_bytes
 
-                # Transferencia DMA directa CPU -> VRAM
                 cl.enqueue_copy(self.cl_queue, self._cl_vram_buf, pts_2d)
 
                 local_size = (256,)
                 global_size = (math.ceil(n_pts / 256) * 256,)
 
-                # Ejecución paralela pura en Shaders GPU
                 self._cl_trans_kernel(
                     self.cl_queue, global_size, local_size,
                     self._cl_vram_buf, np.int32(n_pts), np.float32(scale_x), np.float32(scale_y),
@@ -249,7 +235,7 @@ class GpuEngineManager:
                     out[:, 2:] = coords_array[:, 2:]
                 return out
             except Exception as cl_err:
-                print(f"[Pyxis GPU Engine Warning] OpenCL transform falló ({cl_err}). Fallback a CPU...", flush=True)
+                print(f"[Pyxis GPU Engine Warning] OpenCL transform failed ({cl_err}). Falling back to CPU...", flush=True)
 
         xs = coords_array[:, 0]
         ys = coords_array[:, 1]

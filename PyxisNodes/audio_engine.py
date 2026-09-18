@@ -14,8 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# PyxisNodes/audio_engine.py
-"""Motor de análisis acústico de alto rendimiento, decodificación PCM WAV en C y cálculo FFT/RMS para PyxisNodes."""
+"""High-performance acoustic analysis engine, C-level PCM WAV decoding, and FFT/RMS computation for PyxisNodes."""
 
 import math
 import os
@@ -25,12 +24,11 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 
 
-# Tablas precalculadas de ventanas de análisis espectral (Hann)
 _HANN_WINDOWS: Dict[int, np.ndarray] = {}
 
 
 def _get_hann_window(n: int) -> np.ndarray:
-    """Obtiene o precalcula la ventana de Hann como un array NumPy float32 contiguo en C."""
+    """Gets or precomputes Hann window as a contiguous C float32 NumPy array."""
     win = _HANN_WINDOWS.get(n)
     if win is None:
         win = (0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(n, dtype=np.float32) / (n - 1)))).astype(np.float32)
@@ -39,12 +37,11 @@ def _get_hann_window(n: int) -> np.ndarray:
 
 
 class AudioData:
-    """Representa un búfer de audio PCM en memoria normalizado con utilidades de análisis ultra-rápidas."""
+    """Represents a normalized in-memory PCM audio buffer with fast analysis utilities."""
 
     def __init__(self, sample_rate: int, channels: int, samples: np.ndarray):
         self.sample_rate = int(sample_rate)
         self.channels = int(channels)
-        # Asegurar array 1D NumPy float32 contiguo
         if not isinstance(samples, np.ndarray) or samples.dtype != np.float32:
             self.samples = np.asarray(samples, dtype=np.float32)
         else:
@@ -53,7 +50,6 @@ class AudioData:
         self.num_samples = len(self.samples)
         self.duration_ms = (self.num_samples / float(self.sample_rate)) * 1000.0 if self.sample_rate > 0 else 0.0
 
-        # Precalcular suma acumulativa de cuadrados (Prefix Sums) en float64 para cálculo RMS en O(1)
         if self.num_samples > 0:
             self._sq_cumsum = np.concatenate(
                 ([0.0], np.cumsum(self.samples.astype(np.float64) ** 2))
@@ -61,11 +57,10 @@ class AudioData:
         else:
             self._sq_cumsum = np.array([0.0], dtype=np.float64)
 
-        # Caché LRU en memoria para transformadas FFT por intervalo temporal
         self._fft_cache: Dict[Tuple[int, int, int], np.ndarray] = {}
 
     def sample_from_ms(self, ms: float) -> int:
-        """Convierte milisegundos a índice de muestra."""
+        """Converts milliseconds to sample index."""
         if self.sample_rate <= 0:
             return 0
         idx = int(round((ms / 1000.0) * self.sample_rate))
@@ -98,7 +93,6 @@ class AudioData:
         if count <= 0 or idx_start >= self.num_samples:
             return 0.0
 
-        # O(1) resta directa en el arreglo de energía acumulativa
         sum_sq = self._sq_cumsum[idx_end] - self._sq_cumsum[idx_start]
         raw_rms = math.sqrt(max(0.0, sum_sq / count))
         return min(1.0, raw_rms * max(0.0, float(gain)))
@@ -126,7 +120,6 @@ class AudioData:
         if num_points == 1:
             return [float(chunk[0]) * g]
 
-        # Vectorización con NumPy linspace
         indices = np.linspace(0, n - 1, num_points, dtype=np.intp)
         sampled = chunk[indices]
         if g != 1.0:
@@ -140,7 +133,6 @@ class AudioData:
         if idx_start >= idx_end:
             idx_end = min(self.num_samples, idx_start + 1)
 
-        # Ajustar n_fft a potencia de 2
         if n_fft < 16:
             n_fft = 16
         n_pow2 = 1 << (n_fft - 1).bit_length()
@@ -149,7 +141,6 @@ class AudioData:
 
         freq_step = float(self.sample_rate) / float(n_fft) if n_fft else 1.0
 
-        # Comprobar caché LRU por índices exactos
         cache_key = (idx_start, idx_end, n_fft)
         if cache_key in self._fft_cache:
             return self._fft_cache[cache_key], freq_step
@@ -160,20 +151,17 @@ class AudioData:
             zeros = np.zeros(n_fft // 2 + 1, dtype=np.float32)
             return zeros, freq_step
 
-        # Vectorización: Hann window precalculada + zero padding directo
         window = _get_hann_window(n_fft)
         pad = np.zeros(n_fft, dtype=np.float32)
         valid_len = min(chunk_len, n_fft)
         pad[:valid_len] = chunk[:valid_len] * window[:valid_len]
 
-        # Fast Real FFT
         fft_res = np.fft.rfft(pad)
         magnitudes = np.abs(fft_res).astype(np.float32)
         mag_sum = float(np.sum(magnitudes))
         if mag_sum > 0:
             magnitudes = magnitudes / (n_fft / 2.0)
 
-        # Manejo de tamaño de caché LRU (máximo 512 entradas)
         if len(self._fft_cache) >= 512:
             old_keys = list(self._fft_cache.keys())[:128]
             for k in old_keys:
@@ -301,19 +289,19 @@ class AudioEngine:
             n_frames = wf.getnframes()
             raw_data = wf.readframes(n_frames)
 
-        if sampwidth == 2:  # 16-bit signed PCM (estándar de alta fidelidad)
+        if sampwidth == 2:
             arr = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32)
             if channels > 1:
                 arr = arr.reshape(-1, channels).mean(axis=1)
             samples = arr / 32768.0
 
-        elif sampwidth == 1:  # 8-bit unsigned PCM
+        elif sampwidth == 1:
             arr = np.frombuffer(raw_data, dtype=np.uint8).astype(np.float32)
             if channels > 1:
                 arr = arr.reshape(-1, channels).mean(axis=1)
             samples = (arr - 128.0) / 128.0
 
-        elif sampwidth == 3:  # 24-bit signed PCM
+        elif sampwidth == 3:
             raw_bytes = np.frombuffer(raw_data, dtype=np.uint8)
             a = raw_bytes.reshape(-1, 3)
             padded = np.zeros((len(a), 4), dtype=np.uint8)
@@ -324,7 +312,7 @@ class AudioEngine:
                 arr = arr.reshape(-1, channels).mean(axis=1)
             samples = arr / 8388608.0
 
-        elif sampwidth == 4:  # 32-bit float o 32-bit int
+        elif sampwidth == 4:
             try:
                 arr = np.frombuffer(raw_data, dtype=np.float32)
                 if channels > 1:
@@ -336,7 +324,7 @@ class AudioEngine:
                     arr = arr.reshape(-1, channels).mean(axis=1)
                 samples = arr / 2147483648.0
         else:
-            raise ValueError(f"Ancho de muestra WAV no soportado: {sampwidth} bytes")
+            raise ValueError(f"Unsupported WAV sample width: {sampwidth} bytes")
 
         audio_obj = AudioData(framerate, channels, samples)
         cls._audio_cache[clean_path] = audio_obj

@@ -16,38 +16,38 @@
 
 """Pruebas de integridad sintactica (AST parsing) en todos los modulos Python del proyecto."""
 
-import ast
-import os
-import unittest
+import ast 
+import os 
+import unittest 
 
 
-class TestSyntaxIntegrity(unittest.TestCase):
+class TestSyntaxIntegrity (unittest .TestCase ):
     """Verifica que todos los archivos Python del proyecto compilen correctamente sin errores sintacticos."""
 
-    def test_all_py_files_ast_parse(self):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        py_files = []
+    def test_all_py_files_ast_parse (self ):
+        base_dir =os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ ))))
+        py_files =[]
 
-        for root, dirs, files in os.walk(base_dir):
-            if "python" in root or "__pycache__" in root or ".venv" in root:
-                continue
-            for f in files:
-                if f.endswith(".py"):
-                    py_files.append(os.path.join(root, f))
+        for root ,dirs ,files in os .walk (base_dir ):
+            if "python"in root or "__pycache__"in root or ".venv"in root :
+                continue 
+            for f in files :
+                if f .endswith (".py"):
+                    py_files .append (os .path .join (root ,f ))
 
-        self.assertGreater(len(py_files), 10, "Deben encontrarse al menos 10 archivos Python en el proyecto")
+        self .assertGreater (len (py_files ),10 ,"Deben encontrarse al menos 10 archivos Python en el proyecto")
 
-        errors = []
-        for py_file in py_files:
-            try:
-                with open(py_file, "r", encoding="utf-8", errors="ignore") as fh:
-                    source = fh.read()
-                ast.parse(source, filename=py_file)
-            except Exception as e:
-                errors.append(f"{os.path.relpath(py_file, base_dir)}: {e}")
+        errors =[]
+        for py_file in py_files :
+            try :
+                with open (py_file ,"r",encoding ="utf-8",errors ="ignore")as fh :
+                    source =fh .read ()
+                ast .parse (source ,filename =py_file )
+            except Exception as e :
+                errors .append (f"{os .path .relpath (py_file ,base_dir )}: {e }")
 
-        self.assertEqual(errors, [], f"Errores de sintaxis detectados: {errors}")
+        self .assertEqual (errors ,[],f"Errores de sintaxis detectados: {errors }")
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ =="__main__":
+    unittest .main ()

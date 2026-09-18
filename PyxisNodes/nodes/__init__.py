@@ -14,8 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# PyxisNodes/nodes/__init__.py
-"""Módulo de nodos unificados por categoría para Pyxis Nodes Engine."""
+"""PyxisNodes node registry package."""
 
 from . import tag_nodes
 from . import math_nodes
@@ -25,3 +24,6 @@ from . import variable_nodes
 from . import time_nodes
 from . import code_nodes
 from . import audio_nodes
+from . import loop_nodes
+from . import system_nodes
+

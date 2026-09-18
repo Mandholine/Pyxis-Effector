@@ -14,10 +14,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# karaskel_engine.py
-"""Motor Karaskel Auto4 porteado a Python puro.
+"""Karaskel Auto4 engine ported to pure Python.
 
-Reproduce exactamente la lógica de karaskel-auto4.lua de Niels Martin Hansen y Rodrigo Braz Monteiro.
+Faithfully reproduces the logic of karaskel-auto4.lua by Niels Martin Hansen and Rodrigo Braz Monteiro.
 """
 
 import re
@@ -42,8 +41,8 @@ class KaraskelHighlight:
 
 @dataclass
 class KaraskelFurigana:
-    i: int                       # 1-based index
-    text: str = ""               # Texto limpio del furigana (sin ! o <)
+    i: int
+    text: str = ""
     text_stripped: str = ""
     text_spacestripped: str = ""
     isbreak: bool = False
@@ -75,18 +74,18 @@ class KaraskelFurigana:
 
 @dataclass
 class KaraskelSyllable:
-    i: int                       # 0-based index (0 es el lead-in)
-    text: str = ""               # Texto original con tags
-    text_stripped: str = ""      # Texto con espacios incluidos
-    text_spacestripped: str = "" # Texto con espacios eliminados
-    prespace: str = ""           # Espacios iniciales
-    postspace: str = ""          # Espacios finales
-    start_time: int = 0          # ms absolutos
-    end_time: int = 0            # ms absolutos
-    duration: int = 0            # ms
-    kdur: float = 0.0            # centisegundos (cs)
-    tag: str = ""                # \k, \kf, \ko, \K
-    inline_fx: str = ""          # \-fx_name
+    i: int
+    text: str = ""
+    text_stripped: str = ""
+    text_spacestripped: str = ""
+    prespace: str = ""
+    postspace: str = ""
+    start_time: int = 0
+    end_time: int = 0
+    duration: int = 0
+    kdur: float = 0.0
+    tag: str = ""
+    inline_fx: str = ""
     width: float = 0.0
     height: float = 0.0
     prespacewidth: float = 0.0
@@ -109,9 +108,9 @@ class KaraskelSyllable:
 class KaraskelLine:
     raw_text: str = ""
     text_stripped: str = ""
-    start_time: int = 0          # ms
-    end_time: int = 0            # ms
-    duration: int = 0            # ms
+    start_time: int = 0
+    end_time: int = 0
+    duration: int = 0
     style: str = "Default"
     styleref: Optional[Dict[str, Any]] = None
     furistyle: Optional[Dict[str, Any]] = None
@@ -139,12 +138,12 @@ class KaraskelLine:
     y: float = 0.0
     halign: str = "center"
     valign: str = "bottom"
-    kara: List[KaraskelSyllable] = field(default_factory=list)  # Index 0..N
-    furi: List[KaraskelFurigana] = field(default_factory=list)  # Index 1..M
+    kara: List[KaraskelSyllable] = field(default_factory=list)
+    furi: List[KaraskelFurigana] = field(default_factory=list)
 
 
 class KaraskelEngine:
-    """Motor independiente de Karaskel Auto4 en Python puro."""
+    """Standalone pure Python Karaskel Auto4 engine."""
 
     furigana_scale: float = 0.5
 
@@ -180,13 +179,12 @@ class KaraskelEngine:
 
     @classmethod
     def preproc_line_text(cls, meta: KaraskelMeta, styles: Dict[str, Any], line: KaraskelLine) -> None:
-        """Pre-procesa el texto de la línea extrayendo sílabas de karaoke, duraciones y furigana."""
+        """Preprocesses line text extracting karaoke syllables, durations, and furigana."""
         line.kara = []
         line.furi = []
         line.text_stripped = ""
         line.duration = line.end_time - line.start_time
 
-        # Extraer sílabas de karaoke utilizando expresiones regulares idénticas a aegisub.parse_karaoke_data
         raw_text = line.raw_text
         kara_tokens = cls._parse_karaoke_tokens(raw_text, line.start_time)
 
@@ -195,12 +193,10 @@ class KaraskelEngine:
         worksyl.line = line
 
         for i, token in enumerate(kara_tokens):
-            # Detectar tags inline-fx (\{.*\-([^}\\]+)})
             fx_match = re.search(r"\{.*\\-([^}\\]+)", token["text"])
             if fx_match:
                 cur_inline_fx = fx_match.group(1)
 
-            # Separar espacios iniciales y finales (prespace, syltext, postspace)
             space_match = re.match(r"^([ \t]*)([\s\S]*?)([ \t]*)$", token["text_stripped"])
             if space_match:
                 prespace, syltext, postspace = space_match.groups()
@@ -209,7 +205,6 @@ class KaraskelEngine:
 
             prefix = syltext[:1] if syltext else ""
 
-            # Si se rompe un tramo multi-highlight (# o ＃), guardar worksyl actual e iniciar uno nuevo
             if prefix != "#" and prefix != "＃" and i > 0:
                 line.kara.append(worksyl)
                 worksyl = KaraskelSyllable(i=len(line.kara))
@@ -222,7 +217,6 @@ class KaraskelEngine:
             )
             worksyl.highlights.append(hl)
 
-            # Detectar furigana (sintaxis maintext|furitext o maintext｜furitext)
             if "|" in syltext or "｜" in syltext:
                 syltext = syltext.replace("｜", "|")
                 if "|" in syltext:
@@ -280,12 +274,10 @@ class KaraskelEngine:
                 worksyl.prespace = prespace
                 worksyl.postspace = postspace
             else:
-                # Es un highlight extra (#), sumar duraciones
                 worksyl.duration += token["duration"]
                 worksyl.kdur += token["duration"] / 10.0
                 worksyl.end_time = token["end_time"]
 
-        # Añadir la última sílaba
         line.kara.append(worksyl)
 
     @classmethod
@@ -324,7 +316,6 @@ class KaraskelEngine:
                             current_time += cur_dur_ms
                             cur_text = ""
                         else:
-                            # En C++ de Aegisub, kara[0] es SIEMPRE la sílaba 0 de lead-in
                             tokens.append({
                                 "text": cur_text,
                                 "text_stripped": re.sub(r"\{.*?\}", "", cur_text),
@@ -613,5 +604,5 @@ class KaraskelEngine:
 
     @classmethod
     def preproc_line(cls, meta: KaraskelMeta, styles: Dict[str, Any], line: KaraskelLine) -> None:
-        """Función principal de entrada para procesar la línea completa."""
+        """Main entry point to preprocess the complete line."""
         cls.preproc_line_pos(meta, styles, line)

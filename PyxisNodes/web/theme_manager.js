@@ -16,33 +16,40 @@
  * For any question you can visit: https://discord.gg/rYsARc3fB9
  */
 
-/* =============================================================================
-   Pyxis Theme Manager & Dynamic Node Palette Engine - v1.0.7
-   Includes: Theme Engine, Interactive Custom Theme Editor & Media Backgrounds
-   ============================================================================= */
 (function (window) {
     "use strict";
 
-    // Helper universal para resolver la categoría estándar de cualquier nodo
     window.getNodeCategory = function(nodeOrType) {
         if (!nodeOrType) return "Functions";
         const typeStr = typeof nodeOrType === "string" ? nodeOrType : (nodeOrType.type || nodeOrType.title || "");
-        if (typeStr.includes("/")) {
-            const cat = typeStr.split("/")[0].trim();
-            if (cat) return cat;
+        const raw = typeStr.trim();
+        let cat = "";
+        let subName = raw;
+        if (raw.includes("/")) {
+            const parts = raw.split("/");
+            cat = parts[0].trim();
+            subName = parts.slice(1).join("/").trim();
         }
-        const name = typeStr.trim();
-        if (name === "Main Loop" || name === "MaxLoop" || name === "Module") return "Loops";
-        if (name === "Output" || name === "Previewer" || name === "Benchmark Math" || name === "Script Code" || name === "Cód Script") return "System";
-        if (name === "Define Vars" || name === "Get Var" || name === "Memory" || name === "Sys Var") return "Variables";
-        if (name === "String" || name === "Concatenate" || name === "Dynamic Format") return "String";
-        if (name === "Text" || name.startsWith("Text ")) return "Text";
-        if (name === "MultiTag" || name === "Tag Oscillator") return "Tags";
-        if (name === "Math" || name === "Number" || name === "Number" || name === "Color Picker" || name === "MultiRandom") return "Math";
-        if (name === "Shapes Library" || name === "Shape Slicer" || name === "Shape Transform" || name === "Shape Stroke" || name === "Stroke" || name === "Shape Walker" || name === "Shape Array" || name === "Concentric Borders" || name === "IMG to Shape") return "Shape";
-        if (name === "Audio Modulator" || name === "Audio Waveform") return "Audio";
-        if (name === "Lead In" || name === "Lead Out" || name === "Middle 1" || name === "Middle 2" || name === "Loop 1" || name === "Loop 2" || name === "Time Ipol" || name === "Synced Time" || name === "Offset" || name === "Duración" || name === "Parse ASS Time" || name === "Format ASS Time") return "Time";
-        if (name === "Particles" || name === "IMG to pixels") return "Particles";
+        if (cat === "Basics") return "Basics";
+        if (cat === "Math" || cat === "Text" || cat === "String") {
+            if (subName === "Benchmark Math") return "System";
+            return "Basics";
+        }
+        const basicNames = [
+            "Number", "String", "Text", "Color Picker", "Math", "MultiRandom",
+            "Concatenate", "Dynamic Format", "MultiTag", "Once", "Only",
+            "Número", "Numero", "Cadena de Texto", "Texto", "Selector de Color",
+            "Mates", "Concatenar", "Formato Dinámico", "Formato Dinamico"
+        ];
+        if (basicNames.includes(subName) || basicNames.includes(raw)) return "Basics";
+        if (cat) return cat;
+        if (raw === "Main Loop" || raw === "MaxLoop" || raw === "Module" || raw === "Bucle Principal" || raw === "Bucle Primario") return "Loops";
+        if (raw === "Output" || raw === "Previewer" || raw === "Benchmark Math" || raw === "Script Code" || raw === "Salida" || raw === "Previsualizador" || raw === "Código Script") return "System";
+        if (raw === "Define Vars" || raw === "Get Var" || raw === "Memory" || raw === "Sys Var" || raw === "Definir Variables" || raw === "Obtener Variable" || raw === "Memoria") return "Variables";
+        if (raw === "Tag Oscillator" || raw === "Tag Manipulator" || raw === "Glitter" || raw === "Conditioner" || raw === "Color Gradient" || raw === "Clip Gradient" || raw === "IMG to pixels" || raw === "Move Tag" || raw === "Move Text" || raw === "Animation" || raw === "Bezier Curve" || raw === "Polar to Cartesian" || raw === "Interpolator" || raw === "Text on Path" || raw === "Text to Shape" || raw === "Particles") return "Functions";
+        if (raw === "Library" || raw === "Slicer" || raw === "Transform" || raw === "Stroke" || raw === "Walker" || raw === "Array" || raw === "Union & Divide" || raw === "Multi" || raw === "Manipulator" || raw === "Filter" || raw === "Concentric Borders" || raw === "IMG to Shape") return "Shape";
+        if (raw === "Modulator" || raw === "Waveform" || raw === "Modulador" || raw === "Forma de Onda") return "Audio";
+        if (raw === "Lead In" || raw === "Lead Out" || raw === "Middle 1" || raw === "Middle 2" || raw === "Loop 1" || raw === "Loop 2" || raw === "Ipol" || raw === "Synced" || raw === "Offset" || raw === "Duration" || raw === "Duración" || raw === "Duracion" || raw === "Parse ASS Time" || raw === "Format ASS Time" || raw === "Time to Frame" || raw === "Frame to Time" || raw === "Retime" || raw === "Tiempo a Frame" || raw === "Frame a Tiempo") return "Time";
         return "Functions";
     };
 
@@ -50,7 +57,7 @@
         teal: {
             id: "teal",
             name: "Oceanic Teal",
-            desc: "Paleta verde azulado, pizarra y azul marino",
+            desc: "Teal, slate and deep navy palette",
             isDefault: true,
             canvasBg: "#081116",
             panelBg: "#101d24",
@@ -66,6 +73,7 @@
             colors: ["#22858C", "#548C87", "#6A778C", "#3A628C", "#105A8C"],
             nodeBgGradient: { start: "#112028", end: "#091217" },
             categories: {
+                "Basics": { color: "#548C87", gradientEnd: "#67aba5" },
                 "Loops": { color: "#22858C", gradientEnd: "#2ba6af" },
                 "System": { color: "#105A8C", gradientEnd: "#1775b3" },
                 "Variables": { color: "#3A628C", gradientEnd: "#497bb0" },
@@ -75,7 +83,6 @@
                 "Functions": { color: "#22858C", gradientEnd: "#2ba6af" },
                 "Shape": { color: "#105A8C", gradientEnd: "#1775b3" },
                 "Time": { color: "#3A628C", gradientEnd: "#497bb0" },
-                "Tags": { color: "#548C87", gradientEnd: "#67aba5" },
                 "Audio": { color: "#22858C", gradientEnd: "#2ba6af" },
                 "Particles": { color: "#105A8C", gradientEnd: "#1775b3" },
                 "Meta": { color: "#548C87", gradientEnd: "#67aba5" }
@@ -84,7 +91,7 @@
         violet: {
             id: "violet",
             name: "Twilight Violet",
-            desc: "Paleta amatista, violeta e índigo profundo",
+            desc: "Amethyst, violet and deep indigo palette",
             isDefault: true,
             canvasBg: "#0c0914",
             panelBg: "#171324",
@@ -100,6 +107,7 @@
             colors: ["#67298C", "#6F6A8C", "#83558C", "#452E8C", "#663F8C"],
             nodeBgGradient: { start: "#181426", end: "#0d0a17" },
             categories: {
+                "Basics": { color: "#663F8C", gradientEnd: "#8052ad" },
                 "Loops": { color: "#67298C", gradientEnd: "#8439b0" },
                 "System": { color: "#452E8C", gradientEnd: "#5d3fb8" },
                 "Variables": { color: "#83558C", gradientEnd: "#9e6ba8" },
@@ -109,7 +117,6 @@
                 "Functions": { color: "#67298C", gradientEnd: "#8439b0" },
                 "Shape": { color: "#452E8C", gradientEnd: "#5d3fb8" },
                 "Time": { color: "#83558C", gradientEnd: "#9e6ba8" },
-                "Tags": { color: "#663F8C", gradientEnd: "#8052ad" },
                 "Audio": { color: "#6F6A8C", gradientEnd: "#8782a6" },
                 "Particles": { color: "#452E8C", gradientEnd: "#5d3fb8" },
                 "Meta": { color: "#83558C", gradientEnd: "#9e6ba8" }
@@ -118,7 +125,7 @@
         crimson: {
             id: "crimson",
             name: "Crimson Ember",
-            desc: "Paleta carmesí, vino, ámbar y terracota",
+            desc: "Crimson, wine, amber and terracotta palette",
             isDefault: true,
             canvasBg: "#120908",
             panelBg: "#1c1010",
@@ -134,6 +141,7 @@
             colors: ["#8C1B0D", "#8C3742", "#8C3B19", "#8C0E5B", "#8C5C3C"],
             nodeBgGradient: { start: "#1c1212", end: "#100a0a" },
             categories: {
+                "Basics": { color: "#8C5C3C", gradientEnd: "#a8714c" },
                 "Loops": { color: "#8C3B19", gradientEnd: "#a64d24" },
                 "System": { color: "#8C1B0D", gradientEnd: "#b02615" },
                 "Variables": { color: "#8C0E5B", gradientEnd: "#ad1774" },
@@ -143,7 +151,6 @@
                 "Functions": { color: "#8C0E5B", gradientEnd: "#ad1774" },
                 "Shape": { color: "#8C3742", gradientEnd: "#a84754" },
                 "Time": { color: "#8C3B19", gradientEnd: "#a64d24" },
-                "Tags": { color: "#8C1B0D", gradientEnd: "#b02615" },
                 "Audio": { color: "#8C5C3C", gradientEnd: "#a8714c" },
                 "Particles": { color: "#8C1B0D", gradientEnd: "#b02615" },
                 "Meta": { color: "#8C3B19", gradientEnd: "#a64d24" }
@@ -153,10 +160,10 @@
 
     function showPyxisConfirm(options = {}) {
         const {
-            title = (window.t ? window.t("common.confirm") : "Confirmación"),
-            message = (window.t ? window.t("common.confirm_question", null, "¿Estás seguro de realizar esta acción?") : "¿Estás seguro de realizar esta acción?"),
-            confirmText = (window.t ? window.t("common.confirm") : "Aceptar"),
-            cancelText = (window.t ? window.t("common.cancel") : "Cancelar"),
+            title = (window.t ? window.t("common.confirm") : "Confirmation"),
+            message = (window.t ? window.t("common.confirm_question", null, "Are you sure you want to proceed?") : "Are you sure you want to proceed?"),
+            confirmText = (window.t ? window.t("common.confirm") : "Confirm"),
+            cancelText = (window.t ? window.t("common.cancel") : "Cancel"),
             isDanger = true,
             onConfirm = null,
             onCancel = null
@@ -168,7 +175,7 @@
         const overlay = document.createElement("div");
         overlay.id = "pyxis-confirm-modal";
         overlay.className = "pyxis-modal-overlay";
-        overlay.style.setProperty("z-index", "100000000", "important");
+        overlay.style.setProperty("z-index", "5000000", "important");
 
         overlay.innerHTML = `
             <div class="pyxis-modal-dialog" style="width: 440px; max-width: 90vw; padding: 22px; gap: 16px; border: 1px solid ${isDanger ? 'rgba(239, 68, 68, 0.4)' : 'var(--border-subtle)'}; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);">
@@ -263,6 +270,49 @@
         await syncCustomThemesWithBackend();
     });
 
+    function hexToHsl(hex) {
+        if (!hex || typeof hex !== "string") return [0, 0, 0.5];
+        let c = hex.replace("#", "").trim();
+        if (c.length === 3) c = c.split("").map(x => x + x).join("");
+        if (c.length !== 6) return [0, 0, 0.5];
+        const r = parseInt(c.substring(0, 2), 16) / 255;
+        const g = parseInt(c.substring(2, 4), 16) / 255;
+        const b = parseInt(c.substring(4, 6), 16) / 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h = 0, s = 0, l = (max + min) / 2;
+        if (max !== min) {
+            const d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h *= 60;
+        }
+        return [h, s, l];
+    }
+
+    function hslToHex(h, s, l) {
+        h = ((h % 360) + 360) % 360;
+        s = Math.max(0, Math.min(1, s));
+        l = Math.max(0, Math.min(1, l));
+        const c = (1 - Math.abs(2 * l - 1)) * s;
+        const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+        const m = l - c / 2;
+        let r1 = 0, g1 = 0, b1 = 0;
+        if (h < 60) { r1 = c; g1 = x; }
+        else if (h < 120) { r1 = x; g1 = c; }
+        else if (h < 180) { g1 = c; b1 = x; }
+        else if (h < 240) { g1 = x; b1 = c; }
+        else if (h < 300) { r1 = x; b1 = c; }
+        else { r1 = c; b1 = x; }
+        const r = Math.round((r1 + m) * 255);
+        const g = Math.round((g1 + m) * 255);
+        const b = Math.round((b1 + m) * 255);
+        return "#" + [r, g, b].map(v => v.toString(16).padStart(2, "0")).join("");
+    }
+
     function applyTheme(themeId) {
         if (!THEMES[themeId]) themeId = "teal";
         currentTheme = themeId;
@@ -274,7 +324,6 @@
 
         const root = document.documentElement;
         
-        // Aplicar variables CSS completas tanto para temas oficiales como personalizados
         const canvasBg = themeData.canvasBg || "#0d0f12";
         const panelBg = themeData.panelBg || "#161b22";
         const topbarBg = themeData.topbarBg || panelBg;
@@ -291,7 +340,6 @@
         root.style.setProperty("--text-main", textMain);
         root.style.setProperty("--text-muted", textMuted);
 
-        // Acentos y Degradados de Botones e Interfaz
         const priStart = themeData.accentPrimary || "#10b981";
         const priEnd = themeData.accentPrimaryEnd || themeData.accentSecondary || "#3b82f6";
         root.style.setProperty("--accent-primary", priStart);
@@ -309,7 +357,27 @@
         root.style.setProperty("--accent-secondary-end", secGlow);
         root.style.setProperty("--accent-secondary-gradient", `linear-gradient(135deg, ${secStart} 0%, ${secGlow} 100%)`);
 
-        // Sincronizar colores globales de categoría
+        const [h1, s1] = hexToHsl(priStart);
+        const [h2, s2] = hexToHsl(secGlow);
+
+        const cLead = hslToHex(h1, Math.max(s1, 0.88), 0.58);
+        let diffH = h2 - h1;
+        if (diffH > 180) diffH -= 360;
+        else if (diffH < -180) diffH += 360;
+        const hMid = h1 + diffH * 0.5;
+        const cCore = hslToHex(hMid, 0.94, 0.74);
+        const cBody = hslToHex(h2, Math.max(s2, 0.90), 0.64);
+        const cTail = hslToHex(h2 + 15, Math.max(s2, 0.85), 0.52);
+        root.style.setProperty("--theme-shimmer-1", cLead);
+        root.style.setProperty("--theme-shimmer-2", cCore);
+        root.style.setProperty("--theme-shimmer-3", cBody);
+        root.style.setProperty("--theme-shimmer-4", cTail);
+
+        const centerDark = hslToHex(h1, 0.40, 0.07);
+        const edgeSaturated = hslToHex(h1, 0.96, 0.36);
+        const finishRadial = `radial-gradient(ellipse at center, ${centerDark} 25%, ${edgeSaturated} 100%)`;
+        root.style.setProperty("--btn-finish-radial", finishRadial);
+
         const catColors = {};
         const catGradients = {};
         if (themeData.categories) {
@@ -324,14 +392,30 @@
                 }
             });
         }
+        if (!catColors["Basics"]) {
+            const fallbackCat = themeData.categories && (themeData.categories["Math"] || themeData.categories["Text"] || themeData.categories["String"]);
+            if (fallbackCat) {
+                const col = (typeof fallbackCat === "object" ? fallbackCat.color : fallbackCat) || themeData.accentPrimary || "#548C87";
+                const grad = (typeof fallbackCat === "object" ? (fallbackCat.gradientEnd || fallbackCat.color) : fallbackCat) || themeData.accentPrimaryEnd || "#67aba5";
+                catColors["Basics"] = col;
+                catGradients["Basics"] = { color: col, gradientEnd: grad };
+            } else {
+                catColors["Basics"] = themeData.accentPrimary || "#548C87";
+                catGradients["Basics"] = { color: themeData.accentPrimary || "#548C87", gradientEnd: themeData.accentPrimaryEnd || "#67aba5" };
+            }
+        }
+        ["Math", "Text", "String"].forEach(legacyCat => {
+            if (!catColors[legacyCat] && catColors["Basics"]) {
+                catColors[legacyCat] = catColors["Basics"];
+                catGradients[legacyCat] = catGradients["Basics"];
+            }
+        });
         window.CATEGORY_COLORS = catColors;
         window.CATEGORY_GRADIENTS = catGradients;
 
-        // Actualizar canvas y nodos de LiteGraph si están presentes
         if (window.canvas) {
             window.canvas.background_color = canvasBg;
 
-            // Configurar colores y resplandor (glow) de cables en LiteGraph
             window.canvas.default_link_color = secStart;
             window.canvas.link_glow_color = secGlow;
 
@@ -402,7 +486,7 @@
             try {
                 await window.pywebview.api.save_custom_theme(themeObj);
             } catch (e) {
-                console.warn("Pyxis: Error al guardar tema en backend", e);
+                console.warn("Pyxis: Error saving theme to backend", e);
             }
         }
         if (shouldApply) {
@@ -427,7 +511,7 @@
             try {
                 await window.pywebview.api.delete_custom_theme(themeId);
             } catch(e) {
-                console.warn("Pyxis: Error al borrar tema en backend", e);
+                console.warn("Pyxis: Error deleting theme from backend", e);
             }
         }
         if (currentTheme === themeId) {
@@ -437,7 +521,6 @@
         return true;
     }
 
-    // Modal de Edición de Temas Personalizados
     function openThemeEditorModal(themeIdToEdit) {
         const existing = document.getElementById("pyxis-theme-editor-modal");
         if (existing) existing.remove();
@@ -446,24 +529,21 @@
 
         let editingTheme;
         if (themeIdToEdit && customThemes[themeIdToEdit]) {
-            // Editar tema personalizado existente
             editingTheme = JSON.parse(JSON.stringify(customThemes[themeIdToEdit]));
         } else if (themeIdToEdit && DEFAULT_THEMES[themeIdToEdit]) {
-            // Clonar preset predefinido
             const basePreset = DEFAULT_THEMES[themeIdToEdit];
             editingTheme = JSON.parse(JSON.stringify(basePreset));
             editingTheme.id = "custom_" + Date.now();
-            editingTheme.name = (basePreset.name || "Tema") + " (Copia)";
-            editingTheme.desc = "Tema personalizado basado en " + (basePreset.name || "Tema");
+            editingTheme.name = (basePreset.name || "Theme") + " (Copy)";
+            editingTheme.desc = "Custom theme based on " + (basePreset.name || "Theme");
             editingTheme.isCustom = true;
             delete editingTheme.isDefault;
         } else {
-            // Crear nuevo tema desde cero con valores por defecto (Default/Teal)
             const defaultBase = DEFAULT_THEMES.teal || Object.values(DEFAULT_THEMES)[0];
             editingTheme = JSON.parse(JSON.stringify(defaultBase));
             editingTheme.id = "custom_" + Date.now();
-            editingTheme.name = window.t ? window.t("theme_editor.new_theme_default_name") : "Mi Tema Personalizado";
-            editingTheme.desc = window.t ? window.t("theme_editor.new_theme_desc") : "Tema personalizado";
+            editingTheme.name = window.t ? window.t("theme_editor.new_theme_default_name") : "My Custom Theme";
+            editingTheme.desc = window.t ? window.t("theme_editor.new_theme_desc") : "Custom theme";
             editingTheme.isCustom = true;
             delete editingTheme.isDefault;
         }
@@ -472,7 +552,7 @@
         modal.id = "pyxis-theme-editor-modal";
         modal.className = "pyxis-modal-overlay";
 
-        const categoryList = ["Loops", "System", "Variables", "String", "Text", "Math", "Functions", "Shape", "Time", "Tags", "Audio", "Particles", "Meta"];
+        const categoryList = ["Basics", "Loops", "System", "Variables", "String", "Text", "Math", "Functions", "Shape", "Time", "Audio", "Particles", "Meta"];
 
         function createColorFieldHtml(fieldId, currentHex, dataCat = "", dataProp = "", title = "Color") {
             const hex = (currentHex || "#10B981").toUpperCase();
@@ -509,7 +589,7 @@
                     <span class="theme-editor-cat-title">${window.t ? window.t("theme_editor.accent_primary_title") : "Acento Primario (Botones, Resplandores y Destacados)"}</span>
                     <div class="theme-editor-cat-badge" id="ui-badge-pri" style="background: linear-gradient(135deg, ${priStartVal} 0%, ${priEndVal} 100%);">
                         <span class="cat-badge-dot" style="background:#ffffff;"></span>
-                        <span>${window.t ? window.t("theme_editor.badge_btn_accent") : "Botón / Acento"}</span>
+                        <span>${window.t ? window.t("theme_editor.badge_btn_accent") : "Button / Accent"}</span>
                     </div>
                 </div>
                 <div class="theme-editor-cat-body">
@@ -529,7 +609,7 @@
 
             <div class="theme-editor-cat-card" style="grid-column: 1 / -1;">
                 <div class="theme-editor-cat-header">
-                    <span class="theme-editor-cat-title">${window.t ? window.t("theme_editor.wires_title") : "Cables y Conexiones de Nodos"}</span>
+                    <span class="theme-editor-cat-title">${window.t ? window.t("theme_editor.wires_title") : "Wires and Node Connections"}</span>
                     <div class="theme-editor-cat-badge" id="ui-badge-sec" style="background: ${secStartVal}; box-shadow: 0 0 10px ${secGlowVal};">
                         <span class="cat-badge-dot" style="background:#ffffff; box-shadow: 0 0 4px ${secGlowVal};"></span>
                         <span>${window.t ? window.t("theme_editor.badge_wires") : "Cables / Enlaces"}</span>
@@ -538,7 +618,7 @@
                 <div class="theme-editor-cat-body">
                     <div class="theme-editor-cat-col">
                         <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.wire_color") : "Color del Cable:"}</span>
-                        ${createColorFieldHtml("accentSecondary", secStartVal, "", "", window.t ? window.t("theme_editor.field_wire") : "Color del Cable (Línea Principal)")}
+                        ${createColorFieldHtml("accentSecondary", secStartVal, "", "", window.t ? window.t("theme_editor.field_wire") : "Wire Color (Main Line)")}
                     </div>
                     <button type="button" class="pyxis-cat-swap-btn" id="btn-swap-sec" title="${window.t ? window.t("theme_editor.swap_sec_tooltip") : "Intercambiar color del cable y resplandor"}">
                         <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
@@ -552,73 +632,73 @@
 
             <div class="theme-editor-cat-card" style="grid-column: 1 / -1;">
                 <div class="theme-editor-cat-header">
-                    <span class="theme-editor-cat-title">${window.t ? window.t("theme_editor.node_bg_title") : "Fondo del Cuerpo de Tarjetas y Nodos"}</span>
+                    <span class="theme-editor-cat-title">${window.t ? window.t("theme_editor.node_bg_title") : "Node and Card Body Background"}</span>
                     <div class="theme-editor-cat-badge" id="ui-badge-nodebg" style="background: linear-gradient(180deg, ${nodeBgStartVal} 0%, ${nodeBgEndVal} 100%);">
                         <span class="cat-badge-dot" style="background:#ffffff;"></span>
-                        <span>${window.t ? window.t("theme_editor.badge_node_body") : "Cuerpo de Nodo"}</span>
+                        <span>${window.t ? window.t("theme_editor.badge_node_body") : "Node Body"}</span>
                     </div>
                 </div>
                 <div class="theme-editor-cat-body">
                     <div class="theme-editor-cat-col">
                         <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.top_start") : "Inicio (Superior):"}</span>
-                        ${createColorFieldHtml("nodeStart", nodeBgStartVal, "", "", window.t ? window.t("theme_editor.field_node_start") : "Fondo de Tarjeta (Inicio)")}
+                        ${createColorFieldHtml("nodeStart", nodeBgStartVal, "", "", window.t ? window.t("theme_editor.field_node_start") : "Card Background (Start)")}
                     </div>
                     <button type="button" class="pyxis-cat-swap-btn" id="btn-swap-nodebg" title="${window.t ? window.t("theme_editor.swap_colors") : "Intercambiar inicio y fin"}">
                         <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                     </button>
                     <div class="theme-editor-cat-col">
                         <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.bottom_end") : "Fin (Inferior):"}</span>
-                        ${createColorFieldHtml("nodeEnd", nodeBgEndVal, "", "", window.t ? window.t("theme_editor.field_node_end") : "Fondo de Tarjeta (Fin)")}
+                        ${createColorFieldHtml("nodeEnd", nodeBgEndVal, "", "", window.t ? window.t("theme_editor.field_node_end") : "Card Background (End)")}
                     </div>
                 </div>
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.canvas_bg") : "Fondo del Canvas"}</span>
-                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.canvas_bg_sub") : "Superficie de trabajo"}</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.canvas_bg") : "Canvas Background"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.canvas_bg_sub") : "Working surface"}</span>
                 </div>
-                ${createColorFieldHtml("canvasBg", canvasBgVal, "", "", window.t ? window.t("theme_editor.canvas_bg") : "Fondo del Canvas")}
+                ${createColorFieldHtml("canvasBg", canvasBgVal, "", "", window.t ? window.t("theme_editor.canvas_bg") : "Canvas Background")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.panel_bg") : "Fondo de Paneles"}</span>
-                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.panel_bg_sub") : "Barras laterales y modales"}</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.panel_bg") : "Panel Background"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.panel_bg_sub") : "Sidebars and modals"}</span>
                 </div>
-                ${createColorFieldHtml("panelBg", panelBgVal, "", "", window.t ? window.t("theme_editor.panel_bg") : "Fondo de Paneles")}
+                ${createColorFieldHtml("panelBg", panelBgVal, "", "", window.t ? window.t("theme_editor.panel_bg") : "Panel Background")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.topbar_bg") : "Barra Superior"}</span>
-                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.topbar_bg_sub") : "Top bar de herramientas"}</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.topbar_bg") : "Top Toolbar"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.topbar_bg_sub") : "Top toolbar"}</span>
                 </div>
-                ${createColorFieldHtml("topbarBg", topbarBgVal, "", "", window.t ? window.t("theme_editor.topbar_bg") : "Fondo de Barra Superior")}
+                ${createColorFieldHtml("topbarBg", topbarBgVal, "", "", window.t ? window.t("theme_editor.topbar_bg") : "Topbar Background Color")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.input_bg") : "Fondo de Entradas"}</span>
-                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.input_bg_sub") : "Inputs y cajas de texto"}</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.input_bg") : "Input Background"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.input_bg_sub") : "Inputs and text boxes"}</span>
                 </div>
-                ${createColorFieldHtml("inputBg", inputBgVal, "", "", window.t ? window.t("theme_editor.input_bg") : "Fondo de Entradas e Inputs")}
+                ${createColorFieldHtml("inputBg", inputBgVal, "", "", window.t ? window.t("theme_editor.input_bg") : "Inputs Background")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.text_main") : "Texto Principal"}</span>
-                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.text_main_sub") : "Títulos y valores"}</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.text_main") : "Main Text"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.text_main_sub") : "Headings and values"}</span>
                 </div>
-                ${createColorFieldHtml("textMain", textMainVal, "", "", window.t ? window.t("theme_editor.text_main") : "Texto Principal")}
+                ${createColorFieldHtml("textMain", textMainVal, "", "", window.t ? window.t("theme_editor.text_main") : "Main Text")}
             </div>
 
             <div class="theme-editor-item">
                 <div class="theme-editor-item-info">
-                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.text_muted") : "Texto Secundario"}</span>
-                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.text_muted_sub") : "Etiquetas y notas"}</span>
+                    <span class="theme-editor-item-label">${window.t ? window.t("theme_editor.text_muted") : "Muted Text"}</span>
+                    <span class="theme-editor-item-sub">${window.t ? window.t("theme_editor.text_muted_sub") : "Labels and notes"}</span>
                 </div>
-                ${createColorFieldHtml("textMuted", textMutedVal, "", "", window.t ? window.t("theme_editor.text_muted") : "Texto Secundario")}
+                ${createColorFieldHtml("textMuted", textMutedVal, "", "", window.t ? window.t("theme_editor.text_muted") : "Muted Text")}
             </div>
         `;
 
@@ -627,26 +707,26 @@
                 <div class="global-cat-info">
                     <span class="global-cat-title">
                         <svg class="svg-icon" viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--accent-primary);"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-                        ${window.t ? window.t("theme_editor.homogenize_title") : "Homogeneizar Todos los Nodos"}
+                        ${window.t ? window.t("theme_editor.homogenize_title") : "Homogenize All Nodes"}
                     </span>
-                    <span class="global-cat-desc">${window.t ? window.t("theme_editor.homogenize_desc") : "Asigna el mismo color o degradado a todos los 13 tipos de nodos con un solo clic."}</span>
+                    <span class="global-cat-desc">${window.t ? window.t("theme_editor.homogenize_desc") : "Assigns the same color or gradient to all 13 node types with a single click."}</span>
                 </div>
                 <div class="global-cat-controls">
-                    <div class="pyxis-color-field" title="${window.t ? window.t("theme_editor.global_cat_start_tooltip") : "Color Inicio Global"}">
+                    <div class="pyxis-color-field" title="${window.t ? window.t("theme_editor.global_cat_start_tooltip") : "Global Start Color"}">
                         <div class="pyxis-color-chip" id="global-cat-chip-col" style="background-color: #8B5CF6;">
                             <input type="color" class="pyxis-color-native-input" id="global-cat-native-col" value="#8B5CF6">
                         </div>
                         <input type="text" class="pyxis-color-hex-text" id="global-cat-col-inp" value="#8B5CF6" maxlength="7" spellcheck="false">
                     </div>
-                    <div class="pyxis-color-field" title="${window.t ? window.t("theme_editor.global_cat_end_tooltip") : "Color Fin / Degradado Global"}">
+                    <div class="pyxis-color-field" title="${window.t ? window.t("theme_editor.global_cat_end_tooltip") : "Global End / Gradient Color"}">
                         <div class="pyxis-color-chip" id="global-cat-chip-grad" style="background-color: #6366F1;">
                             <input type="color" class="pyxis-color-native-input" id="global-cat-native-grad" value="#6366F1">
                         </div>
                         <input type="text" class="pyxis-color-hex-text" id="global-cat-grad-inp" value="#6366F1" maxlength="7" spellcheck="false">
                     </div>
-                    <button type="button" class="pyxis-btn pyxis-btn-primary" id="btn-apply-all-categories" title="${window.t ? window.t("theme_editor.apply_all_tooltip") : "Aplicar a todas las categorías"}">
+                    <button type="button" class="pyxis-btn pyxis-btn-primary" id="btn-apply-all-categories" title="${window.t ? window.t("theme_editor.apply_all_tooltip") : "Apply to all categories"}">
                         <svg class="svg-icon" viewBox="0 0 24 24" style="width:14px;height:14px;stroke-width:2.5;fill:none;"><polyline points="20 6 9 17 4 12"/></svg>
-                        <span>${window.t ? window.t("theme_editor.apply_all") : "Aplicar a Todos"}</span>
+                        <span>${window.t ? window.t("theme_editor.apply_all") : "Apply to All"}</span>
                     </button>
                 </div>
             </div>
@@ -657,8 +737,8 @@
             const col = (typeof catData === "object" ? catData.color : catData) || "#3b82f6";
             const grad = (typeof catData === "object" ? (catData.gradientEnd || col) : col) || "#1d4ed8";
             const catTitle = window.PyxisI18n ? window.PyxisI18n.getCategoryTitle(cat) : cat;
-            const startTooltip = window.t ? window.t("theme_editor.cat_start_tooltip", { cat: catTitle }) : `Color inicial para ${catTitle}`;
-            const endTooltip = window.t ? window.t("theme_editor.cat_end_tooltip", { cat: catTitle }) : `Gradiente/Borde para ${catTitle}`;
+            const startTooltip = window.t ? window.t("theme_editor.cat_start_tooltip", { cat: catTitle }) : `Start color for ${catTitle}`;
+            const endTooltip = window.t ? window.t("theme_editor.cat_end_tooltip", { cat: catTitle }) : `Gradient/Border color for ${catTitle}`;
             categoryPickersHtml += `
                 <div class="theme-editor-cat-card" data-cat="${cat}">
                     <div class="theme-editor-cat-header">
@@ -670,14 +750,14 @@
                     </div>
                     <div class="theme-editor-cat-body">
                         <div class="theme-editor-cat-col">
-                            <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.start_color") : "Inicio:"}</span>
+                            <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.start_color") : "Start:"}</span>
                             ${createColorFieldHtml(`cat_${cat}_col`, col, cat, "color", startTooltip)}
                         </div>
-                        <button type="button" class="pyxis-cat-swap-btn" data-swap-cat="${cat}" title="${window.t ? window.t("theme_editor.swap_cat_tooltip") : "Intercambiar colores"}">
+                        <button type="button" class="pyxis-cat-swap-btn" data-swap-cat="${cat}" title="${window.t ? window.t("theme_editor.swap_cat_tooltip") : "Swap colors"}">
                             <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                         </button>
                         <div class="theme-editor-cat-col">
-                            <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.bottom_end") : "Fin:"}</span>
+                            <span class="theme-editor-col-lbl">${window.t ? window.t("theme_editor.bottom_end") : "End:"}</span>
                             ${createColorFieldHtml(`cat_${cat}_grad`, grad, cat, "gradientEnd", endTooltip)}
                         </div>
                     </div>
@@ -690,33 +770,33 @@
                 <div class="pyxis-modal-header">
                     <div class="pyxis-modal-title">
                         <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg>
-                        <span>${window.t ? window.t("theme_editor.modal_title") : "Editor de Colores y Temas Personalizados"}</span>
+                        <span>${window.t ? window.t("theme_editor.modal_title") : "Custom Themes and Colors Editor"}</span>
                     </div>
                     <button class="pyxis-modal-close" id="btn-close-theme-editor">
                         <svg class="svg-icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
                 </div>
 
-                <!-- Nombre y Plantilla Base -->
+                <!-- Theme Name and Base Preset -->
                 <div style="display: flex; gap: 12px; margin-bottom: 14px;">
                     <div style="flex: 1;">
-                        <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">${window.t ? window.t("theme_editor.name") : "Nombre del Tema:"}</label>
+                        <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">${window.t ? window.t("theme_editor.name") : "Theme Name:"}</label>
                         <input type="text" id="theme-edit-name" value="${editingTheme.name}" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%; box-sizing: border-box; outline: none;">
                     </div>
                     <div style="width: 210px;">
-                        <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">${window.t ? window.t("theme_editor.load_base_preset") : "Cargar Plantilla Base:"}</label>
+                        <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">${window.t ? window.t("theme_editor.load_base_preset") : "Load Base Preset:"}</label>
                         <select id="theme-edit-preset-select" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%; outline: none; cursor: pointer;">
-                            <option value="">${window.t ? window.t("theme_editor.select_base") : "-- Seleccionar Base --"}</option>
+                            <option value="">${window.t ? window.t("theme_editor.select_base") : "-- Select Base --"}</option>
                             ${Object.keys(DEFAULT_THEMES).map(k => `<option value="${k}">${DEFAULT_THEMES[k].name}</option>`).join('')}
                         </select>
                     </div>
                 </div>
 
-                <!-- Previsualización de Nodos & Canvas -->
+                <!-- Node & Canvas Preview -->
                 <div class="theme-editor-mock-container">
                     <div class="theme-editor-mock-title">
                         <svg class="svg-icon" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                        <span>${window.t ? window.t("theme_editor.preview") : "VISTA PREVIA"}</span>
+                        <span>${window.t ? window.t("theme_editor.preview") : "PREVIEW"}</span>
                     </div>
                     <div class="theme-editor-mock-canvas" id="theme-mock-canvas" style="background-color: ${editingTheme.canvasBg || '#0d0f12'};">
                         <div class="theme-mock-node" id="theme-mock-node" style="background-color: ${editingTheme.nodeBgGradient ? editingTheme.nodeBgGradient.start : '#141a17'};">
@@ -729,10 +809,10 @@
                             </div>
                             <div class="theme-mock-node-body" id="theme-mock-body" style="color: ${textMainVal};">
                                 <div class="mock-slot-row">
-                                    <span style="display: inline-flex; align-items: center; gap: 4px;"><span class="mock-slot-dot" style="background: ${priStartVal}; box-shadow: 0 0 8px ${priStartVal};"></span> ${window.t ? window.t("theme_editor.preview_input") : "Entrada ASS"}</span>
-                                    <span style="display: inline-flex; align-items: center; gap: 4px;">${window.t ? window.t("theme_editor.preview_output") : "Salida"} <span class="mock-slot-dot out" id="theme-mock-slot-out" style="background: ${secStartVal}; box-shadow: 0 0 8px ${secGlowVal};"></span></span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;"><span class="mock-slot-dot" style="background: ${priStartVal}; box-shadow: 0 0 8px ${priStartVal};"></span> ${window.t ? window.t("theme_editor.preview_input") : "ASS Input"}</span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">${window.t ? window.t("theme_editor.preview_output") : "Output"} <span class="mock-slot-dot out" id="theme-mock-slot-out" style="background: ${secStartVal}; box-shadow: 0 0 8px ${secGlowVal};"></span></span>
                                 </div>
-                                <button type="button" class="mock-widget-btn" id="theme-mock-widget-btn" style="background: linear-gradient(135deg, ${priStartVal} 0%, ${priEndVal} 100%);">${window.t ? window.t("theme_editor.preview_action") : "Ejecutar Acción"}</button>
+                                <button type="button" class="mock-widget-btn" id="theme-mock-widget-btn" style="background: linear-gradient(135deg, ${priStartVal} 0%, ${priEndVal} 100%);">${window.t ? window.t("theme_editor.preview_action") : "Execute Action"}</button>
                             </div>
                         </div>
                         <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
@@ -741,14 +821,14 @@
                                     <path id="theme-mock-wire" d="M 0 20 C 70 20, 90 20, 160 20" fill="none" stroke="${secStartVal}" stroke-width="3.5" stroke-linecap="round" style="filter: drop-shadow(0 0 6px ${secGlowVal});"/>
                                 </svg>
                             </div>
-                            <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("theme_editor.preview_hint") : "Los cambios se reflejan en tiempo real tanto en esta tarjeta como en el canvas y los botones de Pyxis."}</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("theme_editor.preview_hint") : "Changes are reflected in real time on this card, canvas, and Pyxis buttons."}</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="pyxis-theme-tabs">
-                    <button class="pyxis-theme-tab active" data-tab="tab-ui-colors">${window.t ? window.t("theme_editor.tab_ui") : "Colores de Interfaz y Canvas (UI)"}</button>
-                    <button class="pyxis-theme-tab" data-tab="tab-cat-colors">${window.t ? window.t("theme_editor.tab_categories") : "Cabeceras y Categorías de Nodos"}</button>
+                    <button class="pyxis-theme-tab active" data-tab="tab-ui-colors">${window.t ? window.t("theme_editor.tab_ui") : "Interface & Canvas Colors (UI)"}</button>
+                    <button class="pyxis-theme-tab" data-tab="tab-cat-colors">${window.t ? window.t("theme_editor.tab_categories") : "Node Headers & Categories"}</button>
                 </div>
 
                 <div class="pyxis-theme-editor-content">
@@ -767,26 +847,26 @@
 
                 <div class="pyxis-modal-actions" style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; gap: 8px;">
-                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-export" title="${window.t ? window.t("theme_editor.export_tooltip") : "Exportar archivo de tema a disco"}">
+                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-export" title="${window.t ? window.t("theme_editor.export_tooltip") : "Export theme file to disk"}">
                             <svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                            <span>${window.t ? window.t("theme_editor.export_btn") : "Exportar Archivo"}</span>
+                            <span>${window.t ? window.t("theme_editor.export_btn") : "Export File"}</span>
                         </button>
-                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-import" title="${window.t ? window.t("theme_editor.import_tooltip") : "Importar archivo de tema desde disco"}">
+                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-import" title="${window.t ? window.t("theme_editor.import_tooltip") : "Import theme file from disk"}">
                             <svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                            <span>${window.t ? window.t("theme_editor.import_btn") : "Importar Archivo"}</span>
+                            <span>${window.t ? window.t("theme_editor.import_btn") : "Import File"}</span>
                         </button>
                         ${editingTheme.isCustom ? `
-                            <button class="pyxis-btn pyxis-btn-danger" id="btn-theme-delete" title="${window.t ? window.t("theme_editor.delete_tooltip") : "Eliminar tema personalizado"}">
+                            <button class="pyxis-btn pyxis-btn-danger" id="btn-theme-delete" title="${window.t ? window.t("theme_editor.delete_tooltip") : "Delete custom theme"}">
                                 <svg class="svg-icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                <span>${window.t ? window.t("theme_editor.delete_btn") : "Eliminar"}</span>
+                                <span>${window.t ? window.t("theme_editor.delete_btn") : "Delete"}</span>
                             </button>
                         ` : ''}
                     </div>
                     <div style="display: flex; gap: 8px;">
-                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-cancel">${window.t ? window.t("theme_editor.cancel") : "Cancelar"}</button>
+                        <button class="pyxis-btn pyxis-btn-secondary" id="btn-theme-cancel">${window.t ? window.t("theme_editor.cancel") : "Cancel"}</button>
                         <button class="pyxis-btn pyxis-btn-primary" id="btn-theme-save">
                             <svg class="svg-icon" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                            <span>${window.t ? window.t("theme_editor.save") : "Guardar Tema"}</span>
+                            <span>${window.t ? window.t("theme_editor.save") : "Save Theme"}</span>
                         </button>
                     </div>
                 </div>
@@ -796,7 +876,7 @@
         document.body.appendChild(modal);
 
         function updateLivePreview() {
-            editingTheme.name = modal.querySelector("#theme-edit-name").value || "Tema Personalizado";
+            editingTheme.name = modal.querySelector("#theme-edit-name").value || "Custom Theme";
             
             const getVal = (id, fallback) => {
                 const inp = modal.querySelector(`.pyxis-color-hex-text[data-field-id="${id}"]`);
@@ -837,7 +917,6 @@
 
             editingTheme.colors = [editingTheme.canvasBg, editingTheme.panelBg, priStart, secStart];
 
-            // Actualizar vista previa interactiva interna
             const mockCanvas = modal.querySelector("#theme-mock-canvas");
             if (mockCanvas) mockCanvas.style.backgroundColor = editingTheme.canvasBg;
 
@@ -883,7 +962,6 @@
                 mockWire.style.filter = `drop-shadow(0 0 6px ${secGlow})`;
             }
 
-            // Aplicar tema en vivo en LiteGraph
             THEMES[editingTheme.id] = editingTheme;
             applyTheme(editingTheme.id);
         }
@@ -942,7 +1020,6 @@
             updateLivePreview();
         }
 
-        // Conectar inputs de color nativos y textos HEX
         modal.querySelectorAll(".pyxis-color-native-input").forEach(inp => {
             inp.addEventListener("input", function() {
                 setFieldColor(this, this.value);
@@ -966,7 +1043,6 @@
             });
         });
 
-        // Auto-seleccionar texto al hacer clic o foco en cajas de texto y números
         modal.querySelectorAll("input[type='text'], input[type='number']").forEach(inp => {
             inp.addEventListener("focus", function() {
                 this.select();
@@ -976,7 +1052,6 @@
             });
         });
 
-        // Conectar botones Pro Color Picker
         modal.querySelectorAll(".pyxis-color-pro-btn").forEach(btn => {
             btn.addEventListener("click", function(e) {
                 const field = this.closest(".pyxis-color-field");
@@ -1002,7 +1077,6 @@
             });
         });
 
-        // Conectar botones de intercambio de gradiente
         modal.querySelectorAll(".pyxis-cat-swap-btn").forEach(btn => {
             btn.addEventListener("click", function() {
                 const cat = this.getAttribute("data-swap-cat");
@@ -1061,7 +1135,6 @@
             };
         }
 
-        // Homogeneizar Categorías (Global Category Color Applicator)
         const btnApplyAll = modal.querySelector("#btn-apply-all-categories");
         if (btnApplyAll) {
             btnApplyAll.onclick = function() {
@@ -1114,7 +1187,6 @@
             };
         }
 
-        // Pestañas UI vs Categorías
         modal.querySelectorAll(".pyxis-theme-tab").forEach(tabBtn => {
             tabBtn.onclick = function() {
                 modal.querySelectorAll(".pyxis-theme-tab").forEach(b => b.classList.remove("active"));
@@ -1126,10 +1198,8 @@
             };
         });
 
-        // Nombre del tema
         modal.querySelector("#theme-edit-name").addEventListener("input", updateLivePreview);
 
-        // Cambiar plantilla base
         modal.querySelector("#theme-edit-preset-select").onchange = function() {
             const baseId = this.value;
             if (DEFAULT_THEMES[baseId]) {
@@ -1168,7 +1238,6 @@
             }
         };
 
-        // Exportar Archivo
         modal.querySelector("#btn-theme-export").onclick = function() {
             updateLivePreview();
             if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.export_theme_dialog === "function") {
@@ -1178,7 +1247,7 @@
                     } else if (res && res.error) {
                         if (window.showPyxisToast) window.showPyxisToast(res.error, "error", 3000);
                     }
-                }).catch(err => console.warn("Pyxis: Error al exportar tema", err));
+                }).catch(err => console.warn("Pyxis: Error exporting theme", err));
             } else {
                 const jsonStr = JSON.stringify(editingTheme, null, 2);
                 navigator.clipboard.writeText(jsonStr).then(() => {
@@ -1189,7 +1258,6 @@
             }
         };
 
-        // Importar Archivo
         modal.querySelector("#btn-theme-import").onclick = function() {
             if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.import_theme_dialog === "function") {
                 window.pywebview.api.import_theme_dialog().then(res => {
@@ -1205,22 +1273,21 @@
                     } else if (res && res.error) {
                         if (window.showPyxisToast) window.showPyxisToast(res.error, "error", 3000);
                     }
-                }).catch(err => console.warn("Pyxis: Error al importar tema", err));
+                }).catch(err => console.warn("Pyxis: Error importing theme", err));
             } else {
                 if (window.showPyxisToast) window.showPyxisToast("toast.import_requires_api", "warning", 3000);
             }
         };
 
-        // Eliminar
         const delBtn = modal.querySelector("#btn-theme-delete");
         if (delBtn) {
             delBtn.onclick = function() {
                 const themeName = editingTheme.name || "";
                 showPyxisConfirm({
-                    title: window.t ? window.t("theme_editor.delete_confirm_title") : "Eliminar Tema Personalizado",
-                    message: window.t ? window.t("theme_editor.delete_confirm_msg", { name: themeName }) : `¿Estás seguro de que deseas eliminar permanentemente el tema <strong>"${themeName}"</strong>? Esta acción no se puede deshacer.`,
-                    confirmText: window.t ? window.t("theme_editor.delete_theme_btn") : "Eliminar Tema",
-                    cancelText: window.t ? window.t("common.cancel") : "Cancelar",
+                    title: window.t ? window.t("theme_editor.delete_confirm_title") : "Delete Custom Theme",
+                    message: window.t ? window.t("theme_editor.delete_confirm_msg", { name: themeName }) : `Are you sure you want to permanently delete theme <strong>"${themeName}"</strong>? This action cannot be undone.`,
+                    confirmText: window.t ? window.t("theme_editor.delete_theme_btn") : "Delete Theme",
+                    cancelText: window.t ? window.t("common.cancel") : "Cancel",
                     isDanger: true,
                     onConfirm: async () => {
                         await deleteCustomTheme(editingTheme.id);
@@ -1236,7 +1303,6 @@
             };
         }
 
-        // Cancelar y Cerrar
         modal.querySelector("#btn-theme-cancel").onclick = async function() {
             applyTheme(activeThemeBeforeEdit);
             modal.remove();
@@ -1248,7 +1314,6 @@
             await openSettingsModal();
         };
 
-        // Guardar
         modal.querySelector("#btn-theme-save").onclick = async function() {
             updateLivePreview();
             await saveCustomTheme(editingTheme, true);
@@ -1262,7 +1327,6 @@
             }
         };
 
-        // Inicializar vista previa inmediatamente
         updateLivePreview();
     }
 
@@ -1283,7 +1347,6 @@
         modal.id = "pyxis-settings-modal";
         modal.className = "pyxis-modal-overlay";
 
-        // 1. Temas Guardados por ti (Personalizados)
         const customThemeKeys = Object.keys(customThemes);
         let customListHtml = "";
         if (customThemeKeys.length > 0) {
@@ -1298,9 +1361,9 @@
                             <div class="pyxis-theme-row-info">
                                 <div class="pyxis-theme-row-name">
                                     <span>${t.name}</span>
-                                    <span class="pyxis-theme-badge-custom">${window.t ? window.t("settings.badge_custom") : "Personalizado"}</span>
+                                    <span class="pyxis-theme-badge-custom">${window.t ? window.t("settings.badge_custom") : "Custom"}</span>
                                 </div>
-                                <div class="pyxis-theme-row-desc">${t.desc || (window.t ? window.t("settings.empty_custom_desc") : 'Tema personalizado guardado')}</div>
+                                <div class="pyxis-theme-row-desc">${t.desc || (window.t ? window.t("settings.empty_custom_desc") : 'Saved custom theme')}</div>
                             </div>
                         </div>
                         <div class="pyxis-theme-row-right">
@@ -1308,11 +1371,11 @@
                                 ${swatches.map(c => `<div class="pyxis-theme-swatch" style="background:${c}"></div>`).join('')}
                             </div>
                             <div class="pyxis-theme-row-actions">
-                                <button type="button" class="pyxis-theme-action-btn btn-edit-theme" data-theme-id="${t.id}" title="${window.t ? window.t("settings.edit_theme") : "Editar este tema"}">
+                                <button type="button" class="pyxis-theme-action-btn btn-edit-theme" data-theme-id="${t.id}" title="${window.t ? window.t("settings.edit_theme") : "Edit this theme"}">
                                     <svg class="svg-icon" viewBox="0 0 24 24" style="width:12px;height:12px;"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                                    <span>${window.t ? window.t("common.edit") : "Editar"}</span>
+                                    <span>${window.t ? window.t("common.edit") : "Edit"}</span>
                                 </button>
-                                <button type="button" class="pyxis-theme-action-btn delete btn-delete-theme" data-theme-id="${t.id}" title="${window.t ? window.t("settings.delete_theme") : "Eliminar este tema"}">
+                                <button type="button" class="pyxis-theme-action-btn delete btn-delete-theme" data-theme-id="${t.id}" title="${window.t ? window.t("settings.delete_theme") : "Delete this theme"}">
                                     <svg class="svg-icon" viewBox="0 0 24 24" style="width:12px;height:12px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                 </button>
                             </div>
@@ -1321,10 +1384,9 @@
                 `;
             }).join('');
         } else {
-            customListHtml = `<div class="pyxis-theme-empty-state">${window.t ? window.t("settings.empty_custom_themes") : "No tienes temas personalizados guardados todavía. Pulsa \"+ Crear Nuevo Tema\" para diseñar el tuyo."}</div>`;
+            customListHtml = `<div class="pyxis-theme-empty-state">${window.t ? window.t("settings.empty_custom_themes") : "No custom themes saved yet. Click \"+ Create New Theme\" to design your own."}</div>`;
         }
 
-        // 2. Temas Predefinidos (Oficiales)
         let defaultListHtml = Object.keys(DEFAULT_THEMES).map(key => {
             const t = DEFAULT_THEMES[key];
             const isActive = t.id === currentTheme;
@@ -1337,7 +1399,7 @@
                             <div class="pyxis-theme-row-name">
                                 <span>${t.name}</span>
                             </div>
-                            <div class="pyxis-theme-row-desc">${t.desc || 'Tema oficial de Pyxis'}</div>
+                            <div class="pyxis-theme-row-desc">${t.desc || (window.t ? window.t("settings.official_theme") : 'Official Pyxis Theme')}</div>
                         </div>
                     </div>
                     <div class="pyxis-theme-row-right">
@@ -1351,14 +1413,14 @@
 
         const bgSettings = window.backgroundImageSettings || {};
         const hasBg = !!(bgSettings.dataUrl || bgSettings.videoUrl || bgSettings.hasBg);
-        let bgPathDisplay = window.t ? window.t("settings.bg_none") : 'Ninguno seleccionado';
+        let bgPathDisplay = window.t ? window.t("settings.bg_none") : 'None selected';
         if (hasBg) {
             if (bgSettings.mediaType === 'video' || bgSettings.videoUrl) {
-                bgPathDisplay = window.t ? window.t("settings.bg_video") : 'Video en bucle activo (Acelerado por GPU)';
+                bgPathDisplay = window.t ? window.t("settings.bg_video") : 'Active looping video (GPU Accelerated)';
             } else if (bgSettings.isDefault) {
-                bgPathDisplay = window.t ? window.t("settings.bg_default") : 'Fondo por defecto (default_back.webp)';
+                bgPathDisplay = window.t ? window.t("settings.bg_default") : 'Default background (default_back.webp)';
             } else {
-                bgPathDisplay = window.t ? window.t("settings.bg_image") : 'Imagen cargada';
+                bgPathDisplay = window.t ? window.t("settings.bg_image") : 'Loaded image';
             }
         }
 
@@ -1367,10 +1429,10 @@
                 <div class="pyxis-modal-header" style="display: flex; align-items: center; justify-content: space-between;">
                     <div class="pyxis-modal-title">
                         <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                        <span>${window.t ? window.t("settings.title") : "Ajustes & Temas Visuales"}</span>
+                        <span>${window.t ? window.t("settings.title") : "Settings & Visual Themes"}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <button type="button" class="pyxis-btn pyxis-btn-lang" id="btn-settings-lang-toggle" title="${window.t ? window.t('topbar.lang_tooltip') : 'Cambiar idioma (Español / English)'}" style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: var(--bg-input, #1e293b); border: 1px solid var(--border-subtle, #334155); color: var(--text-main, #f8fafc); cursor: pointer; font-size: 11px; font-weight: 600;">
+                        <button type="button" class="pyxis-btn pyxis-btn-lang" id="btn-settings-lang-toggle" title="${window.t ? window.t('topbar.lang_tooltip') : 'Switch language (Español / English)'}" style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: var(--bg-input, #1e293b); border: 1px solid var(--border-subtle, #334155); color: var(--text-main, #f8fafc); cursor: pointer; font-size: 11px; font-weight: 600;">
                             <svg class="svg-icon" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                             <span class="pyxis-lang-pill ${(window.PyxisI18n && window.PyxisI18n.currentLang === 'es') ? 'active' : ''}" data-lang="es" style="padding: 1px 4px; border-radius: 3px; ${(window.PyxisI18n && window.PyxisI18n.currentLang === 'es') ? 'background: var(--accent-primary, #10b981); color: #fff;' : 'opacity: 0.6;'}">ES</span>
                             <span style="opacity: 0.35; font-size: 10px;">|</span>
@@ -1383,28 +1445,28 @@
                 </div>
                 
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                    <div style="font-size: 13px; font-weight: 600; color: var(--text-main);">${window.t ? window.t("settings.themes_section") : "Temas Visuales de la Interfaz:"}</div>
+                    <div style="font-size: 13px; font-weight: 600; color: var(--text-main);">${window.t ? window.t("settings.themes_section") : "Interface Visual Themes:"}</div>
                     <button class="pyxis-btn pyxis-btn-primary" id="btn-open-theme-editor" style="padding: 4px 10px; font-size: 12px; display: flex; align-items: center; gap: 5px;">
                         <svg class="svg-icon" viewBox="0 0 24 24" style="width:13px; height:13px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        <span>${window.t ? window.t("settings.create_theme") : "Crear Nuevo Tema"}</span>
+                        <span>${window.t ? window.t("settings.create_theme") : "Create New Theme"}</span>
                     </button>
                 </div>
 
                 <div class="pyxis-theme-list-wrapper">
-                    <!-- Guardados por ti -->
+                    <!-- Saved by you -->
                     <div class="pyxis-theme-list-section">
                         <div class="pyxis-theme-list-title">
                             <svg class="svg-icon" viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent-primary);"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                            <span>${window.t ? window.t("settings.saved_by_you") : "Guardados por ti"}</span>
+                            <span>${window.t ? window.t("settings.saved_by_you") : "Saved by you"}</span>
                         </div>
                         ${customListHtml}
                     </div>
 
-                    <!-- Temas Predefinidos -->
+                    <!-- Preset Themes -->
                     <div class="pyxis-theme-list-section" style="margin-top: 6px;">
                         <div class="pyxis-theme-list-title">
                             <svg class="svg-icon" viewBox="0 0 24 24" style="width:12px;height:12px;"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/></svg>
-                            <span>${window.t ? window.t("settings.presets") : "Temas Predefinidos"}</span>
+                            <span>${window.t ? window.t("settings.presets") : "Preset Themes"}</span>
                         </div>
                         ${defaultListHtml}
                     </div>
@@ -1414,23 +1476,23 @@
                 <div style="margin-top: 15px; border-top: 1px solid var(--border-subtle); padding-top: 15px;">
                     <div style="font-weight: 600; font-size: 14px; color: var(--text-main); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
                         <svg class="svg-icon" viewBox="0 0 24 24" style="stroke: var(--accent-primary); width:18px; height:18px;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                        <span>${window.t ? window.t("settings.canvas_section") : "Personalización del Canvas & Medios de Fondo"}</span>
+                        <span>${window.t ? window.t("settings.canvas_section") : "Canvas & Background Media Customization"}</span>
                     </div>
 
                     <!-- Persistencia en Segundo Plano (Daemon) -->
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;" title="${window.t ? window.t("settings.daemon_tooltip") : "Mantiene el servidor Python en segundo plano (~60MB RAM) para que Pyxis abra de forma instantánea (0ms) desde Aegisub."}">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;" title="${window.t ? window.t("settings.daemon_tooltip") : "Keeps Python server in background (~60MB RAM) for instant Pyxis launch (0ms) from Aegisub."}">
                         <div style="display: flex; flex-direction: column;">
-                            <span style="font-size: 13px; color: var(--text-main); font-weight: 500;">${window.t ? window.t("settings.daemon") : "Persistencia en Segundo Plano:"}</span>
-                            <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("settings.daemon_desc") : "Apertura instantánea (0ms) tras la primera vez"}</span>
+                            <span style="font-size: 13px; color: var(--text-main); font-weight: 500;">${window.t ? window.t("settings.daemon") : "Background Persistence:"}</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("settings.daemon_desc") : "Instant launch (0ms) after first start"}</span>
                         </div>
                         <input type="checkbox" id="setting-daemon-mode" ${window.pyxisDaemonMode !== false ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-primary);">
                     </div>
 
                     <!-- Estilo de Rejilla -->
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                        <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.grid_style") : "Estilo de Rejilla:"}</span>
+                        <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.grid_style") : "Grid Style:"}</span>
                         <select id="setting-grid-mode" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none; width: 160px;">
-                            <option value="0" ${window.gridMode === 0 ? 'selected' : ''}>${window.t ? window.t("settings.grid_lines") : "Líneas"}</option>
+                            <option value="0" ${window.gridMode === 0 ? 'selected' : ''}>${window.t ? window.t("settings.grid_lines") : "Lines"}</option>
                             <option value="1" ${window.gridMode === 1 ? 'selected' : ''}>${window.t ? window.t("settings.grid_dots") : "Puntos (Defecto)"}</option>
                             <option value="2" ${window.gridMode === 2 ? 'selected' : ''}>${window.t ? window.t("settings.grid_disabled") : "Desactivado"}</option>
                         </select>
@@ -1438,49 +1500,49 @@
 
                     <!-- Pasos de Deshacer / Rehacer -->
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                        <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.undo_steps") : "Pasos de Deshacer / Rehacer (Undo/Redo):"}</span>
+                        <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.undo_steps") : "Undo / Redo steps:"}</span>
                         <input type="number" id="setting-undo-steps" min="5" max="100" value="${window.PyxisUndoManager ? window.PyxisUndoManager.getMaxSteps() : 30}" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none; width: 80px; text-align: center;">
                     </div>
 
-                    <!-- Fondo Multimedia (Imágenes y Videos Cíclicos) -->
+                    <!-- Media Background (Images and Cyclic Videos) -->
                     <div style="margin-bottom: 12px;">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
                             <div style="display: flex; flex-direction: column;">
-                                <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.canvas_bg") : "Fondo del Canvas (Imagen o Video Cíclico):"}</span>
-                                <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("settings.canvas_bg_formats") : "Soporta MP4, WebM, MOV, MKV, PNG, JPG, WebP"}</span>
+                                <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.canvas_bg") : "Canvas Background (Image or Cyclic Video):"}</span>
+                                <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("settings.canvas_bg_formats") : "Supports MP4, WebM, MOV, MKV, PNG, JPG, WebP"}</span>
                             </div>
                             <div style="display: flex; gap: 6px;">
-                                <button class="pyxis-btn" id="btn-browse-bg" style="padding: 4px 10px; font-size: 12px; display: inline-flex; align-items: center;">${window.t ? window.t("settings.browse") : "Examinar..."}</button>
-                                <button class="pyxis-btn pyxis-btn-danger" id="btn-clear-bg" style="padding: 4px 10px; font-size: 12px; display: ${hasBg ? 'inline-block' : 'none'};">${window.t ? window.t("settings.remove") : "Quitar"}</button>
+                                <button class="pyxis-btn" id="btn-browse-bg" style="padding: 4px 10px; font-size: 12px; display: inline-flex; align-items: center;">${window.t ? window.t("settings.browse") : "Browse..."}</button>
+                                <button class="pyxis-btn pyxis-btn-danger" id="btn-clear-bg" style="padding: 4px 10px; font-size: 12px; display: ${hasBg ? 'inline-block' : 'none'};">${window.t ? window.t("settings.remove") : "Remove"}</button>
                             </div>
                         </div>
                         <input type="text" id="setting-bg-path" readonly value="${bgPathDisplay}" style="background: var(--bg-input); color: var(--text-muted); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 11px; width: 100%; box-sizing: border-box; font-family: var(--font-mono); outline: none;">
                     </div>
 
-                    <!-- Casilla: Convertir / Optimizar Video con FFmpeg -->
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;" title="${window.t ? window.t("settings.optimize_video_tooltip") : "Optimiza el video a formato H.264/MP4 ligero sin audio para máxima fluidez y mínimo consumo de GPU/CPU."}">
+                    <!-- Convert / Optimize Video with FFmpeg -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;" title="${window.t ? window.t("settings.optimize_video_tooltip") : "Optimizes video to lightweight H.264/MP4 without audio for maximum smoothness and minimal GPU/CPU load."}">
                         <div style="display: flex; flex-direction: column;">
-                            <span style="font-size: 13px; color: var(--text-main); font-weight: 500;">${window.t ? window.t("settings.optimize_video") : "Convertir / Optimizar Video con FFmpeg"}</span>
-                            <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("settings.daemon_desc") : "Recomendado para fluidez óptima"}</span>
+                            <span style="font-size: 13px; color: var(--text-main); font-weight: 500;">${window.t ? window.t("settings.optimize_video") : "Convert / Optimize Video with FFmpeg"}</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("settings.daemon_desc") : "Recommended for optimal smoothness"}</span>
                         </div>
                         <input type="checkbox" id="setting-convert-video" ${window.convertVideoSetting !== false ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-primary);">
                     </div>
 
-                    <!-- Modo de Ajuste & Opacidad -->
+                    <!-- Fit Mode & Opacity -->
                     <div id="bg-options-panel" style="display: ${hasBg ? 'block' : 'none'};">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                            <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.fit_mode") : "Modo de Ajuste:"}</span>
+                            <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.fit_mode") : "Fit Mode:"}</span>
                             <select id="setting-bg-mode" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none; width: 160px;">
-                                <option value="cover" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'cover') ? 'selected' : ''}>${window.t ? window.t("settings.fit_cover") : "Rellenar"}</option>
-                                <option value="contain" ${(window.backgroundImageSettings && (window.backgroundImageSettings.mode === 'contain' || !window.backgroundImageSettings.mode)) ? 'selected' : ''}>${window.t ? window.t("settings.fit_contain") : "Ajustar"}</option>
-                                <option value="stretch" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'stretch') ? 'selected' : ''}>${window.t ? window.t("settings.fit_stretch") : "Estirar"}</option>
-                                <option value="tile" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'tile') ? 'selected' : ''}>${window.t ? window.t("settings.fit_tile") : "Mosaico"}</option>
-                                <option value="center" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'center') ? 'selected' : ''}>${window.t ? window.t("settings.fit_center") : "Centro"}</option>
+                                <option value="cover" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'cover') ? 'selected' : ''}>${window.t ? window.t("settings.fit_cover") : "Cover"}</option>
+                                <option value="contain" ${(window.backgroundImageSettings && (window.backgroundImageSettings.mode === 'contain' || !window.backgroundImageSettings.mode)) ? 'selected' : ''}>${window.t ? window.t("settings.fit_contain") : "Contain"}</option>
+                                <option value="stretch" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'stretch') ? 'selected' : ''}>${window.t ? window.t("settings.fit_stretch") : "Stretch"}</option>
+                                <option value="tile" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'tile') ? 'selected' : ''}>${window.t ? window.t("settings.fit_tile") : "Tile"}</option>
+                                <option value="center" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'center') ? 'selected' : ''}>${window.t ? window.t("settings.fit_center") : "Center"}</option>
                             </select>
                         </div>
 
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                            <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.opacity") : "Opacidad del Fondo:"}</span>
+                            <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.opacity") : "Background Opacity:"}</span>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <input type="range" id="setting-bg-opacity" min="0" max="100" value="${window.backgroundImageSettings ? Math.round(window.backgroundImageSettings.opacity * 100) : 85}" style="width: 110px; cursor: pointer; accent-color: var(--accent-primary);">
                                 <span id="bg-opacity-label" style="font-size: 12px; color: var(--text-main); font-family: var(--font-mono); min-width: 32px; text-align: right;">${window.backgroundImageSettings ? Math.round(window.backgroundImageSettings.opacity * 100) : 85}%</span>
@@ -1490,11 +1552,11 @@
                 </div>
 
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
-                    <button class="pyxis-btn pyxis-btn-secondary" id="btn-clean-temp-cache" style="font-size: 12px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;" title="${window.t ? window.t("settings.clean_temp_tooltip") : "Elimina archivos temporales y fragmentos de caché con más de 72 horas sin afectar fondos ni configuraciones"}">
+                    <button class="pyxis-btn pyxis-btn-secondary" id="btn-clean-temp-cache" style="font-size: 12px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;" title="${window.t ? window.t("settings.clean_temp_tooltip") : "Cleans temporary files and cache fragments older than 72 hours without affecting backgrounds or settings"}">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                        <span>${window.t ? window.t("settings.clean_temp") : "Limpiar Temporales (> 72h)"}</span>
+                        <span>${window.t ? window.t("settings.clean_temp") : "Clean Temp Files (> 72h)"}</span>
                     </button>
-                    <button class="pyxis-btn pyxis-btn-primary" id="btn-done-settings">${window.t ? window.t("common.confirm") : "Listo"}</button>
+                    <button class="pyxis-btn pyxis-btn-primary" id="btn-done-settings">${window.t ? window.t("common.confirm") : "Done"}</button>
                 </div>
             </div>
         `;
@@ -1524,12 +1586,12 @@
             btn.onclick = function(e) {
                 e.stopPropagation();
                 const themeId = this.getAttribute("data-theme-id");
-                const tName = customThemes[themeId] ? customThemes[themeId].name : "este tema";
+                const tName = customThemes[themeId] ? customThemes[themeId].name : "this theme";
                 showPyxisConfirm({
-                    title: window.t ? window.t("theme_editor.delete_confirm_title") : "Eliminar Tema Personalizado",
-                    message: window.t ? window.t("theme_editor.delete_confirm_msg", { name: tName }) : `¿Estás seguro de que deseas eliminar permanentemente el tema <strong>"${tName}"</strong>? Esta acción no se puede deshacer.`,
-                    confirmText: window.t ? window.t("theme_editor.delete_theme_btn") : "Eliminar Tema",
-                    cancelText: window.t ? window.t("common.cancel") : "Cancelar",
+                    title: window.t ? window.t("theme_editor.delete_confirm_title") : "Delete Custom Theme",
+                    message: window.t ? window.t("theme_editor.delete_confirm_msg", { name: tName }) : `Are you sure you want to permanently delete theme <strong>"${tName}"</strong>? This action cannot be undone.`,
+                    confirmText: window.t ? window.t("theme_editor.delete_theme_btn") : "Delete Theme",
+                    cancelText: window.t ? window.t("common.cancel") : "Cancel",
                     isDanger: true,
                     onConfirm: async () => {
                         await deleteCustomTheme(themeId);
@@ -1629,13 +1691,11 @@
                 const pathInput = modal.querySelector("#setting-bg-path");
                 const prevPathVal = pathInput ? pathInput.value : "";
 
-                // 1. Mostrar animación y estado de procesamiento en el modal de ajustes
                 browseBtn.disabled = true;
                 browseBtn.style.opacity = "0.75";
-                browseBtn.innerHTML = `<svg class="svg-icon pyxis-spin" viewBox="0 0 24 24" style="width:13px;height:13px;margin-right:4px;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Procesando...`;
-                if (pathInput) pathInput.value = shouldConvert ? "Convirtiendo y optimizando video con FFmpeg..." : "Cargando medio de fondo...";
+                browseBtn.innerHTML = `<svg class="svg-icon pyxis-spin" viewBox="0 0 24 24" style="width:13px;height:13px;margin-right:4px;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> ${window.t ? window.t("common.loading") : "Processing..."}`;
+                if (pathInput) pathInput.value = shouldConvert ? (window.t ? window.t("settings.converting_video") : "Converting and optimizing video with FFmpeg...") : (window.t ? window.t("settings.loading_media") : "Loading background media...");
 
-                // 2. Mostrar toast con animación de carga en el Canvas
                 let loadingToast = null;
                 if (window.showPyxisToast) {
                     loadingToast = window.showPyxisToast(
@@ -1681,8 +1741,8 @@
                         const isVideo = window.backgroundImageSettings.mediaType === "video";
                         if (pathInput) {
                             pathInput.value = isVideo 
-                                ? "Video en bucle activo (Acelerado por GPU)" 
-                                : "Imagen cargada";
+                                ? (window.t ? window.t("settings.bg_video") : "Active looping video (GPU Accelerated)") 
+                                : (window.t ? window.t("settings.bg_image") : "Loaded image");
                         }
                         const clearBtnEl = modal.querySelector("#btn-clear-bg");
                         if (clearBtnEl) clearBtnEl.style.display = "inline-block";
@@ -1693,7 +1753,6 @@
                         if (window.canvas) window.canvas.setDirty(true, true);
                         saveConfig();
 
-                        // 3. Mostrar toast de confirmación al terminar
                         if (window.showPyxisToast) {
                             if (isVideo) {
                                 const isConverted = (typeof res === "object" && res.converted);
@@ -1734,7 +1793,7 @@
                 window.backgroundImageSettings.hasBg = false;
                 window.backgroundImageSettings.mediaType = "none";
                 window.backgroundImageSettings.isDefault = false;
-                modal.querySelector("#setting-bg-path").value = window.t ? window.t("settings.bg_none") : "Ninguno seleccionado";
+                modal.querySelector("#setting-bg-path").value = window.t ? window.t("settings.bg_none") : "None selected";
                 this.style.display = "none";
                 modal.querySelector("#bg-options-panel").style.display = "none";
 
@@ -1764,7 +1823,7 @@
                         if (window.showPyxisToast) window.showPyxisToast("toast.clean_completed", "info", 2000);
                     }
                 } catch (e) {
-                    console.error("Error al limpiar temporales:", e);
+                    console.error("Pyxis: Error cleaning temporary cache:", e);
                 } finally {
                     cleanTempBtn.disabled = false;
                     cleanTempBtn.style.opacity = "1";
@@ -1772,7 +1831,6 @@
             };
         }
 
-        // Auto-seleccionar texto al hacer clic o foco en cajas de texto y números
         modal.querySelectorAll("input[type='text'], input[type='number']").forEach(inp => {
             inp.addEventListener("focus", function() {
                 this.select();
@@ -1785,6 +1843,13 @@
         modal.querySelector("#btn-close-settings").onclick = () => modal.remove();
         modal.querySelector("#btn-done-settings").onclick = () => modal.remove();
     }
+
+    window.addEventListener("pyxis:languageChanged", function() {
+        const modal = document.getElementById("pyxis-settings-modal");
+        if (modal && window.PyxisI18n && typeof window.PyxisI18n.applyToDOM === "function") {
+            window.PyxisI18n.applyToDOM(modal);
+        }
+    });
 
     applyTheme(currentTheme);
     syncCustomThemesWithBackend();

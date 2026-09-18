@@ -14,8 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# PyxisNodes/nodes/audio_nodes.py
-"""Nodos de modulación y análisis de audio para PyxisNodes Engine."""
+"""Acoustic analysis and audio modulation nodes."""
 
 import math
 import os
@@ -67,7 +66,7 @@ def _parse_color_list(val_min: Any, val_max: Any) -> List[Tuple[int, int, int]]:
     _extract_from(val_max)
 
     if not raw_list:
-        return [(255, 255, 255), (0, 0, 255)]  # Blanco a Rojo por defecto
+        return [(255, 255, 255), (0, 0, 255)]
 
     if len(raw_list) == 1:
         c1 = parse_color_to_rgb(raw_list[0])
@@ -77,7 +76,7 @@ def _parse_color_list(val_min: Any, val_max: Any) -> List[Tuple[int, int, int]]:
 
 
 def _interpolate_color_palette(colors: List[Tuple[int, int, int]], intensity: float) -> Tuple[int, int, int]:
-    """Interpola linealmente a lo largo de una paleta multi-color [C0, C1, ... CN-1] según la intensidad [0.0, 1.0]."""
+    """Linearly interpolates across a multi-color palette [C0, C1, ... CN-1] based on intensity [0.0, 1.0]."""
     if not colors:
         return (255, 255, 255)
     if len(colors) == 1:
@@ -99,14 +98,13 @@ def _interpolate_color_palette(colors: List[Tuple[int, int, int]], intensity: fl
 
 
 def parse_hex_or_num(val: Any, default: Optional[float] = 0.0) -> Optional[float]:
-    """Convierte cadenas hex (&HFF&, &HFF, 0xFF, #FF) o numéricas a float."""
+    """Converts hex strings (&HFF&, &HFF, 0xFF, #FF) or numeric values to float."""
     if val is None:
         return default
     s = str(val).strip()
     if not s:
         return default
 
-    # &HAA& o &HAA
     m = re.match(r"^&[hH]([0-9a-fA-F]+)&?$", s)
     if m:
         try:
@@ -114,7 +112,6 @@ def parse_hex_or_num(val: Any, default: Optional[float] = 0.0) -> Optional[float
         except Exception:
             pass
 
-    # 0xAA o #AA
     m2 = re.match(r"^(?:0[xX]|#)([0-9a-fA-F]+)$", s)
     if m2:
         try:
@@ -129,7 +126,7 @@ def parse_hex_or_num(val: Any, default: Optional[float] = 0.0) -> Optional[float
 
 
 def _fmt_val_for_tag(v: float, tag_name: str = "") -> str:
-    """Formatea un valor para tags ASS. Si el tag es alpha (1a, 2a, 3a, 4a, alpha), formatea como &HAA&."""
+    """Formats a value for ASS tags. If tag is alpha (1a, 2a, 3a, 4a, alpha), formats as &HAA&."""
     if _is_alpha_tag(tag_name):
         iv = max(0, min(255, int(round(v))))
         return f"&H{iv:02X}&"
@@ -144,12 +141,12 @@ def _fmt_val_for_tag(v: float, tag_name: str = "") -> str:
 
 
 def _fmt_val(v: float) -> str:
-    """Formatea un valor numérico para tags ASS eliminando decimales redundantes."""
+    """Formats a numeric value for ASS tags removing redundant decimals."""
     return _fmt_val_for_tag(v, "")
 
 
 def _eval_val(val: Any, context: Optional[dict] = None, default: float = 0.0) -> float:
-    """Evalúa un valor que puede ser número, hexadecimal (&HFF&) o expresión matemática."""
+    """Evaluates a value that can be a number, hexadecimal (&HFF&), or mathematical expression."""
     if val is None or str(val).strip() == "":
         return default
     
@@ -169,49 +166,93 @@ _RESOLVED_AUDIO_CACHE: Dict[str, AudioData] = {}
 
 
 def clear_resolved_audio_cache():
-    """Limpia la caché de resolución de rutas de audio."""
+    """Clears the audio path resolution cache."""
     _RESOLVED_AUDIO_CACHE.clear()
 
 
 def resolve_audio_data(audio_path: Optional[str] = None, context: Optional[dict] = None) -> Optional[AudioData]:
-    """Resuelve y carga en memoria el búfer AudioData desde la ruta dada o el proyecto de Aegisub con caché instantánea."""
+    """Resolves and loads the AudioData buffer from the given path or Aegisub project with instant caching."""
     src = str(audio_path or "").strip()
-    if not src and isinstance(context, dict):
+    ctx = context if isinstance(context, dict) else {}
+    if not src:
         src = str(
-            context.get("default_audio_source", "") or
-            context.get("audio_file", "") or
-            context.get("video_file", "")
+            ctx.get("default_audio_source", "") or
+            ctx.get("real_audio_file", "") or
+            ctx.get("real_video_file", "") or
+            ctx.get("audio_file", "") or
+            ctx.get("video_file", "")
         ).strip()
 
     if not src:
         return None
 
     clean_src = src.strip('"').strip("'")
+    lower_s = clean_src.lower()
+    if lower_s.startswith("?video:"):
+        clean_src = clean_src[7:].strip()
+    elif lower_s.startswith("?video"):
+        clean_src = clean_src[6:].strip()
+    elif lower_s.startswith("?audio:"):
+        clean_src = clean_src[7:].strip()
+    elif lower_s.startswith("?audio"):
+        clean_src = clean_src[6:].strip()
+    elif lower_s.startswith("dummy") or "dummy-audio" in lower_s or "silence?" in lower_s or lower_s.startswith("?dummy"):
+        return None
+
     if not clean_src:
         return None
 
-    # Caché rápida en memoria por ruta de origen (0.0 ms)
     if clean_src in _RESOLVED_AUDIO_CACHE:
         return _RESOLVED_AUDIO_CACHE[clean_src]
 
-    if not os.path.isfile(clean_src):
+    resolved_path = None
+    if os.path.isfile(clean_src):
+        resolved_path = os.path.abspath(clean_src)
+    else:
+        script_file = ctx.get("script_file")
+        if script_file and os.path.exists(script_file):
+            candidate = os.path.join(os.path.dirname(os.path.abspath(script_file)), clean_src)
+            if os.path.isfile(candidate):
+                resolved_path = os.path.abspath(candidate)
+
+        if not resolved_path:
+            temp_ass = ctx.get("temp_ass")
+            if temp_ass and os.path.exists(temp_ass):
+                candidate = os.path.join(os.path.dirname(os.path.abspath(temp_ass)), clean_src)
+                if os.path.isfile(candidate):
+                    resolved_path = os.path.abspath(candidate)
+
+        if not resolved_path:
+            script_dir = ctx.get("script_dir")
+            if script_dir and os.path.isdir(script_dir):
+                candidate = os.path.join(script_dir, clean_src)
+                if os.path.isfile(candidate):
+                    resolved_path = os.path.abspath(candidate)
+
+    if not resolved_path or not os.path.isfile(resolved_path):
+        _RESOLVED_AUDIO_CACHE[clean_src] = None
         return None
+
+    if resolved_path in _RESOLVED_AUDIO_CACHE:
+        cached = _RESOLVED_AUDIO_CACHE[resolved_path]
+        _RESOLVED_AUDIO_CACHE[clean_src] = cached
+        return cached
 
     try:
-        wav_path = AudioPreprocessor.ensure_audio_wav(clean_src)
+        wav_path = AudioPreprocessor.ensure_audio_wav(resolved_path)
         audio_data = AudioEngine.load_wav(wav_path)
         _RESOLVED_AUDIO_CACHE[clean_src] = audio_data
+        _RESOLVED_AUDIO_CACHE[resolved_path] = audio_data
         return audio_data
     except Exception as e:
-        print(f"[Pyxis Audio Warning] No se pudo resolver audio '{clean_src}': {e}", flush=True)
+        print(f"[Pyxis Audio Warning] Could not resolve audio '{resolved_path}': {e}", flush=True)
+        _RESOLVED_AUDIO_CACHE[clean_src] = None
+        _RESOLVED_AUDIO_CACHE[resolved_path] = None
         return None
 
 
-# -----------------------------------------------------------------------------
-# FUNCIONES AUXILIARES GLOBALES DE AUDIO (INJECTABLES EN CONTEXTO / CODE / EXPR)
-# -----------------------------------------------------------------------------
 def audio_rms(start_ms=None, end_ms=None, gain=1.0, audio_path=None, context=None, **kwargs) -> float:
-    """Calcula la energía RMS (0.0 a 1.0) en el intervalo de tiempo especificado con ganancia opcional."""
+    """Calculates RMS energy (0.0 to 1.0) in the specified time interval with optional gain."""
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
 
@@ -226,7 +267,7 @@ def audio_rms(start_ms=None, end_ms=None, gain=1.0, audio_path=None, context=Non
 
 
 def audio_peak(start_ms=None, end_ms=None, gain=1.0, audio_path=None, context=None, **kwargs) -> float:
-    """Calcula la amplitud pico absoluta (0.0 a 1.0) en el intervalo de tiempo especificado con ganancia opcional."""
+    """Calculates absolute peak amplitude (0.0 to 1.0) in the specified time interval with optional gain."""
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
 
@@ -241,7 +282,7 @@ def audio_peak(start_ms=None, end_ms=None, gain=1.0, audio_path=None, context=No
 
 
 def audio_band(start_ms=None, end_ms=None, min_hz=20.0, max_hz=250.0, gain=1.0, audio_path=None, context=None, **kwargs) -> float:
-    """Calcula la energía de frecuencia (0.0 a 1.0) en la banda [min_hz, max_hz] con ganancia opcional."""
+    """Calculates frequency energy (0.0 to 1.0) in the band [min_hz, max_hz] with optional gain."""
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
 
@@ -258,7 +299,7 @@ def audio_band(start_ms=None, end_ms=None, min_hz=20.0, max_hz=250.0, gain=1.0, 
 
 
 def audio_fft(start_ms=None, end_ms=None, num_bands=16, min_hz=20.0, max_hz=16000.0, gain=1.0, audio_path=None, context=None, **kwargs) -> List[float]:
-    """Calcula el espectro FFT dividido en N bandas musicales logarítmicas con ganancia opcional."""
+    """Calculates FFT spectrum divided into N logarithmic musical bands with optional gain."""
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
 
@@ -275,36 +316,34 @@ def audio_fft(start_ms=None, end_ms=None, num_bands=16, min_hz=20.0, max_hz=1600
     return [round(b, 4) for b in audio_obj.get_fft_bands(st, et, n_bands, f_min, f_max, gain=g)]
 
 
-# -----------------------------------------------------------------------------
-# NODO ESPECIALIZADO: AUDIO MODULADOR (CADENAS DE TAGS \t)
-# -----------------------------------------------------------------------------
 def audio_modulator_master(
     context: Optional[dict] = None,
     audio_path: str = "",
     tag_name: str = "fscy",
     min_val: Any = "100",
     max_val: Any = "160",
-    ganancia: Any = "1.0",
+    gain: Any = "1.0",
     step_ms: Any = "41.7",
     smoothing: Any = "0.2",
-    modo: str = "RMS (Volumen)",
+    mode: str = "rms",
     min_hz: Any = "20",
     max_hz: Any = "250",
     start_time: Any = "",
     end_time: Any = "",
-    output_slot_index: int = 0
+    output_slot_index: int = 0,
+    **kwargs
 ) -> Union[str, float, List[float], List[str]]:
-    """Generador maestro de transformaciones ASS continuas \\t basadas en audio con soporte de ganancia y control temporal."""
+    """Master generator of continuous ASS \\t transformations based on audio with gain support and time window control."""
+    gain_val = kwargs.get("gain", gain)
+    modo_val = kwargs.get("mode", mode)
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
     line = ctx.get("line")
 
-    # 1. Ventana temporal efectiva del efecto (gobernada por Salida / Retime / Time)
     fx_st = float(ctx.get("fx_start_time", ctx.get("effect_st", ctx.get("start_time", getattr(unit, "start_time", getattr(line, "start_time", 0.0))))))
     fx_et = float(ctx.get("fx_end_time", ctx.get("effect_et", ctx.get("end_time", getattr(unit, "end_time", getattr(line, "end_time", 0.0))))))
     fx_dur = max(1.0, float(ctx.get("fx_dur", ctx.get("effect_dur", ctx.get("dur", max(1.0, fx_et - fx_st))))))
 
-    # 2. Determinar ventana de muestreo acústico (0 a fx.dur por defecto si están en blanco)
     st_str = str(start_time if start_time is not None else "").strip()
     et_str = str(end_time if end_time is not None else "").strip()
 
@@ -318,7 +357,6 @@ def audio_modulator_master(
 
     dur = max(1.0, et - st)
 
-    # Limpiar nombre del tag (eliminar backslash si el usuario lo colocó)
     raw_tag = str(tag_name or "fscy").strip().lstrip('\\')
     if not raw_tag:
         raw_tag = "fscy"
@@ -331,14 +369,13 @@ def audio_modulator_master(
         v_min = 0.0
         v_max = 1.0
     else:
-        # Parámetros numéricos
         v_min_default = 0.0 if is_alpha else 100.0
         v_max_default = 255.0 if is_alpha else 160.0
 
         v_min = _eval_val(min_val, ctx, default=v_min_default)
         v_max = _eval_val(max_val, ctx, default=v_max_default)
 
-    gain_factor = max(0.0, _eval_val(ganancia, ctx, default=1.0))
+    gain_factor = max(0.0, _eval_val(gain_val, ctx, default=1.0))
     step = max(10.0, _eval_val(step_ms, ctx, default=41.7))
     smooth_factor = max(0.0, min(0.95, _eval_val(smoothing, ctx, default=0.2)))
     f_min = _eval_val(min_hz, ctx, default=20.0)
@@ -349,7 +386,7 @@ def audio_modulator_master(
     num_steps = max(1, int(math.ceil(dur / step)))
     raw_intensities: List[float] = []
 
-    mode_clean = str(modo or "RMS").strip().lower()
+    mode_clean = str(modo_val or "RMS").strip().lower()
 
     if audio_obj:
         for k in range(num_steps + 1):
@@ -376,7 +413,6 @@ def audio_modulator_master(
     else:
         raw_intensities = [0.0] * (num_steps + 1)
 
-    # Aplicar suavizado exponencial (Attack / Decay) a las intensidades
     if smooth_factor > 0 and len(raw_intensities) > 1:
         smoothed_intensities = [raw_intensities[0]]
         for i in range(1, len(raw_intensities)):
@@ -393,12 +429,10 @@ def audio_modulator_master(
     else:
         vals = [v_min + inten * (v_max - v_min) for inten in intensities]
 
-    # Salida 3: RMS Promedio
     avg_rms = sum(raw_intensities) / len(raw_intensities) if raw_intensities else 0.0
     if output_slot_index == 3:
         return round(avg_rms, 4)
 
-    # Salida 2: Array de Valores
     if output_slot_index == 2:
         if is_color:
             return list(vals)
@@ -406,7 +440,6 @@ def audio_modulator_master(
             return [_fmt_val_for_tag(v, raw_tag) for v in vals]
         return [round(v, 2) for v in vals]
 
-    # Salida 1: Valor actual instantáneo
     if output_slot_index == 1:
         current_time = float(ctx.get("frame_time", ctx.get("fx_start_time", st)))
         rel_pos = max(0.0, min(1.0, (current_time - st) / dur))
@@ -423,7 +456,6 @@ def audio_modulator_master(
             return _fmt_val_for_tag(interp_val, raw_tag)
         return round(interp_val, 2)
 
-    # Salida 0 (Default): Cadena ASS \tag(v0)\t(t1,t2,\tag(v1))...
     tag_prefix = f"\\{raw_tag}"
     v0_str = vals[0] if is_color else _fmt_val_for_tag(vals[0], raw_tag)
     chain_parts = [f"{tag_prefix}{v0_str}"]
@@ -444,31 +476,36 @@ def audio_modulator_master(
     return "".join(chain_parts)
 
 
-# -----------------------------------------------------------------------------
-# NODO ESPECIALIZADO: AUDIO WAVEFORM (DIBUJOS ASSDRAW FRAME-BY-FRAME)
-# -----------------------------------------------------------------------------
 def audio_waveform_master(
     context: Optional[dict] = None,
     audio_path: str = "",
-    modo: str = "Osciloscopio",
-    ancho: Any = "400",
-    alto: Any = "60",
-    muestras: Any = "32",
-    ganancia: Any = "1.0",
-    grosor: Any = "2",
+    mode: str = "oscilloscope",
+    width: Any = "400",
+    height: Any = "60",
+    samples: Any = "32",
+    gain: Any = "1.0",
+    thickness: Any = "2",
     min_hz: Any = "20",
     max_hz: Any = "16000",
-    escala: Any = "1.0",
+    scale: Any = "1.0",
     start_time: Any = "",
     end_time: Any = "",
-    output_slot_index: int = 0
+    output_slot_index: int = 0,
+    **kwargs
 ) -> Union[str, List[float]]:
-    """Generador maestro de dibujos vectoriales ASSDraw basados en audio con soporte de ganancia y control temporal."""
+    """Master generator of ASSDraw audio waveforms with gain support and time window control."""
+    w_val = kwargs.get("width", kwargs.get("ancho", width))
+    h_val = kwargs.get("height", kwargs.get("alto", height))
+    samples_val = kwargs.get("samples", kwargs.get("muestras", samples))
+    gain_val = kwargs.get("gain", kwargs.get("ganancia", gain))
+    thick_val = kwargs.get("thickness", kwargs.get("grosor", thickness))
+    scale_val = kwargs.get("scale", kwargs.get("escala", scale))
+    modo_val = kwargs.get("mode", kwargs.get("modo", mode))
+
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
     line = ctx.get("line")
 
-    # Determinar ventana temporal (soporte de bucle frame / retime / Salida)
     fx_st = float(ctx.get("frame_start_time", ctx.get("fx_start_time", ctx.get("effect_st", ctx.get("start_time", getattr(unit, "start_time", getattr(line, "start_time", 0.0)))))))
     fx_et = float(ctx.get("frame_end_time", ctx.get("fx_end_time", ctx.get("effect_et", ctx.get("end_time", getattr(unit, "end_time", getattr(line, "end_time", 0.0)))))))
     if fx_et <= fx_st:
@@ -485,29 +522,26 @@ def audio_waveform_master(
         st = fx_st
         et = fx_et
 
-    # Parámetros numéricos evaluados
-    w = max(10.0, _eval_val(ancho, ctx, default=400.0))
-    h = max(4.0, _eval_val(alto, ctx, default=60.0))
-    num_samples = max(4, min(512, int(_eval_val(muestras, ctx, default=32.0))))
-    gain_fac = max(0.01, _eval_val(ganancia, ctx, default=1.0))
-    thick = max(1.0, _eval_val(grosor, ctx, default=2.0))
-    scale_fac = max(0.01, _eval_val(escala, ctx, default=1.0))
+    w = max(10.0, _eval_val(w_val, ctx, default=400.0))
+    h = max(4.0, _eval_val(h_val, ctx, default=60.0))
+    num_samples = max(4, min(512, int(_eval_val(samples_val, ctx, default=32.0))))
+    gain_fac = max(0.01, _eval_val(gain_val, ctx, default=1.0))
+    thick = max(1.0, _eval_val(thick_val, ctx, default=2.0))
+    scale_fac = max(0.01, _eval_val(scale_val, ctx, default=1.0))
     f_min = _eval_val(min_hz, ctx, default=20.0)
     f_max = _eval_val(max_hz, ctx, default=16000.0)
 
-    # Posición base en el subtítulo
     center_x = float(ctx.get("x", getattr(unit, "center", getattr(unit, "x", w / 2.0))))
     center_y = float(ctx.get("y", getattr(unit, "middle", getattr(unit, "y", h / 2.0))))
 
     audio_obj = resolve_audio_data(audio_path, ctx)
 
-    mode_clean = str(modo or "Osciloscopio").strip().lower()
+    mode_clean = str(modo_val or "oscilloscope").strip().lower()
     x_coords: List[float] = []
     y_coords: List[float] = []
     raw_values: List[float] = []
 
-    # 1. Modo Barras FFT
-    if "barra" in mode_clean or "bar" in mode_clean:
+    if "barra" in mode_clean or "bar" in mode_clean or "fftbars" in mode_clean:
         if audio_obj:
             raw_values = audio_obj.get_fft_bands(st, et, num_bands=num_samples, min_hz=f_min, max_hz=f_max, gain=gain_fac)
         else:
@@ -530,7 +564,6 @@ def audio_waveform_master(
 
         shape_str = " ".join(shape_parts) + " "
 
-    # 2. Modo Radial Circular
     elif "radial" in mode_clean or "circ" in mode_clean:
         if audio_obj:
             raw_values = audio_obj.get_fft_bands(st, et, num_bands=num_samples, min_hz=f_min, max_hz=f_max, gain=gain_fac)
@@ -559,8 +592,7 @@ def audio_waveform_master(
         shape_parts.append(f"l {_fmt_val(points_outer[0][0])} {_fmt_val(points_outer[0][1])}")
         shape_str = " ".join(shape_parts) + " "
 
-    # 3. Modo Onda Rellena (Filled Waveform)
-    elif "rellen" in mode_clean or "filled" in mode_clean:
+    elif "rellen" in mode_clean or "filled" in mode_clean or "filledwave" in mode_clean:
         if audio_obj:
             raw_values = audio_obj.get_samples(st, et, num_points=num_samples, gain=gain_fac)
         else:
@@ -578,8 +610,7 @@ def audio_waveform_master(
         shape_parts.append(f"l {_fmt_val(w)} {_fmt_val(h)} l 0 {_fmt_val(h)} l 0 {_fmt_val(mid_y)}")
         shape_str = " ".join(shape_parts) + " "
 
-    # 4. Modo Puntos (Particles / Dots)
-    elif "punto" in mode_clean or "point" in mode_clean:
+    elif "punto" in mode_clean or "point" in mode_clean or "points" in mode_clean:
         if audio_obj:
             raw_values = audio_obj.get_samples(st, et, num_points=num_samples, gain=gain_fac)
         else:
@@ -600,7 +631,6 @@ def audio_waveform_master(
             shape_parts.append(f"m {_fmt_val(x0)} {_fmt_val(y0)} l {_fmt_val(x1)} {_fmt_val(y0)} l {_fmt_val(x1)} {_fmt_val(y1)} l {_fmt_val(x0)} {_fmt_val(y1)}")
         shape_str = " ".join(shape_parts) + " "
 
-    # 5. Modo Osciloscopio (Default - Ribbon Stroke)
     else:
         if audio_obj:
             raw_values = audio_obj.get_samples(st, et, num_points=num_samples, gain=gain_fac)
@@ -629,21 +659,93 @@ def audio_waveform_master(
         shape_parts.append(f"l {_fmt_val(top_points[0][0])} {_fmt_val(top_points[0][1])}")
         shape_str = " ".join(shape_parts) + " "
 
-    # Salida 4: Bandas / Muestras Array
     if output_slot_index == 4:
         return [round(v, 4) for v in raw_values]
 
-    # Salida 3: Y Array
     if output_slot_index == 3:
         return y_coords
 
-    # Salida 2: X Array
     if output_slot_index == 2:
         return x_coords
 
-    # Salida 1: \pos Tag
     if output_slot_index == 1:
         return f"\\pos({_fmt_val(center_x)},{_fmt_val(center_y)})"
 
-    # Salida 0 (Default): ASSDraw Shape String
     return shape_str
+
+
+@pyxis_node("Audio", "Modulator", ["Audio Path", "Tag", "Min Val", "Max Val", "Gain", "Step ms", "Smoothing", "Start Time", "End Time"])
+def audio_modulator_node(
+    context=None,
+    audio_path="",
+    tag_name="fscy",
+    min_val="100",
+    max_val="160",
+    gain="1.0",
+    step_ms="41.7",
+    smoothing="0.2",
+    mode="rms",
+    min_hz="20",
+    max_hz="250",
+    start_time="",
+    end_time="",
+    output_slot_index=0,
+    **kwargs
+):
+    """Audio Modulator node registration wrapper."""
+    return audio_modulator_master(
+        context=context,
+        audio_path=audio_path,
+        tag_name=tag_name,
+        min_val=min_val,
+        max_val=max_val,
+        gain=gain,
+        step_ms=step_ms,
+        smoothing=smoothing,
+        mode=mode,
+        min_hz=min_hz,
+        max_hz=max_hz,
+        start_time=start_time,
+        end_time=end_time,
+        output_slot_index=output_slot_index,
+        **kwargs
+    )
+
+
+@pyxis_node("Audio", "Waveform", ["Audio Path", "Width", "Height", "Samples", "Gain", "Thickness", "Scale", "Start Time", "End Time"])
+def audio_waveform_node(
+    context=None,
+    audio_path="",
+    mode="oscilloscope",
+    width="400",
+    height="60",
+    samples="32",
+    gain="1.0",
+    thickness="2",
+    min_hz="20",
+    max_hz="16000",
+    scale="1.0",
+    start_time="",
+    end_time="",
+    output_slot_index=0,
+    **kwargs
+):
+    """Audio Waveform node registration wrapper."""
+    return audio_waveform_master(
+        context=context,
+        audio_path=audio_path,
+        mode=mode,
+        width=width,
+        height=height,
+        samples=samples,
+        gain=gain,
+        thickness=thickness,
+        min_hz=min_hz,
+        max_hz=max_hz,
+        scale=scale,
+        start_time=start_time,
+        end_time=end_time,
+        output_slot_index=output_slot_index,
+        **kwargs
+    )
+

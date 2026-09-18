@@ -14,8 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# PyxisNodes/audio_preprocessor.py
-"""Módulo de preprocesamiento, extracción y caché de audio universal mediante FFmpeg."""
+"""Universal audio preprocessing, extraction, and caching module via FFmpeg."""
 
 import hashlib
 import os
@@ -25,25 +24,22 @@ from typing import Optional
 
 
 class AudioPreprocessor:
-    """Gestiona la detección, conversión a PCM WAV y caché inteligente de archivos de audio/video."""
+    """Manages detection, conversion to PCM WAV, and smart caching of audio/video files."""
 
     @staticmethod
     def get_ffmpeg_path() -> Optional[str]:
-        """Localiza el ejecutable de ffmpeg en PyxisNodes o en el PATH del sistema."""
-        # 1. Directorio local de PyxisNodes
+        """Locates ffmpeg executable in PyxisNodes or system PATH."""
         local_dir = os.path.dirname(os.path.abspath(__file__))
         local_ffmpeg = os.path.join(local_dir, "ffmpeg.exe")
         if os.path.isfile(local_ffmpeg):
             return local_ffmpeg
 
-        # 2. Directorio de usuario en %APPDATA%/PyxisNodes
         appdata_dir = os.environ.get("APPDATA")
         if appdata_dir:
             user_ffmpeg = os.path.join(appdata_dir, "PyxisNodes", "ffmpeg.exe")
             if os.path.isfile(user_ffmpeg):
                 return user_ffmpeg
 
-        # 3. PATH del sistema operativo
         sys_ffmpeg = shutil.which("ffmpeg")
         if sys_ffmpeg:
             return sys_ffmpeg
@@ -52,7 +48,7 @@ class AudioPreprocessor:
 
     @staticmethod
     def get_cache_dir() -> str:
-        """Obtiene y asegura el directorio temporal de caché de audio."""
+        """Gets and ensures temporary audio cache directory."""
         appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
         cache_dir = os.path.join(appdata_dir, "PyxisNodes", "temp", "audio_cache")
         os.makedirs(cache_dir, exist_ok=True)
@@ -60,7 +56,7 @@ class AudioPreprocessor:
 
     @staticmethod
     def is_pcm_wav(file_path: str) -> bool:
-        """Verifica rápidamente si el archivo ya es un WAV RIFF válido sin necesidad de conversión."""
+        """Quickly checks if file is already a valid RIFF WAV without conversion."""
         if not file_path or not os.path.isfile(file_path):
             return False
         try:
@@ -74,7 +70,7 @@ class AudioPreprocessor:
 
     @staticmethod
     def compute_cache_key(source_path: str, stream_idx: int = 0) -> str:
-        """Calcula una huella digital única (MD5) para el archivo de origen."""
+        """Computes a unique digital fingerprint (MD5) for the source file."""
         abs_path = os.path.abspath(source_path).lower()
         file_size = 0
         file_mtime = 0.0
@@ -96,41 +92,30 @@ class AudioPreprocessor:
         target_sample_rate: int = 44100,
         progress_callback=None
     ) -> str:
-        """Asegura que el archivo de entrada esté disponible como un archivo PCM WAV compatible.
-        
-        Si el archivo ya es un WAV válido, retorna la ruta original.
-        Si es un contenedor (.mp4, .mkv) o formato comprimido (.mp3, .aac, .flac, .opus, .eac3),
-        lo extrae y convierte usando FFmpeg guardándolo en caché.
-        """
+        """Ensures input file is available as a compatible PCM WAV file."""
         if not source_path or not str(source_path).strip():
-            raise ValueError("Ruta de audio no especificada.")
+            raise ValueError("Audio path not specified.")
 
         clean_path = str(source_path).strip().strip('"').strip("'")
         if not os.path.isfile(clean_path):
-            raise FileNotFoundError(f"Archivo de audio/video no encontrado: {clean_path}")
+            raise FileNotFoundError(f"Audio/video file not found: {clean_path}")
 
-        # Si ya es un archivo WAV válido en disco, lo usamos directamente
         if cls.is_pcm_wav(clean_path):
             return clean_path
 
-        # Comprobar caché inteligente
         cache_key = cls.compute_cache_key(clean_path, stream_idx)
         cached_wav = os.path.join(cls.get_cache_dir(), f"pyxis_audio_{cache_key}.wav")
 
-        # Cache HIT: el archivo ya fue convertido y el original no ha cambiado
         if os.path.isfile(cached_wav) and os.path.getsize(cached_wav) > 44:
             return cached_wav
 
-        # Cache MISS: requiere conversión con FFmpeg
         ffmpeg_bin = cls.get_ffmpeg_path()
         if not ffmpeg_bin:
-            raise FileNotFoundError(
-                "No se encontró 'ffmpeg.exe'. Coloque 'ffmpeg.exe' en la carpeta de PyxisNodes o agréguelo al PATH."
-            )
+            raise FileNotFoundError("Could not find 'ffmpeg.exe'. Please place 'ffmpeg.exe' in PyxisNodes folder or add it to PATH.")
 
         if progress_callback:
             try:
-                progress_callback("Extrayendo y convirtiendo pista de audio con FFmpeg...")
+                progress_callback("Extracting and converting audio track with FFmpeg...")
             except Exception:
                 pass
 
@@ -168,7 +153,7 @@ class AudioPreprocessor:
                 raise RuntimeError(f"FFmpeg falló al procesar el audio (código {result.returncode}): {err_msg}")
 
             if not os.path.isfile(temp_target) or os.path.getsize(temp_target) <= 44:
-                raise RuntimeError("FFmpeg no generó un archivo WAV válido o la pista de audio está vacía.")
+                raise RuntimeError("FFmpeg did not generate a valid WAV file or audio track is empty.")
 
             os.replace(temp_target, cached_wav)
             return cached_wav

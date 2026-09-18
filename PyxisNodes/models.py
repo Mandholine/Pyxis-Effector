@@ -25,22 +25,18 @@ class PyxisUnit:
         self.start_time, self.end_time = 0, 0
         self._mid_time = None
 
-        # Tiempos relativos respecto al inicio de la línea madre
         self.syl_start, self.syl_end = 0, 0
         self.word_start, self.word_end = 0, 0
         self.char_start, self.char_end = 0, 0
 
-        # Dimensiones y posiciones
         self.width, self.height, self.descent, self.extlead = 0.0, 0.0, 0.0, 0.0
         self.left, self.center, self.right = 0.0, 0.0, 0.0
         self.top, self.middle, self.bottom = 0.0, 0.0, 0.0
         self.x, self.y = 0.0, 0.0
 
-        # Espaciado de sílabas/palabras
         self.prespace, self.postspace = "", ""
         self.prespacewidth, self.postspacewidth = 0.0, 0.0
 
-        # Jerarquía de referencias
         self.line, self.word = None, None
         self._syl_obj = None
         self.chars = []
@@ -157,7 +153,6 @@ class StyleRef:
         except Exception:
             self.spacing = 0.0
 
-        # Primary, Secondary, Outline, Back Colours & Alphas
         self.color1 = str(style_dict.get('PrimaryColour', style_dict.get('color1', '&H00FFFFFF&')))
         self.color2 = str(style_dict.get('SecondaryColour', style_dict.get('color2', '&H000000FF&')))
         self.color3 = str(style_dict.get('OutlineColour', style_dict.get('color3', '&H00000000&')))

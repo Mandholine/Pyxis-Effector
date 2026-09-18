@@ -14,12 +14,11 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# decorators.py (v0.8)
-"""Registro central de nodos de Pyxis Nodes Engine.
+"""Central node registry for Pyxis Nodes Engine.
 
-Los nodos de datos se registran en PYXIS_DB/NODE_REGISTRY.
-Los nodos de sistema solo describen su interfaz visual y se registran en
-SYSTEM_NODE_DB; su ejecución continúa en node_engine.py.
+Data nodes are registered in PYXIS_DB/NODE_REGISTRY.
+System nodes only describe their visual interface and are registered in
+SYSTEM_NODE_DB; their execution takes place in node_engine.py.
 """
 
 import json
@@ -31,7 +30,7 @@ SYSTEM_NODE_DB = {}
 
 
 def pyxis_node(category, name, inputs):
-    """Registra un nodo de datos evaluable por GraphEngine."""
+    """Registers an evaluable data node for GraphEngine."""
     def decorator(func):
         if category not in PYXIS_DB:
             PYXIS_DB[category] = {}
@@ -53,10 +52,10 @@ def system_node(
     properties=None,
     widgets=None,
 ):
-    """Registra la definición visual de un nodo de sistema.
+    """Registers the visual definition of a system node.
 
-    Los nodos de sistema no se agregan a NODE_REGISTRY ni a PYXIS_DB porque no
-    son funciones de datos. GraphEngine los interpreta por su tipo serializado.
+    System nodes are not added to NODE_REGISTRY or PYXIS_DB because they
+    are not data functions. GraphEngine interprets them by their serialized type.
     """
     definition = {
         "node_kind": node_kind,
@@ -77,7 +76,7 @@ def system_node(
 
 
 def get_manifest():
-    """Devuelve un manifiesto explícito y compatible con la UI."""
+    """Returns an explicit UI-compatible manifest."""
     return json.dumps(
         {
             "data_nodes": PYXIS_DB,

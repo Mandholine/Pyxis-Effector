@@ -14,36 +14,49 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# PyxisNodes/nodes/system_nodes.py
-"""Nodos de salida final del sistema y diagnósticos de rendimiento (Benchmark)."""
+"""Final system output nodes and performance benchmark diagnostics."""
 
 from decorators import system_node
 
 system_node(
     "System", "Output", node_kind="output", color="#8B0000",
     inputs=["Loop / Domain", "Layer", "Start Time", "End Time", "Tags", "Return", "Queue ID", "Queue Order"],
-    properties={"apply_to": "Sel. Lines"},
+    outputs=["Preview"],
+    properties={"apply_to": "Sel. Lines", "queue_id": "", "queue_order": "", "origin_align": 5},
     widgets=[
-        {"type": "combo", "name": "Aplicar a:", "property": "apply_to", "values": ["Sel. Lines", "Selected Lines", "Style Lines", "All Lines"]}
+        {"type": "combo", "name": "Apply to:", "property": "apply_to", "values": ["Sel. Lines", "Selected Lines", "Style Lines", "All Lines"]}
     ]
 )
 
 system_node(
-    "Loops", "Main Loop", node_kind="bucle", color="#1E3A8A",
-    outputs=["Loop"],
-    properties={"iterador": "syl", "noblank": "No Blank (Ignorar Espacios)"},
+    "System", "Previewer", node_kind="preview", color="#2563EB",
+    inputs=["Output"],
+    outputs=[],
+    properties={"output_ids": ""},
     widgets=[
-        {"type": "combo", "name": "Iterator:", "property": "iterador", "values": ["syl", "char", "word", "line"]},
-        {"type": "combo", "name": "Modo Blank:", "property": "noblank", "values": ["No Blank (Ignorar Espacios)", "Con Blanks (Todos)"]}
+        {"type": "text", "name": "Output IDs", "property": "output_ids"}
+    ]
+)
+
+system_node(
+    "System", "Script Code", node_kind="step", color="#3B82F6",
+    inputs=["Loop In", "In1", "In2"],
+    outputs=["Loop Out", "Result"],
+    properties={
+        "language": "Python",
+        "script": "result = 'Hello Pyxis ' + str(in1 if in1 else syl.text)",
+        "inputs_count": 2
+    },
+    widgets=[
+        {"type": "combo", "name": "Language", "property": "language", "values": ["Python", "Lua"]}
     ]
 )
 
 system_node(
     "System", "Benchmark Math", node_kind="data", color="#D97706",
-    inputs=["In"], outputs=["Out", "Time ms"],
-    properties={"iterations": 10000, "complexity": "Heavy Math (Trig + Sqrt)"},
+    inputs=["Iterations"], outputs=["Out", "Time ms"],
+    properties={"iterations": "10000", "complexity": "Heavy Math (Trig + Sqrt)"},
     widgets=[
-        {"type": "combo", "name": "Iterations:", "property": "iterations", "values": [1000, 5000, 10000, 25000, 50000]},
-        {"type": "combo", "name": "Complejidad:", "property": "complexity", "values": ["Heavy Math (Trig + Sqrt)", "Matrix Multiply", "Prime Factorization"]}
+        {"type": "combo", "name": "Complexity", "property": "complexity", "values": ["Heavy Math (Trig + Sqrt)", "Prime Sieve", "Matrix Mult"]}
     ]
 )

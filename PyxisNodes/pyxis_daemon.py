@@ -31,7 +31,6 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
     daemon_context = None
 
     def log_message(self, format, *args):
-        # Silenciar logs HTTP de la consola
         pass
 
     def _send_json(self, data, code=200):
@@ -54,7 +53,7 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
         if self.path == "/status":
             self._send_json({
                 "status": "ok",
-                "version": "1.0.7",
+                "version": "1.1.0",
                 "pid": os.getpid(),
                 "daemon_mode": getattr(self.daemon_context, "daemon_mode", True)
             })
@@ -135,7 +134,6 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
                                 self.wfile.write(chunk_data)
                     return
             except (BrokenPipeError, ConnectionResetError):
-                # Desconexión normal del reproductor durante seek o carga inicial
                 return
             except Exception as e:
                 print(f"[Pyxis Daemon Media Stream Error] {e}", flush=True)
@@ -197,20 +195,19 @@ class PyxisDaemonServer:
             self.running = True
             self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
             self.server_thread.start()
-            print(f"[Pyxis Daemon] Servidor escuchando en http://127.0.0.1:{port} (PID: {os.getpid()})", flush=True)
+            print(f"[Pyxis Daemon] Server listening on http://127.0.0.1:{port} (PID: {os.getpid()})", flush=True)
 
-            # Iniciar hilo de monitoreo de proceso padre Aegisub
             threading.Thread(target=self._monitor_aegisub_pid, daemon=True).start()
         except Exception as e:
-            print(f"[Pyxis Daemon Warning] No se pudo iniciar el puerto {port}: {e}", flush=True)
+            print(f"[Pyxis Daemon Warning] Could not bind port {port}: {e}", flush=True)
 
     def _monitor_aegisub_pid(self):
-        """Si Aegisub se cierra, el daemon finaliza automáticamente para no dejar procesos colgados."""
+        """If Aegisub closes, the daemon shuts down automatically to prevent orphan processes."""
         while self.running:
             time.sleep(1.0)
             if self.aegisub_pid:
                 if not self.is_pid_alive(self.aegisub_pid):
-                    print(f"[Pyxis Daemon] Aegisub (PID {self.aegisub_pid}) se ha cerrado. Apagando servidor daemon.", flush=True)
+                    print(f"[Pyxis Daemon] Aegisub (PID {self.aegisub_pid}) has closed. Shutting down daemon server.", flush=True)
                     self.shutdown()
                     break
 
@@ -262,7 +259,6 @@ class PyxisDaemonServer:
                 self.aegisub_pid = aegisub_pid
 
             if self.main_api:
-                # Si existía un lock previo no liberado, liberarlo antes de adoptar el nuevo
                 if getattr(self.main_api, "lock_file", None) and self.main_api.lock_file != lock_file:
                     if hasattr(self.main_api, "release_lock"):
                         try:
@@ -284,7 +280,6 @@ class PyxisDaemonServer:
                 else:
                     self.main_api._cached_preview_base_info = None
 
-            # Mostrar y traer al frente la ventana restaurando el formato previo
             try:
                 saved_state = getattr(self.main_api, "_saved_window_state", None)
                 if not saved_state and hasattr(self.main_api, "get_user_config"):
@@ -313,7 +308,6 @@ class PyxisDaemonServer:
             if self.window and getattr(self.window, "title", None):
                 self.bring_to_foreground(self.window.title, is_maximized=is_max)
 
-            # Notificar al frontend en JS para reanudar reproductores y recargar el subtítulo (con la ventana ya visible)
             try:
                 js_code = "if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.resumeFromDaemon === 'function') window.PyxisNodePlayerManager.resumeFromDaemon(); if (window.__pyxis_reload_subtitles) window.__pyxis_reload_subtitles();"
                 self.window.evaluate_js(js_code)
@@ -405,8 +399,6 @@ class PyxisDaemonServer:
                 attached = user32.AttachThreadInput(fore_thread, app_thread, True)
 
             try:
-                # Si la ventana debe estar maximizada o ya está maximizada,
-                # nunca invocar SW_RESTORE (9) porque Windows la des-maximiza y la devuelve a 720p.
                 if is_maximized or user32.IsZoomed(found_hwnd):
                     user32.ShowWindow(found_hwnd, SW_MAXIMIZE)
                 elif user32.IsIconic(found_hwnd):

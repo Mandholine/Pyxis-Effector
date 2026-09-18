@@ -14,8 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# PyxisNodes/nodes/math_nodes.py
-"""Nodo Math Maestro Unificado con soporte para 5 categorías y 35 sub-operaciones."""
+"""Mathematical calculation and numeric transformation nodes."""
 
 import math
 import random
@@ -46,9 +45,9 @@ def _eval_num(val, context=None, default=0.0):
 
 
 def eval_math_node(context=None, **kwargs):
-    """Manejador unificado para el Nodo Maestro Math."""
-    categoria = str(kwargs.get("categoria", "Basico")).strip()
-    operacion = str(kwargs.get("operacion", "Suma")).strip()
+    """Unified handler for Master Math Node."""
+    category = str(kwargs.get("category", kwargs.get("categoria", "Basic"))).strip()
+    operation = str(kwargs.get("operation", kwargs.get("operacion", "Add"))).strip()
     
     ctx = context or {}
 
@@ -58,102 +57,103 @@ def eval_math_node(context=None, **kwargs):
             val = kwargs.get(key.lower())
         return _eval_num(val, ctx, default)
 
-    # 1. CATEGORÍA: BASICO
-    if categoria in ("Basico", "Básico", "basico", "básico"):
+    cat_clean = category.lower()
+
+    if cat_clean in ("basic", "basico", "rounding", "redondeo"):
         a = get_num("A", 0.0)
         b = get_num("B", 0.0)
 
-        op_clean = operacion.strip().lower().replace("ó", "o").replace("á", "a").replace("é", "e").replace("í", "i").replace("ú", "u")
+        op_clean = operation.strip().lower()
         
-        if op_clean in ("suma", "add", "+"):
+        if op_clean in ("add", "suma", "+"):
             return a + b
-        elif op_clean in ("resta", "sub", "-"):
+        elif op_clean in ("sub", "subtract", "resta", "-"):
             return a - b
-        elif op_clean in ("multiplicacion", "mul", "*"):
+        elif op_clean in ("mul", "multiply", "multiplicacion", "*"):
             return a * b
-        elif op_clean in ("division", "div", "/"):
+        elif op_clean in ("div", "divide", "division", "/"):
             return a / b if b != 0 else 0.0
-        elif op_clean in ("modulo", "mod", "%"):
+        elif op_clean in ("mod", "modulo", "%"):
             return a % b if b != 0 else 0.0
-        elif op_clean in ("potencia", "pow", "^"):
+        elif op_clean in ("pow", "power", "potencia", "^"):
             try:
                 return math.pow(a, b)
             except Exception:
                 return 0.0
-        elif op_clean in ("absoluto", "abs"):
+        elif op_clean in ("abs", "absolute", "absoluto"):
             return abs(a)
-        elif op_clean in ("negativo", "neg"):
+        elif op_clean in ("neg", "negative", "negativo"):
             return -a
-        elif op_clean in ("redondear", "round"):
+        elif op_clean in ("round", "redondear"):
             return float(round(a))
-        elif op_clean in ("piso", "floor"):
+        elif op_clean in ("floor", "piso"):
             return float(math.floor(a))
-        elif op_clean in ("techo", "ceil"):
+        elif op_clean in ("ceil", "techo"):
             return float(math.ceil(a))
         else:
             return a + b
 
-    # 2. CATEGORÍA: TRIGONO
-    elif categoria == "Trigono":
-        a = get_num("A", get_num("Grados", get_num("Radianes", 0.0)))
+    elif cat_clean in ("trig", "trigonometry", "trigono"):
+        a = get_num("A", get_num("Degrees", get_num("Radians", get_num("Grados", get_num("Radianes", 0.0)))))
+        op_clean = operation.lower()
         
-        if operacion in ("Seno", "sin"):
+        if op_clean in ("sin", "sine", "seno"):
             return math.sin(math.radians(a))
-        elif operacion in ("Coseno", "cos"):
+        elif op_clean in ("cos", "cosine", "coseno"):
             return math.cos(math.radians(a))
-        elif operacion in ("Tangente", "tan"):
+        elif op_clean in ("tan", "tangent", "tangente"):
             return math.tan(math.radians(a))
-        elif operacion in ("ArcSeno", "asin"):
+        elif op_clean in ("arcsin", "asin", "arcseno"):
             clamped = max(-1.0, min(1.0, a))
             return math.degrees(math.asin(clamped))
-        elif operacion in ("ArcCoseno", "acos"):
+        elif op_clean in ("arccos", "acos", "arccoseno"):
             clamped = max(-1.0, min(1.0, a))
             return math.degrees(math.acos(clamped))
-        elif operacion in ("ArcTangente", "atan"):
+        elif op_clean in ("arctan", "atan", "arctangente"):
             return math.degrees(math.atan(a))
-        elif operacion in ("ArcTangente2", "atan2"):
+        elif op_clean in ("arctan2", "atan2", "arctangente2"):
             y = get_num("Y", get_num("A", 0.0))
             x = get_num("X", get_num("B", 1.0))
             return math.degrees(math.atan2(y, x))
-        elif operacion in ("Radianes", "rad"):
+        elif op_clean in ("radians", "rad", "radianes"):
             return math.radians(a)
-        elif operacion in ("Grados", "deg"):
+        elif op_clean in ("degrees", "deg", "grados"):
             return math.degrees(a)
         else:
             return math.sin(math.radians(a))
 
-    # 3. CATEGORÍA: EASING
-    elif categoria == "Easing":
+    elif cat_clean in ("easing",):
         raw_t = get_num("t", get_num("A", 0.0))
         t = max(0.0, min(1.0, raw_t))
+        op_clean = operation.lower()
         
-        if operacion in ("EaseIn", "ease_in"):
+        if op_clean in ("easein", "ease_in"):
             return t * t
-        elif operacion in ("EaseOut", "ease_out"):
+        elif op_clean in ("easeout", "ease_out"):
             return 1.0 - (1.0 - t) * (1.0 - t)
-        elif operacion in ("EaseInOut", "ease_in_out"):
+        elif op_clean in ("easeinout", "ease_in_out"):
             if t < 0.5:
                 return 2.0 * t * t
             else:
                 return 1.0 - math.pow(-2.0 * t + 2.0, 2) / 2.0
-        elif operacion in ("CubicIn", "cubic_in"):
+        elif op_clean in ("cubicin", "cubic_in"):
             return t * t * t
-        elif operacion in ("CubicOut", "cubic_out"):
+        elif op_clean in ("cubicout", "cubic_out"):
             return 1.0 - (1.0 - t) ** 3
-        elif operacion in ("Exponencial", "expo"):
+        elif op_clean in ("exponential", "expo", "exponencial"):
             if t <= 0.0:
                 return 0.0
             if t >= 1.0:
                 return 1.0
             return math.pow(2.0, 10.0 * (t - 1.0))
-        elif operacion in ("Elastico", "elastic"):
+        elif op_clean in ("elastic", "elastico"):
             if t <= 0.0:
                 return 0.0
             if t >= 1.0:
                 return 1.0
             c4 = (2.0 * math.pi) / 3.0
             return -math.pow(2.0, 10.0 * t - 10.0) * math.sin((t * 10.0 - 10.75) * c4)
-        elif operacion in ("Rebote", "bounce"):
+        elif op_clean in ("bounce", "rebote"):
             n1 = 7.5625
             d1 = 2.75
             if t < 1.0 / d1:
@@ -167,60 +167,60 @@ def eval_math_node(context=None, **kwargs):
             else:
                 t -= 2.625 / d1
                 return n1 * t * t + 0.984375
-        elif operacion in ("Retroceso", "back"):
+        elif op_clean in ("back", "retroceso"):
             c1 = 1.70158
             c3 = c1 + 1.0
             return c3 * (t ** 3) - c1 * (t ** 2)
         else:
             return t * t
 
-    # 4. CATEGORÍA: ONDAS
-    elif categoria == "Ondas":
+    elif cat_clean in ("waves", "wave", "ondas"):
         t = get_num("t", 0.0)
-        frec = get_num("Frecuencia", get_num("freq", 1.0))
-        amp = get_num("Amplitud", get_num("amp", 1.0))
+        frec = get_num("freq", get_num("Frecuencia", 1.0))
+        amp = get_num("amp", get_num("Amplitud", 1.0))
         offset = get_num("Offset", 0.0)
+        op_clean = operation.lower()
         
-        if operacion in ("Seno", "sine"):
+        if op_clean in ("sine", "sin", "seno"):
             return amp * math.sin(2.0 * math.pi * frec * t) + offset
-        elif operacion in ("Cuadrada", "square"):
+        elif op_clean in ("square", "cuadrada"):
             val = math.sin(2.0 * math.pi * frec * t)
             return (amp if val >= 0.0 else -amp) + offset
-        elif operacion in ("Triangulo", "triangle"):
+        elif op_clean in ("triangle", "triangulo"):
             phase = (t * frec) % 1.0
             val = 2.0 * abs(2.0 * phase - 1.0) - 1.0
             return amp * val + offset
-        elif operacion in ("DienteSierra", "sawtooth"):
+        elif op_clean in ("sawtooth", "dientesierra"):
             phase = (t * frec) % 1.0
             val = 2.0 * phase - 1.0
             return amp * val + offset
         else:
             return amp * math.sin(2.0 * math.pi * frec * t) + offset
 
-    # 5. CATEGORÍA: UTILIDADES
-    elif categoria == "Utilidades":
-        if operacion == "Clamp":
+    elif cat_clean in ("utilities", "utility", "utilidades", "clamping", "clamp", "random", "aleatorio"):
+        op_clean = operation.lower()
+        if op_clean in ("clamp",):
             val = get_num("Value", get_num("Valor", get_num("A", 0.0)))
             mn = get_num("Min", 0.0)
             mx = get_num("Max", 1.0)
             low = min(mn, mx)
             high = max(mn, mx)
             return max(low, min(high, val))
-        elif operacion == "Lerp":
+        elif op_clean in ("lerp",):
             a = get_num("A", 0.0)
             b = get_num("B", 1.0)
             t = get_num("t", 0.5)
             t_norm = max(0.0, min(1.0, t))
             return a + (b - a) * t_norm
-        elif operacion in ("Minimo", "min"):
+        elif op_clean in ("min", "minimum", "minimo"):
             a = get_num("A", 0.0)
             b = get_num("B", 0.0)
             return min(a, b)
-        elif operacion in ("Maximo", "max"):
+        elif op_clean in ("max", "maximum", "maximo"):
             a = get_num("A", 0.0)
             b = get_num("B", 0.0)
             return max(a, b)
-        elif operacion in ("Aleatorio", "random"):
+        elif op_clean in ("random", "aleatorio"):
             mn = get_num("Min", 0.0)
             mx = get_num("Max", 1.0)
             seed = kwargs.get("Seed", kwargs.get("seed", kwargs.get("Semilla", kwargs.get("semilla"))))
@@ -232,7 +232,7 @@ def eval_math_node(context=None, **kwargs):
                 except Exception:
                     pass
             return random.uniform(min(mn, mx), max(mn, mx))
-        elif operacion in ("MapearRango", "map_range"):
+        elif op_clean in ("maprange", "map_range", "map range", "mapearrango"):
             val = get_num("Value", get_num("Valor", 0.0))
             in_min = get_num("MinIn", 0.0)
             in_max = get_num("MaxIn", 1.0)
@@ -250,13 +250,10 @@ def eval_math_node(context=None, **kwargs):
     return 0.0
 
 
-# Registros en NODE_REGISTRY
 NODE_REGISTRY["Math"] = eval_math_node
+NODE_REGISTRY["Basics/Math"] = eval_math_node
 
 
-# -----------------------------------------------------------------------------
-# HELPER UTILITIES: RANDOM (RESTPYXISDO DE BETA 2), POLARES Y BEZIER
-# -----------------------------------------------------------------------------
 import random
 
 def _pyxis_random_r(min_val=0.0, max_val=100.0, step=1.0, context=None):
@@ -407,43 +404,61 @@ def _pyxis_random_rstep(min_val=0.0, max_val=360.0, step=45.0, context=None):
         return int(val)
     return val
 
-def math_random_master(context, modo="R", min_val=0.0, max_val=100.0, step=1.0, options="", counter=""):
-    m = str(modo or "R").strip()
-    if m == "R":
-        return _pyxis_random_r(min_val, max_val, step, context)
-    elif m == "Rs":
-        return _pyxis_random_rs(min_val, max_val, step, context)
-    elif m == "Rr":
-        return _pyxis_random_rr(context, min_val, max_val, step)
-    elif m == "Rc":
-        return _pyxis_random_rc(min_val, max_val, step, context)
-    elif m == "Rd":
-        return _pyxis_random_rd(min_val, max_val, step, context)
-    elif m == "Rm":
-        return _pyxis_random_rm(min_val, max_val, step, context)
-    elif m == "Rds":
-        return _pyxis_random_rds(min_val, max_val, step, context)
-    elif m == "Rcs":
-        return _pyxis_random_rcs(min_val, max_val, step, context)
-    elif m == "Rms":
-        return _pyxis_random_rms(min_val, max_val, step, context)
-    elif m == "Re":
-        return _pyxis_random_re(options, context)
-    elif m == "Rfake":
-        return _pyxis_random_rfake(context, min_val, max_val, counter)
-    elif m in ("Rcolor", "Rcol"):
-        return _pyxis_random_rcolor(min_val, max_val, context)
-    elif m == "R2d":
-        return _pyxis_random_r2d(min_val, max_val, step, context)
-    elif m == "Rbool":
-        return _pyxis_random_rbool(min_val, context)
-    elif m == "Rstep":
-        return _pyxis_random_rstep(min_val, max_val, step, context)
-    else:
-        return _pyxis_random_r(min_val, max_val, step, context)
+def math_random_master(context, mode="R", min_val=0.0, max_val=100.0, step=1.0, options="", counter="", total=1, output_slot_index=0, **kwargs):
+    m = str(kwargs.get("mode", mode or "R")).strip()
+    mn = kwargs.get("min", kwargs.get("min_val", min_val))
+    mx = kwargs.get("max", kwargs.get("max_val", max_val))
+    st = kwargs.get("step", step)
+    opt = kwargs.get("options", options)
+    cnt = kwargs.get("counter", counter)
 
-from decorators import NODE_REGISTRY
+    def _gen_single():
+        if m == "R":
+            return _pyxis_random_r(mn, mx, st, context)
+        elif m == "Rs":
+            return _pyxis_random_rs(mn, mx, st, context)
+        elif m == "Rr":
+            return _pyxis_random_rr(context, mn, mx, st)
+        elif m == "Rc":
+            return _pyxis_random_rc(mn, mx, st, context)
+        elif m == "Rd":
+            return _pyxis_random_rd(mn, mx, st, context)
+        elif m == "Rm":
+            return _pyxis_random_rm(mn, mx, st, context)
+        elif m == "Rds":
+            return _pyxis_random_rds(mn, mx, st, context)
+        elif m == "Rcs":
+            return _pyxis_random_rcs(mn, mx, st, context)
+        elif m == "Rms":
+            return _pyxis_random_rms(mn, mx, st, context)
+        elif m == "Re":
+            return _pyxis_random_re(opt, context)
+        elif m == "Rfake":
+            return _pyxis_random_rfake(context, mn, mx, cnt)
+        elif m in ("Rcolor", "Rcol"):
+            return _pyxis_random_rcolor(mn, mx, context)
+        elif m == "R2d":
+            return _pyxis_random_r2d(mn, mx, st, context)
+        elif m == "Rbool":
+            return _pyxis_random_rbool(mn, context)
+        elif m == "Rstep":
+            return _pyxis_random_rstep(mn, mx, st, context)
+        else:
+            return _pyxis_random_r(mn, mx, st, context)
+
+    if output_slot_index == 1 or kwargs.get("return_batch", False):
+        try:
+            n_val = max(1, int(round(float(_eval_num(total, context, 1.0)))))
+        except Exception:
+            n_val = 1
+        batch_res = [_gen_single() for _ in range(n_val)]
+        return ", ".join(str(x) for x in batch_res)
+
+    return _gen_single()
+ 
+ 
 NODE_REGISTRY["MultiRandom"] = math_random_master
+NODE_REGISTRY["Basics/MultiRandom"] = math_random_master
 
 
 def math_polar(context, x=0, y=0, angle=0, radius=0):
@@ -464,7 +479,7 @@ def math_polar(context, x=0, y=0, angle=0, radius=0):
     return f"\\pos({fmt_x},{fmt_y})"
 
 
-def math_bezier_node(context, p0="0,0", p1="50,100", p2="150,100", p3="200,0", t=0.5, subdivs=100, mode="Cúbica 2D"):
+def math_bezier_node(context, p0="0,0", p1="50,100", p2="150,100", p3="200,0", t=0.5, subdivs=100, mode="Cubic 2D"):
     import math
     from node_engine import _eval_num_expr
     ft = float(_eval_num_expr(t, context, 0.5))
@@ -498,68 +513,32 @@ def math_bezier_node(context, p0="0,0", p1="50,100", p2="150,100", p3="200,0", t
         except Exception:
             return default
 
-    def _sample_polyline_arc_length(pts, progress_t):
-        if pts is None or len(pts) == 0:
+    def _eval_de_casteljau(pts, t_param):
+        if not pts:
             return 0.0, 0.0
-        if len(pts) == 1:
-            return float(pts[0][0]), float(pts[0][1])
-        seg_lens = []
-        total_len = 0.0
-        for k in range(len(pts) - 1):
-            d = math.hypot(pts[k+1][0] - pts[k][0], pts[k+1][1] - pts[k][1])
-            seg_lens.append(d)
-            total_len += d
-        if total_len <= 1e-9:
-            return float(pts[0][0]), float(pts[0][1])
-        target_d = progress_t * total_len
-        accum = 0.0
-        chosen_idx = len(pts) - 2
-        frac = 0.0
-        for k, slen in enumerate(seg_lens):
-            if accum + slen >= target_d:
-                chosen_idx = k
-                frac = (target_d - accum) / slen if slen > 0 else 0.0
-                break
-            accum += slen
-        pA = pts[chosen_idx]
-        pB = pts[chosen_idx + 1]
-        cur_x = pA[0] + frac * (pB[0] - pA[0])
-        cur_y = pA[1] + frac * (pB[1] - pA[1])
-        return cur_x, cur_y
+        curr = [(float(p[0]), float(p[1])) for p in pts]
+        t_val = float(t_param)
+        u_val = 1.0 - t_val
+        while len(curr) > 1:
+            curr = [
+                (curr[i][0] * u_val + curr[i + 1][0] * t_val,
+                 curr[i][1] * u_val + curr[i + 1][1] * t_val)
+                for i in range(len(curr) - 1)
+            ]
+        return curr[0]
 
     x0, y0 = parse_pt(p0, (0.0, 0.0))
     x1, y1 = parse_pt(p1, (50.0, 100.0))
     x2, y2 = parse_pt(p2, (150.0, 100.0))
     x3, y3 = parse_pt(p3, (200.0, 0.0))
 
-    u = 1.0 - ft
     m = str(mode).strip().lower()
-    if any(k in m for k in ("cuad", "quad")):
-        if n_subdivs >= 2:
-            pts = []
-            for j in range(n_subdivs + 1):
-                s = j / float(n_subdivs)
-                us = 1.0 - s
-                px = us * us * x0 + 2.0 * us * s * x1 + s * s * x2
-                py = us * us * y0 + 2.0 * us * s * y1 + s * s * y2
-                pts.append((px, py))
-            bx, by = _sample_polyline_arc_length(pts, ft)
-        else:
-            bx = u * u * x0 + 2.0 * u * ft * x1 + ft * ft * x2
-            by = u * u * y0 + 2.0 * u * ft * y1 + ft * ft * y2
+    if "quad" in m or "cuad" in m:
+        pts = [(x0, y0), (x1, y1), (x2, y2)]
     else:
-        if n_subdivs >= 2:
-            pts = []
-            for j in range(n_subdivs + 1):
-                s = j / float(n_subdivs)
-                us = 1.0 - s
-                px = (us**3)*x0 + 3*(us**2)*s*x1 + 3*us*(s**2)*x2 + (s**3)*x3
-                py = (us**3)*y0 + 3*(us**2)*s*y1 + 3*us*(s**2)*y2 + (s**3)*y3
-                pts.append((px, py))
-            bx, by = _sample_polyline_arc_length(pts, ft)
-        else:
-            bx = (u**3)*x0 + 3*(u**2)*ft*x1 + 3*u*(ft**2)*x2 + (ft**3)*x3
-            by = (u**3)*y0 + 3*(u**2)*ft*y1 + 3*u*(ft**2)*y2 + (ft**3)*y3
+        pts = [(x0, y0), (x1, y1), (x2, y2), (x3, y3)]
+
+    bx, by = _eval_de_casteljau(pts, ft)
 
     rbx = round(float(bx), 2)
     rby = round(float(by), 2)
@@ -567,7 +546,7 @@ def math_bezier_node(context, p0="0,0", p1="50,100", p2="150,100", p3="200,0", t
     fmt_y = int(rby) if rby.is_integer() else rby
 
     if m in ("spline", "assdraw", "trazado assdraw", "b"):
-        if "cuadr" in m:
+        if len(pts) == 3:
             cp1_x = x0 + (2.0 / 3.0) * (x1 - x0)
             cp1_y = y0 + (2.0 / 3.0) * (y1 - y0)
             cp2_x = x2 + (2.0 / 3.0) * (x1 - x2)

@@ -16,42 +16,42 @@
 
 """Pruebas unitarias para el motor de aceleracion por GPU / CPU Fallback (GpuEngine)."""
 
-import unittest
-import numpy as np
-from gpu_engine import GpuEngineManager, get_gpu_manager
+import unittest 
+import numpy as np 
+from gpu_engine import GpuEngineManager ,get_gpu_manager 
 
 
-class TestGpuEngine(unittest.TestCase):
+class TestGpuEngine (unittest .TestCase ):
     """Pruebas de inicializacion y transformacion de particulas por GPU/CPU."""
 
-    def test_gpu_manager_singleton_and_health(self):
-        gpu_mgr = get_gpu_manager()
-        self.assertIsNotNone(gpu_mgr)
-        self.assertTrue(gpu_mgr.is_healthy)
+    def test_gpu_manager_singleton_and_health (self ):
+        gpu_mgr =get_gpu_manager ()
+        self .assertIsNotNone (gpu_mgr )
+        self .assertTrue (gpu_mgr .is_healthy )
 
-    def test_live_probe_exception_safety(self):
-        fresh_mgr = GpuEngineManager()
-        self.assertIn(fresh_mgr.backend, [
-            "CUDA (CuPy)", "CUDA (Numba)", "OpenCL (PyOpenCL)",
-            "OpenCL (Ctypes Native Runtime)", "CPU"
+    def test_live_probe_exception_safety (self ):
+        fresh_mgr =GpuEngineManager ()
+        self .assertIn (fresh_mgr .backend ,[
+        "CUDA (CuPy)","CUDA (Numba)","OpenCL (PyOpenCL)",
+        "OpenCL (Ctypes Native Runtime)","CPU"
         ])
 
-    def test_particle_transform_parity(self):
-        gpu_mgr = get_gpu_manager()
-        coords = np.array([
-            [10.0, 20.0, 1.0],
-            [30.0, 40.0, 1.0],
-            [50.0, 60.0, 1.0]
-        ], dtype=np.float64)
+    def test_particle_transform_parity (self ):
+        gpu_mgr =get_gpu_manager ()
+        coords =np .array ([
+        [10.0 ,20.0 ,1.0 ],
+        [30.0 ,40.0 ,1.0 ],
+        [50.0 ,60.0 ,1.0 ]
+        ],dtype =np .float64 )
 
-        transformed = gpu_mgr.transform_particles_gpu(
-            coords, scale_x=2.0, scale_y=2.0, angle_deg=90.0, offset_x=5.0, offset_y=10.0
+        transformed =gpu_mgr .transform_particles_gpu (
+        coords ,scale_x =2.0 ,scale_y =2.0 ,angle_deg =90.0 ,offset_x =5.0 ,offset_y =10.0 
         )
 
-        self.assertEqual(transformed.shape, coords.shape)
-        self.assertAlmostEqual(transformed[0, 0], -35.0, places=4)
-        self.assertAlmostEqual(transformed[0, 1], 30.0, places=4)
+        self .assertEqual (transformed .shape ,coords .shape )
+        self .assertAlmostEqual (transformed [0 ,0 ],-35.0 ,places =4 )
+        self .assertAlmostEqual (transformed [0 ,1 ],30.0 ,places =4 )
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ =="__main__":
+    unittest .main ()

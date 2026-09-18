@@ -14,11 +14,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# utils.py (v0.8)
 import re
 
 def parse_time(time_str: str) -> int:
-    """Convierte tiempo ASS 0:00:00.00 a milisegundos absolutos"""
+    """Converts ASS time 0:00:00.00 to absolute milliseconds."""
     match = re.match(r'(\d+):(\d+):(\d+)\.(\d+)', time_str.strip())
     if match:
         h, m, s, cs = map(int, match.groups())
@@ -26,7 +25,7 @@ def parse_time(time_str: str) -> int:
     return 0
 
 def format_time(ms: int) -> str:
-    """Convierte milisegundos absolutos a formato ASS"""
+    """Converts absolute milliseconds to ASS format."""
     ms = max(0, ms)
     cs = (ms % 1000) // 10
     s = (ms // 1000) % 60

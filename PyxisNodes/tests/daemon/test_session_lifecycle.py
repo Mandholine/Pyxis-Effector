@@ -16,42 +16,42 @@
 
 """Pruebas unitarias para persistencia e integridad de sesiones JSON en PyxisNodes."""
 
-import json
-import os
-import tempfile
-import unittest
-from node_engine import GraphEngine
+import json 
+import os 
+import tempfile 
+import unittest 
+from node_engine import GraphEngine 
 
 
-class TestSessionLifecycle(unittest.TestCase):
+class TestSessionLifecycle (unittest .TestCase ):
     """Pruebas de serializacion, deserializacion y persistencia de grafos."""
 
-    def test_session_serialization_and_rehydration(self):
-        graph_data = {
-            "nodes": [
-                {
-                    "id": 1,
-                    "type": "Loops/Main Loop",
-                    "properties": {"iterador": "syl"},
-                    "outputs": [{"name": "Loop", "type": "bucle", "links": [101]}]
-                },
-                {
-                    "id": 2,
-                    "type": "String",
-                    "properties": {"valor": "Persistent Node Data"}
-                }
-            ],
-            "links": []
+    def test_session_serialization_and_rehydration (self ):
+        graph_data ={
+        "nodes":[
+        {
+        "id":1 ,
+        "type":"Loops/Main Loop",
+        "properties":{"iterador":"syl"},
+        "outputs":[{"name":"Loop","type":"bucle","links":[101 ]}]
+        },
+        {
+        "id":2 ,
+        "type":"String",
+        "properties":{"valor":"Persistent Node Data"}
+        }
+        ],
+        "links":[]
         }
 
-        # Serializar y deserializar
-        json_str = json.dumps(graph_data)
-        loaded_data = json.loads(json_str)
 
-        self.assertEqual(len(loaded_data["nodes"]), 2)
-        engine = GraphEngine(loaded_data)
-        self.assertEqual(len(engine.nodes), 2)
+        json_str =json .dumps (graph_data )
+        loaded_data =json .loads (json_str )
+
+        self .assertEqual (len (loaded_data ["nodes"]),2 )
+        engine =GraphEngine (loaded_data )
+        self .assertEqual (len (engine .nodes ),2 )
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ =="__main__":
+    unittest .main ()

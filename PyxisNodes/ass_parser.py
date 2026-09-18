@@ -14,11 +14,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# ass_parser.py (v0.9)
-"""Parser de archivos ASS y procesador de líneas de karaoke autónomo.
+"""Autonomous ASS file parser and karaoke line processor.
 
-Utiliza KaraskelEngine y FontEngine en Python puro para maquetar de forma idéntica a Aegisub C++
-líneas, sílabas, caracteres, palabras y furigana sin depender de comentarios PyxisMetrics ni macros Lua.
+Uses pure Python KaraskelEngine and FontEngine to layout lines, syllables, characters, words, and furigana identically to Aegisub C++ without relying on PyxisMetrics comments or Lua macros.
 """
 
 import re
@@ -72,7 +70,7 @@ DUMMY_AUDIO_REGEX = re.compile(r"^dummy-audio:silence", re.IGNORECASE)
 
 
 class ASSParseResult(tuple):
-    """Tupla de 5 elementos compatible con (styles, dialogues, res_x, res_y, frame_dur) con atributos enriquecidos."""
+    """5-element tuple compatible with (styles, dialogues, res_x, res_y, frame_dur) with enriched attributes."""
     def __new__(cls, styles, dialogues, res_x, res_y, frame_dur, audio_file="", video_file="",
                 video_ar=0.0, video_pos=0, dummy_info=None, is_dummy_video=False, is_dummy_audio=False,
                 script_file=""):
@@ -205,7 +203,6 @@ class ASSParser:
         except Exception:
             pass
 
-        # Decodificación y categorización de Video File
         if video_file:
             m_dummy = DUMMY_VIDEO_REGEX.match(video_file)
             if m_dummy:
@@ -235,16 +232,13 @@ class ASSParser:
             elif "dummy" in video_file.lower():
                 is_dummy_video = True
 
-        # Decodificación y categorización de Audio File
         if audio_file:
             if DUMMY_AUDIO_REGEX.match(audio_file) or "dummy" in audio_file.lower() or "silence" in audio_file.lower():
                 is_dummy_audio = True
 
-        # Jerarquía de Resolución
         final_res_x = raw_res_x if (raw_res_x is not None and raw_res_x > 0) else dummy_info.get("width", 1280)
         final_res_y = raw_res_y if (raw_res_y is not None and raw_res_y > 0) else dummy_info.get("height", 720)
 
-        # Normalización par para FFmpeg / H.264
         final_res_x = max(2, final_res_x - (final_res_x % 2))
         final_res_y = max(2, final_res_y - (final_res_y % 2))
 
@@ -282,7 +276,6 @@ class KaraokeProcessor:
         line.effect, line.raw_text = groups[8], groups[9]
         line.styleref = StyleRef(style)
 
-        # 1. Procesamiento autónomo mediante KaraskelEngine en Python
         meta = KaraskelMeta(res_x=self.res_x, res_y=self.res_y)
         style_name = style.get('Name') or style.get('name') or line.style_name or "Default"
         styles_map = {style_name: style}
@@ -300,7 +293,6 @@ class KaraokeProcessor:
 
         KaraskelEngine.preproc_line(meta, styles_map, k_line)
 
-        # Copiar métricas calculadas de KaraskelEngine a PyxisLine
         line.text_stripped = k_line.text_stripped
         line.width = k_line.width
         line.height = k_line.height
@@ -324,7 +316,6 @@ class KaraokeProcessor:
         has_karaoke = any(k_syl.duration > 0 or k_syl.kdur > 0 for k_syl in k_line.kara) or bool(re.search(r"\\[kK][fo]?\d+", line.raw_text))
 
         if has_karaoke:
-            # 2. Construir PyxisUnit para Sílabas (syls)
             char_idx = 1
             visible_syl_idx = 1
 
@@ -364,8 +355,7 @@ class KaraokeProcessor:
 
                 line.syls.append(syl)
 
-                # 3. Construir PyxisUnit para Caracteres (chars) usando FontEngine
-                txt_strip = (k_syl.prespace or "") + (k_syl.text_stripped or "") + (k_syl.postspace or "")
+                txt_strip = k_syl.text_stripped or ""
                 cw_list = FontEngine.get_char_widths(style, txt_strip)
                 syl_cw_sum = sum(cw_list) if cw_list else 1.0
 
@@ -408,8 +398,6 @@ class KaraokeProcessor:
                     current_t += char_dur
                     char_idx += 1
         else:
-            # Fallback inteligente: línea sin tiempos de karaoke (ej. traducción o diálogo simple)
-            # Dividir en palabras con tiempos estimados (l.dur / word.n) y tomarlas como sílabas
             txt_strip = k_line.text_stripped or ""
             cw_list = FontEngine.get_char_widths(style, txt_strip)
             all_chars = []
@@ -526,7 +514,6 @@ class KaraokeProcessor:
                         ch.mid_time = line.start_time
                 line.chars.append(ch)
 
-        # 4. Construcción del dominio Palabras (words) y Furigana (furi)
         self._build_words_from_chars(line)
 
         for k_furi in k_line.furi:
@@ -583,14 +570,15 @@ class KaraokeProcessor:
         word.start_time = chars[0].start_time if chars else line.start_time
         word.end_time = chars[-1].end_time if chars else line.end_time
         word.mid_time = word.start_time + (word.duration / 2.0)
-        word.width = sum(c.width for c in chars)
-        word.height, word.descent, word.extlead = line.height, line.descent, line.extlead
-        word.left = chars[0].left if chars else 0
-        word.right = chars[-1].right if chars else 0
+        word.left = chars[0].left if chars else line.left
+        word.right = chars[-1].right if chars else line.right
+        word.width = max(0.0, word.right - word.left)
         word.center = word.left + (word.width / 2.0)
         word.top = chars[0].top if chars else line.top
         word.bottom = chars[0].bottom if chars else line.bottom
-        word.middle = word.top + (word.height / 2.0)
+        word.middle = line.middle
+        word.x = word.center
+        word.y = word.middle
         word.descent, word.extlead = line.descent, line.extlead
         line.words.append(word)
         return word

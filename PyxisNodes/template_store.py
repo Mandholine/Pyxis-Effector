@@ -14,7 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-"""Almacenamiento permanente de templates de Pyxis Engine 1.0.7."""
+"""Persistent storage for Pyxis Engine 1.1.0 templates."""
 
 from __future__ import annotations
 
@@ -28,13 +28,13 @@ from pathlib import Path
 from typing import Any
 
 
-PYXIS_ENGINE_VERSION = "1.0.7"
+PYXIS_ENGINE_VERSION = "1.1.0"
 SCHEMA_VERSION = 1
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]+")
 
 
 class TemplateStoreError(Exception):
-    """Error controlado del almacenamiento de templates."""
+    """Controlled error for template storage."""
 
 
 class TemplateStore:
@@ -55,7 +55,7 @@ class TemplateStore:
             self.user_templates_dir = Path(appdata_dir) / "PyxisNodes" / "templates"
             self.system_templates_dir = Path(__file__).parent / "templates"
 
-        self.templates_dir = self.user_templates_dir  # Alias de compatibilidad
+        self.templates_dir = self.user_templates_dir
         self.aegisub_version = str(aegisub_version or "unknown")
 
     def ensure_directory(self) -> None:
@@ -72,7 +72,7 @@ class TemplateStore:
         self._validate_graph(graph_data)
         raw_name = str(name or "").strip()
         if not raw_name:
-            raise TemplateStoreError("El nombre del template no puede estar vacío")
+            raise TemplateStoreError("Template name cannot be empty")
         clean_name = self._clean_name(raw_name) or "template"
 
         self.ensure_directory()
@@ -122,7 +122,6 @@ class TemplateStore:
 
         self._write_document(template_file, document)
 
-        # Si el archivo previo existía en user_templates_dir y cambió de nombre, eliminar el anterior
         if existing_file and existing_file.exists():
             try:
                 if existing_file.resolve() != template_file.resolve() and self._is_in_user_dir(existing_file):
@@ -135,7 +134,6 @@ class TemplateStore:
     def list_templates(self) -> list[dict[str, Any]]:
         templates_map: dict[str, dict[str, Any]] = {}
 
-        # 1. Cargar plantillas del sistema (solo lectura / fallback)
         if self.system_templates_dir.exists() and self.system_templates_dir != self.user_templates_dir:
             for template_file in self.system_templates_dir.rglob("*.json"):
                 if not template_file.is_file() or template_file.name.startswith("."):
@@ -158,7 +156,6 @@ class TemplateStore:
                 except (OSError, ValueError, TemplateStoreError):
                     continue
 
-        # 2. Cargar/sobrescribir con plantillas del usuario (en AppData)
         if self.user_templates_dir.exists():
             for template_file in self.user_templates_dir.rglob("*.json"):
                 if not template_file.is_file() or template_file.name.startswith("."):
@@ -194,7 +191,7 @@ class TemplateStore:
         document = self._migrate_document(document)
         graph = document.get("graph")
         if not isinstance(graph, dict):
-            raise TemplateStoreError("El template no contiene un grafo válido")
+            raise TemplateStoreError("Template does not contain a valid graph")
         self._validate_graph(graph)
         return document
 
@@ -207,7 +204,6 @@ class TemplateStore:
         metadata["is_favorite"] = new_fav
         metadata["updated_at"] = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         
-        # Siempre guardar en user_templates_dir (si era un template de sistema, se guarda su copia en user_dir)
         target_file = self.user_templates_dir / template_file.name
         self._write_document(target_file, document)
         return new_fav
@@ -231,7 +227,7 @@ class TemplateStore:
         if self._is_in_user_dir(template_file):
             template_file.unlink()
         else:
-            raise TemplateStoreError("No se pueden eliminar las plantillas integradas del sistema")
+            raise TemplateStoreError("Cannot delete built-in system templates")
 
     def _is_in_user_dir(self, file_path: Path) -> bool:
         try:
@@ -242,9 +238,8 @@ class TemplateStore:
 
     def _find_template_file(self, template_id: str) -> Path:
         if not template_id or Path(template_id).name != template_id:
-            raise TemplateStoreError("Identificador de template inválido")
+            raise TemplateStoreError("Invalid template identifier")
 
-        # 1. Buscar primero en carpetas de usuario (AppData)
         if self.user_templates_dir.exists():
             for template_file in self.user_templates_dir.rglob("*.json"):
                 if not template_file.is_file() or template_file.name.startswith("."):
@@ -256,7 +251,6 @@ class TemplateStore:
                 if document.get("metadata", {}).get("template_id") == template_id:
                     return template_file
 
-        # 2. Buscar en carpetas de sistema si no está en usuario
         if self.system_templates_dir.exists() and self.system_templates_dir != self.user_templates_dir:
             for template_file in self.system_templates_dir.rglob("*.json"):
                 if not template_file.is_file() or template_file.name.startswith("."):
@@ -268,7 +262,7 @@ class TemplateStore:
                 if document.get("metadata", {}).get("template_id") == template_id:
                     return template_file
 
-        raise TemplateStoreError("Template no encontrado")
+        raise TemplateStoreError("Template not found")
 
     def _write_document(self, target_file: Path, document: dict[str, Any]) -> None:
         self.ensure_directory()
@@ -286,26 +280,26 @@ class TemplateStore:
                     tmp_file.unlink()
                 except OSError:
                     pass
-            raise TemplateStoreError(f"No se pudo guardar el template: {error}") from error
+            raise TemplateStoreError(f"Could not save template: {error}") from error
 
     @staticmethod
     def _read_document(template_file: Path) -> dict[str, Any]:
         with template_file.open("r", encoding="utf-8") as file_handle:
             document = json.load(file_handle)
         if not isinstance(document, dict):
-            raise TemplateStoreError("Formato de template inválido")
+            raise TemplateStoreError("Invalid template format")
         return document
 
     @staticmethod
     def _validate_graph(graph_data: Any) -> None:
         if not isinstance(graph_data, dict):
-            raise TemplateStoreError("El grafo debe ser un objeto JSON")
+            raise TemplateStoreError("Graph must be a JSON object")
         if not isinstance(graph_data.get("nodes"), list):
-            raise TemplateStoreError("El grafo debe contener una lista de nodos")
+            raise TemplateStoreError("Graph must contain a list of nodes")
         if len(graph_data.get("nodes", [])) == 0:
-            raise TemplateStoreError("El grafo no contiene ningún nodo (está vacío)")
+            raise TemplateStoreError("Graph contains no nodes (it is empty)")
         if "links" in graph_data and not isinstance(graph_data["links"], list):
-            raise TemplateStoreError("Los enlaces del grafo deben ser una lista")
+            raise TemplateStoreError("Graph links must be a list")
 
     @staticmethod
     def _clean_name(name: str) -> str:

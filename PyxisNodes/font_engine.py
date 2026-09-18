@@ -14,10 +14,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# font_engine.py
-"""Motor de fuentes tipográficas para medición de extents de texto idéntico a aegisub.text_extents en C++.
+"""Typography font engine for text extent measurement matching aegisub.text_extents in C++.
 
-Soporta Win32 GDI en Windows con normalización sub-pixel 26.6 de FreeType y sistema de caché de alto rendimiento.
+Supports Win32 GDI on Windows with FreeType 26.6 sub-pixel normalization and high-performance caching.
 """
 
 import ctypes
@@ -25,7 +24,6 @@ from ctypes import wintypes
 import platform
 from typing import Dict, Any, Tuple, List, Optional
 
-# Definiciones Win32 GDI Structs
 class SIZE(ctypes.Structure):
     _fields_ = [("cx", wintypes.LONG), ("cy", wintypes.LONG)]
 
@@ -68,7 +66,7 @@ def _to_bool(val: Any) -> bool:
 
 
 class FontEngine:
-    """Motor de medición de texto y fuentes tipográficas (aegisub.text_extents equivalent)."""
+    """Text and typographic font measurement engine (aegisub.text_extents equivalent)."""
 
     _dc_cache: Optional[int] = None
     _font_cache: Dict[Tuple[str, bool, bool, bool, bool], Tuple[int, TEXTMETRICW]] = {}
@@ -76,12 +74,12 @@ class FontEngine:
 
     @staticmethod
     def snap_26_6(val: float) -> float:
-        """Cuantiza un valor de píxel a la rejilla de subpíxel 26.6 de FreeType (1/64 de píxel)."""
+        """Quantizes a pixel value to FreeType 26.6 subpixel grid (1/64 pixel)."""
         return round(val * 64.0) / 64.0
 
     @classmethod
     def clear_cache(cls) -> None:
-        """Limpia el caché de extents de texto."""
+        """Clears text extents cache."""
         cls._extent_cache.clear()
 
     @classmethod
@@ -118,10 +116,10 @@ class FontEngine:
 
     @classmethod
     def get_text_extents(cls, style: Dict[str, Any], text: str) -> Tuple[float, float, float, float]:
-        """Calcula (width, height, descent, extlead) para un texto según el estilo ASS.
-        
-        Utiliza un sistema de caché de resultados para evitar volver a medir cadenas/caracteres idénticos.
-        Coincide exactamente con el formato sub-pixel 26.6 de aegisub.text_extents en C++.
+        """Calculates (width, height, descent, extlead) for text according to ASS style.
+
+        Uses a result caching system to avoid re-measuring identical strings/characters.
+        Matches FreeType 26.6 sub-pixel format of aegisub.text_extents in C++.
         """
         font_name = str(style.get("fontname") or style.get("Fontname") or "Arial")
         font_size = float(style.get("fontsize") or style.get("Fontsize") or 35.0)
@@ -132,7 +130,6 @@ class FontEngine:
         scale_x = float(style.get("scale_x") or style.get("ScaleX") or 100.0)
         spacing = float(style.get("spacing") or style.get("Spacing") or 0.0)
 
-        # Clave de caché para consulta instantánea (0 nanosegundos)
         cache_key = (font_name.lower(), font_size, bold, italic, underline, strikeout, scale_x, spacing, text)
         if cache_key in cls._extent_cache:
             return cls._extent_cache[cache_key]
@@ -159,7 +156,7 @@ class FontEngine:
 
     @classmethod
     def get_font_metrics(cls, style: Dict[str, Any]) -> Tuple[float, float, float]:
-        """Calcula (height, descent, extlead) del estilo con cuantización 26.6."""
+        """Calculates (height, descent, extlead) of style with 26.6 quantization."""
         font_name = str(style.get("fontname") or style.get("Fontname") or "Arial")
         font_size = float(style.get("fontsize") or style.get("Fontsize") or 35.0)
         bold = _to_bool(style.get("bold") if "bold" in style else style.get("Bold"))
@@ -182,7 +179,7 @@ class FontEngine:
 
     @classmethod
     def get_char_widths(cls, style: Dict[str, Any], text: str) -> List[float]:
-        """Calcula el ancho individual de cada carácter utilizando el sistema de caché."""
+        """Calcula el ancho individual de cada carácter cuantizado a la rejilla de 26.6 sub-píxeles."""
         if not text:
             return []
         

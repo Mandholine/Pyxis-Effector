@@ -16,11 +16,6 @@
  * For any question you can visit: https://discord.gg/rYsARc3fB9
  */
 
-/* Persistencia temporal de Pyxis.
- * Se inicia solamente después de que index.html haya terminado de
- * cargar/restpyxisr el grafo. Esto evita sobrescribir una sesión válida
- * con graph.serialize() cuando todavía hay cero nodos.
- */
 (function () {
     "use strict";
 
@@ -74,7 +69,7 @@
                 if (!serialized.extra) serialized.extra = {};
                 if (window.__pyxis_active_template_id) {
                     serialized.extra.active_template_id = window.__pyxis_active_template_id;
-                    serialized.extra.active_template_name = window.__pyxis_active_template_name || "Plantilla";
+                    serialized.extra.active_template_name = window.__pyxis_active_template_name || "Template";
                 } else {
                     delete serialized.extra.active_template_id;
                     delete serialized.extra.active_template_name;
@@ -82,7 +77,7 @@
             }
             return JSON.stringify(serialized);
         } catch (error) {
-            console.error("Pyxis: no se pudo serializar la sesión", error);
+            console.error("Pyxis: failed to serialize session", error);
             return "";
         }
     }
@@ -102,7 +97,7 @@
         window.pywebview.api.save_session(current_json).then(function (saved) {
             if (saved === true) last_saved_json = current_json;
         }).catch(function (error) {
-            console.error("Pyxis: error guardando sesión", error);
+            console.error("Pyxis: error saving session", error);
         }).finally(function () {
             save_in_flight = false;
             if (save_again) {
@@ -153,14 +148,12 @@
         if (started || !api_ready() || !initialization_finished()) return;
         started = true;
 
-        // 1. Hook on_change
         var old_on_change = graph.on_change;
         graph.on_change = function () {
             if (old_on_change) old_on_change.apply(this, arguments);
             on_graph_mutation();
         };
 
-        // 2. Hook connection changes (critical for connecting / disconnecting wires)
         var old_onConnectionChange = graph.onConnectionChange;
         graph.onConnectionChange = function () {
             if (old_onConnectionChange) old_onConnectionChange.apply(this, arguments);
@@ -173,7 +166,6 @@
             on_graph_mutation();
         };
 
-        // 3. Hook node additions and removals
         var old_onNodeAdded = graph.onNodeAdded;
         graph.onNodeAdded = function () {
             if (old_onNodeAdded) old_onNodeAdded.apply(this, arguments);
@@ -186,7 +178,6 @@
             on_graph_mutation();
         };
 
-        // 4. Hook afterChange
         var old_afterChange = graph.afterChange;
         graph.afterChange = function () {
             if (old_afterChange) old_afterChange.apply(this, arguments);
@@ -196,7 +187,6 @@
         hook_widgets();
         last_saved_json = graph_json();
 
-        // 5. Lifecycle event listeners
         window.addEventListener("beforeunload", save_now);
         window.addEventListener("pagehide", save_now);
         window.addEventListener("visibilitychange", function () {
@@ -204,7 +194,6 @@
         });
         window.addEventListener("blur", save_now);
 
-        // 6. Canvas mouseup hook (catches node movement and finished drags)
         if (window.canvas && window.canvas.canvas) {
             window.canvas.canvas.addEventListener("mouseup", function () {
                 schedule_save(100);

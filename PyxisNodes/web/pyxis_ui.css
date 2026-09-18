@@ -18,6 +18,60 @@
 
 /* =============================================================================
    Pyxis Node Studio v1.0.1 - Modern UI Design System & Theme Engine
+   =============================================================================
+   ESTÁNDAR DE CAPAS Y JERARQUÍA Z-INDEX (UI STACKING ARCHITECTURE)
+   =============================================================================
+   Para evitar solapamientos entre nodos, previsualizadores dinámicos,
+   ventanas flotantes, modales y notificaciones, se define la siguiente
+   jerarquía estricta de z-index:
+
+   - TIER 0 (0 - 10):
+     Lienzo base de nodos (#node_canvas: 1) y video/fondo del canvas (0).
+
+   - TIER 1 (1,000 - 50,000):
+     Nodos y previsualizadores intercalados en el lienzo.
+     * Reproductores integrados: baseZ = 1000 + (nodeIdx * 1000)
+     * Acciones del encabezado:  baseZ + 2
+     * Segmentos de canvas frontal: segmentZ = 1000 + (previewIdx * 1000) + 500
+     * Barra de herramientas inferior del canvas (.pyxis-canvas-toolbar): 50,000 !important
+
+   - TIER 2 (80,000 - 100,000):
+     Herramientas contextuales en lienzo y barra superior del programa:
+     * Buscador de nodos LiteGraph (.graphdialog, .litesearchbox): 80,000 !important
+     * Editores de texto/código inline sobre nodos (#pyxis-inline-*-overlay): 90,000
+     * Barra superior del programa (.top-bar): 100,000
+     * Menú contextual LiteGraph (.litecontextmenu): 100,000 !important
+     * Tooltips de interfaz ([data-tooltip]::after): 100,001
+
+   - TIER 3 (150,000 - 150,050):
+     Ventanas flotantes desancladas (reproductores fijados / Picture-in-Picture, visores de formas/img):
+     (Flotan por encima del lienzo y de la barra superior, pero siempre por debajo de modales)
+     * Contenedor flotante (#pyxis-floating-players-container): 150,000
+     * Wrapper de reproductor flotante (.pyxis-floating-player-wrapper): 150,010 !important
+     * Redimensionadores táctiles/esquinas (.pyxis-floating-resizer): 150,050 !important
+
+   - TIER 4 (2,000,000 - 2,000,500):
+     TODOS LOS MENÚS DE PANTALLA COMPLETA, MODALES Y SELECTORES:
+     (Deben estar SIEMPRE por encima de cualquier elemento del canvas o reproductor)
+     * Biblioteca de Plantillas (.pyxis-template-overlay): 2,000,000 !important
+     * Modales del Sistema (.pyxis-modal-overlay): 2,000,000 !important
+       (Ajustes de Temas, Editor de Temas, Editor ACE de Scripts, Benchmark)
+     * Selectores de Tags, SysVars, Mesh y Formas: 2,000,000 !important
+     * Subdiálogos dentro de modales (Guardar, conflictos, etc.): 2,000,100 - 2,000,200
+     * Selector flotante avanzado de color HSV/RGB (.pyxis-color-picker-dialog): 2,000,500 !important
+
+   - TIER 5 (5,000,000):
+     Diálogos de confirmación críticos (#pyxis-confirm-modal, confirmaciones de biblioteca).
+     (Siempre por encima de su propio modal padre).
+
+   - TIER 6 (10,000,000):
+     Reproductor en modo Pantalla Completa (.pyxis-player-fullscreen): 10,000,000 !important
+     (Controles: 10,000,010 !important, Menú Settings: 10,000,020 !important).
+
+   - TIER 7 (50,000,000 - 100,000,000):
+     Elementos críticos globales del sistema:
+     * Notificaciones emergentes Toast (#pyxis-toast-container): 50,000,000
+     * Pantalla cósmica de carga inicial (#pyxis-loading-overlay): 100,000,000
    ============================================================================= */
 
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
@@ -88,7 +142,7 @@
 #pyxis-loading-overlay {
     position: fixed;
     inset: 0;
-    z-index: 99999;
+    z-index: 100000000;
     background: #04060a;
     display: flex;
     flex-direction: column;
@@ -479,7 +533,7 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 0 20px;
-    z-index: 100;
+    z-index: 100000;
     position: relative;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
@@ -630,10 +684,6 @@ body {
     box-shadow: 0 0 10px var(--accent-glow);
 }
 
-.pyxis-btn-lang #lang-indicator {
-    color: var(--accent-primary);
-}
-
 .pyxis-lang-pill {
     padding: 1px 5px;
     border-radius: 4px;
@@ -707,14 +757,11 @@ body {
     background: conic-gradient(
         from var(--pyxis-spin-angle),
         transparent 0%,
-        #ff007f 8%,
-        #ff7700 16%,
-        #ffea00 24%,
-        #00e676 32%,
-        #00e5ff 40%,
-        #2979ff 48%,
-        #d500f9 56%,
-        transparent 70%,
+        var(--theme-shimmer-1, var(--accent-primary)) 12%,
+        var(--theme-shimmer-2, var(--accent-secondary-glow)) 28%,
+        var(--theme-shimmer-3, var(--accent-primary-end)) 46%,
+        var(--theme-shimmer-4, var(--accent-secondary)) 62%,
+        transparent 75%,
         transparent 100%
     );
     animation: pyxisSpinAngle 2.8s linear infinite;
@@ -733,14 +780,11 @@ body {
     background: conic-gradient(
         from var(--pyxis-spin-angle),
         transparent 0%,
-        #ff007f 8%,
-        #ff7700 16%,
-        #ffea00 24%,
-        #00e676 32%,
-        #00e5ff 40%,
-        #2979ff 48%,
-        #d500f9 56%,
-        transparent 70%,
+        var(--theme-shimmer-1, var(--accent-primary)) 12%,
+        var(--theme-shimmer-2, var(--accent-secondary-glow)) 28%,
+        var(--theme-shimmer-3, var(--accent-primary-end)) 46%,
+        var(--theme-shimmer-4, var(--accent-secondary)) 62%,
+        transparent 75%,
         transparent 100%
     );
     animation: pyxisSpinAngle 2.8s linear infinite;
@@ -904,6 +948,79 @@ body {
     line-height: 1.35;
 }
 
+/* --- Floating Retime Node Mode Tooltip --- */
+.pyxis-retime-tooltip-card {
+    position: fixed;
+    z-index: 100005;
+    pointer-events: none;
+    max-width: 290px;
+    background: rgba(15, 23, 42, 0.96);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(139, 92, 246, 0.45);
+    border-radius: 9px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(139, 92, 246, 0.25);
+    padding: 10px 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #e2e8f0;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.16s ease-out, transform 0.16s ease-out;
+}
+
+.pyxis-retime-tooltip-card.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.pyxis-retime-tooltip-card .rt-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 6px;
+    margin-bottom: 6px;
+}
+
+.pyxis-retime-tooltip-card .rt-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #c084fc;
+    letter-spacing: 0.3px;
+}
+
+.pyxis-retime-tooltip-card .rt-badge {
+    font-size: 10px;
+    font-family: monospace;
+    font-weight: 700;
+    padding: 1.5px 6px;
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    white-space: nowrap;
+}
+
+.pyxis-retime-tooltip-card .rt-formula {
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    padding: 4px 7px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 10.5px;
+    color: #a7f3d0;
+    margin-bottom: 6px;
+    word-break: break-all;
+    line-height: 1.35;
+}
+
+.pyxis-retime-tooltip-card .rt-desc {
+    font-size: 11px;
+    line-height: 1.42;
+    color: #cbd5e1;
+}
+
 /* =============================================================================
    2. FLOATING CANVAS TOOLBAR (Smooth Scale Animation without Trembling)
    ============================================================================= */
@@ -938,7 +1055,7 @@ body {
     justify-content: center;
     gap: 4px;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
-    z-index: 50;
+    z-index: 50000 !important;
     contain: layout style;
 }
 
@@ -954,45 +1071,46 @@ body {
     max-height: 36px;
     flex: 0 0 36px;
     border-radius: 50%;
-    display: inline-flex;
+    cursor: pointer;
+    display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease, background 0.2s ease;
-    outline: none;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     position: relative;
-    transform-origin: center center;
-    will-change: transform;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
 }
 
-.pyxis-tb-btn:hover {
+.pyxis-tb-btn:hover:not(:disabled) {
+    background: var(--bg-item-hover);
     color: var(--accent-primary);
-    background: rgba(255, 255, 255, 0.14);
-    transform: scale(1.15);
-    z-index: 2;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.pyxis-tb-btn:active:not(:disabled) {
+    transform: translateY(0);
 }
 
 .pyxis-tb-btn:disabled,
 .pyxis-tb-btn.disabled {
-    opacity: 0.25 !important;
+    opacity: 0.35 !important;
     cursor: not-allowed !important;
     pointer-events: none !important;
-    transform: none !important;
-    color: var(--text-muted) !important;
-    background: transparent !important;
+}
+
+.pyxis-tb-btn .svg-icon {
+    width: 17px;
+    height: 17px;
 }
 
 .pyxis-tb-divider {
     width: 1px;
-    height: 20px;
+    height: 18px;
     background: var(--border-subtle);
-    margin: 0 4px;
-    flex-shrink: 0;
+    margin: 0 3px;
+    flex: 0 0 1px;
 }
 
-/* Tooltips */
+/* Tooltips ultra-rápidos para Toolbar con soporte i18n */
 [data-tooltip] {
     position: relative;
 }
@@ -1001,12 +1119,13 @@ body {
     content: attr(data-tooltip);
     position: absolute;
     top: calc(100% + 8px);
+    bottom: auto;
     left: 50%;
     transform: translateX(-50%) translateY(-3px);
-    background: rgba(15, 23, 42, 0.95);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    color: #f1f5f9;
+    background: rgba(10, 14, 23, 0.96);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: var(--text-main);
     padding: 5px 10px;
     border-radius: 6px;
     font-size: 11px;
@@ -1017,7 +1136,7 @@ body {
     transition: opacity 0.15s ease, transform 0.15s ease;
     border: 1px solid rgba(255, 255, 255, 0.15);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-    z-index: 99999;
+    z-index: 100001;
 }
 
 [data-tooltip]:hover::after {
@@ -1060,13 +1179,14 @@ body {
 /* =============================================================================
    3. MODAL & SETTINGS UI
    ============================================================================= */
-.pyxis-modal-overlay {
+.pyxis-modal-overlay,
+.pyxis-template-overlay {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.75);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    z-index: 2000;
+    z-index: 2000000 !important;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1363,7 +1483,7 @@ body {
 
 .pyxis-color-picker-dialog.pyxis-color-picker-floating {
     position: fixed;
-    z-index: 2005;
+    z-index: 2000500 !important;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px var(--border-subtle), 0 0 24px rgba(139, 92, 246, 0.3);
     animation: scaleUp 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -1576,7 +1696,13 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 15px rgba(0, 210, 255, 0.15) !important;
     padding: 4px !important;
-    z-index: 10000 !important;
+    z-index: 100000 !important;
+}
+
+.litegraph .graphdialog,
+.graphdialog,
+.litegraph.litesearchbox {
+    z-index: 80000 !important;
 }
 
 .litegraph.litecontextmenu .litemenu-entry:not(.separator) {
@@ -1615,7 +1741,7 @@ body {
 .pyxis-modal-overlay {
     position: fixed;
     inset: 0;
-    z-index: 99999;
+    z-index: 2000000;
     background: rgba(10, 13, 18, 0.85);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -1632,7 +1758,7 @@ body {
 }
 
 #pyxis-confirm-modal {
-    z-index: 100000000 !important;
+    z-index: 5000000 !important;
 }
 
 .pyxis-code-modal {
@@ -1875,7 +2001,7 @@ body {
     background: rgba(0, 0, 0, 0.45);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
-    z-index: 100000;
+    z-index: 2000000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2010,7 +2136,7 @@ body {
     background: transparent !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
-    z-index: 100000;
+    z-index: 2000000;
 }
 
 .pyxis-vars-floating-dialog {
@@ -2027,7 +2153,7 @@ body {
 /* --- AUTOCOMPLETADO FLOTANTE ACE COMPLETER STYLE --- */
 .pyxis-vars-suggestions-box {
     position: absolute;
-    z-index: 1000002;
+    z-index: 2000010;
     background: #141720;
     border: 1px solid rgba(139, 92, 246, 0.6);
     border-radius: 6px;
@@ -2099,7 +2225,7 @@ body {
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    z-index: 100000;
+    z-index: 2000000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2189,7 +2315,18 @@ body {
     height: 100%;
     pointer-events: none;
     overflow: hidden;
-    z-index: 5;
+    z-index: auto !important;
+}
+
+#node_canvas_fg,
+.pyxis-node-canvas-fg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none !important;
+    overflow: hidden;
 }
 
 .pyxis-node-player-wrapper {
@@ -2315,9 +2452,64 @@ body {
 .pyxis-node-header-actions {
     position: absolute;
     display: flex;
-    gap: 7px;
-    z-index: 1000;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    height: 28px;
     pointer-events: auto;
+    box-sizing: border-box;
+}
+
+.pyxis-node-header-actions.is-pinned .pyxis-node-header-meta {
+    display: none !important;
+}
+
+.pyxis-node-header-meta {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-clamp: 2;
+    overflow: hidden;
+    white-space: normal;
+    word-break: normal;
+    line-height: 1.15;
+    max-height: 27px;
+    user-select: none;
+    pointer-events: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', Consolas, monospace);
+    font-style: italic;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: #94a3b8;
+    letter-spacing: 0.15px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.pyxis-meta-item {
+    display: inline;
+    white-space: nowrap;
+    cursor: default;
+    transition: color 0.15s ease;
+}
+
+.pyxis-meta-item:hover {
+    color: #e2e8f0;
+}
+
+.pyxis-meta-sep {
+    display: inline;
+    white-space: normal;
+    opacity: 0.6;
+    margin-right: 3px;
+}
+
+.pyxis-header-buttons {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
 }
 
 .pyxis-header-icon-btn {
@@ -2522,7 +2714,7 @@ body {
 
 .pyxis-btn-tooltip {
     position: fixed;
-    z-index: 100001;
+    z-index: 2000010;
     background: rgba(13, 17, 24, 0.95);
     border: 1px solid rgba(139, 92, 246, 0.6);
     color: #f1f5f9;
@@ -3053,7 +3245,7 @@ div.JASSUB,
     border-radius: 0 !important;
     background: #000000 !important;
     box-shadow: none !important;
-    z-index: 999999 !important;
+    z-index: 10000000 !important;
     pointer-events: auto !important;
 }
 
@@ -3142,7 +3334,7 @@ div.JASSUB,
     border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
     backdrop-filter: blur(12px) !important;
     -webkit-backdrop-filter: blur(12px) !important;
-    z-index: 100000 !important;
+    z-index: 10000010 !important;
     opacity: 1 !important;
     display: flex !important;
     flex-direction: column !important;
@@ -3161,7 +3353,7 @@ div.JASSUB,
     right: 20px !important;
     bottom: 74px !important;
     top: auto !important;
-    z-index: 100002 !important;
+    z-index: 10000020 !important;
     max-height: calc(100% - 90px) !important;
 }
 
@@ -3176,13 +3368,13 @@ div.JASSUB,
     width: 100vw;
     height: 100vh;
     pointer-events: none;
-    z-index: 9999;
+    z-index: 150000;
 }
 
 .pyxis-floating-player-wrapper {
     position: fixed !important;
     pointer-events: auto !important;
-    z-index: 10000 !important;
+    z-index: 150010 !important;
     border-radius: 10px !important;
     border: 1px solid rgba(139, 92, 246, 0.45) !important;
     background: rgba(15, 20, 32, 0.95) !important;
@@ -3215,58 +3407,74 @@ body.pyxis-resizing-active #pyxis-canvas-players-layer {
 
 body.pyxis-resizing-active #pyxis-floating-players-container,
 body.pyxis-resizing-active .pyxis-floating-player-wrapper,
-body.pyxis-resizing-active .pyxis-floating-resizer {
+body.pyxis-resizing-active .pyxis-floating-resizer,
+.pyxis-floating-player-wrapper.is-resizing {
     pointer-events: auto !important;
+}
+
+body.pyxis-resizing-active .pyxis-floating-player-wrapper,
+.pyxis-floating-player-wrapper.is-resizing {
+    transition: none !important;
 }
 
 .pyxis-floating-resizer {
     position: absolute !important;
-    width: 18px !important;
-    height: 18px !important;
-    z-index: 100005 !important;
+    z-index: 150050 !important;
     pointer-events: auto !important;
     box-sizing: border-box !important;
-    transition: border-color 0.2s ease, background 0.2s ease !important;
+    transition: border-color 0.15s ease, background 0.15s ease !important;
 }
 
-.pyxis-floating-resizer:hover {
-    background: rgba(167, 139, 250, 0.25) !important;
+/* Esquinas (22x22px para facilitar captura táctil y de ratón) */
+.pyxis-floating-resizer.nw,
+.pyxis-floating-resizer.ne,
+.pyxis-floating-resizer.sw,
+.pyxis-floating-resizer.se {
+    width: 22px !important;
+    height: 22px !important;
+}
+
+.pyxis-floating-resizer.nw:hover,
+.pyxis-floating-resizer.ne:hover,
+.pyxis-floating-resizer.sw:hover,
+.pyxis-floating-resizer.se:hover {
+    background: rgba(167, 139, 250, 0.3) !important;
 }
 
 .pyxis-floating-resizer.nw {
     top: 0 !important;
     left: 0 !important;
     cursor: nwse-resize !important;
-    border-top: 2.5px solid rgba(167, 139, 250, 0.8) !important;
-    border-left: 2.5px solid rgba(167, 139, 250, 0.8) !important;
-    border-top-left-radius: 8px !important;
+    border-top: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-left: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-top-left-radius: 9px !important;
 }
 
 .pyxis-floating-resizer.ne {
     top: 0 !important;
     right: 0 !important;
     cursor: nesw-resize !important;
-    border-top: 2.5px solid rgba(167, 139, 250, 0.8) !important;
-    border-right: 2.5px solid rgba(167, 139, 250, 0.8) !important;
-    border-top-right-radius: 8px !important;
+    border-top: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-right: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-top-right-radius: 9px !important;
 }
 
 .pyxis-floating-resizer.sw {
     bottom: 0 !important;
     left: 0 !important;
     cursor: nesw-resize !important;
-    border-bottom: 2.5px solid rgba(167, 139, 250, 0.8) !important;
-    border-left: 2.5px solid rgba(167, 139, 250, 0.8) !important;
-    border-bottom-left-radius: 8px !important;
+    border-bottom: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-left: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-bottom-left-radius: 9px !important;
 }
 
 .pyxis-floating-resizer.se {
     bottom: 0 !important;
     right: 0 !important;
     cursor: nwse-resize !important;
-    border-bottom: 2.5px solid rgba(167, 139, 250, 0.8) !important;
-    border-right: 2.5px solid rgba(167, 139, 250, 0.8) !important;
-    border-bottom-right-radius: 8px !important;
+    border-bottom: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-right: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-bottom-right-radius: 9px !important;
 }
 
 .pyxis-floating-header {
@@ -3286,10 +3494,11 @@ body.pyxis-resizing-active .pyxis-floating-resizer {
     font-size: 10.5px !important;
     font-weight: 700 !important;
     letter-spacing: 0.4px !important;
-    color: var(--accent-primary, #a78bfa) !important;
+    color: var(--text-muted, #94a3b8) !important;
     display: flex !important;
     align-items: center !important;
     gap: 5px !important;
+    margin-left: 20px !important;
 }
 
 .pyxis-floating-header-title svg {
@@ -3301,7 +3510,7 @@ body.pyxis-resizing-active .pyxis-floating-resizer {
     display: flex !important;
     align-items: center !important;
     gap: 3px !important;
-    margin-right: 14px !important;
+    margin-right: 22px !important;
 }
 
 .pyxis-floating-header-actions .pyxis-header-icon-btn {
@@ -3360,7 +3569,7 @@ body.pyxis-resizing-active .pyxis-floating-resizer {
 
 .pyxis-node-imgviewer-wrapper.pyxis-floating-player-wrapper {
     position: fixed !important;
-    z-index: 99999 !important;
+    z-index: 150010 !important;
     border-radius: 12px !important;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(139, 92, 246, 0.6) !important;
 }

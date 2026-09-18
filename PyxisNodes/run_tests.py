@@ -14,16 +14,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-"""Ejecutor unificado de pruebas para Pyxis Node Engine.
+"""Unified test runner for Pyxis Node Engine.
 
-Uso:
-    python run_tests.py                   # Ejecuta todas las pruebas
-    python run_tests.py --suite nodes     # Ejecuta solo pruebas de nodos
-    python run_tests.py --suite core      # Ejecuta solo pruebas del motor central
-    python run_tests.py --suite daemon    # Ejecuta pruebas de IPC y sesion
-    python run_tests.py --suite preview   # Ejecuta pruebas de previsualizacion
-    python run_tests.py --suite ui        # Ejecuta pruebas de UI e i18n
-    python run_tests.py -v                # Modo detallado (verbose)
+Usage:
+    python run_tests.py                   # Run all tests
+    python run_tests.py --suite nodes     # Run node tests only
+    python run_tests.py --suite core      # Run core engine tests only
+    python run_tests.py --suite daemon    # Run daemon & IPC tests only
+    python run_tests.py --suite preview   # Run preview tests only
+    python run_tests.py --suite ui        # Run UI and i18n tests only
+    python run_tests.py -v                # Verbose mode
 """
 
 import argparse
@@ -56,7 +56,7 @@ def run_test_suite(suite_name: str = "all", pattern: str = "test_*.py", verbose:
         return False
 
     print("=" * 70)
-    print(f"[PYXIS TEST RUNNER] Suite: {suite_name.upper()} | Directorio: {os.path.relpath(target_dir, _ROOT_DIR)}")
+    print(f"[PYXIS TEST RUNNER] Suite: {suite_name.upper()} | Directory: {os.path.relpath(target_dir, _ROOT_DIR)}")
     print("=" * 70)
 
     loader = unittest.defaultTestLoader
@@ -67,7 +67,7 @@ def run_test_suite(suite_name: str = "all", pattern: str = "test_*.py", verbose:
         print(f"[AVISO] No se encontraron pruebas en {target_dir} con patron '{pattern}'.")
         return True
 
-    print(f"Total de pruebas descubiertas: {total_tests}\n")
+    print(f"Total tests discovered: {total_tests}\n")
 
     start_time = time.perf_counter()
     runner = unittest.TextTestRunner(verbosity=verbose)
@@ -75,40 +75,40 @@ def run_test_suite(suite_name: str = "all", pattern: str = "test_*.py", verbose:
     elapsed = time.perf_counter() - start_time
 
     print("\n" + "=" * 70)
-    print(f"[RESUMEN DE EJECUCION] Tiempo transcurrido: {elapsed:.2f}s")
-    print(f"  - Ejecutadas: {result.testsRun}")
-    print(f"  - Exitosas:   {result.testsRun - len(result.failures) - len(result.errors) - len(result.skipped)}")
-    print(f"  - Fallos:     {len(result.failures)}")
-    print(f"  - Errores:    {len(result.errors)}")
-    print(f"  - Omitidas:   {len(result.skipped)}")
+    print(f"[EXECUTION SUMMARY] Elapsed time: {elapsed:.2f}s")
+    print(f"  - Executed:   {result.testsRun}")
+    print(f"  - Successful: {result.testsRun - len(result.failures) - len(result.errors) - len(result.skipped)}")
+    print(f"  - Failures:   {len(result.failures)}")
+    print(f"  - Errors:     {len(result.errors)}")
+    print(f"  - Skipped:    {len(result.skipped)}")
     print("=" * 70)
 
     if result.wasSuccessful():
-        print("[RESULTADO FINAL]: TODAS LAS PRUEBAS PASARON CORRECTAMENTE [OK]\n")
+        print("[FINAL RESULT]: ALL TESTS PASSED SUCCESSFULLY [OK]\n")
         return True
     else:
-        print("[RESULTADO FINAL]: SE DETECTARON ERRORES O FALLOS [FAIL]\n")
+        print("[FINAL RESULT]: ERRORS OR FAILURES DETECTED [FAIL]\n")
         return False
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Ejecutor de pruebas de Pyxis Node Engine")
+    parser = argparse.ArgumentParser(description="Pyxis Node Engine Test Runner")
     parser.add_argument(
         "--suite", "-s",
         choices=["all", "nodes", "core", "daemon", "preview", "ui"],
         default="all",
-        help="Suite tematica a ejecutar (por defecto: all)"
+        help="Test suite to run (default: all)"
     )
     parser.add_argument(
         "--pattern", "-p",
         default="test_*.py",
-        help="Patron de nombres de archivo de prueba (por defecto: test_*.py)"
+        help="Test file pattern (default: test_*.py)"
     )
     parser.add_argument(
         "--verbose", "-v",
         action="count",
         default=1,
-        help="Incrementar nivel de detalle en la salida"
+        help="Increase output verbosity"
     )
 
     args = parser.parse_args()

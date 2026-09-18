@@ -17,25 +17,25 @@
 script_name        = "Pyxis Node Engine"
 script_description = "Visual Node-Based Karaoke Automation"
 script_author      = "Pyxis Dev Team"
-script_version     = "1.0.7"
+script_version     = "1.1.0"
 
 local ffi = require("ffi")
 local unicode = require("aegisub.unicode")
 
--- [IDENTIDAD DE INSTANCIA]
--- Se genera UNA sola vez al cargar el script (o al rescanear automatizaciones).
--- Garantiza que si el usuario tiene dos Aegisub abiertos al mismo tiempo,
--- cada uno use su propio set de archivos temporales sin pisarse entre sí.
+-- [INSTANCE IDENTITY]
+-- Generated ONCE when script loads (or on automation rescan).
+-- Ensures that if the user has multiple Aegisub instances open simultaneously,
+-- each uses its own set of temporary files without collision.
 math.randomseed(os.time() + (tonumber(tostring({}):match("0x(%x+)") or "0", 16) or 0) % 1000000)
 local instance_id = tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
 
--- [CONTINUIDAD DE SESIÓN PARA ESTA INSTANCIA]
--- Vive solo en memoria de este proceso de Aegisub: se reinicia automáticamente
--- al cerrar Aegisub o al recargar/rescanear las automatizaciones.
+-- [SESSION CONTINUITY FOR THIS INSTANCE]
+-- Lives only in memory of this Aegisub process: automatically resets
+-- when closing Aegisub or reloading/rescanning automations.
 local last_Pyxis_session = nil
 local last_sub_state_hash = nil
 
--- [CARGA SEGURA DE KARASKEL]
+-- [SAFE KARASKEL LOADING]
 local karaskel = nil
 local ok_kara, kara_mod = pcall(require, "karaskel-auto4")
 if ok_kara and type(kara_mod) == "table" then
@@ -199,7 +199,6 @@ local function fast_parse_dialogue_line(line_str)
     }
 end
 
--- [CLONACION SEGURA PARA EVITAR CRASHEO DEL BACKEND C++]
 local function clone_line(line)
     local out = {}
     for k, v in pairs(line) do
@@ -222,9 +221,6 @@ local function serialize_metrics(line)
     parts[#parts+1] = "m=" .. tostring(line.middle or 0)
     parts[#parts+1] = "b=" .. tostring(line.bottom or 0)
 
-    -- FIX: syl.left/center/right ahora son absolutos (screen 0 + offset), no relativos
-    -- Karaskel calcula syl.left como offset desde el inicio del texto, pero necesitamos
-    -- la coordenada absoluta de pantalla para que Python no tenga que sumar line.left despues.
     local base_l = line.left or 0
     if line.kara and line.kara.n then
         local syl_lefts, syl_centers, syl_rights, syl_widths, syl_starts, syl_ends = {}, {}, {}, {}, {}, {}
@@ -247,8 +243,6 @@ local function serialize_metrics(line)
         parts[#parts+1] = "syl_ends=" .. table.concat(syl_ends, ",")
     end
 
-    -- FIX: ancho por letra usando substring acumulativo (incluye spacing entre letras)
-    -- La version anterior media cada letra aislada, lo que no capturaba el spacing del estilo.
     if line.styleref then
         local w_list = {}
         local stripped = line.text_stripped or line.text:gsub("{.-}", "")
@@ -275,10 +269,9 @@ local function build_style_line(line)
     )
 end
 
--- Lee un archivo de sesión con reintentos cortos.
--- Ya no compensa una carrera larga: Python ahora garantiza que la escritura
--- del session_file ocurre ANTES de destruir la ventana y ANTES de liberar
--- el lock_file, así que este reintento es solo un colchón por latencia de disco.
+-- Reads a session file with short retries.
+-- Python guarantees that writing session_file occurs BEFORE destroying the window
+-- and BEFORE releasing lock_file; this retry acts as a buffer for disk latency.
 local function read_valid_session(path, timeout_ms)
     local elapsed = 0
     local interval = 25
@@ -304,7 +297,7 @@ local function read_valid_session(path, timeout_ms)
 end
 
 function launch_Pyxis(subs, sel, act)
-    -- [PARCHE DE OPTIMIZACION]
+    -- [OPTIMIZATION PATCH]
     if not aegisub.progress._patched then
         local original_set = aegisub.progress.set
         local original_task = aegisub.progress.task
@@ -329,27 +322,27 @@ function launch_Pyxis(subs, sel, act)
     end
 
     if not karaskel then
-        aegisub.dialog.display({{class="label", label="Error critico: No se pudo cargar karaskel."}})
+        aegisub.dialog.display({{class="label", label="Critical error: karaskel could not be loaded."}})
         return
     end
 
-    -- Rutas adaptadas para Aegisub Portable e Instalado
+    -- Adapted paths for Portable and Installed Aegisub
     local base_dir = aegisub.decode_path("?data/automation/autoload")
     local Pyxis_dir = join_path(base_dir, "PyxisNodes")
 
-    -- Directorio temporal dinámico en %APPDATA%\PyxisNodes\temp_cache
+    -- Dynamic temporary directory in %APPDATA%\PyxisNodes\temp_cache
     local appdata = os.getenv("APPDATA") or (os.getenv("USERPROFILE") and (os.getenv("USERPROFILE") .. "\\AppData\\Roaming")) or base_dir
     local temp_cache_dir = join_path(join_path(appdata, "PyxisNodes"), "temp_cache")
     ensure_dir(temp_cache_dir)
 
-    -- Archivos exclusivos de ESTA instancia de Aegisub en temp_cache
+    -- Exclusive files for THIS Aegisub instance in temp_cache
     local temp_ass = join_path(temp_cache_dir, "Pyxis_temp_" .. instance_id .. ".ass")
     local result_file = join_path(temp_cache_dir, "Pyxis_result_" .. instance_id .. ".txt")
     local lock_file = join_path(temp_cache_dir, "Pyxis_lock_" .. instance_id .. ".txt")
     local session_file = join_path(temp_cache_dir, "Pyxis_session_" .. instance_id .. ".json")
     local main_script = join_path(Pyxis_dir, "main.py")
 
-    aegisub.progress.task("Exportando encabezados y estilos de Aegisub...")
+    aegisub.progress.task("Exporting Aegisub headers and styles...")
     local meta, styles = karaskel.collect_head(subs, false)
 
     local sel_map = {}
@@ -363,7 +356,7 @@ function launch_Pyxis(subs, sel, act)
     end
     local script_file = (aegisub.file_name and aegisub.file_name()) or ""
 
-    -- 1. Crear una "Huella Digital" del estado actual (Estilos, Líneas, Selección y Medios)
+    -- 1. Create a "Digital Fingerprint" of current state (Styles, Lines, Selection and Media)
     local current_sub_state = "v:" .. video_file .. "|a:" .. audio_file .. "|s:" .. script_file .. "|"
     for i = 1, styles.n do
         current_sub_state = current_sub_state .. build_style_line(styles[i])
@@ -375,7 +368,7 @@ function launch_Pyxis(subs, sel, act)
         end
     end
 
-    -- 2. Comprobar si podemos saltarnos la exportación (Caché Segura)
+    -- 2. Check if we can skip export (Safe Cache)
     local skip_karaskel = false
     if last_sub_state_hash == current_sub_state then
         local check_file = io.open(temp_ass, "r")
@@ -388,19 +381,24 @@ function launch_Pyxis(subs, sel, act)
         end
     end
 
-    -- 3. Si hubo cambios o el archivo se perdió, exportamos las líneas crudas
+    -- 3. If there were changes or file was lost, export raw lines
     if not skip_karaskel then
-        aegisub.progress.task("Preparando diálogos para Pyxis Engine...")
+        aegisub.progress.task("Preparing dialogue lines for Pyxis Engine...")
         local file = io.open(temp_ass, "w")
         if not file then
-            aegisub.debug.out("No se pudo crear el archivo temporal: " .. temp_ass .. "\n")
+            aegisub.debug.out("Could not create temporary file: " .. temp_ass .. "\n")
             return
         end
 
         file:write("[Script Info]\nScriptType: v4.00+\n")
         file:write("PlayResX: " .. tostring(meta.res_x or 1280) .. "\nPlayResY: " .. tostring(meta.res_y or 720) .. "\n\n")
 
-        file:write("[Pyxis Config]\nFrameDuration: 41.708\n")
+        local msa, msb = nil, nil
+        if aegisub.ms_from_frame then
+            msa, msb = aegisub.ms_from_frame(1), aegisub.ms_from_frame(101)
+        end
+        local detected_frame_dur = (msb and msa) and string.format("%.4f", (msb - msa) / 100) or "41.708"
+        file:write("[Pyxis Config]\nFrameDuration: " .. detected_frame_dur .. "\n")
         if script_file ~= "" then
             file:write("ScriptFile: " .. tostring(script_file) .. "\n")
         end
@@ -435,7 +433,7 @@ function launch_Pyxis(subs, sel, act)
         file:close()
         last_sub_state_hash = current_sub_state
     else
-        aegisub.progress.task("Reutilizando exportación previa (Apertura rápida)...")
+        aegisub.progress.task("Reusing previous export (Fast launch)...")
     end
 
     pcall(os.remove, result_file)
@@ -445,7 +443,7 @@ function launch_Pyxis(subs, sel, act)
     local lf = io.open(lock_file, "w")
     if lf then lf:write("working"); lf:close() end
 
-    -- Preparar la sesión para Python (continuidad de ESTA instancia de Aegisub)
+    -- Prepare session for Python (continuity of THIS Aegisub instance)
     if last_Pyxis_session then
         local sf = io.open(session_file, "w")
         if sf then
@@ -459,13 +457,13 @@ function launch_Pyxis(subs, sel, act)
     local aegisub_version = "3.4.2"
     local aegisub_pid = kernel32.GetCurrentProcessId()
 
-    -- Intentar apertura instantánea (0ms) comunicando con el Daemon Python en segundo plano si existe
+    -- Try instant launch (0ms) by communicating with background Python Daemon if it exists
     local json_payload = string.format(
         '{"temp_ass":%q,"result_file":%q,"lock_file":%q,"session_file":%q,"aegisub_version":%q,"aegisub_pid":%d}',
         temp_ass, result_file, lock_file, session_file, aegisub_version, aegisub_pid
     )
 
-    -- Otorgar permiso explícito a Windows para traer la ventana al frente
+    -- Grant explicit permission to Windows to bring window to foreground
     if user32 and user32.AllowSetForegroundWindow then
         pcall(user32.AllowSetForegroundWindow, 0xFFFFFFFF)
     end
@@ -473,10 +471,10 @@ function launch_Pyxis(subs, sel, act)
     local daemon_reopened = ping_and_reopen_daemon(json_payload)
 
     if not daemon_reopened then
-        aegisub.progress.task("Lanzando motor de Nodos Pyxis...")
+        aegisub.progress.task("Launching Pyxis Node Engine...")
         local params = '-B "' .. main_script .. '" "' .. temp_ass .. '" "' .. result_file .. '" "' .. lock_file .. '" "' .. session_file .. '" "' .. aegisub_version .. '" "' .. tostring(aegisub_pid) .. '"'
 
-        -- Deteccion inteligente de Python Portatil vs Sistema (preferir pythonw, fallback a python)
+        -- Smart detection of Portable vs System Python (prefer pythonw, fallback to python)
         local portable_pythonw = join_path(Pyxis_dir, "python\\pythonw.exe")
         local portable_python = join_path(Pyxis_dir, "python\\python.exe")
         local python_cmd = "pythonw"
@@ -495,17 +493,17 @@ function launch_Pyxis(subs, sel, act)
 
         local launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
         if launch_result <= 32 then
-            -- Fallback si pythonw no esta registrado en PATH del sistema
+            -- Fallback if pythonw is not registered in system PATH
             python_cmd = "python"
             launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
         end
         if launch_result <= 32 then
-            aegisub.debug.out("Error al lanzar Python (" .. tostring(python_cmd) .. "). Codigo de error: " .. tostring(launch_result) .. "\n")
+            aegisub.debug.out("Error launching Python (" .. tostring(python_cmd) .. "). Error code: " .. tostring(launch_result) .. "\n")
             pcall(os.remove, lock_file)
             return
         end
     else
-        aegisub.progress.task("Apertura instantánea desde servidor en segundo plano...")
+        aegisub.progress.task("Instant launch from background daemon...")
     end
 
     local cancelled = false
@@ -532,13 +530,13 @@ function launch_Pyxis(subs, sel, act)
     end
 
     if cancelled then
-        -- No consumir ni borrar una sesión si Aegisub canceló la ejecución.
+        -- Do not consume or delete session if Aegisub cancelled execution.
         pcall(os.remove, lock_file)
         return sel, act
     end
 
-    -- Python garantiza: guardar sesión -> destruir ventana -> liberar lock.
-    -- Este reintento corto es solo colchón por latencia de disco, no una carrera real.
+    -- Python guarantees: save session -> destroy window -> release lock.
+    -- This short retry acts as a buffer for disk latency, not a real race condition.
     local recovered_session = read_valid_session(session_file, 100)
 
     if recovered_session then
@@ -552,7 +550,7 @@ function launch_Pyxis(subs, sel, act)
     if err_file then
         local err_msg = err_file:read("*all")
         err_file:close()
-        aegisub.dialog.display({{class="textbox", x=0, y=0, width=60, height=20, value=err_msg}}, {"Cerrar"})
+        aegisub.dialog.display({{class="textbox", x=0, y=0, width=60, height=20, value=err_msg}}, {"Close"})
         pcall(os.remove, result_file .. "_debug.log")
         return
     end
@@ -560,7 +558,7 @@ function launch_Pyxis(subs, sel, act)
     local res_file = io.open(result_file, "r")
     if not res_file then return end
 
-    aegisub.progress.task("Inyectando capas de efectos generadas...")
+    aegisub.progress.task("Injecting generated effect layers...")
     local new_lines = {}
     for line_str in res_file:lines() do
         local nl = fast_parse_dialogue_line(line_str)
@@ -577,7 +575,7 @@ function launch_Pyxis(subs, sel, act)
         return
     end
 
-    -- Desactivar solo las líneas fuente seleccionadas (O(K))
+    -- Disable only selected source lines (O(K))
     for _, idx in ipairs(sel) do
         local line = subs[idx]
         if line and line.class == "dialogue" and line.effect ~= "Pyxis_fx" then
@@ -586,7 +584,7 @@ function launch_Pyxis(subs, sel, act)
         end
     end
 
-    -- Inyección O(1) de ultra alta velocidad usando subs.append (push_back en C++)
+    -- Ultra high-speed O(1) injection using subs.append (push_back in C++)
     local batch_size = 500
     for i = 1, total_new do
         subs.append(new_lines[i])

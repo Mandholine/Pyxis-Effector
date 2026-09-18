@@ -16,10 +16,17 @@
 
 import json
 import os
+import re
+import socketserver
+import subprocess
 import sys
 import traceback
 import uuid
+import wsgiref.simple_server
 from datetime import datetime, timezone
+
+socketserver.TCPServer.request_queue_size = 256
+wsgiref.simple_server.WSGIServer.request_queue_size = 256
 
 class _LogBufferStream:
     _buffer = []
@@ -68,13 +75,19 @@ sys.stdout = GLOBAL_STDOUT_STREAM
 sys.stderr = GLOBAL_STDERR_STREAM
 import atexit
 import webview
+try:
+    import webview.http
+    if hasattr(webview.http, 'WSGIServer'):
+        webview.http.WSGIServer.request_queue_size = 256
+except Exception:
+    pass
 
-PYXIS_ENGINE_VERSION = "1.0.7"
+PYXIS_ENGINE_VERSION = "1.1.0"
 
 if sys.platform == "win32":
     try:
         import ctypes
-        my_app_id = "Mandholine.Pyxis.NodeEngine.1.0.7"
+        my_app_id = "Mandholine.Pyxis.NodeEngine.1.1.0"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
     except Exception:
         pass
@@ -243,7 +256,6 @@ def _atomic_write(path, data):
             os.fsync(file_handle.fileno())
         os.replace(tmp_path, path)
     except Exception:
-        # Fallback directo en Windows por bloqueos temporales de lectura
         try:
             with open(path, "w", encoding="utf-8") as file_handle:
                 file_handle.write(data)
@@ -292,18 +304,16 @@ class PyxisAPI:
         import threading
         self._clip_lock = threading.RLock()
 
-        # Purga automática de temporales (> 72h) y de archivos corruptos en segundo plano
         try:
             threading.Thread(target=self.cleanup_temp_files, kwargs={"max_age_hours": 72}, daemon=True).start()
             threading.Thread(target=self._purge_corrupted_bg_media, daemon=True).start()
         except Exception as e:
-            print(f"[Pyxis] Error al iniciar hilos de mantenimiento en segundo plano: {e}", flush=True)
+            print(f"[Pyxis] Error starting background maintenance threads: {e}", flush=True)
 
     def release_lock(self):
-        """
-        Libera de forma atómica y robusta el archivo lock para Aegisub en Windows.
-        Incluye reintentos con micro-pausas para evitar colisiones [WinError 32]
-        cuando el hilo de sondeo en Lua está inspeccionando el archivo en ese milisegundo.
+        """Atomically and reliably release the lock file for Aegisub on Windows.
+        Includes retries with micro-pauses to prevent [WinError 32] collisions
+        when the Lua polling thread is inspecting the file at that millisecond.
         """
         targets = []
         if hasattr(self, "lock_file") and self.lock_file:
@@ -335,20 +345,19 @@ class PyxisAPI:
 
             if hwnd and hwnd != 0:
                 if user32.IsWindowVisible(hwnd):
-                    user32.ShowWindow(hwnd, 0)  # SW_HIDE
+                    user32.ShowWindow(hwnd, 0)
                     return {"status": "hidden"}
                 else:
-                    user32.ShowWindow(hwnd, 5)  # SW_SHOW
+                    user32.ShowWindow(hwnd, 5)
                     user32.SetForegroundWindow(hwnd)
                     return {"status": "shown"}
             else:
                 kernel32.AllocConsole()
                 hwnd = kernel32.GetConsoleWindow()
                 if hwnd and hwnd != 0:
-                    # Desactivar el botón X (cerrar) de la ventana de la consola para evitar cerrar accidentalmente el proceso Python
                     hmenu = user32.GetSystemMenu(hwnd, False)
                     if hmenu:
-                        user32.DeleteMenu(hmenu, 0xF060, 0x00000000)  # SC_CLOSE, MF_BYCOMMAND
+                        user32.DeleteMenu(hmenu, 0xF060, 0x00000000)
 
                     conout = None
                     try:
@@ -359,17 +368,16 @@ class PyxisAPI:
                         pass
 
                     print("==========================================================", flush=True)
-                    print(" [Pyxis Engine v1.0.7] Consola de Python (Modo Depuración)", flush=True)
-                    print(" Presione F1 en Pyxis Nodes para mostrar/ocultar esta consola.", flush=True)
+                    print(" [Pyxis Engine v1.1.0] Python Console (Debug Mode)", flush=True)
+                    print(" Press F1 in Pyxis Nodes to toggle this console.", flush=True)
                     print("==========================================================", flush=True)
 
-                    # Volcar historial de logs acumulados desde el inicio
                     try:
                         hist = "".join(_LogBufferStream._buffer)
                         if hist and conout:
-                            conout.write("\n--- HISTORIAL DE LOGS ACUMULADOS DESDE EL ARRANQUE ---\n")
+                            conout.write("\n--- LOG HISTORY ACCUMULATED SINCE STARTUP ---\n")
                             conout.write(hist)
-                            conout.write("\n--- FIN DEL HISTORIAL (LOGS EN TIEMPO REAL A CONTINUACIÓN) ---\n\n")
+                            conout.write("\n--- END OF LOG HISTORY (REAL-TIME LOGS BELOW) ---\n\n")
                             conout.flush()
                     except Exception:
                         pass
@@ -481,10 +489,8 @@ class PyxisAPI:
                     "is_default": False
                 }
             except Exception as e:
-                print("Pyxis: error al codificar imagen de fondo", e)
+                print("Pyxis: error encoding background image", e)
 
-        # Si no se encuentra un fondo entre los archivos del usuario, tomar default_back.webp
-        # a menos que el usuario haya solicitado explícitamente quitar el fondo (no_bg=True)
         no_bg = False
         try:
             config_path = self._get_config_path()
@@ -512,7 +518,7 @@ class PyxisAPI:
                         "is_default": True
                     }
                 except Exception as e:
-                    print("Pyxis: error al codificar fondo por defecto", e)
+                    print("Pyxis: error encoding default background", e)
 
         return {
             "has_bg": False,
@@ -551,7 +557,7 @@ class PyxisAPI:
             config["bg_media_type"] = bg_info["media_type"]
             config["is_default_bg"] = bg_info.get("is_default", False)
         except Exception as e:
-            print("Pyxis: error al leer user_config", e)
+            print("Pyxis: error reading user_config", e)
         return config
 
     def get_bg_image_data(self):
@@ -559,14 +565,14 @@ class PyxisAPI:
             info = self._get_bg_media_info()
             return info.get("data_url", "")
         except Exception as e:
-            print("Pyxis: error al obtener datos de imagen de fondo", e)
+            print("Pyxis: error getting background image data", e)
         return ""
 
     def get_bg_media_data(self):
         try:
             return self._get_bg_media_info()
         except Exception as e:
-            print("Pyxis: error al obtener datos multimedia de fondo", e)
+            print("Pyxis: error getting background media data", e)
             return {"has_bg": False, "media_type": "none", "video_url": "", "poster_url": "", "data_url": "", "is_default": False}
 
     def save_user_config(self, payload):
@@ -673,7 +679,7 @@ class PyxisAPI:
 
             return True
         except Exception as e:
-            print("Pyxis: error al guardar user_config", e)
+            print("Pyxis: error saving user_config", e)
             return False
 
     def _get_themes_dir(self):
@@ -691,7 +697,6 @@ class PyxisAPI:
     def get_custom_themes(self):
         themes = {}
         try:
-            # 1. Cargar custom_themes.json central si existe
             path = self._get_custom_themes_path()
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
@@ -702,7 +707,6 @@ class PyxisAPI:
                                 v["isCustom"] = True
                                 themes[v["id"]] = v
 
-            # 2. Escanear directorio %APPDATA%/PyxisNodes/themes/*.json para fusionar temas en disco
             themes_dir = self._get_themes_dir()
             if os.path.exists(themes_dir):
                 for fname in os.listdir(themes_dir):
@@ -715,9 +719,9 @@ class PyxisAPI:
                                     t_data["isCustom"] = True
                                     themes[t_data["id"]] = t_data
                         except Exception as fe:
-                            print(f"Pyxis: error al cargar tema individual {fname}: {fe}")
+                            print(f"Pyxis: error loading individual theme {fname}: {fe}")
         except Exception as e:
-            print("Pyxis: error al leer custom_themes", e)
+            print("Pyxis: error reading custom_themes", e)
         return themes
 
     def save_custom_themes(self, payload):
@@ -734,7 +738,7 @@ class PyxisAPI:
             _atomic_write(path, json.dumps(themes, ensure_ascii=False, indent=2))
             return True
         except Exception as e:
-            print("Pyxis: error al guardar custom_themes", e)
+            print("Pyxis: error saving custom_themes", e)
             return False
 
     def save_custom_theme(self, payload):
@@ -745,13 +749,11 @@ class PyxisAPI:
                 return False
             theme_data["isCustom"] = True
             
-            # 1. Guardar en archivo individual en %APPDATA%/PyxisNodes/themes/<theme_id>.json
             themes_dir = self._get_themes_dir()
             safe_fn = "".join(c for c in theme_id if c.isalnum() or c in ("-", "_")) + ".json"
             ind_path = os.path.join(themes_dir, safe_fn)
             _atomic_write(ind_path, json.dumps(theme_data, ensure_ascii=False, indent=2))
 
-            # 2. Actualizar custom_themes.json
             path = self._get_custom_themes_path()
             themes = {}
             if os.path.exists(path):
@@ -764,12 +766,11 @@ class PyxisAPI:
             _atomic_write(path, json.dumps(themes, ensure_ascii=False, indent=2))
             return True
         except Exception as e:
-            print("Pyxis: error al guardar custom_theme", e)
+            print("Pyxis: error saving custom_theme", e)
             return False
 
     def delete_custom_theme(self, theme_id):
         try:
-            # 1. Eliminar de custom_themes.json
             path = self._get_custom_themes_path()
             themes = {}
             if os.path.exists(path):
@@ -782,7 +783,6 @@ class PyxisAPI:
                 del themes[theme_id]
                 _atomic_write(path, json.dumps(themes, ensure_ascii=False, indent=2))
 
-            # 2. Eliminar archivo individual por nombre y por ID en %APPDATA%/PyxisNodes/themes/
             themes_dir = self._get_themes_dir()
             if os.path.exists(themes_dir):
                 safe_fn = "".join(c for c in theme_id if c.isalnum() or c in ("-", "_")) + ".json"
@@ -806,13 +806,12 @@ class PyxisAPI:
 
             return True
         except Exception as e:
-            print("Pyxis: error al eliminar custom_theme", e)
+            print("Pyxis: error deleting custom_theme", e)
             return False
 
     @staticmethod
     def cleanup_temp_files(max_age_hours=72, force_all=False):
-        """Elimina archivos temporales y fragmentos de caché con más de max_age_hours (72hs por defecto),
-        protegiendo estrictamente las configuraciones, temas, plantillas y fondos del usuario."""
+        """Deletes temporary files and cache fragments older than max_age_hours (default 72h)."""
         import time
         try:
             appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
@@ -825,15 +824,27 @@ class PyxisAPI:
             cleaned_files = 0
             freed_bytes = 0
 
-            # 1. temp_cache (%APPDATA%/PyxisNodes/temp_cache)
+            def _is_expired(fp):
+                if force_all:
+                    return True
+                try:
+                    mt = os.path.getmtime(fp)
+                    try:
+                        at = os.path.getatime(fp)
+                    except Exception:
+                        at = mt
+                    last_used = max(mt, at)
+                    return (now - last_used > cutoff_sec)
+                except Exception:
+                    return False
+
             temp_cache_dir = os.path.join(pyxis_dir, "temp_cache")
             if os.path.isdir(temp_cache_dir):
                 for fname in os.listdir(temp_cache_dir):
                     fpath = os.path.join(temp_cache_dir, fname)
                     if os.path.isfile(fpath):
                         try:
-                            mtime = os.path.getmtime(fpath)
-                            if force_all or (now - mtime > cutoff_sec):
+                            if _is_expired(fpath):
                                 size = os.path.getsize(fpath)
                                 os.remove(fpath)
                                 cleaned_files += 1
@@ -841,15 +852,13 @@ class PyxisAPI:
                         except Exception:
                             pass
 
-            # 2. temp (%APPDATA%/PyxisNodes/temp)
             temp_dir = os.path.join(pyxis_dir, "temp")
             if os.path.isdir(temp_dir):
                 for fname in os.listdir(temp_dir):
                     fpath = os.path.join(temp_dir, fname)
                     if os.path.isfile(fpath):
                         try:
-                            mtime = os.path.getmtime(fpath)
-                            if force_all or (now - mtime > cutoff_sec):
+                            if _is_expired(fpath):
                                 size = os.path.getsize(fpath)
                                 os.remove(fpath)
                                 cleaned_files += 1
@@ -857,15 +866,13 @@ class PyxisAPI:
                         except Exception:
                             pass
 
-            # 3. fonts (%APPDATA%/PyxisNodes/fonts)
             fonts_dir = os.path.join(pyxis_dir, "fonts")
             if os.path.isdir(fonts_dir):
                 for fname in os.listdir(fonts_dir):
                     fpath = os.path.join(fonts_dir, fname)
                     if os.path.isfile(fpath):
                         try:
-                            mtime = os.path.getmtime(fpath)
-                            if force_all or (now - mtime > cutoff_sec):
+                            if _is_expired(fpath):
                                 size = os.path.getsize(fpath)
                                 os.remove(fpath)
                                 cleaned_files += 1
@@ -873,18 +880,15 @@ class PyxisAPI:
                         except Exception:
                             pass
 
-            # 4. bg_media (%APPDATA%/PyxisNodes/bg_media) - SÓLO clips preview_bg_* o export_bg_*
             bg_media_dir = os.path.join(pyxis_dir, "bg_media")
             if os.path.isdir(bg_media_dir):
                 for fname in os.listdir(bg_media_dir):
-                    # PROTECCIÓN ESTRICTA: Ignorar bg_video.*, bg_poster.* y cualquier archivo no temporal
                     if not (fname.startswith("preview_bg_") or fname.startswith("export_bg_")):
                         continue
                     fpath = os.path.join(bg_media_dir, fname)
                     if os.path.isfile(fpath):
                         try:
-                            mtime = os.path.getmtime(fpath)
-                            if force_all or (now - mtime > cutoff_sec):
+                            if _is_expired(fpath):
                                 size = os.path.getsize(fpath)
                                 os.remove(fpath)
                                 cleaned_files += 1
@@ -916,7 +920,7 @@ class PyxisAPI:
                 result = window.create_file_dialog(
                     save_flag,
                     save_filename=default_fn,
-                    file_types=("Archivo de Tema Pyxis (*.json)", "Todos los archivos (*.*)"),
+                    file_types=("Pyxis Theme File (*.json)", "All Files (*.*)"),
                 )
                 if result:
                     save_path = result if isinstance(result, str) else result[0]
@@ -929,10 +933,10 @@ class PyxisAPI:
                     root.withdraw()
                     root.attributes("-topmost", True)
                     save_path = filedialog.asksaveasfilename(
-                        title="Exportar Tema de Pyxis",
+                        title="Export Pyxis Theme",
                         defaultextension=".json",
                         initialfile=default_fn,
-                        filetypes=[("Archivo de Tema Pyxis", "*.json"), ("Todos los archivos", "*.*")]
+                        filetypes=[("Pyxis Theme File", "*.json"), ("All Files", "*.*")]
                     )
                     root.destroy()
                 except Exception as e:
@@ -956,7 +960,7 @@ class PyxisAPI:
                 open_flag = getattr(webview, 'FileDialog', None).OPEN if hasattr(webview, 'FileDialog') else webview.OPEN_DIALOG
                 result = window.create_file_dialog(
                     open_flag,
-                    file_types=("Archivo de Tema Pyxis (*.json)", "Todos los archivos (*.*)"),
+                    file_types=("Pyxis Theme File (*.json)", "All Files (*.*)"),
                     allow_multiple=False
                 )
                 if result:
@@ -970,8 +974,8 @@ class PyxisAPI:
                     root.withdraw()
                     root.attributes("-topmost", True)
                     open_path = filedialog.askopenfilename(
-                        title="Importar Tema de Pyxis",
-                        filetypes=[("Archivo de Tema Pyxis", "*.json"), ("Todos los archivos", "*.*")]
+                        title="Import Pyxis Theme",
+                        filetypes=[("Pyxis Theme File", "*.json"), ("All Files", "*.*")]
                     )
                     root.destroy()
                 except Exception as e:
@@ -984,7 +988,7 @@ class PyxisAPI:
                 theme_data = json.load(f)
 
             if not isinstance(theme_data, dict) or ("canvasBg" not in theme_data and "categories" not in theme_data and "name" not in theme_data):
-                return {"success": False, "error": "El archivo no contiene una estructura válida de tema Pyxis"}
+                return {"success": False, "error": "File does not contain a valid Pyxis theme structure"}
 
             if "id" not in theme_data or not theme_data["id"]:
                 theme_data["id"] = f"imported_{int(time.time() * 1000)}"
@@ -1011,7 +1015,7 @@ class PyxisAPI:
                 with open(path, "r", encoding="utf-8") as f:
                     return json.load(f)
         except Exception as e:
-            print("Pyxis: error al leer user_code_templates", e)
+            print("Pyxis: error reading user_code_templates", e)
         return {}
 
     def save_code_templates(self, payload):
@@ -1021,8 +1025,52 @@ class PyxisAPI:
             _atomic_write(path, json.dumps(templates, ensure_ascii=False, indent=2))
             return True
         except Exception as e:
-            print("Pyxis: error al guardar user_code_templates", e)
+            print("Pyxis: error saving user_code_templates", e)
             return False
+
+    def validate_script_syntax(self, script, language="Python"):
+        script_str = str(script or "").strip()
+        if not script_str:
+            return {"valid": True, "error": None}
+
+        lang = str(language or "Python").strip().lower()
+        if lang == "python":
+            import ast
+            # Preprocess code to handle implicit multiplication and unit suffixes (e.g., 40Line -> 40 * Line, 40ms -> 40 * ms)
+            # so ast.parse does not raise false positive 'invalid decimal literal' for Pyxis shorthand expressions.
+            sanitized_str = re.sub(r'(?<!0[xXbBoO])(\b\d+(?:\.\d+)?)(?![eE][+-]?\d+)([a-zA-Z_]\w*)', r'\1 * \2', script_str)
+            try:
+                ast.parse(sanitized_str, "<pyxis_script>", "exec")
+                return {"valid": True, "error": None}
+            except SyntaxError as se:
+                msg = f"SyntaxError line {se.lineno}: {se.msg}"
+                return {"valid": False, "line": se.lineno, "error": msg}
+            except Exception as e:
+                return {"valid": False, "line": 1, "error": str(e)}
+        elif lang == "lua":
+            try:
+                import lupa
+                # Preprocess Pyxis shorthand unit suffixes (e.g., 10f -> (10 * 40.0), 5r -> (5 * 1.0), 40li -> 40 * li)
+                # so lupa compiler does not flag Pyxis shorthand units as syntax errors.
+                sanitized_str = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*(li|lo|m1|m2|l1|l2)\b', r'\1 * \2', script_str)
+                sanitized_str = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*f\b', r'(\1 * 40.0)', sanitized_str)
+                sanitized_str = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*r\b', r'(\1 * 1.0)', sanitized_str)
+
+                lua = lupa.LuaRuntime()
+                lua.execute(f"function _pyxis_syntax_chk()\n{sanitized_str}\nend")
+                return {"valid": True, "error": None}
+            except (ImportError, ModuleNotFoundError):
+                # Defer Lua syntax checking to frontend JS validator if lupa is missing
+                return {"valid": True, "error": None}
+            except Exception as le:
+                err_str = str(le)
+                m_line = re.search(r':(\d+):', err_str)
+                raw_line = int(m_line.group(1)) if m_line else 1
+                line_num = max(1, raw_line - 1)
+                clean_err = re.sub(r'^.*?:\d+:\s*', '', err_str)
+                clean_err = clean_err.replace("_pyxis_syntax_chk", "script")
+                return {"valid": False, "line": line_num, "error": f"Lua Error line {line_num}: {clean_err}"}
+        return {"valid": True, "error": None}
 
     def _optimize_bg_image(self, input_path, output_path):
         from PIL import Image, ImageOps
@@ -1120,7 +1168,7 @@ class PyxisAPI:
             subprocess.run(cmd, check=True, startupinfo=startupinfo, capture_output=True)
             self._generate_video_poster(output_path, poster_path)
         except Exception as e:
-            print("Pyxis: error al optimizar video con ffmpeg, intentando transcodificación simple", e)
+            print("Pyxis: error optimizing video with ffmpeg, trying simple transcode", e)
             try:
                 cmd_simple = [
                     ffmpeg_exe, "-y",
@@ -1134,7 +1182,7 @@ class PyxisAPI:
                 subprocess.run(cmd_simple, check=True, startupinfo=startupinfo, capture_output=True)
                 self._generate_video_poster(output_path, poster_path)
             except Exception as e2:
-                print("Pyxis: fallo transcodificación simple, usando copia directa", e2)
+                print("Pyxis: simple transcoding failed, using direct copy", e2)
                 import shutil
                 shutil.copyfile(input_path, output_path)
                 self._generate_video_poster(output_path, poster_path)
@@ -1150,8 +1198,8 @@ class PyxisAPI:
                     file_types=(
                         "Fondos Multimedia (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.mp4;*.webm;*.mov;*.mkv;*.avi;*.m4v)",
                         "Videos (*.mp4;*.webm;*.mov;*.mkv;*.avi;*.m4v)",
-                        "Imágenes (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)",
-                        "Todos los archivos (*.*)"
+                        "Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)",
+                        "All Files (*.*)"
                     ),
                     allow_multiple=False,
                 )
@@ -1171,7 +1219,7 @@ class PyxisAPI:
                             ("Fondos Multimedia", "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.mp4;*.webm;*.mov;*.mkv;*.avi;*.m4v"),
                             ("Videos", "*.mp4;*.webm;*.mov;*.mkv;*.avi;*.m4v"),
                             ("Imágenes", "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp"),
-                            ("Todos los archivos", "*.*")
+                            ("All Files", "*.*")
                         ]
                     )
                     root.destroy()
@@ -1189,7 +1237,6 @@ class PyxisAPI:
             ext = os.path.splitext(file_path)[1].lower()
             is_video = ext in (".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v")
             
-            # Limpiar medios anteriores
             for f in ["bg_image.webp", "bg_image.png"]:
                 p = os.path.join(pyxis_config_dir, f)
                 if os.path.exists(p):
@@ -1206,7 +1253,6 @@ class PyxisAPI:
                 except OSError: pass
             
             if is_video:
-                # Si no es un formato web nativo (.mp4 o .webm), forzar conversión para que el navegador pueda reproducirlo
                 should_convert = bool(convert_video) or ext not in (".mp4", ".webm")
                 dest_video = os.path.join(bg_media_dir, f"bg_video{'.mp4' if should_convert else ext}")
                 if should_convert:
@@ -1235,7 +1281,7 @@ class PyxisAPI:
                 try:
                     self._optimize_bg_image(file_path, dest_image)
                 except Exception as e:
-                    print("Pyxis: compresión WEBP no disponible, usando copia directa", e)
+                    print("Pyxis: WEBP compression not available, using direct copy", e)
                     import shutil
                     shutil.copyfile(file_path, dest_image)
                 
@@ -1257,7 +1303,7 @@ class PyxisAPI:
                     "filename": os.path.basename(file_path)
                 }
         except Exception as e:
-            print("Pyxis: error al seleccionar fondo", e)
+            print("Pyxis: error selecting background", e)
             return {"success": False, "error": str(e)}
 
     def select_bg_image(self):
@@ -1277,7 +1323,7 @@ class PyxisAPI:
             open_flag = getattr(webview, 'FileDialog', None).OPEN if hasattr(webview, 'FileDialog') else webview.OPEN_DIALOG
             result = window.create_file_dialog(
                 open_flag,
-                file_types=("Imágenes (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)", "Todos los archivos (*.*)"),
+                file_types=("Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)", "All Files (*.*)"),
                 allow_multiple=False,
             )
             if not result:
@@ -1287,7 +1333,7 @@ class PyxisAPI:
                 return ""
             return os.path.abspath(file_path)
         except Exception as e:
-            print("Pyxis: error al abrir diálogo de selección de imagen", e)
+            print("Pyxis: error opening image selection dialog", e)
             return ""
 
     def log_js_error(self, msg):
@@ -1319,7 +1365,7 @@ class PyxisAPI:
             )
             return True
         except Exception as e:
-            print(f"[Pyxis Warning] No se pudo guardar el archivo de sesión temporal ({e})", flush=True)
+            print(f"[Pyxis Warning] Could not save temporary session file ({e})", flush=True)
             try:
                 dir_name = os.path.dirname(self.session_file)
                 if dir_name:
@@ -1347,7 +1393,7 @@ class PyxisAPI:
             save_flag = getattr(webview, 'FileDialog', None).SAVE if hasattr(webview, 'FileDialog') else webview.SAVE_DIALOG
             result = window.create_file_dialog(
                 save_flag,
-                file_types=("Pyxis Template (*.json)", "Todos los archivos (*.*)"),
+                file_types=("Pyxis Template (*.json)", "All Files (*.*)"),
                 save_filename=suggested_name,
             )
             if not result:
@@ -1361,7 +1407,7 @@ class PyxisAPI:
             metadata = {
                 "template_id": f"external_{uuid.uuid4().hex[:8]}",
                 "name": clean_name,
-                "comment": "Guardado en archivo externo",
+                "comment": "Saved to external file",
                 "created_at": now,
                 "updated_at": now,
                 "aegisub_version": self.template_store.aegisub_version,
@@ -1379,8 +1425,8 @@ class PyxisAPI:
             _atomic_write(save_path, json.dumps(document, ensure_ascii=False, indent=2))
             return metadata
         except Exception as error:
-            print("Pyxis: error al guardar como archivo", error)
-            raise ValueError(f"No se pudo guardar el archivo: {error}")
+            print("Pyxis: error saving to file", error)
+            raise ValueError(f"Could not save file: {error}")
 
     def list_templates(self):
         return self.template_store.list_templates()
@@ -1410,7 +1456,7 @@ class PyxisAPI:
             save_flag = getattr(webview, 'FileDialog', None).SAVE if hasattr(webview, 'FileDialog') else webview.SAVE_DIALOG
             result = window.create_file_dialog(
                 save_flag,
-                file_types=("Pyxis Template (*.json)", "Todos los archivos (*.*)"),
+                file_types=("Pyxis Template (*.json)", "All Files (*.*)"),
                 save_filename=suggested_name,
             )
             if not result:
@@ -1421,7 +1467,7 @@ class PyxisAPI:
             _atomic_write(save_path, json.dumps(document, ensure_ascii=False, indent=2))
             return True
         except Exception as error:
-            print("Pyxis: error al exportar template", error)
+            print("Pyxis: error exporting template", error)
             return False
 
     def import_template(self):
@@ -1430,7 +1476,7 @@ class PyxisAPI:
             save_flag = getattr(webview, 'FileDialog', None).OPEN if hasattr(webview, 'FileDialog') else webview.OPEN_DIALOG
             result = window.create_file_dialog(
                 save_flag,
-                file_types=("Pyxis Template (*.json)", "Todos los archivos (*.*)"),
+                file_types=("Pyxis Template (*.json)", "All Files (*.*)"),
                 allow_multiple=False,
             )
             if not result:
@@ -1441,7 +1487,7 @@ class PyxisAPI:
             with open(load_path, "r", encoding="utf-8") as f:
                 document = json.load(f)
             if not isinstance(document, dict):
-                raise ValueError("Formato de archivo inválido (debe ser un objeto JSON)")
+                raise ValueError("Invalid file format (must be a JSON object)")
             if "graph" in document and isinstance(document["graph"], dict):
                 graph = document["graph"]
                 metadata = document.get("metadata", {})
@@ -1449,15 +1495,15 @@ class PyxisAPI:
                 graph = document
                 metadata = {}
             else:
-                raise ValueError("Formato de archivo inválido (no contiene nodos de grafo)")
+                raise ValueError("Invalid file format (does not contain graph nodes)")
 
             name = metadata.get("name") or os.path.splitext(os.path.basename(load_path))[0] or "Template Importado"
-            comment = metadata.get("comment", "Importado desde archivo")
+            comment = metadata.get("comment", "Imported from file")
             new_metadata = self.template_store.save_template(name, comment, graph)
             return new_metadata
         except Exception as error:
-            print("Pyxis: error al importar template", error)
-            raise ValueError(f"No se pudo importar el template: {error}")
+            print("Pyxis: error importing template", error)
+            raise ValueError(f"Could not import template: {error}")
 
     def estimate_workload_api(self, graph_payload):
         """
@@ -1515,8 +1561,8 @@ class PyxisAPI:
             }
 
     def cancel_generation(self):
-        """Cancela de forma inmediata y forzosa la generación activa en curso en cualquier hilo o subproceso."""
-        print("[Pyxis] Cancelación solicitada por el usuario desde la UI.", flush=True)
+        """Cancels active generation immediately across any thread or subprocess."""
+        print("[Pyxis] Cancellation requested by user from UI.", flush=True)
         if getattr(self, '_active_engine', None) is not None:
             self._active_engine.is_cancelled = True
             if getattr(self._active_engine, 'shared_cancel_flag', None) is not None:
@@ -1529,7 +1575,7 @@ class PyxisAPI:
         return {"success": True, "cancelled": True}
 
     def complete_and_hide(self):
-        """Oculta la ventana de PyWebView o apaga el servidor una vez completada la retención visual en la UI."""
+        """Hides PyWebView window or shuts down server once UI completes."""
         self.release_lock()
 
         config = self.get_user_config()
@@ -1549,7 +1595,7 @@ class PyxisAPI:
             try:
                 self.save_session(graph_data)
             except Exception as se:
-                print(f"[Pyxis Warning] save_session no crítico: {se}", flush=True)
+                print(f"[Pyxis Warning] save_session non-critical: {se}", flush=True)
 
             def report_progress(data):
                 try:
@@ -1577,7 +1623,6 @@ class PyxisAPI:
             styles, dialogues, res_x, res_y, frame_duration = parsed_ass
             default_audio_source = getattr(parsed_ass, "audio_file", "") or getattr(parsed_ass, "video_file", "")
 
-            # Escanear nodos para preprocesar y cachear archivos de audio antes de procesar
             for n in graph_data.get("nodes", []):
                 n_type = str(n.get("type", ""))
                 if "Audio" in n_type or "audio" in n_type.lower() or "Waveform" in n_type or "Modulador" in n_type:
@@ -1585,14 +1630,14 @@ class PyxisAPI:
                     src_to_check = node_audio if node_audio else default_audio_source
                     if src_to_check:
                         try:
-                            report_progress({"percent": 5, "phase": "Procesando..."})
+                            report_progress({"percent": 5, "phase": "Processing..."})
                             wav_path = AudioPreprocessor.ensure_audio_wav(
                                 src_to_check,
-                                progress_callback=lambda msg: report_progress({"percent": 12, "phase": "Procesando..."})
+                                progress_callback=lambda msg: report_progress({"percent": 12, "phase": "Processing..."})
                             )
-                            report_progress({"percent": 18, "phase": "Procesando..."})
+                            report_progress({"percent": 18, "phase": "Processing..."})
                             AudioEngine.load_wav(wav_path)
-                            report_progress({"percent": 24, "phase": "Procesando..."})
+                            report_progress({"percent": 24, "phase": "Processing..."})
                         except Exception as ae:
                             print(f"[Pyxis Warning Audio Preprocessor] {ae}", flush=True)
 
@@ -1606,7 +1651,7 @@ class PyxisAPI:
             )
 
             if getattr(engine, 'is_cancelled', False):
-                print("[Pyxis] Generación abortada por cancelación.", flush=True)
+                print("[Pyxis] Generation aborted by cancellation.", flush=True)
                 return {"success": False, "cancelled": True, "lines_generated": 0}
 
             generated_count = len(generated_lines)
@@ -1615,7 +1660,6 @@ class PyxisAPI:
                 result_file.flush()
                 os.fsync(result_file.fileno())
 
-            # Liberar lock_file para que Aegisub empiece a leer el resultado
             self.release_lock()
 
             return {"success": True, "cancelled": False, "lines_generated": generated_count}
@@ -1655,7 +1699,7 @@ class PyxisAPI:
             if not image_path or not os.path.exists(image_path):
                 return {"shape": "", "width": 0, "height": 0, "points": 0}
 
-            mode = str(node_props.get("modo", "Potrace")).strip()
+            mode = str(node_props.get("mode", "Potrace")).strip()
             threshold_raw = node_props.get("threshold", "128")
             threshold = int(float(threshold_raw) if str(threshold_raw).replace('.','',1).isdigit() else 128)
             tolerance_raw = node_props.get("tolerance", "1.0")
@@ -1674,8 +1718,8 @@ class PyxisAPI:
             img_scale_raw = node_props.get("img_scale", "1.0")
             img_scale = float(img_scale_raw if str(img_scale_raw).replace('.','',1).isdigit() else 1.0)
             invert_str = str(node_props.get("invert", "Normal")).strip()
-            invert = invert_str.lower() in ["invertido", "invert", "true", "1", "si", "yes"]
-            bin_mode = str(node_props.get("bin_mode", "Luminancia")).strip()
+            invert = invert_str.lower() == "inverted"
+            bin_mode = str(node_props.get("bin_mode", "Luminance")).strip()
             alphamax_raw = node_props.get("alphamax", "1.0")
             alphamax = float(alphamax_raw if str(alphamax_raw).replace('.','',1).isdigit() else 1.0)
             opttoler_raw = node_props.get("opttoler", "0.2")
@@ -1692,7 +1736,7 @@ class PyxisAPI:
                 except Exception: frame_index = 1
 
             invert_img_str = str(node_props.get("invert_img", "Normal")).strip()
-            use_inverted_img = invert_img_str.lower() in ["invertido", "invert", "true", "1", "si", "yes"]
+            use_inverted_img = invert_img_str.lower() == "inverted"
 
             traced = trace_image(
                 image_path=image_path,
@@ -1841,7 +1885,7 @@ class PyxisAPI:
 
     @classmethod
     def _shift_ass_line(cls, line_str: str, shift_ms: int) -> str:
-        """Ajusta los campos Start y End de una línea Dialogue o Comment restando shift_ms."""
+        """Adjusts Start and End fields of a Dialogue or Comment line by subtracting shift_ms."""
         if not shift_ms or shift_ms <= 0:
             return line_str
         line_clean = line_str.lstrip('\ufeff')
@@ -1869,7 +1913,7 @@ class PyxisAPI:
 
     @staticmethod
     def _is_valid_mp4(filepath):
-        """Valida que un archivo MP4 existe, tiene tamaño suficiente y cuenta con átomos válidos (ftyp y moov)."""
+        """Validates that an MP4 file exists, has sufficient size, and valid atoms (ftyp and moov)."""
         if not filepath or not os.path.isfile(filepath):
             return False
         try:
@@ -1880,12 +1924,10 @@ class PyxisAPI:
                 header = f.read(64)
                 if b'ftyp' not in header and b'moov' not in header:
                     return False
-                # Verificar moov en faststart (primeros 2MB)
                 f.seek(0)
                 chunk_start = f.read(min(size, 2 * 1024 * 1024))
                 if b'moov' in chunk_start:
                     return True
-                # Verificar moov al final del archivo (últimos 2MB)
                 if size > 2 * 1024 * 1024:
                     f.seek(max(0, size - 2 * 1024 * 1024))
                     chunk_end = f.read(2 * 1024 * 1024)
@@ -1916,7 +1958,7 @@ class PyxisAPI:
 
     @staticmethod
     def _clean_and_resolve_media_path(raw_path, base_ass_path=None, script_file=None):
-        """Limpia prefijos de proyectos Aegisub (?video:, ?audio:, etc.) y resuelve rutas relativas/absolutas."""
+        """Cleans Aegisub project prefixes (?video:, ?audio:, etc.) and resolves paths."""
         if not raw_path:
             return None
         p = str(raw_path).strip()
@@ -1940,14 +1982,12 @@ class PyxisAPI:
         if os.path.isfile(p):
             return os.path.abspath(p)
 
-        # 1. Intentar resolver relativo a script_file (el ASS original de Aegisub)
         if script_file and os.path.exists(script_file):
             script_dir = os.path.dirname(os.path.abspath(script_file))
             rel = os.path.join(script_dir, p)
             if os.path.isfile(rel):
                 return os.path.abspath(rel)
 
-        # 2. Intentar resolver relativo a base_ass_path
         if base_ass_path and os.path.exists(base_ass_path):
             ass_dir = os.path.dirname(os.path.abspath(base_ass_path))
             rel = os.path.join(ass_dir, p)
@@ -1957,9 +1997,7 @@ class PyxisAPI:
         return None
 
     def _ensure_preview_media_clip(self, info, is_export=False):
-        """Garantiza la presencia del clip de previsualización con vídeo y audio sincronizados en %APPDATA%/PyxisNodes/bg_media/.
-        Si is_export es False (vista desde el nodo), se utiliza preset 'fast', crf '21' y deblocking reducido ('-1:-1').
-        Si is_export es True (exportación de clip/video), se mantiene la máxima calidad con preset 'ultrafast' y crf '18'."""
+        """Ensures presence of preview clip with synchronized video and audio in %APPDATA%/PyxisNodes/bg_media/."""
         if not hasattr(self, "_clip_lock"):
             import threading
             self._clip_lock = threading.RLock()
@@ -1986,7 +2024,6 @@ class PyxisAPI:
                 import subprocess
                 creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
 
-                # Diferenciación: Exportación (alta calidad) vs Vista en Nodo (rápido, crf 21, preset fast, deblock reducido)
                 if is_export:
                     clip_prefix = "export_bg"
                     v_preset = "ultrafast"
@@ -2017,6 +2054,10 @@ class PyxisAPI:
 
                 if os.path.exists(clip_path):
                     if self._is_valid_mp4(clip_path):
+                        try:
+                            os.utime(clip_path, None)
+                        except Exception:
+                            pass
                         return clip_path
                     else:
                         print(f"[Pyxis Smart Cache Purge] Archivo MP4 corrupto o incompleto detectado: {clip_path}. Eliminando...", flush=True)
@@ -2033,7 +2074,6 @@ class PyxisAPI:
                 if deblock_args:
                     v_codec.extend(deblock_args)
 
-                # Caso 1: Vídeo Real + Audio Real (Mismo archivo)
                 if real_video and os.path.isfile(real_video) and (not real_audio or real_audio == real_video):
                     cmd = [
                         ffmpeg_exe, "-y",
@@ -2048,7 +2088,6 @@ class PyxisAPI:
                         "-movflags", "+faststart",
                         temp_clip
                     ]
-                # Caso 2: Vídeo Real + Audio Real (Archivos Diferentes)
                 elif real_video and os.path.isfile(real_video) and real_audio and os.path.isfile(real_audio):
                     cmd = [
                         ffmpeg_exe, "-y",
@@ -2069,7 +2108,6 @@ class PyxisAPI:
                         "-movflags", "+faststart",
                         temp_clip
                     ]
-                # Caso 3: Fondo Dummy + Audio Real
                 elif real_audio and os.path.isfile(real_audio):
                     cmd = [
                         ffmpeg_exe, "-y",
@@ -2089,7 +2127,6 @@ class PyxisAPI:
                         "-movflags", "+faststart",
                         temp_clip
                     ]
-                # Caso 4: Fondo Dummy + Audio Silencio (Fallback)
                 else:
                     cmd = [
                         ffmpeg_exe, "-y",
@@ -2128,11 +2165,11 @@ class PyxisAPI:
 
             return None
 
-    def _matches_output_node(self, node, target_ids, all_salida_nodes=None):
+    def _matches_output_node(self, node, target_ids, all_output_nodes=None):
         if not node:
             return False
         n_type = str(node.get('type', '')).lower()
-        if 'salida' not in n_type and 'output' not in n_type:
+        if 'output' not in n_type and 'salida' not in n_type:
             return False
 
         if not target_ids:
@@ -2149,7 +2186,7 @@ class PyxisAPI:
         else:
             target_strs = set(s.strip() for s in str(target_ids).split(',') if s.strip())
 
-        if not target_strs or any(x.lower() in ('all', '*', 'todos', 'all_outputs', 'todas') for x in target_strs):
+        if not target_strs or any(x.lower() in ('all', '*', 'all_outputs') for x in target_strs):
             return True
 
         nid_str = str(node.get('id', ''))
@@ -2179,14 +2216,10 @@ class PyxisAPI:
         if 'default' in (x.lower() for x in target_strs) and (not out_id or out_id.lower() == 'default'):
             return True
 
-        if all_salida_nodes and node in all_salida_nodes:
-            idx_1based = all_salida_nodes.index(node) + 1
+        if all_output_nodes and node in all_output_nodes:
+            idx_1based = all_output_nodes.index(node) + 1
             if (str(idx_1based) in target_strs or 
                 idx_1based in numeric_targets or 
-                f"Salida {idx_1based}" in target_strs or 
-                f"Salida_{idx_1based}" in target_strs or
-                f"Salida {idx_1based}".lower() in (x.lower() for x in target_strs) or 
-                f"Salida_{idx_1based}".lower() in (x.lower() for x in target_strs) or
                 f"Output {idx_1based}" in target_strs or 
                 f"Output_{idx_1based}" in target_strs or
                 f"Output {idx_1based}".lower() in (x.lower() for x in target_strs) or 
@@ -2218,28 +2251,31 @@ class PyxisAPI:
             except Exception:
                 payload = None
 
+        min_d_start = None
+        max_d_end = None
+
         graph_data = self._normalize_graph(payload) if payload else {}
-        nodes_dict = graph_data.get("nodes", {}) or {}
+        nodes_dict = graph_data.get("nodes", {}) if isinstance(graph_data, dict) else {}
         if isinstance(nodes_dict, list):
             nodes_dict = {n.get("id"): n for n in nodes_dict if isinstance(n, dict)}
 
-        all_salida_nodes = [n for n in nodes_dict.values() if 'salida' in str(n.get('type', '')).lower() or 'output' in str(n.get('type', '')).lower()]
-        matching_salidas = [n for n in all_salida_nodes if self._matches_output_node(n, target_ids, all_salida_nodes)]
+        all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower() or 'salida' in str(n.get('type', '')).lower()]
+        matching_outputs = [n for n in all_output_nodes if self._matches_output_node(n, target_ids, all_output_nodes)]
 
         use_all_lines = False
         use_style_lines = False
         target_styles = set()
 
-        if matching_salidas:
-            for s_node in matching_salidas:
+        if matching_outputs:
+            for s_node in matching_outputs:
                 props = s_node.get('properties', {}) or {}
                 apply_to = str(props.get('apply_to', 'Selected Lines')).strip().lower()
-                if apply_to in ['all lines', 'todas las líneas', 'todas las lineas', 'all', 'todas']:
+                if apply_to in ['all lines', 'all']:
                     use_all_lines = True
                     break
-                elif apply_to in ['style lines', 'líneas de estilo', 'lineas de estilo', 'style', 'estilo']:
+                elif apply_to in ['style lines', 'style']:
                     use_style_lines = True
-                    st_name = str(props.get('style', '') or props.get('estilo', '')).strip()
+                    st_name = str(props.get('style', '')).strip()
                     if st_name:
                         target_styles.add(st_name)
 
@@ -2484,6 +2520,15 @@ class PyxisAPI:
             clip_path = self._ensure_preview_media_clip(info_dict)
             info_dict["clip_path"] = clip_path
 
+            info_dict["media_meta"] = self._probe_media_metadata(
+                video_file=real_video,
+                audio_file=real_audio,
+                dummy_info=dummy_info if is_dummy_video else None,
+                default_fps=fps,
+                res_x=res_x,
+                res_y=res_y
+            )
+
             self._cached_aegisub_info = info_dict
             return info_dict
         except Exception as e:
@@ -2535,12 +2580,201 @@ class PyxisAPI:
             print(f"[Pyxis Error getting preview audio URL] {e}", flush=True)
         return ""
 
+    def _probe_media_metadata(self, video_file=None, audio_file=None, dummy_info=None, default_fps=23.976, res_x=1280, res_y=720):
+        """Extracts real metadata from video and audio file using FFmpeg with in-memory cache."""
+        if not hasattr(self, "_media_metadata_cache"):
+            self._media_metadata_cache = {}
+
+        v_mtime = 0
+        if video_file and os.path.isfile(video_file):
+            try:
+                v_mtime = os.path.getmtime(video_file)
+            except Exception:
+                pass
+
+        a_mtime = 0
+        if audio_file and os.path.isfile(audio_file):
+            try:
+                a_mtime = os.path.getmtime(audio_file)
+            except Exception:
+                pass
+
+        cache_key = f"{video_file}_{v_mtime}_{audio_file}_{a_mtime}_{bool(dummy_info)}_{res_x}x{res_y}_{default_fps}"
+        if cache_key in self._media_metadata_cache:
+            return self._media_metadata_cache[cache_key]
+
+        meta = {
+            "video_codec": "NO VIDEO",
+            "resolution": f"{res_x}x{res_y}",
+            "res_x": res_x,
+            "res_y": res_y,
+            "fps": default_fps,
+            "fps_str": f"{default_fps:.2f} fps",
+            "audio_codec": "NO AUDIO",
+            "audio_hz": None,
+            "audio_hz_str": "N/A",
+            "bitrate_kbps": None,
+            "bitrate_str": "N/A",
+            "audio_channels": "N/A",
+            "duration": "00:00"
+        }
+
+        if dummy_info and isinstance(dummy_info, dict):
+            meta["video_codec"] = "DUMMY"
+            meta["audio_codec"] = "DUMMY"
+            d_fps = dummy_info.get("fps") or default_fps
+            meta["fps"] = d_fps
+            meta["fps_str"] = f"{d_fps:.2f} fps" if d_fps else f"{default_fps:.2f} fps"
+            d_w = dummy_info.get("width", res_x)
+            d_h = dummy_info.get("height", res_y)
+            meta["resolution"] = f"{d_w}x{d_h}"
+            meta["res_x"] = d_w
+            meta["res_y"] = d_h
+
+        ffmpeg_bin = self._find_ffmpeg()
+        creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
+
+        if video_file and os.path.isfile(video_file) and ffmpeg_bin:
+            try:
+                cmd = [ffmpeg_bin, "-hide_banner", "-i", video_file]
+                res = subprocess.run(
+                    cmd,
+                    stderr=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    creationflags=creationflags,
+                    timeout=5
+                )
+                out = res.stderr or ""
+
+                m_dur = re.search(r'Duration:\s*(\d+:\d+:\d+(?:\.\d+)?)', out)
+                if m_dur:
+                    dur_str = m_dur.group(1)
+                    parts = dur_str.split(':')
+                    if len(parts) >= 3:
+                        meta["duration"] = f"{int(parts[0])*60 + int(parts[1]):02d}:{int(float(parts[2])):02d}"
+                    else:
+                        meta["duration"] = dur_str
+
+                m_br = re.search(r'bitrate:\s*(\d+)\s*kb/s', out)
+                if m_br:
+                    kbps = int(m_br.group(1))
+                    meta["bitrate_kbps"] = kbps
+                    if kbps >= 1000:
+                        meta["bitrate_str"] = f"{kbps/1000.0:.1f} Mb/s"
+                    else:
+                        meta["bitrate_str"] = f"{kbps} kb/s"
+
+                m_vid = re.search(r'Stream\s+#\d+:\d+.*?Video:\s*([a-zA-Z0-9_-]+).*?,\s*(\d{2,5}x\d{2,5})', out)
+                if m_vid:
+                    v_raw = m_vid.group(1).lower()
+                    if "h264" in v_raw or "avc" in v_raw:
+                        meta["video_codec"] = "H.264"
+                    elif "hevc" in v_raw or "h265" in v_raw:
+                        meta["video_codec"] = "H.265"
+                    elif "vp9" in v_raw:
+                        meta["video_codec"] = "VP9"
+                    elif "av01" in v_raw or "av1" in v_raw:
+                        meta["video_codec"] = "AV1"
+                    else:
+                        meta["video_codec"] = m_vid.group(1).upper()
+                    meta["resolution"] = m_vid.group(2)
+                    try:
+                        rw, rh = [int(x) for x in m_vid.group(2).split('x')]
+                        meta["res_x"] = rw
+                        meta["res_y"] = rh
+                    except Exception:
+                        pass
+
+                m_fps = re.search(r'(\d+(?:\.\d+)?)\s*fps', out)
+                if m_fps:
+                    parsed_fps = float(m_fps.group(1))
+                    meta["fps"] = parsed_fps
+                    meta["fps_str"] = f"{parsed_fps:.2f} fps" if (parsed_fps % 1 != 0) else f"{int(parsed_fps)} fps"
+
+                m_aud = re.search(r'Stream\s+#\d+:\d+.*?Audio:\s*([a-zA-Z0-9_-]+).*?,\s*(\d+)\s*Hz', out)
+                if m_aud:
+                    meta["audio_codec"] = m_aud.group(1).upper()
+                    hz = int(m_aud.group(2))
+                    meta["audio_hz"] = hz
+                    meta["audio_hz_str"] = f"{hz/1000.0:.1f} kHz"
+
+                m_ch = re.search(r'Audio:.*?(mono|stereo|[0-9\.]+\s*channels?)', out, re.IGNORECASE)
+                if m_ch:
+                    ch_raw = m_ch.group(1).lower()
+                    if "stereo" in ch_raw:
+                        meta["audio_channels"] = "Stereo"
+                    elif "mono" in ch_raw:
+                        meta["audio_channels"] = "Mono"
+                    else:
+                        meta["audio_channels"] = ch_raw.title()
+            except Exception as e:
+                print(f"[Pyxis Meta Probe Video Error] {e}", flush=True)
+
+        target_audio = audio_file if (audio_file and audio_file != video_file) else None
+        if target_audio and os.path.isfile(target_audio) and ffmpeg_bin:
+            try:
+                cmd = [ffmpeg_bin, "-hide_banner", "-i", target_audio]
+                res = subprocess.run(
+                    cmd,
+                    stderr=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    creationflags=creationflags,
+                    timeout=5
+                )
+                out_a = res.stderr or ""
+                m_aud = re.search(r'Stream\s+#\d+:\d+.*?Audio:\s*([a-zA-Z0-9_-]+).*?,\s*(\d+)\s*Hz', out_a)
+                if m_aud:
+                    meta["audio_codec"] = m_aud.group(1).upper()
+                    hz = int(m_aud.group(2))
+                    meta["audio_hz"] = hz
+                    meta["audio_hz_str"] = f"{hz/1000.0:.1f} kHz"
+
+                m_ch = re.search(r'Audio:.*?(mono|stereo|[0-9\.]+\s*channels?)', out_a, re.IGNORECASE)
+                if m_ch:
+                    ch_raw = m_ch.group(1).lower()
+                    if "stereo" in ch_raw:
+                        meta["audio_channels"] = "Stereo"
+                    elif "mono" in ch_raw:
+                        meta["audio_channels"] = "Mono"
+                    else:
+                        meta["audio_channels"] = ch_raw.title()
+
+                if meta["bitrate_str"] == "N/A":
+                    m_br_a = re.search(r'bitrate:\s*(\d+)\s*kb/s', out_a)
+                    if m_br_a:
+                        kbps = int(m_br_a.group(1))
+                        meta["bitrate_kbps"] = kbps
+                        if kbps >= 1000:
+                            meta["bitrate_str"] = f"{kbps/1000.0:.1f} Mb/s"
+                        else:
+                            meta["bitrate_str"] = f"{kbps} kb/s"
+            except Exception as e:
+                print(f"[Pyxis Meta Probe Audio Error] {e}", flush=True)
+
+        self._media_metadata_cache[cache_key] = meta
+        return meta
+
     def get_preview_info(self, source="base", target_output_id=None, payload=None):
         has_aegisub = bool(self.temp_ass and os.path.isfile(self.temp_ass))
         if str(source).lower() == "aegisub" and has_aegisub:
             info = self._load_and_cache_aegisub_source(payload=payload, target_output_id=target_output_id)
             if info.get("has_aegisub"):
                 info["has_aegisub"] = True
+                if "media_meta" not in info:
+                    info["media_meta"] = self._probe_media_metadata(
+                        video_file=info.get("real_video_file"),
+                        audio_file=info.get("real_audio_file"),
+                        dummy_info=info.get("dummy_info"),
+                        default_fps=info.get("fps", 23.976),
+                        res_x=info.get("res_x", 1280),
+                        res_y=info.get("res_y", 720)
+                    )
                 return info
 
         info = self._load_and_cache_preview_base()
@@ -2549,6 +2783,14 @@ class PyxisAPI:
         res_x = info.get("res_x", 1280)
         res_y = info.get("res_y", 720)
         aspect = info.get("aspect_ratio") or ((res_x / res_y) if res_y > 0 else (16 / 9))
+        meta = info.get("media_meta") or self._probe_media_metadata(
+            video_file=info.get("real_video_file"),
+            audio_file=info.get("real_audio_file"),
+            dummy_info=info.get("dummy_info"),
+            default_fps=info.get("fps", 23.976),
+            res_x=res_x,
+            res_y=res_y
+        )
         return {
             "source": info.get("source", "base"),
             "has_aegisub": has_aegisub,
@@ -2574,7 +2816,8 @@ class PyxisAPI:
             "clip_path": info.get("clip_path"),
             "path": info.get("path"),
             "styles": info.get("styles", {}),
-            "dialogues": info.get("dialogues", [])
+            "dialogues": info.get("dialogues", []),
+            "media_meta": meta
         }
 
     def _get_temp_dir(self):
@@ -2596,9 +2839,7 @@ class PyxisAPI:
             return False
 
     def _extract_font_data_from_gdi(self, font_name: str):
-        """Extrae los bytes binarios puros del archivo de fuente (.ttf/.otf/.ttc) directamente
-        desde la memoria GDI de Windows, compatible con fuentes instaladas, de FontBase,
-        Adobe Type Manager o cargadas temporalmente."""
+        """Extracts raw binary bytes of font file (.ttf/.otf/.ttc) directly from Windows GDI memory."""
         if not font_name:
             return None
         try:
@@ -2624,7 +2865,7 @@ class PyxisAPI:
                     if clean_sel in ["mssansserif", "system", "arial"] and clean_req != "arial":
                         gdi32.SelectObject(hdc, old)
                         gdi32.DeleteObject(hfont)
-                        print(f"[Pyxis Font GDI] GDI seleccionó fallback '{selected_face}' para '{font_name}' (descartado)", flush=True)
+                        print(f"[Pyxis Font GDI] GDI selected fallback '{selected_face}' for '{font_name}' (discarded)", flush=True)
                         return None
 
                 size = gdi32.GetFontData(hdc, 0, 0, None, 0)
@@ -2640,7 +2881,7 @@ class PyxisAPI:
 
                 if read_b > 0:
                     font_bytes = bytes(buf[:read_b])
-                    print(f"[Pyxis Font GDI] ¡ÉXITO! Extraídos {read_b} bytes directamente de Windows GDI para '{font_name}' (Face: '{selected_face}')", flush=True)
+                    print(f"[Pyxis Font GDI] SUCCESS! Extracted {read_b} bytes directly from Windows GDI for '{font_name}' (Face: '{selected_face}')", flush=True)
                     return font_bytes, selected_face
             finally:
                 user32.ReleaseDC(None, hdc)
@@ -2650,13 +2891,12 @@ class PyxisAPI:
 
     def _find_font_file(self, font_name: str):
         if not font_name:
-            print("[Pyxis Font] _find_font_file llamado con nombre vacío", flush=True)
+            print("[Pyxis Font] _find_font_file called with empty name", flush=True)
             return None
         
         font_name_clean = str(font_name).strip().lower()
-        print(f"[Pyxis Font] Buscando archivo en el sistema para la fuente: '{font_name}' (limpio: '{font_name_clean}')", flush=True)
+        print(f"[Pyxis Font] Searching system for font file: '{font_name}' (limpio: '{font_name_clean}')", flush=True)
 
-        # 0. Probar extracción binaria directa desde Windows GDI (cubre FontBase, NexusFont, fuentes cargadas en memoria)
         gdi_res = self._extract_font_data_from_gdi(font_name)
         if gdi_res:
             raw_bytes, actual_face = gdi_res
@@ -2668,14 +2908,13 @@ class PyxisAPI:
             try:
                 with open(cached_file, "wb") as f:
                     f.write(raw_bytes)
-                print(f"[Pyxis Font] Fuente de GDI guardada en caché: '{cached_file}'", flush=True)
+                print(f"[Pyxis Font] GDI font cached: '{cached_file}'", flush=True)
                 return cached_file
             except Exception as e:
                 print(f"[Pyxis Font Cache Error] {e}", flush=True)
 
         candidates_from_reg = []
         
-        # 1. Escanear registro de fuentes de Windows (HKCU y HKLM)
         try:
             import winreg
             for root_name, root in [("HKCU", winreg.HKEY_CURRENT_USER), ("HKLM", winreg.HKEY_LOCAL_MACHINE)]:
@@ -2686,15 +2925,15 @@ class PyxisAPI:
                         clean_reg = reg_name.split('(')[0].strip().lower()
                         if clean_reg == font_name_clean:
                             candidates_from_reg.insert(0, reg_val)
-                            print(f"[Pyxis Font] Coincidencia EXACTA en {root_name} Fonts: '{reg_name}' -> '{reg_val}'", flush=True)
+                            print(f"[Pyxis Font] EXACT match in {root_name} Fonts: '{reg_name}' -> '{reg_val}'", flush=True)
                         elif font_name_clean in clean_reg:
                             candidates_from_reg.append(reg_val)
-                            print(f"[Pyxis Font] Coincidencia parcial en {root_name} Fonts: '{reg_name}' -> '{reg_val}'", flush=True)
+                            print(f"[Pyxis Font] Partial match in {root_name} Fonts: '{reg_name}' -> '{reg_val}'", flush=True)
                     winreg.CloseKey(key)
                 except Exception as e:
-                    print(f"[Pyxis Font] Error leyendo registro {root_name}: {e}", flush=True)
+                    print(f"[Pyxis Font] Error reading registry {root_name}: {e}", flush=True)
         except Exception as e:
-            print(f"[Pyxis Font] Excepción general escaneando registro: {e}", flush=True)
+            print(f"[Pyxis Font] General exception scanning registry: {e}", flush=True)
 
         search_dirs = [
             os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
@@ -2706,21 +2945,19 @@ class PyxisAPI:
             os.path.join(os.environ.get("LOCALAPPDATA", ""), "FontBase"),
             os.path.join(os.environ.get("APPDATA", ""), "FontBase"),
         ]
-        print(f"[Pyxis Font] Directorios de búsqueda de fuentes: {search_dirs}", flush=True)
+        print(f"[Pyxis Font] Font search directories: {search_dirs}", flush=True)
 
-        # 2. Probar candidatos obtenidos del Registro
         for val in candidates_from_reg:
             if os.path.isabs(val) and os.path.exists(val):
-                print(f"[Pyxis Font] ¡ENCONTRADA vía registro (ruta absoluta)! '{font_name}' -> '{val}'", flush=True)
+                print(f"[Pyxis Font] FOUND via registry (absolute path)! '{font_name}' -> '{val}'", flush=True)
                 return val
             for s_dir in search_dirs:
                 if s_dir and os.path.isdir(s_dir):
                     p = os.path.join(s_dir, val)
                     if os.path.exists(p):
-                        print(f"[Pyxis Font] ¡ENCONTRADA vía registro en carpeta! '{font_name}' -> '{p}'", flush=True)
+                        print(f"[Pyxis Font] FOUND via registry in folder! '{font_name}' -> '{p}'", flush=True)
                         return p
 
-        # 3. Búsqueda directa por coincidencia de nombre de archivo
         clean_nosp = font_name_clean.replace(" ", "")
         direct_names = [
             f"{font_name}.ttf", f"{font_name}.otf", f"{font_name}.ttc",
@@ -2732,20 +2969,19 @@ class PyxisAPI:
                 for dn in direct_names:
                     p = os.path.join(s_dir, dn)
                     if os.path.exists(p):
-                        print(f"[Pyxis Font] ¡ENCONTRADA por nombre directo! '{font_name}' -> '{p}'", flush=True)
+                        print(f"[Pyxis Font] ¡FOUND by direct name! '{font_name}' -> '{p}'", flush=True)
                         return p
                 try:
                     for fn in os.listdir(s_dir):
                         fn_lower = fn.lower()
                         if clean_nosp in fn_lower and any(fn_lower.endswith(ext) for ext in ['.ttf', '.otf', '.ttc']):
                             p = os.path.join(s_dir, fn)
-                            print(f"[Pyxis Font] ¡ENCONTRADA por búsqueda difusa de archivo! '{font_name}' -> '{p}'", flush=True)
+                            print(f"[Pyxis Font] ¡FOUND by fuzzy file search! '{font_name}' -> '{p}'", flush=True)
                             return p
                 except Exception as e:
-                    print(f"[Pyxis Font] Error listando directorio {s_dir}: {e}", flush=True)
+                    print(f"[Pyxis Font] Error listing directory {s_dir}: {e}", flush=True)
 
-        # 4. Fallback a Arial en directorios de fuentes
-        print(f"[Pyxis Font] AVISO: No se encontró archivo específico para '{font_name}'. Recurriendo a Arial...", flush=True)
+        print(f"[Pyxis Font] WARNING: No specific file found for '{font_name}'. Falling back to Arial...", flush=True)
         for s_dir in search_dirs:
             if s_dir and os.path.isdir(s_dir):
                 for af in ["arial.ttf", "Arial.ttf", "ARIAL.TTF"]:
@@ -2753,32 +2989,32 @@ class PyxisAPI:
                     if os.path.exists(p):
                         print(f"[Pyxis Font] Fallback a Arial resuelto en: '{p}'", flush=True)
                         return p
-        print(f"[Pyxis Font] ERROR: Ni siquiera se encontró Arial en {search_dirs}", flush=True)
+        print(f"[Pyxis Font] ERROR: Arial not found in {search_dirs}", flush=True)
         return None
 
     def get_preview_fonts_map(self, source="base"):
-        """Retorna un diccionario { nombre_fuente: { 'data': data_url, 'http_url': url, 'path': path } } con todas las fuentes requeridas."""
+        """Returns a dictionary { font_name: { 'data': data_url, 'http_url': url, 'path': path } } with all required fonts."""
         font_map = {}
         try:
             info = self.get_preview_info(source=source)
             styles = info.get("styles", {}) or {}
-            print(f"[Pyxis Font] get_preview_fonts_map invocado para fuente '{source}'. Estilos disponibles en ASS: {list(styles.keys())}", flush=True)
+            print(f"[Pyxis Font] get_preview_fonts_map invoked for source '{source}'. Available ASS styles: {list(styles.keys())}", flush=True)
             requested_fonts = set()
             for s_name, s in styles.items():
                 if isinstance(s, dict):
                     fn = s.get("Fontname") or s.get("fontname")
-                    print(f"[Pyxis Font] Estilo '{s_name}' usa fuente: '{fn}'", flush=True)
+                    print(f"[Pyxis Font] Style '{s_name}' uses font: '{fn}'", flush=True)
                     if fn:
                         requested_fonts.add(str(fn).strip())
             
             primary_fn = str(info.get("font_name") or "Arial").strip()
-            print(f"[Pyxis Font] Fuente primaria detectada de la línea activa: '{primary_fn}'", flush=True)
+            print(f"[Pyxis Font] Primary font detected from active line: '{primary_fn}'", flush=True)
             if primary_fn:
                 requested_fonts.add(primary_fn)
             if not requested_fonts:
                 requested_fonts.add("Arial")
 
-            print(f"[Pyxis Font] Conjunto total de fuentes a resolver: {requested_fonts}", flush=True)
+            print(f"[Pyxis Font] Total requested fonts to resolve: {requested_fonts}", flush=True)
             import base64
             from urllib.parse import quote
             for fn in requested_fonts:
@@ -2805,10 +3041,10 @@ class PyxisAPI:
                     except Exception as e:
                         print(f"[Pyxis Error reading font file {f_path}] {e}", flush=True)
                 else:
-                    print(f"[Pyxis Font] ERROR: No se pudo resolver archivo físico para '{fn}'", flush=True)
+                    print(f"[Pyxis Font] ERROR: Could not resolve physical file for '{fn}'", flush=True)
         except Exception as e:
             print(f"[Pyxis Error getting preview fonts map] {e}", flush=True)
-        print(f"[Pyxis Font] Mapa final de fuentes generado con {len(font_map)} claves.", flush=True)
+        print(f"[Pyxis Font] Final font map generated with {len(font_map)} keys.", flush=True)
         return font_map
 
     def get_preview_font_data_url(self, source="base"):
@@ -2831,10 +3067,10 @@ class PyxisAPI:
         self._preview_base_hash = None
 
     def ensure_preview_base_ass(self):
-        """Garantiza la presencia de preview_base.ass en %APPDATA%/PyxisNodes/preview_base.ass.
-        Si ya existe, respeta y preserva intactas todas las modificaciones manuales del usuario.
-        Si NO existe, copia la plantilla maestra desde PyxisNodes/preview_base.ass por primera vez.
-        """
+        """Ensures presence of preview_base.ass in %APPDATA%/PyxisNodes/preview_base.ass.
+If it already exists, preserves all user modifications.
+If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
+"""
         try:
             appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
             pyxis_user_dir = os.path.join(appdata_dir, "PyxisNodes")
@@ -2847,7 +3083,7 @@ class PyxisAPI:
             elif os.path.exists(master_path):
                 import shutil
                 shutil.copyfile(master_path, user_base_path)
-                print(f"[Pyxis] Copia inicial realizada de preview_base.ass master -> {user_base_path}", flush=True)
+                print(f"[Pyxis] Initial copy created for preview_base.ass master -> {user_base_path}", flush=True)
                 return user_base_path
         except Exception as e:
             print(f"[Pyxis Error in ensure_preview_base_ass] {e}", flush=True)
@@ -2872,7 +3108,7 @@ class PyxisAPI:
         return 0
 
     def _load_and_cache_preview_base(self, force_reload=False):
-        """Escanea preview_base.ass y almacena el resultado en memoria. Compara hash SHA-256 para recargar de forma infalible ante cualquier edición, restpyxisción o reemplazo del archivo."""
+        """Scans preview_base.ass and caches result in memory with SHA-256 hash validation."""
         try:
             user_base_path = self.ensure_preview_base_ass()
             if not user_base_path or not os.path.exists(user_base_path):
@@ -2984,8 +3220,17 @@ class PyxisAPI:
             clip_path = self._ensure_preview_media_clip(info_dict)
             info_dict["clip_path"] = clip_path
 
+            info_dict["media_meta"] = self._probe_media_metadata(
+                video_file=real_video,
+                audio_file=real_audio,
+                dummy_info=dummy_info if is_dummy_video else None,
+                default_fps=fps,
+                res_x=res_x,
+                res_y=res_y
+            )
+
             self._cached_preview_base_info = info_dict
-            print(f"[Pyxis Scan] preview_base.ass cargado: Res={res_x}x{res_y} ({res_x/res_y:.3f}), Diálogos={len(dialogues)}, Clip={clip_start_sec:.2f}s a {clip_end_sec:.2f}s ({clip_duration_sec:.2f}s)", flush=True)
+            print(f"[Pyxis Scan] preview_base.ass loaded: Res={res_x}x{res_y} ({res_x/res_y:.3f}), Dialogues={len(dialogues)}, Clip={clip_start_sec:.2f}s to {clip_end_sec:.2f}s ({clip_duration_sec:.2f}s)", flush=True)
             return self._cached_preview_base_info
         except Exception as e:
             print(f"[Pyxis Error in _load_and_cache_preview_base] {e}", flush=True)
@@ -3077,16 +3322,63 @@ class PyxisAPI:
             self.log_player_event(f"output_id_list targets: {output_id_list}")
 
             default_audio = info.get("real_audio_file") or info.get("real_video_file") or info.get("audio_file") or ""
+            
+            base_lines = []
             if ass_path and os.path.exists(ass_path):
+                with open(ass_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+                    base_lines = f.readlines()
+            elif dialogues or styles:
+                base_lines.append("[Script Info]\n")
+                base_lines.append(f"PlayResX: {res_x}\n")
+                base_lines.append(f"PlayResY: {res_y}\n")
+                base_lines.append("ScriptType: v4.00+\n\n")
+                base_lines.append("[V4+ Styles]\n")
+                base_lines.append("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+                if styles:
+                    for s_name, s_data in styles.items():
+                        if isinstance(s_data, dict):
+                            fn = s_data.get("Fontname", "Arial")
+                            fs = s_data.get("Fontsize", 40)
+                            c1 = s_data.get("PrimaryColour", "&H00FFFFFF&")
+                            c2 = s_data.get("SecondaryColour", "&H000000FF&")
+                            c3 = s_data.get("OutlineColour", "&H00000000&")
+                            c4 = s_data.get("BackColour", "&H00000000&")
+                            b = -1 if s_data.get("Bold") else 0
+                            it = -1 if s_data.get("Italic") else 0
+                            u = -1 if s_data.get("Underline") else 0
+                            so = -1 if s_data.get("StrikeOut") else 0
+                            sx = s_data.get("ScaleX", 100)
+                            sy = s_data.get("ScaleY", 100)
+                            sp = s_data.get("Spacing", 0)
+                            ang = s_data.get("Angle", 0)
+                            bs = s_data.get("BorderStyle", 1)
+                            out = s_data.get("Outline", 2)
+                            sh = s_data.get("Shadow", 0)
+                            al = s_data.get("Alignment", 2)
+                            ml = s_data.get("MarginL", 10)
+                            mr = s_data.get("MarginR", 10)
+                            mv = s_data.get("MarginV", 10)
+                            enc = s_data.get("Encoding", 1)
+                            base_lines.append(f"Style: {s_name},{fn},{fs},{c1},{c2},{c3},{c4},{b},{it},{u},{so},{sx},{sy},{sp},{ang},{bs},{out},{sh},{al},{ml},{mr},{mv},{enc}\n")
+                        elif isinstance(s_data, str):
+                            base_lines.append(s_data.strip() + "\n")
+                else:
+                    base_lines.append("Style: Default,Arial,40,&H00FFFFFF&,&H000000FF&,&H00000000&,&H00000000&,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1\n")
+                base_lines.append("\n[Events]\n")
+                base_lines.append("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+                for d in dialogues:
+                    if isinstance(d, dict) and 'raw' in d:
+                        base_lines.append(str(d['raw']).strip() + "\n")
+                    elif isinstance(d, str):
+                        base_lines.append(d.strip() + "\n")
+
+            if len(base_lines) > 0:
                 generated_lines = []
                 if len(output_id_list) > 0:
                     engine = GraphEngine(graph_data, res_x, res_y, frame_dur, default_audio_source=default_audio)
                     engine.target_output_id = output_id_list
                     generated_lines = engine.process(dialogues, styles)
                     self.log_player_event(f"GraphEngine targets={output_id_list} (Res {res_x}x{res_y}) produced {len(generated_lines)} lines")
-
-                with open(ass_path, "r", encoding="utf-8-sig", errors="ignore") as f:
-                    base_lines = f.readlines()
 
                 output_ass_lines = []
                 in_events = False
@@ -3099,21 +3391,21 @@ class PyxisAPI:
                 if isinstance(nodes_dict, list):
                     nodes_dict = {n.get("id"): n for n in nodes_dict if isinstance(n, dict)}
                 
-                all_salida_nodes = [n for n in nodes_dict.values() if 'salida' in str(n.get('type', '')).lower() or 'output' in str(n.get('type', '')).lower()]
-                matching_salidas = [n for n in all_salida_nodes if self._matches_output_node(n, output_id_list, all_salida_nodes)]
+                all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower() or 'salida' in str(n.get('type', '')).lower()]
+                matching_outputs = [n for n in all_output_nodes if self._matches_output_node(n, output_id_list, all_output_nodes)]
                 
                 use_all_lines = False
                 use_style_lines = False
                 target_styles = set()
-                for s_node in matching_salidas:
+                for s_node in matching_outputs:
                     props = s_node.get('properties', {}) or {}
                     app = str(props.get('apply_to', 'Selected Lines')).strip().lower()
-                    if app in ['all lines', 'todas las líneas', 'todas las lineas', 'all', 'todas']:
+                    if app in ['all lines', 'all']:
                         use_all_lines = True
                         break
-                    elif app in ['style lines', 'líneas de estilo', 'lineas de estilo', 'style', 'estilo']:
+                    elif app in ['style lines', 'style']:
                         use_style_lines = True
-                        st_name = str(props.get('style', '') or props.get('estilo', '')).strip()
+                        st_name = str(props.get('style', '')).strip()
                         if st_name:
                             target_styles.add(st_name)
 
@@ -3197,7 +3489,7 @@ class PyxisAPI:
 
                 full_ass_content = "".join(output_ass_lines)
             else:
-                self.log_player_event("ass_path missing!")
+                self.log_player_event("ass_path missing and no in-memory dialogues/styles!")
                 full_ass_content = ""
 
             self.log_player_event(f"generate_preview_ass finished, total ASS length: {len(full_ass_content)}")
@@ -3214,7 +3506,7 @@ class PyxisAPI:
                 result = window.create_file_dialog(
                     save_flag,
                     save_filename=default_filename,
-                    file_types=("Vídeo MP4 (*.mp4)", "Todos los archivos (*.*)"),
+                    file_types=("MP4 Video (*.mp4)", "All files (*.*)"),
                 )
                 if not result:
                     return None
@@ -3231,10 +3523,10 @@ class PyxisAPI:
             root.withdraw()
             root.attributes("-topmost", True)
             file_path = filedialog.asksaveasfilename(
-                title="Guardar Clip de Vídeo Hardsub",
+                title="Save Hardsub Video Clip",
                 defaultextension=".mp4",
                 initialfile=default_filename,
-                filetypes=[("Vídeo MP4", "*.mp4"), ("Todos los archivos", "*.*")]
+                filetypes=[("MP4 Video", "*.mp4"), ("All files", "*.*")]
             )
             root.destroy()
             return file_path if file_path else None
@@ -3248,11 +3540,11 @@ class PyxisAPI:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
             clock_num = int(time.time() * 1000) % 1000000
             output_tag = f"multi_{len(target_output_id)}" if isinstance(target_output_id, list) else (target_output_id or "dummy")
-            default_fn = out_filename or f"Mi_efecto_{clock_num:06d}.mp4"
+            default_fn = out_filename or f"Effect_{clock_num:06d}.mp4"
 
             save_path = self._select_save_video_path(default_filename=default_fn)
             if not save_path:
-                return {"success": False, "cancelled": True, "message": "Renderizado cancelado por el usuario"}
+                return {"success": False, "cancelled": True, "message": "Rendering cancelled by user"}
 
             ass_filename = f"preview_dummy_{output_tag}.ass"
             gen_res = self.generate_preview_ass(payload, target_output_id=target_output_id, out_filename=ass_filename, source=source)
@@ -3268,7 +3560,7 @@ class PyxisAPI:
 
             clip_path = self._ensure_preview_media_clip(info, is_export=True)
             if not clip_path or not os.path.exists(clip_path):
-                return {"success": False, "error": "No se pudo generar ni localizar el clip de fondo para renderizar Hardsub"}
+                return {"success": False, "error": "Could not generate or locate background clip to render Hardsub"}
 
             ffmpeg_exe = self._find_ffmpeg()
 
@@ -3333,11 +3625,11 @@ class PyxisAPI:
         if "nodes" not in graph_data and "graph" in graph_data:
             graph_data = graph_data["graph"]
         if not isinstance(graph_data, dict):
-            raise ValueError("El grafo debe ser un objeto JSON")
+            raise ValueError("Graph must be a JSON object")
         if not isinstance(graph_data.get("nodes"), list):
-            raise ValueError("El grafo debe contener una lista de nodos")
+            raise ValueError("Graph must contain a list of nodes")
         if "links" in graph_data and not isinstance(graph_data["links"], list):
-            raise ValueError("Los enlaces deben ser una lista")
+            raise ValueError("Links must be a list")
         return graph_data
 
 
@@ -3356,7 +3648,6 @@ def main():
 
     from pyxis_daemon import check_daemon_running, notify_daemon_reopen, PyxisDaemonServer
 
-    # Comprobar si el Daemon en segundo plano ya está corriendo
     daemon_info = check_daemon_running()
     if daemon_info:
         reopen_payload = {
@@ -3368,7 +3659,6 @@ def main():
             "aegisub_pid": aegisub_pid
         }
         if notify_daemon_reopen(reopen_payload):
-            # Notificado con éxito, salir inmediatamente (Apertura 0ms)
             sys.exit(0)
 
     try:
@@ -3386,9 +3676,8 @@ def main():
                 init_width = w_val
                 init_height = h_val
 
-        # Desactivar vinculación automática con el System Media Transport Controls (SMTC) de Windows
         os.environ["COREWEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
-            "--disable-features=HardwareMediaKeyHandling "
+            "--disable-features=HardwareMediaKeyHandling,MediaSessionService "
             "--disable-component-update"
         )
 
@@ -3455,19 +3744,16 @@ def main():
             api._is_handling_closing = True
 
             try:
-                # Abortar y cancelar cualquier proceso en ejecución inmediatamente
                 try:
                     api.cancel_generation()
                 except Exception:
                     pass
 
-                # Liberar siempre de forma prioritaria el lock de la sesión activa
                 try:
                     api.release_lock()
                 except Exception:
                     pass
 
-                # Capturar formato y dimensiones actuales de la ventana de forma robusta
                 found_hwnd = None
                 try:
                     import ctypes
@@ -3521,9 +3807,6 @@ def main():
                 is_daemon = config.get("daemon_mode", True)
 
                 if is_daemon:
-                    # En modo daemon: diferir el ocultamiento al hilo secundario para que FormClosing
-                    # retorne False primero (args.Cancel = True) sin que WinForms restaure la visibilidad
-                    # ni bloquee el despachador con llamadas sincronas a Invoke.
                     target_hwnd = found_hwnd
 
                     def _async_daemon_cleanup():
@@ -3531,7 +3814,7 @@ def main():
                         time.sleep(0.03)
                         if target_hwnd:
                             try:
-                                user32.ShowWindow(target_hwnd, 0)  # 0 = SW_HIDE
+                                user32.ShowWindow(target_hwnd, 0)
                             except Exception:
                                 pass
                         try:

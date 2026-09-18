@@ -14,9 +14,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# clipper_engine.py
-"""Motor de slicing 1D/2D, 22 motores de mallas y transformaciones de polígonos ASSdraw.
-Utiliza NumPy y PyClipper para aceleración matemática nativa a velocidad C.
+"""1D/2D slicing engine, 22 mesh generators, and ASSdraw polygon transformations.
+Utilizes NumPy and PyClipper for native C-speed mathematical acceleration.
 """
 
 import math
@@ -34,30 +33,28 @@ except ImportError:
     except Exception:
         pyclipper = None
 
-# Almacenes de Caché LRU deterministas para máxima aceleración
 _MAX_CACHE_SIZE = 1024
 _SLICE_GRID_CACHE = OrderedDict()
 _PARSE_ASSDRAW_CACHE = OrderedDict()
 
 class ClipperEngine:
-    """Motor de operaciones de corte y despiece vectorial para ASSdraw."""
+    """Vector cutting and slicing operations engine for ASSdraw."""
 
-    # Registro de los 22 motores de malla
     MESH_ENGINES = [
-        "hex", "tri", "dia", "ring", "voronoi", "delaunay", "brick", "jigsaw",
-        "circuit", "kagome", "rhombille", "herringbone", "mondrian", "truchet",
-        "scallop", "ashlar", "bez", "octagon", "ray", "web", "quad", "pattern"
+        "hex", "tri", "dia", "diamond", "ring", "rings", "voronoi", "delaunay", "brick", "jigsaw",
+        "circuit", "kagome", "rhombille", "cubes", "herringbone", "mondrian", "truchet",
+        "scallop", "ashlar", "bez", "bezier", "octagon", "ray", "rays", "web", "quad", "pattern", "modular"
     ]
 
     @staticmethod
     def clear_cache():
-        """Limpia todos los almacenes de caché en memoria de ClipperEngine."""
+        """Clears all in-memory cache stores in ClipperEngine."""
         _SLICE_GRID_CACHE.clear()
         _PARSE_ASSDRAW_CACHE.clear()
 
     @staticmethod
     def sample_cubic_bezier(p0, p1, p2, p3, steps=10):
-        """Muestra una curva Bézier cúbica entre p0 y p3 con puntos de control p1 y p2."""
+        """Samples a cubic Bézier curve between p0 and p3 with control points p1 and p2."""
         pts = []
         x0, y0 = float(p0[0]), float(p0[1])
         x1, y1 = float(p1[0]), float(p1[1])
@@ -78,14 +75,14 @@ class ClipperEngine:
 
     @staticmethod
     def hash_rand(c, r, offset=12345):
-        """Generador pseudo-aleatorio determinista por coordenadas espaciales."""
+        """Deterministic pseudo-random generator by spatial coordinates."""
         s = abs(int(math.floor(c)) * 73856093 + int(math.floor(r)) * 19349663 + int(offset or 12345))
         s = (s * 1103515245 + 12345) % 2147483648
         return s / 2147483648.0
 
     @staticmethod
     def make_circle(cx, cy, r):
-        """Genera un círculo cerrado ASSDraw con suavidad poligonal."""
+        """Generates a closed ASSDraw circle with smooth polygon approximation."""
         if r <= 0:
             return ""
         segments = max(16, min(64, int(math.ceil(r))))
@@ -97,8 +94,8 @@ class ClipperEngine:
 
     @staticmethod
     def parse_assdraw(shape_str: str, bezier_steps: int = 10, min_points: int = 2):
-        """Parsea comandos ASSdraw (m, l, b, c) a una lista de contornos de puntos (N, 2),
-        soportando repetición implícita de coordenadas para m, l, b y aplanando curvas Bézier.
+        """Parses ASSdraw commands (m, l, b, c) into a list of point contours (N, 2),
+        flattening Bézier curves into discrete linear segments.
         """
         if not shape_str or not str(shape_str).strip():
             return []
@@ -180,11 +177,20 @@ class ClipperEngine:
 
     @staticmethod
     def get_bbox(contours):
-        """Calcula el Bounding Box (min_x, min_y, max_x, max_y, cx, cy, w, h)."""
+        """Calcula el Bounding Box (min_x, min_y, max_x, max_y, cx, cy, w, h).
+        Acepta tanto una lista de contornos numpy como una cadena ASSDraw.
+        """
+        if isinstance(contours, str):
+            contours = ClipperEngine.parse_assdraw(contours)
+
         if not contours:
             return 0.0, 0.0, 100.0, 100.0, 50.0, 50.0, 100.0, 100.0
 
-        all_pts = np.vstack(contours)
+        valid_contours = [np.asarray(c, dtype=np.float64) for c in contours if len(c) > 0]
+        if not valid_contours:
+            return 0.0, 0.0, 100.0, 100.0, 50.0, 50.0, 100.0, 100.0
+
+        all_pts = np.vstack(valid_contours)
         min_x, min_y = np.min(all_pts, axis=0)
         max_x, max_y = np.max(all_pts, axis=0)
         w = max(0.001, max_x - min_x)
@@ -194,8 +200,19 @@ class ClipperEngine:
         return float(min_x), float(min_y), float(max_x), float(max_y), float(cx), float(cy), float(w), float(h)
 
     @staticmethod
+    def calc_bbox_raw(shape_or_contours):
+        """Devuelve diccionario con x1, y1, x2, y2, cx, cy, w, h."""
+        min_x, min_y, max_x, max_y, cx, cy, w, h = ClipperEngine.get_bbox(shape_or_contours)
+        return {
+            "x1": min_x, "y1": min_y,
+            "x2": max_x, "y2": max_y,
+            "cx": cx, "cy": cy,
+            "w": w, "h": h
+        }
+
+    @staticmethod
     def boolean_intersection(subject_shape: str, clip_shape: str, scale: float = 10000.0) -> str:
-        """Realiza la intersección booleana vectorial real entre subject_shape y clip_shape usando Clipper/pyclipper."""
+        """Performs real boolean vector intersection between subject_shape and clip_shape using Clipper/pyclipper."""
         subj_contours = ClipperEngine.parse_assdraw(subject_shape)
         clip_contours = ClipperEngine.parse_assdraw(clip_shape)
 
@@ -262,7 +279,7 @@ class ClipperEngine:
 
     @staticmethod
     def boolean_union(shape_a: str, shape_b: str, scale: float = 10000.0) -> str:
-        """Realiza la unión booleana vectorial real entre shape_a y shape_b usando Clipper/pyclipper."""
+        """Performs real boolean vector union between shape_a and shape_b using Clipper/pyclipper."""
         a_contours = ClipperEngine.parse_assdraw(shape_a)
         b_contours = ClipperEngine.parse_assdraw(shape_b)
 
@@ -312,8 +329,6 @@ class ClipperEngine:
             return shape_str
 
         try:
-            # Fijar arc_tolerance a 0.25px en coordenadas reales (0.25 * scale)
-            # para evitar saturación de miles de puntos microscópicos en curvas horizontales.
             pco = pyclipper.PyclipperOffset(miter_limit=2.0, arc_tolerance=0.25 * scale)
             jt = join_type if join_type is not None else pyclipper.JT_ROUND
             for c in contours:
@@ -362,9 +377,9 @@ class ClipperEngine:
 
     @staticmethod
     def stroke_shape(shape_str: str, width: float = 4.0, join_mode: str = "Round", cap_mode: str = "Round", miter_limit: float = 2.0, scale: float = 10000.0) -> str:
-        """Convierte líneas abiertas o contornos cerrados en polígonos cerrados ASSDraw con grosor uniforme.
-        - Para líneas/splines abiertas: genera una tira continua con terminaciones (Round, Square, Flat/Butt).
-        - Para polígonos cerrados: genera un contorno hueco (diferencia booleana entre offset exterior e interior).
+        """Converts open lines or closed contours into closed ASSDraw polygons with uniform thickness.
+        - For open lines/splines: generates a continuous strip with terminations (Round, Square, Flat/Butt).
+        - For closed polygons: generates a hollow outline (boolean difference between outer and inner offset).
         """
         if not shape_str or not str(shape_str).strip() or pyclipper is None:
             return shape_str
@@ -442,10 +457,10 @@ class ClipperEngine:
                    angle: float = 0.0, overlap: float = 0.0, accel: float = 1.0, order: int = 79,
                    text_scale: float = 1.0, pre_offset: float = 0.0, engine_mode: str = "grid",
                    accel_x: float = 1.0, accel_y: float = 1.0, pattern_shape: str = ""):
-        """Slicer universal 1D/2D y de 22 motores de malla.
-        Soporta escalado dual (scale_x, scale_y), tamaños personalizados (size_x, size_y), offsetting (offset_x, offset_y),
-        y pre-escalado de texto (text_scale) junto con pre-offsetting de contorno original (pre_offset) según la API de Seijitsu Extensions.
-        Devuelve una lista de diccionarios con {code, cx, cy, col, row}.
+        """Universal 1D/2D slicer and 22 mesh engines.
+        Supports dual scaling (scale_x, scale_y), custom sizes (size_x, size_y), offsetting (offset_x, offset_y),
+        and text pre-scaling (text_scale) along with original contour pre-offsetting (pre_offset).
+        Returns a list of dictionaries with {code, cx, cy, col, row}.
         """
         if accel != 1.0:
             if accel_x == 1.0: accel_x = accel
@@ -490,7 +505,6 @@ class ClipperEngine:
 
         mode_key = str(engine_mode).lower().strip()
 
-        # Dimensiones de la malla considerando rotación del Bounding Box de la tinta del objeto
         D_w = (w * abs(cos_a) + h * abs(sin_a) + 0.1) * float(scale_x)
         D_h = (h * abs(cos_a) + w * abs(sin_a) + 0.1) * float(scale_y)
 
@@ -538,7 +552,7 @@ class ClipperEngine:
                     tri_down = f"m {d_cx - L/2.0:.3f} {d_cy - H:.3f} l {d_cx + L/2.0:.3f} {d_cy - H:.3f} l {d_cx:.3f} {d_cy:.3f} l {d_cx - L/2.0:.3f} {d_cy - H:.3f}"
                     masks.append({"code": tri_down, "cx": d_cx, "cy": d_cy - (2*H/3.0), "col": c, "row": r})
 
-        elif mode_key in ["dia", "diamante"]:
+        elif mode_key in ["dia", "diamante", "diamond", "rombos"]:
             R = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(5.0, h / 3.5)
             H_step, W_step = R, R * 2.0
             c_start = int(math.floor(min_x / W_step)) - 1
@@ -554,7 +568,7 @@ class ClipperEngine:
                     dia_code = f"m {screen_cx:.3f} {screen_cy - R:.3f} l {screen_cx + R:.3f} {screen_cy:.3f} l {screen_cx:.3f} {screen_cy + R:.3f} l {screen_cx - R:.3f} {screen_cy:.3f} l {screen_cx:.3f} {screen_cy - R:.3f}"
                     masks.append({"code": dia_code, "cx": screen_cx, "cy": screen_cy, "col": c, "row": r})
 
-        elif mode_key in ["ring", "anillos"]:
+        elif mode_key in ["ring", "anillos", "rings"]:
             ring_w = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(4.0, h / 5.0)
             max_r = math.sqrt((w/2.0)**2 + (h/2.0)**2) + 20.0
             num_rings = int(math.ceil(max_r / ring_w))
@@ -569,7 +583,7 @@ class ClipperEngine:
                     ring_code = ClipperEngine.boolean_difference(c_out, c_in)
                     masks.append({"code": ring_code, "cx": cx, "cy": cy, "col": i+1, "row": 1})
 
-        elif mode_key in ["ray", "radial", "rayos"]:
+        elif mode_key in ["ray", "radial", "rayos", "rays"]:
             ang_step = max(1.0, min(360.0, float(size_x) if (size_x and float(size_x) > 0) else 30.0))
             num_rays = int(math.ceil(360.0 / ang_step))
             max_polar_R = math.sqrt((w/2.0)**2 + (h/2.0)**2) + 20.0
@@ -890,7 +904,7 @@ class ClipperEngine:
                         cent_x, cent_y = (x1+x2+x3+x4)/4.0, (y1+y2+y3+y4)/4.0
                     masks.append({"code": cell_code, "cx": cent_x, "cy": cent_y, "col": ray + 1, "row": ring})
 
-        elif mode_key in ["rhombille", "cubos"]:
+        elif mode_key in ["rhombille", "cubos", "cubes"]:
             R = max(2.0, float(size_x) if (size_x and float(size_x) > 0) else 20.0)
             W = 1.73205081 * R
             H_step = 1.5 * R
@@ -1097,7 +1111,7 @@ class ClipperEngine:
                             final_cell = diff_res
                     masks.append({"code": final_cell, "cx": cx_val + W/2.0, "cy": cy_val + W/2.0, "col": c, "row": r})
 
-        elif mode_key in ["pattern", "patrón", "patron"]:
+        elif mode_key in ["pattern", "patrón", "patron", "modular"]:
             custom_shape = str(pattern_shape) if (pattern_shape and str(pattern_shape).strip()) else (str(shape_str) if (shape_str and str(shape_str).strip()) else ClipperEngine.make_circle(0, 0, 10))
             S = max(4.0, float(size_x) if (size_x and float(size_x) > 0) else 20.0)
             shp_size = float(size_y) if (size_y and float(size_y) > 0) else S * 0.8
@@ -1118,7 +1132,7 @@ class ClipperEngine:
                     final_code = diff_res if (diff_res and diff_res.strip()) else cell_sq
                     masks.append({"code": final_code, "cx": cx_val + S/2.0, "cy": cy_val + S/2.0, "col": c, "row": r})
 
-        else: # Default Grid 1D/2D
+        else:
             for r in range(1, rows + 1):
                 pct_start_y = ((r - 1) / rows) ** float(accel_y)
                 pct_end_y = (r / rows) ** float(accel_y)
@@ -1197,7 +1211,6 @@ class ClipperEngine:
             except Exception:
                 continue
 
-        # Ordenamiento direccional (Order keypad: 79, 5, 13, 31, 71, 17, 39, etc.)
         order = int(order)
         if order == 5:
             pieces.sort(key=lambda p: (p["cx"] - cx)**2 + (p["cy"] - cy)**2)
@@ -1224,7 +1237,7 @@ class ClipperEngine:
 
     @staticmethod
     def transform_shape(shape_str: str, mode: str = "Escalar", factor: float = 1.0, offset_x: float = 0.0, offset_y: float = 0.0) -> str:
-        """Aplica transformaciones de escalado, rotación, offset de caminos (movevc) a un código ASSdraw."""
+        """Applies scale, rotation, and path offset (movevc) transformations to an ASSDraw code."""
         contours = ClipperEngine.parse_assdraw(shape_str)
         if not contours:
             return shape_str
@@ -1247,10 +1260,918 @@ class ClipperEngine:
             elif "offset" in mode_clean or "bordes" in mode_clean:
                 pts = pts + [float(offset_x), float(offset_y)]
 
-            # Convert to ASSdraw string
             parts = [f"m {round(pts[0][0], 2)} {round(pts[0][1], 2)}"]
             for p in pts[1:]:
                 parts.append(f"l {round(p[0], 2)} {round(p[1], 2)}")
             transformed.append(" ".join(parts))
 
         return " ".join(transformed)
+
+    @staticmethod
+    def translate_shape(shape_str: str, dx: float, dy: float) -> str:
+        """Displaces all coordinates of an ASSDraw code by (dx, dy)."""
+        if not shape_str or (dx == 0 and dy == 0):
+            return shape_str or ""
+        
+        def _shift_coord(match):
+            x = float(match.group(1)) + float(dx)
+            y = float(match.group(2)) + float(dy)
+            return f"{round(x, 2)} {round(y, 2)}"
+
+        return re.sub(r'(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)', _shift_coord, str(shape_str))
+
+    @staticmethod
+    def clean_self_intersections(shape_str: str, fill_rule=None, scale: float = 10000.0) -> str:
+        """Planariza y limpia auto-intersecciones de una forma vectorial usando Clipper CT_UNION."""
+        if not shape_str or pyclipper is None:
+            return shape_str or ""
+        contours = ClipperEngine.parse_assdraw(shape_str)
+        if not contours:
+            return shape_str
+        
+        fr = fill_rule
+        if fr is None:
+            fr = pyclipper.PFT_EVENODD
+        elif isinstance(fr, str):
+            fr_clean = fr.strip().lower()
+            fr = pyclipper.PFT_NONZERO if "nonzero" in fr_clean or "no_zero" in fr_clean or "distinto" in fr_clean else pyclipper.PFT_EVENODD
+
+        pc = pyclipper.Pyclipper()
+        for c in contours:
+            if len(c) >= 3:
+                pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
+        
+        try:
+            solution = pc.Execute(pyclipper.CT_UNION, fr, fr)
+            if not solution:
+                return shape_str
+            code_parts = []
+            for path in solution:
+                if len(path) >= 3:
+                    pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
+                    path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]]) + f" l {pts[0][0]} {pts[0][1]} "
+                    code_parts.append(path_str)
+            return "".join(code_parts)
+        except Exception:
+            return shape_str
+
+
+    @staticmethod
+    def sort_islands_by_order(island_entries, order="79"):
+        """Sorts a list of island dictionaries with bounding boxes according to the ordering code (Numpad, Radial, Circular cw/ccw)."""
+        if not island_entries or len(island_entries) <= 1:
+            return island_entries
+
+        order_str = str(order or "79").strip().lower()
+        if "(" in order_str:
+            order_str = order_str.split("(")[0].strip()
+
+        if order_str in ("raw", "none", "0", "normal"):
+            return island_entries
+
+        if order_str in ("invertido", "inv", "reverse", "invert", "-1"):
+            return list(reversed(island_entries))
+
+        if "rand" in order_str or "random" in order_str or "aleator" in order_str:
+            copy_entries = list(island_entries)
+            import random
+            random.shuffle(copy_entries)
+            return copy_entries
+
+        has_grid = len(island_entries) > 0 and all('row' in it and 'col' in it for it in island_entries)
+        if has_grid:
+            if order_str == "79":
+                return sorted(island_entries, key=lambda it: (it['row'], it['col']))
+            elif order_str == "97":
+                return sorted(island_entries, key=lambda it: (it['row'], -it['col']))
+            elif order_str == "13":
+                return sorted(island_entries, key=lambda it: (-it['row'], it['col']))
+            elif order_str == "31":
+                return sorted(island_entries, key=lambda it: (-it['row'], -it['col']))
+            elif order_str == "71":
+                return sorted(island_entries, key=lambda it: (it['col'], it['row']))
+            elif order_str == "17":
+                return sorted(island_entries, key=lambda it: (it['col'], -it['row']))
+            elif order_str == "93":
+                return sorted(island_entries, key=lambda it: (-it['col'], it['row']))
+            elif order_str == "39":
+                return sorted(island_entries, key=lambda it: (-it['col'], -it['row']))
+
+        try:
+            import numpy as np
+            cxs = np.array([it.get('cx', (it['min_x'] + it['max_x']) / 2.0) for it in island_entries], dtype=np.float64)
+            cys = np.array([it.get('cy', (it['min_y'] + it['max_y']) / 2.0) for it in island_entries], dtype=np.float64)
+            min_xs = np.array([it['min_x'] for it in island_entries], dtype=np.float64)
+            min_ys = np.array([it['min_y'] for it in island_entries], dtype=np.float64)
+
+            global_cx = float(np.mean(cxs))
+            global_cy = float(np.mean(cys))
+        except Exception:
+            cxs = [(it.get('cx', (it['min_x'] + it['max_x']) / 2.0)) for it in island_entries]
+            cys = [(it.get('cy', (it['min_y'] + it['max_y']) / 2.0)) for it in island_entries]
+            min_xs = [it['min_x'] for it in island_entries]
+            min_ys = [it['min_y'] for it in island_entries]
+            global_cx = sum(cxs) / len(cxs) if cxs else 0.0
+            global_cy = sum(cys) / len(cys) if cys else 0.0
+
+        if order_str in ("5", "centro", "centro a extremos", "center", "center to edges"):
+            dist_sq = [(x - global_cx)**2 + (y - global_cy)**2 for x, y in zip(cxs, cys)]
+            indices = sorted(range(len(dist_sq)), key=lambda i: dist_sq[i])
+            return [island_entries[i] for i in indices]
+        elif order_str in ("-5", "5_inv", "extremos", "extremos al centro", "edges", "edges to center"):
+            dist_sq = [(x - global_cx)**2 + (y - global_cy)**2 for x, y in zip(cxs, cys)]
+            indices = sorted(range(len(dist_sq)), key=lambda i: -dist_sq[i])
+            return [island_entries[i] for i in indices]
+
+        if order_str in ("cw", "horario", "clock", "circle", "12", "radial"):
+            import math
+            angles = []
+            for x, y in zip(cxs, cys):
+                dx = x - global_cx
+                dy = y - global_cy
+                deg = (math.degrees(math.atan2(dy, dx)) + 90.0) % 360.0
+                angles.append(deg)
+            indices = sorted(range(len(angles)), key=lambda i: angles[i])
+            return [island_entries[i] for i in indices]
+        elif order_str in ("ccw", "antihorario", "counter"):
+            import math
+            angles = []
+            for x, y in zip(cxs, cys):
+                dx = x - global_cx
+                dy = y - global_cy
+                deg = (360.0 - ((math.degrees(math.atan2(dy, dx)) + 90.0) % 360.0)) % 360.0
+                angles.append(deg)
+            indices = sorted(range(len(angles)), key=lambda i: angles[i])
+            return [island_entries[i] for i in indices]
+
+        avg_w = sum(it.get('w', 10.0) for it in island_entries) / len(island_entries)
+        col_threshold = max(5.0, avg_w * 0.5)
+
+        if order_str == "71":
+            sorted_by_x = sorted(island_entries, key=lambda it: it['min_x'])
+            cols = []
+            cur_col = []
+            cur_x = None
+            for it in sorted_by_x:
+                x = it['min_x']
+                if cur_x is None or abs(x - cur_x) <= col_threshold:
+                    cur_col.append(it)
+                    cur_x = x
+                else:
+                    cols.append(cur_col)
+                    cur_col = [it]
+                    cur_x = x
+            if cur_col: cols.append(cur_col)
+            res = []
+            for col in cols:
+                res.extend(sorted(col, key=lambda it: it['min_y']))
+            return res
+
+        elif order_str == "17":
+            sorted_by_x = sorted(island_entries, key=lambda it: it['min_x'])
+            cols = []
+            cur_col = []
+            cur_x = None
+            for it in sorted_by_x:
+                x = it['min_x']
+                if cur_x is None or abs(x - cur_x) <= col_threshold:
+                    cur_col.append(it)
+                    cur_x = x
+                else:
+                    cols.append(cur_col)
+                    cur_col = [it]
+                    cur_x = x
+            if cur_col: cols.append(cur_col)
+            res = []
+            for col in cols:
+                res.extend(sorted(col, key=lambda it: -it['min_y']))
+            return res
+
+        elif order_str == "93":
+            sorted_by_x = sorted(island_entries, key=lambda it: -it['min_x'])
+            cols = []
+            cur_col = []
+            cur_x = None
+            for it in sorted_by_x:
+                x = it['min_x']
+                if cur_x is None or abs(x - cur_x) <= col_threshold:
+                    cur_col.append(it)
+                    cur_x = x
+                else:
+                    cols.append(cur_col)
+                    cur_col = [it]
+                    cur_x = x
+            if cur_col: cols.append(cur_col)
+            res = []
+            for col in cols:
+                res.extend(sorted(col, key=lambda it: it['min_y']))
+            return res
+
+        elif order_str == "39":
+            sorted_by_x = sorted(island_entries, key=lambda it: -it['min_x'])
+            cols = []
+            cur_col = []
+            cur_x = None
+            for it in sorted_by_x:
+                x = it['min_x']
+                if cur_x is None or abs(x - cur_x) <= col_threshold:
+                    cur_col.append(it)
+                    cur_x = x
+                else:
+                    cols.append(cur_col)
+                    cur_col = [it]
+                    cur_x = x
+            if cur_col: cols.append(cur_col)
+            res = []
+            for col in cols:
+                res.extend(sorted(col, key=lambda it: -it['min_y']))
+            return res
+
+        avg_h = sum(it.get('h', 10.0) for it in island_entries) / len(island_entries)
+        line_threshold = max(5.0, avg_h * 0.5)
+
+        if order_str == "13":
+            sorted_by_y = sorted(island_entries, key=lambda it: -it['min_y'])
+            lines = []
+            cur_line = []
+            cur_y = None
+            for it in sorted_by_y:
+                y = it['min_y']
+                if cur_y is None or abs(y - cur_y) <= line_threshold:
+                    cur_line.append(it)
+                    cur_y = y
+                else:
+                    lines.append(cur_line)
+                    cur_line = [it]
+                    cur_y = y
+            if cur_line: lines.append(cur_line)
+            res = []
+            for line in lines:
+                res.extend(sorted(line, key=lambda it: it['min_x']))
+            return res
+
+        elif order_str == "31":
+            sorted_by_y = sorted(island_entries, key=lambda it: -it['min_y'])
+            lines = []
+            cur_line = []
+            cur_y = None
+            for it in sorted_by_y:
+                y = it['min_y']
+                if cur_y is None or abs(y - cur_y) <= line_threshold:
+                    cur_line.append(it)
+                    cur_y = y
+                else:
+                    lines.append(cur_line)
+                    cur_line = [it]
+                    cur_y = y
+            if cur_line: lines.append(cur_line)
+            res = []
+            for line in lines:
+                res.extend(sorted(line, key=lambda it: -it['min_x']))
+            return res
+
+        elif order_str == "97":
+            sorted_by_y = sorted(island_entries, key=lambda it: it['min_y'])
+            lines = []
+            cur_line = []
+            cur_y = None
+            for it in sorted_by_y:
+                y = it['min_y']
+                if cur_y is None or abs(y - cur_y) <= line_threshold:
+                    cur_line.append(it)
+                    cur_y = y
+                else:
+                    lines.append(cur_line)
+                    cur_line = [it]
+                    cur_y = y
+            if cur_line: lines.append(cur_line)
+            res = []
+            for line in lines:
+                res.extend(sorted(line, key=lambda it: -it['min_x']))
+            return res
+
+        else:
+            sorted_by_y = sorted(island_entries, key=lambda it: it['min_y'])
+            lines = []
+            cur_line = []
+            cur_y = None
+            for it in sorted_by_y:
+                y = it['min_y']
+                if cur_y is None or abs(y - cur_y) <= line_threshold:
+                    cur_line.append(it)
+                    cur_y = y
+                else:
+                    lines.append(cur_line)
+                    cur_line = [it]
+                    cur_y = y
+            if cur_line: lines.append(cur_line)
+            res = []
+            for line in lines:
+                res.extend(sorted(line, key=lambda it: it['min_x']))
+            return res
+
+    @staticmethod
+    def decompose_shape_islands(shape_str, fill_rule=None, bbox_mode: str = "marco", scale: float = 100.0, clean_self_intersect: bool = True, order: str = "79") -> list:
+        """Descompone una forma vectorial ASS compleja en sus 'islas' o figuras independientes reales (PolyTree)."""
+        if not shape_str:
+            return []
+
+        if isinstance(shape_str, (list, tuple)):
+            res = []
+            for item in shape_str:
+                res.extend(ClipperEngine.decompose_shape_islands(item, fill_rule=fill_rule, bbox_mode=bbox_mode, scale=scale, clean_self_intersect=clean_self_intersect, order=order))
+            return res
+
+        if isinstance(shape_str, str) and shape_str.strip().startswith("[") and shape_str.strip().endswith("]"):
+            try:
+                import json
+                parsed = json.loads(shape_str)
+                if isinstance(parsed, list):
+                    return ClipperEngine.decompose_shape_islands(parsed, fill_rule=fill_rule, bbox_mode=bbox_mode, scale=scale, clean_self_intersect=clean_self_intersect, order=order)
+            except Exception:
+                pass
+
+        raw_str = str(shape_str).strip()
+        contours = ClipperEngine.parse_assdraw(raw_str)
+        if not contours:
+            return [raw_str] if raw_str else []
+
+        if pyclipper is None:
+            return ClipperEngine.decompose_shape_subpaths(raw_str, bbox_mode=bbox_mode, order=order)
+
+        fr = fill_rule
+        if fr is None:
+            fr = pyclipper.PFT_EVENODD
+        elif isinstance(fr, str):
+            fr_clean = fr.strip().lower()
+            fr = pyclipper.PFT_NONZERO if "nonzero" in fr_clean or "no_zero" in fr_clean or "distinto" in fr_clean else pyclipper.PFT_EVENODD
+
+        try:
+            pc = pyclipper.Pyclipper()
+            for c in contours:
+                if len(c) >= 3:
+                    pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
+
+            poly_tree = pc.Execute2(pyclipper.CT_UNION, fr, fr)
+            island_entries = []
+
+            def traverse_node(node):
+                for child in node.Childs:
+                    if not child.IsHole:
+                        outer_path = [[round(x / scale, 2), round(y / scale, 2)] for x, y in child.Contour]
+                        if len(outer_path) < 3:
+                            continue
+                        outer_str = f"m {outer_path[0][0]} {outer_path[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in outer_path[1:]]) + f" l {outer_path[0][0]} {outer_path[0][1]} "
+
+                        holes_strs = []
+                        for hole in child.Childs:
+                            if hole.IsHole and len(hole.Contour) >= 3:
+                                hole_path = [[round(x / scale, 2), round(y / scale, 2)] for x, y in hole.Contour]
+                                h_str = f"m {hole_path[0][0]} {hole_path[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in hole_path[1:]]) + f" l {hole_path[0][0]} {hole_path[0][1]} "
+                                holes_strs.append(h_str)
+                                traverse_node(hole)
+
+                        raw_island_figure = outer_str + "".join(holes_strs)
+                        f_cnt = ClipperEngine.parse_assdraw(raw_island_figure)
+                        if f_cnt:
+                            f_min_x, f_min_y, f_max_x, f_max_y, f_cx, f_cy, f_w, f_h = ClipperEngine.get_bbox(f_cnt)
+                        else:
+                            f_min_x = f_min_y = f_max_x = f_max_y = f_cx = f_cy = f_w = f_h = 0.0
+                        island_entries.append({
+                            'figure': raw_island_figure,
+                            'min_x': f_min_x, 'min_y': f_min_y,
+                            'max_x': f_max_x, 'max_y': f_max_y,
+                            'cx': f_cx, 'cy': f_cy,
+                            'w': f_w, 'h': f_h
+                        })
+
+            traverse_node(poly_tree)
+
+            island_entries = ClipperEngine.sort_islands_by_order(island_entries, order=order)
+
+            real_figures = []
+            bbox_clean = str(bbox_mode).lower()
+            for it in island_entries:
+                full_fig = it['figure']
+                if "origen" in bbox_clean:
+                    full_fig = ClipperEngine.translate_shape(full_fig, -it['min_x'], -it['min_y'])
+                elif "centro" in bbox_clean:
+                    full_fig = ClipperEngine.translate_shape(full_fig, -it['cx'], -it['cy'])
+                real_figures.append(full_fig)
+
+            return real_figures if real_figures else [raw_str]
+        except Exception:
+            return ClipperEngine.decompose_shape_subpaths(raw_str, bbox_mode=bbox_mode, order=order)
+
+    @staticmethod
+    def decompose_shape_subpaths(shape_str, bbox_mode: str = "marco", order: str = "79") -> list:
+        """Descompone un shape ASS en sub-rutas individuales por cada comando 'm' (modo naive compatible)."""
+        if not shape_str:
+            return []
+
+        if isinstance(shape_str, (list, tuple)):
+            res = []
+            for item in shape_str:
+                res.extend(ClipperEngine.decompose_shape_subpaths(item, bbox_mode=bbox_mode, order=order))
+            return res
+
+        if isinstance(shape_str, str) and shape_str.strip().startswith("[") and shape_str.strip().endswith("]"):
+            try:
+                import json
+                parsed = json.loads(shape_str)
+                if isinstance(parsed, list):
+                    return ClipperEngine.decompose_shape_subpaths(parsed, bbox_mode=bbox_mode, order=order)
+            except Exception:
+                pass
+        
+        raw_str = str(shape_str).strip()
+        contours = ClipperEngine.parse_assdraw(raw_str)
+        if not contours:
+            return [raw_str]
+
+        min_x, min_y, max_x, max_y, cx, cy, w, h = ClipperEngine.get_bbox(contours)
+
+        parts = re.split(r'(?=(?:^|\s)m\s+-?\d)', raw_str)
+        tokens = [p.strip() for p in parts if p.strip()]
+        if not tokens:
+            tokens = [raw_str]
+
+        sub_entries = []
+        for t in tokens:
+            sub = t.strip()
+            if not sub:
+                continue
+            f_cnt = ClipperEngine.parse_assdraw(sub)
+            if f_cnt:
+                f_min_x, f_min_y, f_max_x, f_max_y, f_cx, f_cy, f_w, f_h = ClipperEngine.get_bbox(f_cnt)
+            else:
+                f_min_x = f_min_y = f_max_x = f_max_y = f_cx = f_cy = f_w = f_h = 0.0
+            sub_entries.append({
+                'figure': sub,
+                'min_x': f_min_x, 'min_y': f_min_y,
+                'max_x': f_max_x, 'max_y': f_max_y,
+                'cx': f_cx, 'cy': f_cy,
+                'w': f_w, 'h': f_h
+            })
+
+        sub_entries = ClipperEngine.sort_islands_by_order(sub_entries, order=order)
+
+        subpaths = []
+        bbox_clean = str(bbox_mode).lower()
+        for it in sub_entries:
+            sub = it['figure']
+            if "origen" in bbox_clean:
+                sub = ClipperEngine.translate_shape(sub, -it['min_x'], -it['min_y'])
+            elif "centro" in bbox_clean:
+                sub = ClipperEngine.translate_shape(sub, -it['cx'], -it['cy'])
+            subpaths.append(sub)
+
+        return subpaths if subpaths else [raw_str]
+
+    @staticmethod
+    def merge_multiple_shapes(shapes_list: list, fill_rule=None, scale: float = 10000.0) -> str:
+        """
+        Merges multiple vector shapes into a single clean closed geometry using Clipper CT_UNION.
+        Removes redundant internal edges and preserves cutout orientation.
+        """
+        if not shapes_list:
+            return ""
+        
+        valid_shapes = []
+        for s in shapes_list:
+            if isinstance(s, (list, tuple)):
+                valid_shapes.extend([str(item).strip() for item in s if item and str(item).strip()])
+            elif isinstance(s, str) and s.strip().startswith("[") and s.strip().endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(s)
+                    if isinstance(parsed, list):
+                        valid_shapes.extend([str(item).strip() for item in parsed if item and str(item).strip()])
+                    else:
+                        valid_shapes.append(s.strip())
+                except Exception:
+                    valid_shapes.append(s.strip())
+            elif s and str(s).strip():
+                valid_shapes.append(str(s).strip())
+
+        if not valid_shapes:
+            return ""
+        if len(valid_shapes) == 1:
+            return ClipperEngine.clean_self_intersections(valid_shapes[0], fill_rule=fill_rule, scale=scale)
+
+        if pyclipper is None:
+            return " ".join(valid_shapes)
+
+        fr = fill_rule
+        if fr is None:
+            fr = pyclipper.PFT_NONZERO
+        elif isinstance(fr, str):
+            fr_clean = fr.strip().lower()
+            fr = pyclipper.PFT_EVENODD if "evenodd" in fr_clean or "par" in fr_clean else pyclipper.PFT_NONZERO
+
+        try:
+            pc = pyclipper.Pyclipper()
+            for shp in valid_shapes:
+                contours = ClipperEngine.parse_assdraw(shp)
+                for c in contours:
+                    if len(c) >= 3:
+                        pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
+
+            solution = pc.Execute(pyclipper.CT_UNION, fr, fr)
+            if not solution:
+                return ""
+
+            code_parts = []
+            for path in solution:
+                if len(path) >= 3:
+                    pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
+                    path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]]) + f" l {pts[0][0]} {pts[0][1]} "
+                    code_parts.append(path_str)
+
+            return "".join(code_parts)
+        except Exception:
+            return " ".join(valid_shapes)
+
+    @staticmethod
+    def _split_tag_keyframes(tags_input):
+        if tags_input is None:
+            return []
+        if isinstance(tags_input, (list, tuple)):
+            res = []
+            for item in tags_input:
+                if isinstance(item, (list, tuple)):
+                    res.extend(ClipperEngine._split_tag_keyframes(item))
+                elif isinstance(item, str):
+                    res.extend(ClipperEngine._split_tag_keyframes(item))
+                elif item is not None:
+                    res.append(str(item).strip())
+            return [r for r in res if r]
+        
+        s = str(tags_input).strip()
+        if not s:
+            return []
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                import json
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return ClipperEngine._split_tag_keyframes(parsed)
+            except Exception:
+                pass
+            try:
+                import ast
+                parsed = ast.literal_eval(s)
+                if isinstance(parsed, list):
+                    return ClipperEngine._split_tag_keyframes(parsed)
+            except Exception:
+                pass
+            inner = s[1:-1].strip()
+            return ClipperEngine._split_tag_keyframes(inner)
+            
+        tokens = []
+        curr = []
+        paren_depth = 0
+        brace_depth = 0
+        for ch in s:
+            if ch == '(':
+                paren_depth += 1
+                curr.append(ch)
+            elif ch == ')':
+                paren_depth = max(0, paren_depth - 1)
+                curr.append(ch)
+            elif ch == '{':
+                brace_depth += 1
+                curr.append(ch)
+            elif ch == '}':
+                brace_depth = max(0, brace_depth - 1)
+                curr.append(ch)
+            elif ch in (',', ';', '\n') and paren_depth == 0 and brace_depth == 0:
+                token = "".join(curr).strip()
+                if token:
+                    tokens.append(token)
+                curr = []
+            else:
+                curr.append(ch)
+        if curr:
+            token = "".join(curr).strip()
+            if token:
+                tokens.append(token)
+        return tokens
+
+    @staticmethod
+    def _parse_tag_keyframe(kf_str):
+        from utils import parse_color_to_rgb, rgb_to_ass_color
+        s = str(kf_str).strip().strip('{}').strip().strip('\'"').strip()
+        s = re.sub(r'\\{2,}', r'\\', s)
+        if not s:
+            return {}
+        
+        if not s.startswith('\\'):
+            clean_hex = s.lstrip('#').replace('&H', '').replace('&h', '').replace('&', '').strip()
+            is_valid_color = (
+                s.startswith('#') or 
+                s.startswith('&H') or 
+                s.startswith('&h') or 
+                (len(clean_hex) in (6, 8) and all(c in '0123456789abcdefABCDEF' for c in clean_hex)) or
+                s.lower() in ('white', 'black', 'red', 'green', 'blue', 'yellow', 'cyan', 'magenta', 'gray', 'grey')
+            )
+            if is_valid_color:
+                try:
+                    r, g, b = parse_color_to_rgb(s)
+                    return {'1c': {'type': 'color', 'prefix': '\\1c', 'val': (r, g, b), 'raw': f'\\1c{rgb_to_ass_color(r, g, b)}'}}
+                except Exception:
+                    pass
+
+        tag_pattern = r'(\\(?:pos|org|move|clip|iclip|fad|fade|t)\([^)]*\)|\\(?:[1-4]?c|[1-4]?a|alpha|an|a|fscx|fscy|frz|frx|fry|fr|fax|fay|xbord|ybord|bord|xshad|yshad|shad|blur|be|fsp|fs|fn|p|q|r|b|i|u|s|[kK]f?|ko?)(?:&H[0-9a-fA-F]+&|[^\\]*))'
+        numeric_tag_re = re.compile(r'^(\\(?:fscx|fscy|frz|frx|fry|fr|fax|fay|xbord|ybord|bord|xshad|yshad|shad|blur|be|fsp|fs))(-?[\d.]+)$')
+        global_tag_prefixes = ('\\pos', '\\move', '\\org', '\\an', '\\a', '\\fad', '\\fade', '\\clip', '\\iclip')
+
+        matches = re.findall(tag_pattern, s)
+        parsed_tags = {}
+        disc_idx = 0
+        for m in matches:
+            m = m.strip()
+            if not m:
+                continue
+            
+            if m.startswith('\\1c') or m.startswith('\\c') or m.startswith('\\2c') or m.startswith('\\3c') or m.startswith('\\4c'):
+                if m.startswith('\\2c'):
+                    k = '2c'; pref = '\\2c'; col_str = m[3:]
+                elif m.startswith('\\3c'):
+                    k = '3c'; pref = '\\3c'; col_str = m[3:]
+                elif m.startswith('\\4c'):
+                    k = '4c'; pref = '\\4c'; col_str = m[3:]
+                elif m.startswith('\\1c'):
+                    k = '1c'; pref = '\\1c'; col_str = m[3:]
+                else:
+                    k = '1c'; pref = '\\1c'; col_str = m[2:]
+                try:
+                    rgb = parse_color_to_rgb(col_str)
+                    parsed_tags[k] = {'type': 'color', 'prefix': pref, 'val': rgb, 'raw': m}
+                    continue
+                except Exception:
+                    pass
+                
+            if m.startswith('\\1a') or m.startswith('\\2a') or m.startswith('\\3a') or m.startswith('\\4a') or m.startswith('\\alpha'):
+                if m.startswith('\\alpha'):
+                    k = 'alpha'; pref = '\\alpha'; a_str = m[6:]
+                else:
+                    k = m[1:3]; pref = '\\' + k; a_str = m[3:]
+                a_clean = a_str.strip().strip('&').lstrip('Hh')
+                try:
+                    a_val = int(a_clean, 16) if a_clean else 0
+                    parsed_tags[k] = {'type': 'alpha', 'prefix': pref, 'val': max(0, min(255, a_val)), 'raw': m}
+                    continue
+                except Exception:
+                    pass
+                
+            is_global = False
+            for g_pref in global_tag_prefixes:
+                if m.startswith(g_pref):
+                    k = g_pref.lstrip('\\')
+                    parsed_tags[k] = {'type': 'global', 'prefix': g_pref, 'val': m, 'raw': m}
+                    is_global = True
+                    break
+            if is_global:
+                continue
+                
+            m_num = numeric_tag_re.match(m)
+            if m_num:
+                pref = m_num.group(1)
+                k = pref.lstrip('\\')
+                if k == 'fr':
+                    k = 'frz'; pref = '\\frz'
+                try:
+                    num_val = float(m_num.group(2))
+                    parsed_tags[k] = {'type': 'numeric', 'prefix': pref, 'val': num_val, 'raw': m}
+                    continue
+                except Exception:
+                    pass
+                
+            k = f'disc_{disc_idx}'
+            disc_idx += 1
+            parsed_tags[k] = {'type': 'discrete', 'prefix': m, 'val': m, 'raw': m}
+            
+        return parsed_tags
+
+    @staticmethod
+    def _interpolate_tag_keyframes(keyframes, t_norm, is_first_piece=False):
+        from utils import rgb_to_ass_color
+        t_clamped = max(0.0, min(1.0, float(t_norm)))
+        if not keyframes:
+            return ""
+            
+        def _format_num(v):
+            if float(v).is_integer():
+                return str(int(v))
+            return f"{v:.2f}".rstrip('0').rstrip('.')
+
+        def _format_single_tag(t):
+            tag_type = t['type']
+            pref = t['prefix']
+            if tag_type == 'color':
+                r, g, b = t['val']
+                return f"{pref}{rgb_to_ass_color(r, g, b)}"
+            elif tag_type == 'alpha':
+                a_v = t['val']
+                return f"{pref}&H{a_v:02X}&"
+            elif tag_type == 'numeric':
+                return f"{pref}{_format_num(t['val'])}"
+            return str(t.get('raw', t.get('val', '')))
+
+        def _sort_and_join_tags(tag_dict):
+            sorted_keys = sorted(tag_dict.keys(), key=lambda k: (
+                0 if k == 'an' else
+                1 if k in ('pos', 'move') else
+                2 if k == 'org' else
+                3 if k in ('1c', '2c', '3c', '4c', 'alpha', '1a', '2a', '3a', '4a') else
+                9 if k == 'p' else 5
+            ))
+            return ''.join(tag_dict[k] for k in sorted_keys)
+
+        tag_defaults = {
+            'frz': 0.0, 'frx': 0.0, 'fry': 0.0,
+            'fscx': 100.0, 'fscy': 100.0,
+            'fax': 0.0, 'fay': 0.0,
+            'blur': 0.0, 'be': 0.0,
+            'bord': 0.0, 'xbord': 0.0, 'ybord': 0.0,
+            'shad': 0.0, 'xshad': 0.0, 'yshad': 0.0,
+            'fsp': 0.0,
+            '1a': 0, '2a': 0, '3a': 0, '4a': 0, 'alpha': 0
+        }
+
+        if len(keyframes) == 1:
+            kf = keyframes[0]
+            res = {}
+            for k, v in kf.items():
+                if v['type'] == 'global' and not is_first_piece:
+                    continue
+                res[k] = _format_single_tag(v)
+            return _sort_and_join_tags(res)
+            
+        n_segments = len(keyframes) - 1
+        pos = t_clamped * n_segments
+        idx = int(pos)
+        if idx >= n_segments:
+            idx = n_segments - 1
+            local_t = 1.0
+        else:
+            local_t = pos - idx
+            
+        kf1 = keyframes[idx]
+        kf2 = keyframes[idx + 1]
+        
+        all_keys = list(dict.fromkeys(list(kf1.keys()) + list(kf2.keys())))
+        merged_tags = {}
+
+        for k in all_keys:
+            t1 = kf1.get(k)
+            t2 = kf2.get(k)
+            
+            tag_type = (t1 or t2)['type']
+            if tag_type == 'global':
+                if is_first_piece:
+                    chosen = t1 if t1 else t2
+                    merged_tags[k] = _format_single_tag(chosen)
+                continue
+            
+            if t1 and t2:
+                pref = t1['prefix']
+                if tag_type == 'color':
+                    r1, g1, b1 = t1['val']
+                    r2, g2, b2 = t2['val']
+                    r = int(round(r1 + (r2 - r1) * local_t))
+                    g = int(round(g1 + (g2 - g1) * local_t))
+                    b = int(round(b1 + (b2 - b1) * local_t))
+                    merged_tags[k] = f"{pref}{rgb_to_ass_color(r, g, b)}"
+                elif tag_type == 'alpha':
+                    a1, a2 = t1['val'], t2['val']
+                    a = max(0, min(255, int(round(a1 + (a2 - a1) * local_t))))
+                    merged_tags[k] = f"{pref}&H{a:02X}&"
+                elif tag_type == 'numeric':
+                    v1, v2 = t1['val'], t2['val']
+                    v = v1 + (v2 - v1) * local_t
+                    merged_tags[k] = f"{pref}{_format_num(v)}"
+                else:
+                    chosen = t1 if local_t < 0.5 else t2
+                    merged_tags[k] = _format_single_tag(chosen)
+            elif t1:
+                pref = t1['prefix']
+                if tag_type == 'numeric' and k in tag_defaults:
+                    v1 = t1['val']
+                    v2 = tag_defaults[k]
+                    v = v1 + (v2 - v1) * local_t
+                    merged_tags[k] = f"{pref}{_format_num(v)}"
+                elif tag_type == 'alpha':
+                    a1 = t1['val']
+                    a2 = tag_defaults.get(k, 0)
+                    a = max(0, min(255, int(round(a1 + (a2 - a1) * local_t))))
+                    merged_tags[k] = f"{pref}&H{a:02X}&"
+                else:
+                    merged_tags[k] = _format_single_tag(t1)
+            elif t2:
+                pref = t2['prefix']
+                if tag_type == 'numeric' and k in tag_defaults:
+                    v1 = tag_defaults[k]
+                    v2 = t2['val']
+                    v = v1 + (v2 - v1) * local_t
+                    merged_tags[k] = f"{pref}{_format_num(v)}"
+                elif tag_type == 'alpha':
+                    a1 = tag_defaults.get(k, 0)
+                    a2 = t2['val']
+                    a = max(0, min(255, int(round(a1 + (a2 - a1) * local_t))))
+                    merged_tags[k] = f"{pref}&H{a:02X}&"
+                else:
+                    merged_tags[k] = _format_single_tag(t2)
+                    
+        return _sort_and_join_tags(merged_tags)
+    @staticmethod
+    def fusion_shapes_tags(shapes_list, tags="", bbox_mode="marco", tag_mode="ipol"):
+        """Merges multiple shapes into a single ASS drawing block by assigning or interpolating tags.
+        - In 'ipol' mode: Interpolates keyframes proportionally between generated pieces (0.0 -> 1.0).
+        - In 'line' mode: Strictly assigns keyframes 1:1 in the order received (skips surplus and omits tagging if missing keyframes).
+        - If tags is empty: Returns union of shapes without extra tag blocks.
+        """
+        if not shapes_list:
+            return ""
+        
+        flat_shapes = []
+        for s in shapes_list:
+            if isinstance(s, (list, tuple)):
+                flat_shapes.extend([str(item).strip() for item in s if item and str(item).strip()])
+            elif isinstance(s, str) and s.strip().startswith("[") and s.strip().endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(s)
+                    if isinstance(parsed, list):
+                        flat_shapes.extend([str(item).strip() for item in parsed if item and str(item).strip()])
+                    else:
+                        flat_shapes.append(s.strip())
+                except Exception:
+                    flat_shapes.append(s.strip())
+            elif s and str(s).strip():
+                flat_shapes.append(str(s).strip())
+
+        if not flat_shapes:
+            return ""
+
+        tags_str = str(tags or "").strip()
+        if not tags_str:
+            return "".join(flat_shapes)
+
+        raw_tag_tokens = ClipperEngine._split_tag_keyframes(tags_str)
+        if not raw_tag_tokens:
+            return "".join(flat_shapes)
+
+        n_shapes = len(flat_shapes)
+
+        bboxes = []
+        for s in flat_shapes:
+            cnt = ClipperEngine.parse_assdraw(s)
+            if cnt:
+                bx = ClipperEngine.get_bbox(cnt)
+                bboxes.append(bx)
+            else:
+                bboxes.append((0, 0, 0, 0, 0, 0, 0, 0))
+
+        max_h = max((b[7] for b in bboxes), default=0.0)
+
+        blended_shapes = []
+        sum_w = 0.0
+        for i, s in enumerate(flat_shapes):
+            w_i = bboxes[i][6]
+            h_i = bboxes[i][7]
+            dx = -sum_w
+            dy = -(max_h - h_i)
+            shifted = ClipperEngine.transform_shape(s, mode="Offset", offset_x=dx, offset_y=dy)
+            blended_shapes.append(shifted)
+            sum_w += w_i
+
+        result_parts = []
+        if str(tag_mode).strip().lower() == "line":
+            for i, shp in enumerate(blended_shapes):
+                if i < len(raw_tag_tokens):
+                    t = raw_tag_tokens[i].strip()
+                    if t.startswith("{") and t.endswith("}"):
+                        t = t[1:-1].strip()
+                    if t:
+                        result_parts.append(f"{{{t}}}{shp}")
+                    else:
+                        result_parts.append(f"{{\\p1}}{shp}")
+                else:
+                    result_parts.append(f"{{\\p1}}{shp}")
+        else:
+            keyframes = [ClipperEngine._parse_tag_keyframe(t) for t in raw_tag_tokens]
+            keyframes = [kf for kf in keyframes if kf]
+            if not keyframes:
+                return "".join(flat_shapes)
+
+            for i, shp in enumerate(blended_shapes):
+                progress = i / (n_shapes - 1.0) if n_shapes > 1 else 0.0
+                tag_str = ClipperEngine._interpolate_tag_keyframes(keyframes, progress, is_first_piece=(i == 0))
+                if tag_str:
+                    result_parts.append(f"{{{tag_str}}}{shp}")
+                else:
+                    result_parts.append(f"{{\\p1}}{shp}")
+
+        return "".join(result_parts)

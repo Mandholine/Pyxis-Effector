@@ -1,15 +1,15 @@
-"""
+r"""
 Pyxis Nodes Engine - String Template & Expression Evaluator
-Motor modular de evaluación de cadenas, expresiones y tags compuestos.
+Modular evaluator for strings, expressions, and composite tags.
 
-Soporta:
-1. Evaluación directa en paréntesis de tags ASS: \\pos(syl.center + 10, syl.middle), \\frz(j * 15), \\t(0, 10f, \\fscxy(150))
-2. Sustitución de variables con prefijo $: $center, $middle, $syl.center, $line.color1, $start, $dur, $j, $maxj, etc.
-3. Expresiones inline opcionales: !expresion! (ej: !char.text.upper()!, !syl.duration / 2!)
-4. Atajos de unidad: 10f (frames a ms), 1.5r (escala por ratio de resolución)
-5. Expansión de Tags Compuestos (Dark Tags): \\fscxy, \\faxy, \\frxyz, \\xybord, \\xyshad, \\bs, \\134c, \\13c, \\14c, \\34c, \\134a, \\13a, \\14a, \\34a
-6. Tags de Restauración de Estilo: \\fscxy~, \\1c~, \\134c~, \\bs~, etc.
-7. Tags Estocásticos: \\1cR(), \\frzR(-30, 30), \\fscxyR(120, 150), etc.
+Supports:
+1. Direct evaluation inside ASS tag parentheses: \pos(syl.center + 10, syl.middle), \frz(j * 15), \t(0, 10f, \fscxy(150))
+2. Dollar-prefixed variable substitution: $center, $middle, $syl.center, $line.color1, $start, $dur, $j, $maxj, etc.
+3. Optional inline expressions: !expression! (e.g., !char.text.upper()!, !syl.duration / 2!)
+4. Unit shortcuts: 10f (frames to ms), 1.5r (resolution ratio scaling)
+5. Composite tag expansion (Dark Tags): \fscxy, \faxy, \frxyz, \xybord, \xyshad, \bs, \134c, \13c, \14c, \34c, \134a, \13a, \14a, \34a
+6. Style restoration tags: \fscxy~, \1c~, \134c~, \bs~, etc.
+7. Stochastic tags: \1cR(), \frzR(-30, 30), \fscxyR(120, 150), etc.
 """
 
 from __future__ import annotations
@@ -42,7 +42,6 @@ def _get_eval_globals() -> Dict[str, Any]:
         if hasattr(math, fn):
             g[fn] = getattr(math, fn)
 
-    # Helpers de color ASS
     def ass_color(r: int, g: int, b: int) -> str:
         r_c = max(0, min(255, int(r)))
         g_c = max(0, min(255, int(g)))
@@ -71,6 +70,14 @@ def _get_eval_globals() -> Dict[str, Any]:
     g["clamp"] = clamp
 
     try:
+        from nodes.tag_nodes import move_tag_node
+        from nodes.text_nodes import move_text_node
+        g["move_tag"] = move_tag_node
+        g["move_text"] = move_text_node
+    except ImportError:
+        pass
+
+    try:
         from nodes.math_nodes import math_random_master
         g["R"] = math_random_master
         g["Rs"] = math_random_master
@@ -85,11 +92,41 @@ def _get_eval_globals() -> Dict[str, Any]:
         g["rand"] = simple_r
 
     try:
-        from nodes.audio_nodes import audio_rms, audio_peak, audio_band, audio_fft
-        g["audio_rms"] = audio_rms
-        g["audio_peak"] = audio_peak
-        g["audio_band"] = audio_band
-        g["audio_fft"] = audio_fft
+        from nodes.code_nodes import (
+            _pyxis_pos, _pyxis_move, _pyxis_org, _pyxis_fad, _pyxis_fade,
+            _pyxis_clip, _pyxis_iclip, _pyxis_c1, _pyxis_c2, _pyxis_c3, _pyxis_c4,
+            _pyxis_a1, _pyxis_a2, _pyxis_a3, _pyxis_a4, _pyxis_alpha, _pyxis_trans,
+            _pyxis_fscx, _pyxis_fscy, _pyxis_fscxy, _pyxis_frz, _pyxis_frx, _pyxis_fry,
+            _pyxis_fax, _pyxis_fay, _pyxis_bord, _pyxis_shad, _pyxis_blur, _pyxis_an,
+            _pyxis_ass_color, _pyxis_ass_alpha, _pyxis_random_color, _pyxis_random_alpha,
+            _pyxis_clamp, _pyxis_lerp, _pyxis_map_range, _pyxis_ease_in, _pyxis_ease_out,
+            _pyxis_ease_in_out, _pyxis_cubic_in, _pyxis_cubic_out, _pyxis_elastic,
+            _pyxis_bounce, _pyxis_back, _pyxis_sine_wave, _pyxis_square_wave,
+            _pyxis_triangle_wave, _pyxis_sawtooth_wave, _pyxis_polar, _pyxis_bezier,
+            _pyxis_ipol, _pyxis_time_to_frame, _pyxis_duration, _pyxis_parse_ass_time,
+            _pyxis_format_ass_time, _pyxis_strip_tags, _pyxis_kana
+        )
+        g.update({
+            "pos": _pyxis_pos, "move": _pyxis_move, "org": _pyxis_org, "fad": _pyxis_fad, "fade": _pyxis_fade,
+            "clip": _pyxis_clip, "iclip": _pyxis_iclip, "c1": _pyxis_c1, "c2": _pyxis_c2, "c3": _pyxis_c3, "c4": _pyxis_c4,
+            "color_1": _pyxis_c1, "color_2": _pyxis_c2, "color_3": _pyxis_c3, "color_4": _pyxis_c4,
+            "a1": _pyxis_a1, "a2": _pyxis_a2, "a3": _pyxis_a3, "a4": _pyxis_a4, "alpha": _pyxis_alpha,
+            "trans": _pyxis_trans, "fscx": _pyxis_fscx, "fscy": _pyxis_fscy, "fscxy": _pyxis_fscxy,
+            "frz": _pyxis_frz, "frx": _pyxis_frx, "fry": _pyxis_fry, "fax": _pyxis_fax, "fay": _pyxis_fay,
+            "bord": _pyxis_bord, "shad": _pyxis_shad, "blur": _pyxis_blur, "an": _pyxis_an,
+            "ass_color": _pyxis_ass_color, "ass_alpha": _pyxis_ass_alpha,
+            "random_color": _pyxis_random_color, "random_alpha": _pyxis_random_alpha,
+            "clamp": _pyxis_clamp, "lerp": _pyxis_lerp, "map_range": _pyxis_map_range, "map_value": _pyxis_map_range,
+            "ease_in": _pyxis_ease_in, "ease_out": _pyxis_ease_out, "ease_in_out": _pyxis_ease_in_out,
+            "cubic_in": _pyxis_cubic_in, "cubic_out": _pyxis_cubic_out, "elastic": _pyxis_elastic,
+            "bounce": _pyxis_bounce, "back": _pyxis_back,
+            "sine_wave": _pyxis_sine_wave, "square_wave": _pyxis_square_wave,
+            "triangle_wave": _pyxis_triangle_wave, "sawtooth_wave": _pyxis_sawtooth_wave,
+            "polar": _pyxis_polar, "bezier": _pyxis_bezier, "ipol": _pyxis_ipol,
+            "time_to_frame": _pyxis_time_to_frame, "duration": _pyxis_duration,
+            "parse_ass_time": _pyxis_parse_ass_time, "format_ass_time": _pyxis_format_ass_time,
+            "strip_tags": _pyxis_strip_tags, "kana": _pyxis_kana
+        })
     except ImportError:
         pass
 
@@ -98,7 +135,7 @@ def _get_eval_globals() -> Dict[str, Any]:
 
 
 def _fmt_num(val: Any) -> str:
-    """Formatea números limpiamente para tags ASS (enteros sin .0, floats con hasta 3 decimales)."""
+    """Formats numbers cleanly for ASS tags (integers without .0, floats up to 3 decimals)."""
     if val is None:
         return ""
     if isinstance(val, bool):
@@ -136,7 +173,6 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if isinstance(v, dict) and not isinstance(v, AttrDict):
             eval_locals[k] = AttrDict(v)
 
-    # Inyectar funciones adaptadoras con contexto cerrado
     eval_locals["audio_rms"] = lambda *args, **kwargs: eval_globals.get("audio_rms", lambda **kw: 0.0)(*args, context=context, **kwargs)
     eval_locals["audio_peak"] = lambda *args, **kwargs: eval_globals.get("audio_peak", lambda **kw: 0.0)(*args, context=context, **kwargs)
     eval_locals["audio_band"] = lambda *args, **kwargs: eval_globals.get("audio_band", lambda **kw: 0.0)(*args, context=context, **kwargs)
@@ -163,6 +199,12 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         eval_locals["max_loop"] = eval_locals["maxloop"]
     if "j" not in eval_locals and "fx_i" in eval_locals:
         eval_locals["j"] = eval_locals["fx_i"]
+    if "d_i" not in eval_locals and "fx_i" in eval_locals:
+        eval_locals["d_i"] = eval_locals["fx_i"]
+    if "d_n" not in eval_locals and "fx_n" in eval_locals:
+        eval_locals["d_n"] = eval_locals["fx_n"]
+    if "d_max" not in eval_locals:
+        eval_locals["d_max"] = eval_locals.get("d_n", eval_locals.get("maxloop", 1))
 
     if "fx" not in eval_locals or eval_locals["fx"] is None or not isinstance(eval_locals["fx"], FxContext):
         eval_locals["fx"] = FxContext(eval_locals)
@@ -179,30 +221,48 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     eval_locals["remember"] = _remember
     eval_locals["recall"] = _recall
+
+    try:
+        from nodes.code_nodes import PyxisTimeModifier
+        from nodes.time_nodes import time_lead_in, time_lead_out, time_middle_1, time_middle_2, time_loop_1, time_loop_2
+        eval_locals["time_lead_in"] = lambda delay=40, base=None: time_lead_in(context, delay=delay, base=base)
+        eval_locals["time_lead_out"] = lambda delay=40, base=None: time_lead_out(context, delay=delay, base=base)
+        eval_locals["time_middle_1"] = lambda delay=30, base=None: time_middle_1(context, delay=delay, base=base)
+        eval_locals["time_middle_2"] = lambda delay=30, base=None: time_middle_2(context, delay=delay, base=base)
+        eval_locals["time_loop_1"] = lambda delay=30, mode="leadin", base=None: time_loop_1(context, delay=delay, mode=mode, base=base)
+        eval_locals["time_loop_2"] = lambda delay=30, mode="leadin", base=None: time_loop_2(context, delay=delay, mode=mode, base=base)
+
+        eval_locals["li"] = PyxisTimeModifier(time_lead_in, context, default_delay=40.0)
+        eval_locals["lo"] = PyxisTimeModifier(time_lead_out, context, default_delay=40.0)
+        eval_locals["m1"] = PyxisTimeModifier(time_middle_1, context, default_delay=30.0)
+        eval_locals["m2"] = PyxisTimeModifier(time_middle_2, context, default_delay=30.0)
+        eval_locals["l1"] = PyxisTimeModifier(time_loop_1, context, default_delay=30.0, mode="leadin")
+        eval_locals["l2"] = PyxisTimeModifier(time_loop_2, context, default_delay=30.0, mode="leadin")
+    except Exception:
+        pass
+
     return eval_locals
 
 
 def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, default: Any = "") -> Any:
-    """Evalúa una expresión Python de forma segura con AST caché y variables contextuales."""
+    """Safely evaluates a Python expression with AST cache and contextual variables."""
     if not expr_str:
         return default
     expr_clean = expr_str.strip()
     if not expr_clean:
         return default
 
-    # Pre-parse atajos hexadecimales ASS (&H...&) a números hex Python
     expr_clean = re.sub(r'&[hH]([0-9a-fA-F]+)&?', r'0x\1', expr_clean)
 
-    # Pre-parse atajos de unidad 10f / 2r dentro de expresiones
     frame_dur = 41.708
     ratio = 1.0
     if isinstance(context, dict):
         frame_dur = float(context.get("frame_dur", 41.708))
         ratio = float(context.get("ratio", context.get("module", 1.0)))
 
-    # Reemplazar tokens 10f -> (10 * frame_dur) y 2r -> (2 * ratio)
     expr_clean = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*f\b', rf'(\1 * {frame_dur})', expr_clean)
     expr_clean = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*r\b', rf'(\1 * {ratio})', expr_clean)
+    expr_clean = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*(li|lo|m1|m2|l1|l2)\b', r'\1 * \2', expr_clean)
 
     try:
         code_obj = _AST_EXPR_CACHE.get(expr_clean)
@@ -215,7 +275,6 @@ def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, de
         res = eval(code_obj, eval_globals, eval_locals)
         return res if res is not None else default
     except Exception as e:
-        # Fallback silencioso o retorno de default si la expresión no es ejecutable
         return default
 
 
@@ -248,7 +307,6 @@ def expand_unit_shortcuts(text: str, context: Optional[Dict[str, Any]] = None) -
         except ValueError:
             return match.group(0)
 
-    # Coincide números seguidos de 'f' o 'r' que no formen parte de una palabra
     pattern = r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)([fr])(?![a-zA-Z0-9_])'
     return re.sub(pattern, _replace_unit, text)
 
@@ -262,7 +320,6 @@ def substitute_dollar_vars(text: str, context: Optional[Dict[str, Any]] = None) 
     if not text or "$" not in text:
         return text
 
-    # Proteger escapes \$ y $$
     escaped_text = text.replace(r"\$", "\x01ESC_DOLLAR\x01").replace("$$", "\x01ESC_DOLLAR\x01")
 
     if not isinstance(context, dict):
@@ -286,7 +343,6 @@ def substitute_dollar_vars(text: str, context: Optional[Dict[str, Any]] = None) 
         v = var_name.strip()
         v_lower = v.lower()
 
-        # 1. Aliases estándar de Auto4 / Kara Templater
         if v_lower in ("start", "st"):
             st = getattr(active_unit, "start_time", 0.0) if active_unit else 0.0
             return _fmt_num(st)
@@ -319,7 +375,6 @@ def substitute_dollar_vars(text: str, context: Optional[Dict[str, Any]] = None) 
             line_obj = active_line if active_line else active_unit
             return str(getattr(line_obj, "i", 1) if line_obj else 1)
 
-        # 2. Resolución a través del motor _eval_sys_var existente en node_engine
         try:
             from node_engine import _eval_sys_var
             res = _eval_sys_var(v, context)
@@ -332,7 +387,6 @@ def substitute_dollar_vars(text: str, context: Optional[Dict[str, Any]] = None) 
         except ImportError:
             pass
 
-        # 3. Fallback a variables directas en el contexto
         if v in context:
             val = context[v]
             if isinstance(val, (int, float)):
@@ -347,11 +401,9 @@ def substitute_dollar_vars(text: str, context: Optional[Dict[str, Any]] = None) 
         var_name = match.group(1) or match.group(2)
         return _get_var_value(var_name)
 
-    # Patrón ${var.name} o $var.name
     pattern = r'\$(?:\{([a-zA-Z0-9_\.]+)\}|([a-zA-Z0-9_\.]+))'
     result = re.sub(pattern, _replace_var, escaped_text)
 
-    # Restaurar escapes
     return result.replace("\x01ESC_DOLLAR\x01", "$")
 
 
@@ -363,7 +415,6 @@ def evaluate_inline_bang_expressions(text: str, context: Optional[Dict[str, Any]
     if not text or "!" not in text:
         return text
 
-    # Proteger escapes \! y !!
     escaped_text = text.replace(r"\!", "\x01ESC_BANG\x01").replace("!!", "\x01ESC_BANG\x01")
 
     def _replace_bang(match: re.Match) -> str:
@@ -396,7 +447,6 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 
     styleref = getattr(active_line, "styleref", None) if active_line else None
 
-    # Extraer propiedades del estilo para restauración (~)
     def _get_style_prop(prop: str, default: Any = "") -> Any:
         if styleref and hasattr(styleref, prop):
             val = getattr(styleref, prop)
@@ -422,7 +472,6 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
     style_shadow = _fmt_num(_get_style_prop("shadow", 2))
     style_angle = _fmt_num(_get_style_prop("angle", 0))
 
-    # Asegurar formato ASS de 6 dígitos (&HBBGGRR&) para colores de estilo
     def _clean_ass_color(col: str) -> str:
         m = re.findall(r'[0-9a-fA-F]{2}', col)
         if len(m) >= 4:
@@ -439,7 +488,6 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 
     s = text
 
-    # 1. Expansión de Tags Estocásticos \tagR(...)
     def _replace_stochastic_tag(match: re.Match) -> str:
         tag_name = match.group(1)
         args_str = match.group(2).strip()
@@ -448,7 +496,6 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
         eval_globals = _get_eval_globals()
         eval_locals = _prepare_eval_locals(context)
 
-        # Colores aleatorios
         if re.match(r'^(?:1c|2c|3c|4c|c|13c|14c|34c|134c)$', tag_name):
             col = eval_globals["random_color"]()
             if tag_name == "134c": return f"\\1c{col}\\3c{col}\\4c{col}"
@@ -457,7 +504,6 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
             if tag_name == "34c": return f"\\3c{col}\\4c{col}"
             return f"\\{tag_name}{col}"
 
-        # Alfas aleatorios
         if re.match(r'^(?:1a|2a|3a|4a|alpha|13a|14a|34a|134a)$', tag_name):
             alp = eval_globals["random_alpha"]()
             if tag_name == "134a": return f"\\1a{alp}\\3a{alp}\\4a{alp}"
@@ -466,7 +512,6 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
             if tag_name == "34a": return f"\\3a{alp}\\4a{alp}"
             return f"\\{tag_name}{alp}"
 
-        # Valores numéricos aleatorios
         min_v = float(eval_python_expr(args[0], context, 0)) if len(args) > 0 else 0.0
         max_v = float(eval_python_expr(args[1], context, 100)) if len(args) > 1 else 100.0
         step_v = float(eval_python_expr(args[2], context, 1)) if len(args) > 2 else 1.0
@@ -484,7 +529,6 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 
     s = re.sub(r'\\([a-zA-Z0-9]+)R\((.*?)\)', _replace_stochastic_tag, s)
 
-    # 2. Expansión de Tags de Restauración de Estilo (~) - reemplazo literal sin problemas de backreferences
     tag_restorations = [
         (r'\134c~', f"\\1c{style_color1_clean}\\3c{style_color3_clean}\\4c{style_color4_clean}"),
         (r'\13c~', f"\\1c{style_color1_clean}\\3c{style_color3_clean}"),
@@ -536,7 +580,6 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
     for literal_pat, repl in tag_restorations:
         s = s.replace(literal_pat, repl)
 
-    # 3. Expansión de Tags Compuestos directos (con valores directos sin paréntesis)
     s = re.sub(r'\\fscxy([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fscx{m.group(1)}\\fscy{m.group(1)}", s)
     s = re.sub(r'\\faxy([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fax{m.group(1)}\\fay{m.group(1)}", s)
     s = re.sub(r'\\frxyz([+-]?\d+(?:\.\d+)?)', lambda m: f"\\frx{m.group(1)}\\fry{m.group(1)}\\frz{m.group(1)}", s)
@@ -547,14 +590,12 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
     s = re.sub(r'\\xyshad([+-]?\d+(?:\.\d+)?)', lambda m: f"\\xshad{m.group(1)}\\yshad{m.group(1)}", s)
     s = re.sub(r'\\bs([+-]?\d+(?:\.\d+)?)', lambda m: f"\\bord{m.group(1)}\\shad{m.group(1)}", s)
 
-    # Colores compuestos
     color_val_pat = r'(&[hH]?[0-9a-fA-F]+&?)'
     s = re.sub(rf'\\134c{color_val_pat}', lambda m: f"\\1c{m.group(1)}\\3c{m.group(1)}\\4c{m.group(1)}", s)
     s = re.sub(rf'\\13c{color_val_pat}', lambda m: f"\\1c{m.group(1)}\\3c{m.group(1)}", s)
     s = re.sub(rf'\\14c{color_val_pat}', lambda m: f"\\1c{m.group(1)}\\4c{m.group(1)}", s)
     s = re.sub(rf'\\34c{color_val_pat}', lambda m: f"\\3c{m.group(1)}\\4c{m.group(1)}", s)
 
-    # Alfas compuestos
     alpha_val_pat = r'(&[hH]?[0-9a-fA-F]+&?|\d+)'
     s = re.sub(rf'\\134a{alpha_val_pat}', lambda m: f"\\1a{m.group(1)}\\3a{m.group(1)}\\4a{m.group(1)}", s)
     s = re.sub(rf'\\13a{alpha_val_pat}', lambda m: f"\\1a{m.group(1)}\\3a{m.group(1)}", s)
@@ -575,7 +616,6 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
     if not isinstance(context, dict):
         context = {}
 
-    # 1. Manejo recursivo / especial de \\t(...)
     def _eval_t_tag(match: re.Match) -> str:
         body = match.group(1).strip()
         tag_start_idx = body.find("\\")
@@ -606,7 +646,6 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
 
     s = re.sub(r'\\t\((.*?)\)(?=[\\\}\s]|$)', _eval_t_tag, text)
 
-    # 2. Manejo de \\clip(...) e \\iclip(...)
     def _eval_clip_tag(match: re.Match) -> str:
         tag_name = match.group(1)
         args_str = match.group(2).strip()
@@ -629,7 +668,6 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
 
     s = re.sub(r'\\(i?clip)\((.*?)\)', _eval_clip_tag, s)
 
-    # 3. Tags pos, move, org, fad, fade
     def _eval_multi_arg_tag(match: re.Match) -> str:
         tag_name = match.group(1)
         args_str = match.group(2).strip()
@@ -639,14 +677,12 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
 
     s = re.sub(r'\\(pos|move|org|fad|fade)\((.*?)\)', _eval_multi_arg_tag, s)
 
-    # 4. Tags simples con paréntesis: \tag(expresion) -> \tagValor
     def _eval_single_tag(match: re.Match) -> str:
         tag_name = match.group(1)
         expr = match.group(2).strip()
         res = eval_python_expr(expr, context, default=expr)
         fmt_res = _fmt_num(res) if isinstance(res, (int, float)) else str(res)
 
-        # Si es un tag compuesto con paréntesis, expandirlo directamente
         if tag_name == "fscxy": return f"\\fscx{fmt_res}\\fscy{fmt_res}"
         if tag_name == "faxy": return f"\\fax{fmt_res}\\fay{fmt_res}"
         if tag_name == "frxyz": return f"\\frx{fmt_res}\\fry{fmt_res}\\frz{fmt_res}"
@@ -689,19 +725,14 @@ def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = 
     if not isinstance(context, dict):
         context = {}
 
-    # Fase 1: Preprocesamiento de unidades 10f / 2r
     res = expand_unit_shortcuts(raw, context)
 
-    # Fase 2: Sustitución de variables $
     res = substitute_dollar_vars(res, context)
 
-    # Fase 3: Evaluación de expresiones inline !...!
     res = evaluate_inline_bang_expressions(res, context)
 
-    # Fase 4: Expansión de Dark Tags, Restauración (~) y Estocásticos (\tagR)
     res = expand_custom_dark_tags(res, context)
 
-    # Fase 5: Evaluación de expresiones dentro de paréntesis ASS \tag(...)
     res = evaluate_tag_parentheses(res, context)
 
     return res

@@ -14,16 +14,15 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-# PyxisNodes/img_tracer_engine.py
 """
-Motor de trazado de imágenes a figuras vectoriales ASSDraw (m, l, b) para PyxisNodes.
-Soporta:
-1. Motor Potrace Bézier nativo en Python (curvas cúbicas b x1 y1 x2 y2 x3 y3 + líneas l x y).
-2. Motor Poligonal (Douglas-Peucker) para geometría nítida.
-3. Motor de Bordes (Sobel/Gradient Edge Tracer).
-4. Integración con potrace.exe ejecutable (si existe en el entorno).
-5. Ajustes de anclaje, escala, dimensiones objetivo (out_w, out_h), umbral e inversión.
-6. Caché por parámetros y mtime de archivo para ejecución en tiempo real (< 1ms si no hay cambios).
+Image tracing engine to ASSDraw vector shapes (m, l, b) for PyxisNodes.
+Supports:
+1. Native Python Potrace Bézier engine (cubic curves b x1 y1 x2 y2 x3 y3 + lines l x y).
+2. Polygonal engine (Douglas-Peucker) for clean geometry.
+3. Sobel/Gradient edge tracer engine.
+4. potrace.exe executable integration.
+5. Anchor, scale, target dimension (out_w, out_h), threshold, and inversion adjustments.
+6. Parameter & mtime caching for real-time execution.
 """
 
 import os
@@ -42,12 +41,11 @@ try:
 except ImportError:
     pyclipper = None
 
-# Caché global en memoria
 _TRACER_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 def _get_potrace_exe_path() -> str:
-    """Retorna la ruta al ejecutable de potrace.exe si existe y es ejecutable."""
+    """Returns path to potrace.exe executable if present and executable."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(base_dir, "potrace.exe"),
@@ -124,7 +122,6 @@ def _get_or_create_inverted_webp(image_path: str) -> str:
         except Exception:
             pass
 
-    # Fallback: PIL ImageOps
     try:
         img = Image.open(image_path)
         if img.mode == 'RGBA':
@@ -193,7 +190,6 @@ def _get_or_extract_gif_frames(image_path: str) -> Tuple[List[str], int]:
         except Exception:
             pass
 
-    # Fallback: PIL ImageSequence
     try:
         from PIL import ImageSequence
         extracted = []
@@ -211,7 +207,7 @@ def _get_or_extract_gif_frames(image_path: str) -> Tuple[List[str], int]:
 
 
 def _parse_svg_path_to_ass(svg_d: str, img_h: float = 0.0, scale_factor: float = 1.0) -> str:
-    """Convierte los comandos d de un SVG (M, L, C, Z) a etiquetas ASSDraw (m, l, b) aplicando escala del SVG."""
+    """Converts SVG d commands (M, L, C, Z) to ASSDraw commands (m, l, b)."""
     if not svg_d:
         return ""
 
@@ -294,7 +290,7 @@ def _parse_svg_path_to_ass(svg_d: str, img_h: float = 0.0, scale_factor: float =
 
 
 def _rdp_simplify(points: List[Tuple[float, float]], epsilon: float) -> List[Tuple[float, float]]:
-    """Algoritmo Ramer-Douglas-Peucker para simplificación de polígonos."""
+    """Ramer-Douglas-Peucker algorithm for polygon simplification."""
     if len(points) < 3:
         return points
 
@@ -328,7 +324,7 @@ def _rdp_simplify(points: List[Tuple[float, float]], epsilon: float) -> List[Tup
 
 
 def _fit_bezier_splines(pts: List[Tuple[float, float]], smooth_factor: float = 0.25) -> List[str]:
-    """Convierte vértices en curvas Bézier cúbicas suaves ASSDraw (b x1 y1 x2 y2 x3 y3) o líneas (l x y)."""
+    """Converts vertices into smooth cubic ASSDraw Bézier curves (b x1 y1 x2 y2 x3 y3) or lines (l x y)."""
     n = len(pts)
     if n < 3:
         return [f"l {round(p[0], 2):g} {round(p[1], 2):g}" for p in pts[1:]]
@@ -340,7 +336,6 @@ def _fit_bezier_splines(pts: List[Tuple[float, float]], smooth_factor: float = 0
         p2 = pts[i + 1]
         p3 = pts[i + 2] if i + 2 < n else p2
 
-        # Ángulo entre vectores para detectar esquinas agudas
         v1 = np.array([p1[0] - p0[0], p1[1] - p0[1]])
         v2 = np.array([p2[0] - p1[0], p2[1] - p1[1]])
         norm1 = np.linalg.norm(v1)
@@ -349,7 +344,7 @@ def _fit_bezier_splines(pts: List[Tuple[float, float]], smooth_factor: float = 0
         is_corner = False
         if norm1 > 0 and norm2 > 0:
             cos_angle = np.dot(v1, v2) / (norm1 * norm2)
-            if cos_angle < 0.2:  # Esquina marcada (> 78 grados de cambio)
+            if cos_angle < 0.2:
                 is_corner = True
 
         if is_corner:
@@ -371,7 +366,7 @@ def _trace_python_native(
     threshold: int,
     invert: bool,
     tolerance: float,
-    bin_mode: str = "Luminancia",
+    bin_mode: str = "Luminance",
     alphamax: float = 1.0
 ) -> str:
     """Motor de trazado nativo en Python usando Pillow + Numpy."""
@@ -385,10 +380,9 @@ def _trace_python_native(
     binary = np.zeros_like(gray, dtype=np.uint8)
 
     b_m = str(bin_mode).strip().lower()
-
-    if b_m in ['silueta', 'alfa', 'alpha']:
+    if b_m == "silhouette":
         mask = alpha >= threshold
-    elif b_m in ['bordes', 'gradient', 'gradiente', 'edges']:
+    elif b_m == "borders":
         gx = np.abs(np.diff(gray.astype(float), axis=1, prepend=0))
         gy = np.abs(np.diff(gray.astype(float), axis=0, prepend=0))
         grad = np.sqrt(gx**2 + gy**2)
@@ -396,8 +390,7 @@ def _trace_python_native(
             mask = (grad >= threshold) & (alpha >= 10)
         else:
             mask = grad >= threshold
-    else:
-        # Default: 'luminancia' (Detalles interiores / grises)
+    else:  # luminance
         if np.any(alpha < 250):
             mask = (gray < threshold) & (alpha >= 10)
             if not np.any(mask):
@@ -410,12 +403,12 @@ def _trace_python_native(
 
     binary[mask] = 255
 
-    if mode.lower() in ['bordes', 'borde', 'sobel', 'edge']:
+    mode_clean = str(mode).strip().lower()
+    if mode_clean == "borders":
         pil_bin = Image.fromarray(binary).filter(ImageFilter.FIND_EDGES)
         binary = np.array(pil_bin)
         binary = (binary > 50).astype(np.uint8) * 255
 
-    # Pad de 1 px para gestionar formas en los bordes de la imagen
     padded = np.pad(binary, 1, mode='constant', constant_values=0)
     h, w = padded.shape
     visited = np.zeros_like(padded, dtype=bool)
@@ -427,7 +420,6 @@ def _trace_python_native(
     for y in range(1, h - 1):
         for x in range(1, w - 1):
             if padded[y, x] == 255 and not visited[y, x]:
-                # Verificar si es borde de componente (al menos un vecino 0)
                 is_edge = False
                 for d in range(8):
                     if padded[y + dy[d], x + dx[d]] == 0:
@@ -479,10 +471,10 @@ def _trace_python_native(
         start_p = simple_pts[0]
         ass_parts.append(f"m {round(start_p[0], 2):g} {round(start_p[1], 2):g}")
 
-        if mode.lower() in ['potrace', 'bezier', 'curvas', 'suave']:
+        if mode_clean == "potrace":
             bezier_cmds = _fit_bezier_splines(simple_pts, smooth_factor=s_factor)
             ass_parts.extend(bezier_cmds)
-        else:
+        else:  # polygon, borders
             for p in simple_pts[1:]:
                 ass_parts.append(f"l {round(p[0], 2):g} {round(p[1], 2):g}")
 
@@ -490,7 +482,7 @@ def _trace_python_native(
 
 
 def _parse_ass_bbox(ass_str: str) -> Tuple[float, float, float, float, int]:
-    """Calcula el Bounding Box (min_x, min_y, max_x, max_y) y total de puntos de un string ASSDraw."""
+    """Calculates Bounding Box (min_x, min_y, max_x, max_y) and total points of an ASSDraw string."""
     tokens = ass_str.strip().split()
     min_x, min_y = 1e9, 1e9
     max_x, max_y = -1e9, -1e9
@@ -534,7 +526,7 @@ def _transform_ass_shape(
     img_w: float = 0.0,
     img_h: float = 0.0
 ) -> Tuple[str, float, float, int]:
-    """Aplica escalado, redimensionado dinámico, anclaje y offsets a las coordenadas ASSDraw."""
+    """Applies scaling, dynamic resizing, anchor, and offsets to ASSDraw coordinates."""
     if not ass_str.strip():
         return "", 0.0, 0.0, 0
 
@@ -565,22 +557,19 @@ def _transform_ass_shape(
     final_h = ref_canvas_h * scale_y
 
     anchor_clean = str(anchor).strip().lower()
-    if anchor_clean in ["center", "centro"]:
-        ref_x = ref_canvas_w / 2.0
-        ref_y = ref_canvas_h / 2.0
-    elif anchor_clean in ["topleft", "arribaizquierda"]:
+    if anchor_clean == "topleft":
         ref_x = 0.0
         ref_y = 0.0
-    elif anchor_clean in ["bottomleft", "abajoizquierda"]:
+    elif anchor_clean == "bottomleft":
         ref_x = 0.0
         ref_y = ref_canvas_h
-    elif anchor_clean in ["topright", "arribaderecha"]:
+    elif anchor_clean == "topright":
         ref_x = ref_canvas_w
         ref_y = 0.0
-    elif anchor_clean in ["bottomright", "abajoderecha"]:
+    elif anchor_clean == "bottomright":
         ref_x = ref_canvas_w
         ref_y = ref_canvas_h
-    else:
+    else:  # center
         ref_x = ref_canvas_w / 2.0
         ref_y = ref_canvas_h / 2.0
 
@@ -636,7 +625,7 @@ def _trace_single_image_file(
     offset_x: float = 0.0,
     offset_y: float = 0.0,
     img_scale: float = 1.0,
-    bin_mode: str = "Luminancia",
+    bin_mode: str = "Luminance",
     alphamax: float = 1.0,
     opttoler: float = 0.2,
     turnpolicy: str = "minority"
@@ -662,7 +651,8 @@ def _trace_single_image_file(
         potrace_exe = _get_potrace_exe_path()
         raw_ass_str = ""
 
-        if mode.lower() in ['potrace', 'bezier'] and potrace_exe:
+        mode_clean = str(mode).strip().lower()
+        if mode_clean == "potrace" and potrace_exe:
             try:
                 if img.mode != 'RGBA':
                     rgba = img.convert('RGBA')
@@ -674,10 +664,9 @@ def _trace_single_image_file(
                 gray = np.array(img.convert('L'))
 
                 b_m = str(bin_mode).strip().lower()
-
-                if b_m in ['silueta', 'alfa', 'alpha']:
+                if b_m == "silhouette":
                     mask = alpha >= threshold
-                elif b_m in ['bordes', 'gradient', 'gradiente', 'edges']:
+                elif b_m == "borders":
                     gx = np.abs(np.diff(gray.astype(float), axis=1, prepend=0))
                     gy = np.abs(np.diff(gray.astype(float), axis=0, prepend=0))
                     grad = np.sqrt(gx**2 + gy**2)
@@ -685,8 +674,7 @@ def _trace_single_image_file(
                         mask = (grad >= threshold) & (alpha >= 10)
                     else:
                         mask = grad >= threshold
-                else:
-                    # Default: 'luminancia' (Detalles interiores / grises)
+                else:  # luminance
                     if np.any(alpha < 250):
                         mask = (gray < threshold) & (alpha >= 10)
                         if not np.any(mask):
@@ -781,7 +769,7 @@ def trace_image(
     offset_x: float = 0.0,
     offset_y: float = 0.0,
     img_scale: float = 1.0,
-    bin_mode: str = "Luminancia",
+    bin_mode: str = "Luminance",
     alphamax: float = 1.0,
     opttoler: float = 0.2,
     turnpolicy: str = "minority",
@@ -789,10 +777,10 @@ def trace_image(
     invert_img: bool = False
 ) -> Dict[str, Any]:
     """
-    Función principal de trazado de imagen o animación GIF a figura ASSDraw.
+    Main function for tracing an image or GIF animation into an ASSDraw shape.
     """
     if not image_path or not os.path.isfile(image_path):
-        return {"shape": "", "width": 0.0, "height": 0.0, "points": 0, "total_frames": 1, "frame_index": 1, "shapes_array": "", "error": "Ruta de imagen no válida"}
+        return {"shape": "", "width": 0.0, "height": 0.0, "points": 0, "total_frames": 1, "frame_index": 1, "shapes_array": "", "error": "Invalid image path"}
 
     target_image_path = image_path
     total_frames = 1
