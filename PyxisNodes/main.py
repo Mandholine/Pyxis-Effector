@@ -33,20 +33,21 @@ class _LogBufferStream:
     _max_buffer = 3000
 
     def __init__(self, original_stream=None):
-        self.console_file = None
         self.original_stream = original_stream
+
+    @classmethod
+    def clear(cls):
+        cls._buffer.clear()
+
+    @classmethod
+    def get_logs(cls):
+        return list(cls._buffer)
 
     def write(self, s):
         if s:
             _LogBufferStream._buffer.append(s)
             if len(_LogBufferStream._buffer) > _LogBufferStream._max_buffer:
                 _LogBufferStream._buffer.pop(0)
-            if self.console_file:
-                try:
-                    self.console_file.write(s)
-                    self.console_file.flush()
-                except Exception:
-                    pass
             if self.original_stream:
                 try:
                     self.original_stream.write(s)
@@ -55,11 +56,6 @@ class _LogBufferStream:
                     pass
 
     def flush(self):
-        if self.console_file:
-            try:
-                self.console_file.flush()
-            except Exception:
-                pass
         if self.original_stream:
             try:
                 self.original_stream.flush()
@@ -82,12 +78,12 @@ try:
 except Exception:
     pass
 
-PYXIS_ENGINE_VERSION = "1.1.0"
+PYXIS_ENGINE_VERSION = "1.1.1"
 
 if sys.platform == "win32":
     try:
         import ctypes
-        my_app_id = "Mandholine.Pyxis.NodeEngine.1.1.0"
+        my_app_id = "Mandholine.Pyxis.NodeEngine.1.1.1"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
     except Exception:
         pass
@@ -119,10 +115,18 @@ def _apply_pyxis_window_icon(hwnd=None):
             return
 
         if not hwnd:
+            kernel32 = ctypes.windll.kernel32
+            con_hwnd = kernel32.GetConsoleWindow() if hasattr(kernel32, "GetConsoleWindow") else None
             my_pid = os.getpid()
             WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
             def enum_cb(h, l):
                 nonlocal hwnd
+                if con_hwnd and h == con_hwnd:
+                    return True
+                cls_buff = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(h, cls_buff, 64)
+                if cls_buff.value == "ConsoleWindowClass":
+                    return True
                 lp = ctypes.c_ulong()
                 user32.GetWindowThreadProcessId(h, ctypes.byref(lp))
                 if lp.value == my_pid:
@@ -130,7 +134,7 @@ def _apply_pyxis_window_icon(hwnd=None):
                     if length > 0:
                         buff = ctypes.create_unicode_buffer(length + 1)
                         user32.GetWindowTextW(h, buff, length + 1)
-                        if "Pyxis" in buff.value or "Engine" in buff.value:
+                        if "Pyxis Node Engine" in buff.value:
                             hwnd = h
                             return False
                 return True
@@ -333,59 +337,23 @@ class PyxisAPI:
                     time.sleep(0.02)
         self.lock_file = None
 
-    def toggle_python_console(self):
-        """Muestra u oculta la consola nativa de comandos de Python a voluntad en Windows."""
+    def get_console_logs(self):
+        """Returns the accumulated log buffer for the integrated debug console."""
         try:
-            import ctypes
-            import sys
-
-            kernel32 = ctypes.windll.kernel32
-            user32 = ctypes.windll.user32
-            hwnd = kernel32.GetConsoleWindow()
-
-            if hwnd and hwnd != 0:
-                if user32.IsWindowVisible(hwnd):
-                    user32.ShowWindow(hwnd, 0)
-                    return {"status": "hidden"}
-                else:
-                    user32.ShowWindow(hwnd, 5)
-                    user32.SetForegroundWindow(hwnd)
-                    return {"status": "shown"}
-            else:
-                kernel32.AllocConsole()
-                hwnd = kernel32.GetConsoleWindow()
-                if hwnd and hwnd != 0:
-                    hmenu = user32.GetSystemMenu(hwnd, False)
-                    if hmenu:
-                        user32.DeleteMenu(hmenu, 0xF060, 0x00000000)
-
-                    conout = None
-                    try:
-                        conout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
-                        GLOBAL_STDOUT_STREAM.console_file = conout
-                        GLOBAL_STDERR_STREAM.console_file = conout
-                    except Exception:
-                        pass
-
-                    print("==========================================================", flush=True)
-                    print(" [Pyxis Engine v1.1.0] Python Console (Debug Mode)", flush=True)
-                    print(" Press F1 in Pyxis Nodes to toggle this console.", flush=True)
-                    print("==========================================================", flush=True)
-
-                    try:
-                        hist = "".join(_LogBufferStream._buffer)
-                        if hist and conout:
-                            conout.write("\n--- LOG HISTORY ACCUMULATED SINCE STARTUP ---\n")
-                            conout.write(hist)
-                            conout.write("\n--- END OF LOG HISTORY (REAL-TIME LOGS BELOW) ---\n\n")
-                            conout.flush()
-                    except Exception:
-                        pass
-
-                    return {"status": "created"}
+            return {
+                "success": True,
+                "logs": _LogBufferStream.get_logs()
+            }
         except Exception as e:
-            print(f"[Pyxis Error toggling console] {e}", flush=True)
-        return {"status": "error"}
+            return {"success": False, "error": str(e), "logs": []}
+
+    def clear_console_logs(self):
+        """Clears the accumulated in-memory log buffer."""
+        try:
+            _LogBufferStream.clear()
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     @property
     def template_store(self):
@@ -1656,6 +1624,9 @@ class PyxisAPI:
 
             generated_count = len(generated_lines)
             with open(self.result_file, "w", encoding="utf-8") as result_file:
+                if hasattr(engine, 'used_line_indices') and engine.used_line_indices:
+                    idx_str = ",".join(str(x) for x in sorted(engine.used_line_indices))
+                    result_file.write(f"#PYXIS_USED_IDX: {idx_str}\n")
                 result_file.writelines(generated_lines)
                 result_file.flush()
                 os.fsync(result_file.fileno())
@@ -1868,6 +1839,46 @@ class PyxisAPI:
         if sys_ffmpeg:
             return sys_ffmpeg
         return "ffmpeg"
+
+    _CACHED_H264_ENCODER = None
+
+    @classmethod
+    def _detect_best_h264_encoder(cls, ffmpeg_exe: str = None) -> tuple[str, list[str]]:
+        """
+        Detects hardware H.264 encoders (NVENC, AMF, QSV) and returns optimal encoding arguments.
+        Falls back cleanly to CPU libx264 with optimized multithreaded preset.
+        """
+        if cls._CACHED_H264_ENCODER is not None:
+            return cls._CACHED_H264_ENCODER
+
+        exe = ffmpeg_exe or cls._find_ffmpeg()
+        candidates = [
+            ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "16", "-tune", "hq", "-pix_fmt", "yuv420p"]),
+            ("h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "16", "-qp_p", "16", "-pix_fmt", "yuv420p"]),
+            ("h264_qsv", ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "16", "-pix_fmt", "nv12"]),
+        ]
+        import subprocess
+        creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
+
+        for enc_name, enc_args in candidates:
+            try:
+                probe_cmd = [
+                    exe, "-y",
+                    "-f", "lavfi", "-i", "color=s=1280x720:d=0.04",
+                    *enc_args,
+                    "-f", "null", "-"
+                ]
+                res = subprocess.run(probe_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags, timeout=2.0)
+                if res.returncode == 0:
+                    print(f"[Pyxis FFmpeg] Hardware encoder GPU detectado y activo: {enc_name}", flush=True)
+                    cls._CACHED_H264_ENCODER = (enc_name, enc_args)
+                    return cls._CACHED_H264_ENCODER
+            except Exception:
+                pass
+
+        print("[Pyxis FFmpeg] Utilizando codificador x264 por software (multi-hilo optimizado)", flush=True)
+        cls._CACHED_H264_ENCODER = ("libx264", ["-c:v", "libx264", "-preset", "medium", "-crf", "15", "-tune", "animation", "-pix_fmt", "yuv420p", "-threads", "0"])
+        return cls._CACHED_H264_ENCODER
 
     @staticmethod
     def _shift_ass_timestamp(time_str: str, shift_ms: int) -> str:
@@ -2172,7 +2183,7 @@ class PyxisAPI:
         if 'output' not in n_type and 'salida' not in n_type:
             return False
 
-        if not target_ids:
+        if target_ids is None:
             return True
 
         if isinstance(target_ids, (list, tuple, set)):
@@ -2186,7 +2197,10 @@ class PyxisAPI:
         else:
             target_strs = set(s.strip() for s in str(target_ids).split(',') if s.strip())
 
-        if not target_strs or any(x.lower() in ('all', '*', 'all_outputs') for x in target_strs):
+        if not target_strs:
+            return False
+
+        if any(x.lower() in ('all', '*', 'all_outputs') for x in target_strs):
             return True
 
         nid_str = str(node.get('id', ''))
@@ -3414,14 +3428,18 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                         is_sel = False
                         st_name = ""
                         if isinstance(d, dict):
+                            raw = str(d.get('raw', ''))
+                            if raw.strip().startswith('Comment:') or raw.strip().startswith('Comment :'):
+                                continue
                             is_sel = bool(d.get('is_selected', False) or (d.get('metrics') and d['metrics'].get('sel')))
                             st_name = str(d.get('style_name', ''))
-                            if not st_name and 'raw' in d:
-                                raw = str(d.get('raw', ''))
+                            if not st_name and raw:
                                 fields = raw.split(',', 9)
                                 if len(fields) >= 4:
                                     st_name = fields[3].strip()
                         elif hasattr(d, 'is_selected') and hasattr(d, 'style_name'):
+                            if getattr(d, 'is_comment', False):
+                                continue
                             is_sel = getattr(d, 'is_selected', False)
                             st_name = getattr(d, 'style_name', '')
                         if is_sel and st_name:
@@ -3431,13 +3449,17 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                         for d in dialogues:
                             st_name = ""
                             if isinstance(d, dict):
+                                raw = str(d.get('raw', ''))
+                                if raw.strip().startswith('Comment:') or raw.strip().startswith('Comment :'):
+                                    continue
                                 st_name = str(d.get('style_name', ''))
-                                if not st_name and 'raw' in d:
-                                    raw = str(d.get('raw', ''))
+                                if not st_name and raw:
                                     fields = raw.split(',', 9)
                                     if len(fields) >= 4:
                                         st_name = fields[3].strip()
                             elif hasattr(d, 'style_name'):
+                                if getattr(d, 'is_comment', False):
+                                    continue
                                 st_name = getattr(d, 'style_name', '')
                             if st_name:
                                 target_styles.add(st_name)
@@ -3558,28 +3580,105 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                 with open(preview_ass_path, "w", encoding="utf-8") as f:
                     f.write(gen_res["content"])
 
-            clip_path = self._ensure_preview_media_clip(info, is_export=True)
-            if not clip_path or not os.path.exists(clip_path):
-                return {"success": False, "error": "Could not generate or locate background clip to render Hardsub"}
-
             ffmpeg_exe = self._find_ffmpeg()
 
-            cmd = [
-                ffmpeg_exe, "-y",
-                "-i", clip_path,
-                "-vf", f"subtitles='{ass_filename}'",
-                "-c:v", "libx264",
-                "-preset", "slow",
-                "-crf", "15",
-                "-tune", "animation",
-                "-pix_fmt", "yuv420p",
-                "-maxrate", "25M",
-                "-bufsize", "25M",
-                "-rc-lookahead", "40",
-                "-c:a", "copy",
-                "-movflags", "+faststart",
-                save_path
-            ]
+            res_x = int(info.get("res_x", 1280))
+            res_y = int(info.get("res_y", 720))
+            res_x = max(2, res_x - (res_x % 2))
+            res_y = max(2, res_y - (res_y % 2))
+            fps = float(info.get("fps") or 23.976)
+            clip_start_sec = float(info.get("clip_start_sec", 0.0))
+            clip_dur_sec = float(info.get("clip_duration_sec", 15.0))
+            real_video = info.get("real_video_file")
+            real_audio = info.get("real_audio_file")
+            dummy_info = info.get("dummy_info") or {}
+            color_hex = str(dummy_info.get("color_hex") or "969696").lower()
+
+            # Fonts directory detection for libass filter
+            fonts_dir_param = ""
+            ass_base = getattr(self, "base_ass_path", None) or info.get("base_ass_path")
+            if ass_base and os.path.exists(ass_base):
+                script_dir = os.path.dirname(os.path.abspath(ass_base))
+                candidate_fonts = os.path.join(script_dir, "fonts")
+                if os.path.isdir(candidate_fonts):
+                    f_clean = candidate_fonts.replace("\\", "/")
+                    fonts_dir_param = f":fontsdir='{f_clean}'"
+                elif os.path.isdir(script_dir):
+                    f_clean = script_dir.replace("\\", "/")
+                    fonts_dir_param = f":fontsdir='{f_clean}'"
+
+            sub_filter = f"subtitles='{ass_filename}'{fonts_dir_param}"
+
+            enc_name, enc_args = self._detect_best_h264_encoder(ffmpeg_exe)
+
+            def _build_cmd(v_encoder_args):
+                if real_video and os.path.isfile(real_video) and (not real_audio or real_audio == real_video):
+                    return [
+                        ffmpeg_exe, "-y",
+                        "-ss", f"{clip_start_sec:.3f}",
+                        "-t", f"{clip_dur_sec:.3f}",
+                        "-i", real_video,
+                        "-avoid_negative_ts", "make_zero",
+                        "-vf", sub_filter,
+                        *v_encoder_args,
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-movflags", "+faststart",
+                        save_path
+                    ]
+                elif real_video and os.path.isfile(real_video) and real_audio and os.path.isfile(real_audio):
+                    return [
+                        ffmpeg_exe, "-y",
+                        "-ss", f"{clip_start_sec:.3f}",
+                        "-t", f"{clip_dur_sec:.3f}",
+                        "-i", real_video,
+                        "-ss", f"{clip_start_sec:.3f}",
+                        "-t", f"{clip_dur_sec:.3f}",
+                        "-i", real_audio,
+                        "-map", "0:v:0",
+                        "-map", "1:a:0",
+                        "-avoid_negative_ts", "make_zero",
+                        "-vf", sub_filter,
+                        *v_encoder_args,
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-shortest",
+                        "-movflags", "+faststart",
+                        save_path
+                    ]
+                elif real_audio and os.path.isfile(real_audio):
+                    return [
+                        ffmpeg_exe, "-y",
+                        "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={clip_dur_sec:.3f}",
+                        "-ss", f"{clip_start_sec:.3f}",
+                        "-t", f"{clip_dur_sec:.3f}",
+                        "-i", real_audio,
+                        "-map", "0:v:0",
+                        "-map", "1:a:0",
+                        "-avoid_negative_ts", "make_zero",
+                        "-vf", sub_filter,
+                        *v_encoder_args,
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-shortest",
+                        "-movflags", "+faststart",
+                        save_path
+                    ]
+                else:
+                    return [
+                        ffmpeg_exe, "-y",
+                        "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={clip_dur_sec:.3f}",
+                        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                        "-vf", sub_filter,
+                        *v_encoder_args,
+                        "-c:a", "aac",
+                        "-b:a", "64k",
+                        "-shortest",
+                        "-movflags", "+faststart",
+                        save_path
+                    ]
+
+            cmd = _build_cmd(enc_args)
 
             import subprocess
             creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
@@ -3591,6 +3690,20 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                 text=True,
                 creationflags=creationflags
             )
+
+            if proc.returncode != 0 and enc_name != "libx264":
+                print(f"[Pyxis FFmpeg] Hardware encoder '{enc_name}' falló durante la exportación de Hardsub ({proc.stderr[-180:] if proc.stderr else ''}). Reintentando con libx264 CPU...", flush=True)
+                cpu_enc_args = ["-c:v", "libx264", "-preset", "medium", "-crf", "15", "-tune", "animation", "-pix_fmt", "yuv420p", "-threads", "0"]
+                fallback_cmd = _build_cmd(cpu_enc_args)
+                proc = subprocess.run(
+                    fallback_cmd,
+                    cwd=temp_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    creationflags=creationflags
+                )
+
             if proc.returncode != 0:
                 err_msg = proc.stderr[-400:] if proc.stderr else f"Exit code {proc.returncode}"
                 print(f"[Pyxis FFmpeg Hardsub Error] code {proc.returncode}:\n{proc.stderr}", flush=True)
@@ -3699,10 +3812,11 @@ def main():
                 script_dir = os.path.dirname(os.path.abspath(__file__))
                 ico_path = os.path.join(script_dir, "web", "icon.ico")
                 if os.path.exists(ico_path) and hasattr(window, "native") and window.native:
-                    import clr
+                    import importlib
+                    clr = importlib.import_module("clr")
                     clr.AddReference("System.Drawing")
-                    import System.Drawing
-                    window.native.Icon = System.Drawing.Icon(ico_path)
+                    sys_drawing = importlib.import_module("System.Drawing")
+                    window.native.Icon = getattr(sys_drawing, "Icon")(ico_path)
             except Exception:
                 pass
             if isinstance(saved_win_state, dict) and saved_win_state.get("maximized"):
@@ -3759,10 +3873,18 @@ def main():
                     import ctypes
                     from ctypes import wintypes
                     user32 = ctypes.windll.user32
+                    kernel32 = ctypes.windll.kernel32
+                    con_hwnd = kernel32.GetConsoleWindow() if hasattr(kernel32, "GetConsoleWindow") else None
                     my_pid = os.getpid()
                     WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
                     def enum_cb(h, l):
                         nonlocal found_hwnd
+                        if con_hwnd and h == con_hwnd:
+                            return True
+                        cls_buff = ctypes.create_unicode_buffer(64)
+                        user32.GetClassNameW(h, cls_buff, 64)
+                        if cls_buff.value == "ConsoleWindowClass":
+                            return True
                         lp = ctypes.c_ulong()
                         user32.GetWindowThreadProcessId(h, ctypes.byref(lp))
                         if lp.value == my_pid:
@@ -3770,13 +3892,13 @@ def main():
                             if length > 0:
                                 buff = ctypes.create_unicode_buffer(length + 1)
                                 user32.GetWindowTextW(h, buff, length + 1)
-                                if "Pyxis" in buff.value or "Engine" in buff.value:
+                                if buff.value == window.title or (getattr(window, "title", None) and str(window.title) in buff.value) or "Pyxis Node Engine" in buff.value:
                                     found_hwnd = h
                                     return False
                         return True
                     user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-                    if not found_hwnd:
-                        found_hwnd = user32.FindWindowW(None, window.title)
+                    if not found_hwnd and getattr(window, "title", None):
+                        found_hwnd = user32.FindWindowW(None, str(window.title))
 
                     if found_hwnd:
                         is_maximized = bool(user32.IsZoomed(found_hwnd))

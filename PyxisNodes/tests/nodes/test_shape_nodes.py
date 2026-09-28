@@ -451,6 +451,25 @@ class TestShapeTransformAdvanced (unittest .TestCase ):
         self .assertIn ("l 150 0",res )
         self .assertIn ("l 150 150",res )
 
+    def test_shape_anchor_canonical_modes(self):
+        sq = "m 0 0 l 100 0 l 100 100 l 0 100"
+        ctx = {"fx_pos_x": 300.0, "fx_pos_y": 200.0}
+
+        # 1. Mode: center (Centrado en 0,0 a partir del centroide 50,50)
+        res_center = shape_manipulator(ctx, drawing=sq, scale_x=1.0, scale_y=1.0, mode="center")
+        self.assertIn("m -50 -50", res_center)
+        self.assertIn("l 50 -50", res_center)
+
+        # 2. Mode: origin (Alineado en top-left 0,0)
+        res_origin = shape_manipulator(ctx, drawing=sq, scale_x=1.0, scale_y=1.0, mode="origin")
+        self.assertIn("m 0 0", res_origin)
+        self.assertIn("l 100 0", res_origin)
+
+        # 3. Mode: absolute (Shape trasladado directamente por fx_pos_x=300, fx_pos_y=200)
+        res_abs = shape_manipulator(ctx, drawing=sq, scale_x=1.0, scale_y=1.0, mode="absolute")
+        self.assertIn("m 300 200", res_abs)
+        self.assertIn("l 400 200", res_abs)
+
     def test_shape_transform_inflate (self ):
         sq ="m 0 0 l 100 0 l 100 100 l 0 100"
         res_t0 =shape_transform (None ,drawing =sq ,mode ="Inflate",t =0.0 ,ratio =1.0 ,anchor ="origin")
@@ -633,6 +652,22 @@ class TestShapeTransformAdvanced (unittest .TestCase ):
         res_poly =shape_transform (None ,drawing =shape_a ,mid_shape =shape_b ,target_shape =shape_c ,mode ="Distort2",t =0.3 ,step_px =5.0 ,anchor ="origin")
         self .assertTrue (isinstance (res_poly ,str )and res_poly .startswith ("m "))
         self .assertIn ("l ",res_poly )
+
+    def test_shape_transform_distort_energy_and_pixel_step (self ):
+        sq = "m 0 0 l 100 0 l 100 100 l 0 100"
+        tri = "m 50 0 l 100 100 l 0 100"
+
+        res_e0 = shape_transform(None, drawing=sq, target_shape=tri, mode="Distort", t=0.5, energy=0.0, step_px=0)
+        res_e1 = shape_transform(None, drawing=sq, target_shape=tri, mode="Distort", t=0.5, energy=1.0, step_px=0)
+        self.assertNotEqual(res_e0, res_e1)
+
+        res_t0_e0 = shape_transform(None, drawing=sq, target_shape=tri, mode="Distort", t=0.0, energy=0.0)
+        res_t0_e2 = shape_transform(None, drawing=sq, target_shape=tri, mode="Distort", t=0.0, energy=2.0)
+        self.assertEqual(res_t0_e0, res_t0_e2)
+
+        res_s5 = shape_transform(None, drawing=sq, target_shape=tri, mode="Distort", t=0.5, step_px=5.0)
+        res_s2 = shape_transform(None, drawing=sq, target_shape=tri, mode="Distort", t=0.5, step_px=2.0)
+        self.assertGreater(res_s2.count("l "), res_s5.count("l "))
 
 
 class TestConcentricBordersAndClip (unittest .TestCase ):
@@ -943,7 +978,7 @@ class TestShapeFilter (unittest .TestCase ):
         res_center =shape_multi (None ,mode ="Cuadros Concéntricos",size =100.0 ,px ="4",separation =0.0 ,t =1.0 ,anchor ="center")
         res_origin =shape_multi (None ,mode ="Cuadros Concéntricos",size =100.0 ,px ="4",separation =0.0 ,t =1.0 ,anchor ="origin")
         ctx ={"fx_pos_x":200.0 ,"fx_pos_y":150.0 }
-        res_zero =shape_multi (ctx ,mode ="Cuadros Concéntricos",size =100.0 ,px ="4",separation =0.0 ,t =1.0 ,anchor ="zero")
+        res_zero =shape_multi (ctx ,mode ="Cuadros Concéntricos",size =100.0 ,px ="4",separation =0.0 ,t =1.0 ,anchor ="absolute")
 
         self .assertTrue (res_center .startswith ("m "))
         self .assertTrue (res_origin .startswith ("m "))
@@ -1436,7 +1471,7 @@ class TestShapeUnionAndDivide (unittest .TestCase ):
         self .context ,
         drawing =self .shape_i ,
         modo ="Dividir (PolyTree)",
-        anchor ="piezas",
+        anchor ="pieces",
         return_all_pieces =True 
         )
         self .assertEqual (len (pieces ),2 )
@@ -1500,7 +1535,7 @@ class TestShapeUnionAndDivide (unittest .TestCase ):
         {"id":3 ,"type":"Shape/Library","properties":{"forma":"Sakura 6T"},"inputs":[]},
         {"id":4 ,"type":"Shape/Union & Divide","properties":{"modo":"Fusión (Tags)","tagmode":"ipol","anchor":"relativo","tags":"#87F337, #61FBC7, #AF6DF6"},"inputs":[{"link":2 },{"link":None },{"link":None },{"link":None }]},
         {"id":5 ,"type":"Concatenate","properties":{"separator":"nil"},"inputs":[{"link":4 },{"link":None },{"link":5 }]},
-        {"id":6 ,"type":"String","properties":{"valor":"\\an7"},"inputs":[]},
+        {"id":6 ,"type":"String","properties":{"value":"\\an7"},"inputs":[]},
         {"id":8 ,"type":"System/Output","properties":{},"inputs":[{"link":1 },{"link":None },{"link":None },{"link":None },{"link":6 },{"link":3 }]}
         ],
         "links":[
@@ -1812,10 +1847,10 @@ class TestShapeUnionAndDivide (unittest .TestCase ):
         self .assertEqual (round (bbox_o ["y1"]),0 )
 
 
-        p_zero =shape_union_divide_node (ctx ,drawing =test_shp ,modo ="Dividir (PolyTree)",anchor ="zero")
+        p_zero =shape_union_divide_node (ctx ,drawing =test_shp ,modo ="Dividir (PolyTree)",anchor ="absolute")
         bbox_z =ClipperEngine .calc_bbox_raw (p_zero )
-        self .assertEqual (round (bbox_z ["cx"]),300 )
-        self .assertEqual (round (bbox_z ["cy"]),200 )
+        self .assertEqual (round (bbox_z ["cx"]),410 )
+        self .assertEqual (round (bbox_z ["cy"]),310 )
 
 
         p_pos =shape_union_divide_node (ctx ,drawing =test_shp ,modo ="Dividir (PolyTree)",anchor ="pos")
@@ -2063,7 +2098,7 @@ class TestShapeUnionAndDivide (unittest .TestCase ):
         'nodes':[
         {'id':1 ,'type':'Loops/Main Loop','properties':{'iterador':'line'},'inputs':[]},
         {'id':2 ,'type':'Shape/Library','properties':{'forma':'Sakura 1T'},'inputs':[]},
-        {'id':3 ,'type':'Shape/Union & Divide','properties':{'modo':'Dividir (PolyTree)','anchor':'piezas'},'inputs':[{'link':2 }]},
+        {'id':3 ,'type':'Shape/Union & Divide','properties':{'modo':'Dividir (PolyTree)','anchor':'pieces'},'inputs':[{'link':2 }]},
         {'id':4 ,'type':'System/Output','properties':{'origin_align':5 },'inputs':[{'link':1 },None ,None ,None ,None ,{'link':3 }]}
         ],
         'links':[
@@ -3054,6 +3089,214 @@ class TestShapeUnionAndDivide (unittest .TestCase ):
         res_clip = engine_clip.evaluate_data_node(306, {"b_i": 1})
         self.assertTrue(isinstance(res_clip, str))
         self.assertTrue(res_clip.startswith("\\clip("))
+
+    def test_shape_multi_anchor_canonical_modes(self):
+        """Verifica que Shape/Multi soporte de forma canónica los 3 modos de Shape Anchor (center, origin, absolute)."""
+        ctx_abs = {"fx_pos_x": 300.0, "fx_pos_y": 200.0}
+
+        # 1. Mode: center (Centroid at 0,0)
+        node_center = {
+            "id": 401,
+            "type": "Shape/Multi",
+            "properties": {
+                "mode": "concentric_squares",
+                "size": "100.0",
+                "px": "10",
+                "separation": "0",
+                "t": "1.0",
+                "anchor": "center"
+            },
+            "inputs": []
+        }
+        res_center = GraphEngine({"nodes": [node_center], "links": []}).evaluate_data_node(401, {})
+        self.assertTrue(isinstance(res_center, str) and res_center.startswith("m "))
+        # Extract coordinates
+        coords_c = [float(t) for t in res_center.split() if t not in ('m', 'l', 'b', 'c')]
+        xs_c = coords_c[0::2]
+        ys_c = coords_c[1::2]
+        cx_c = (min(xs_c) + max(xs_c)) / 2.0
+        cy_c = (min(ys_c) + max(ys_c)) / 2.0
+        self.assertAlmostEqual(cx_c, 0.0, delta=1.0)
+        self.assertAlmostEqual(cy_c, 0.0, delta=1.0)
+
+        # 2. Mode: origin (Top-left ink corner at 0,0)
+        node_origin = {
+            "id": 402,
+            "type": "Shape/Multi",
+            "properties": {
+                "mode": "concentric_squares",
+                "size": "100.0",
+                "px": "10",
+                "separation": "0",
+                "t": "1.0",
+                "anchor": "origin"
+            },
+            "inputs": []
+        }
+        res_origin = GraphEngine({"nodes": [node_origin], "links": []}).evaluate_data_node(402, {})
+        self.assertTrue(isinstance(res_origin, str) and res_origin.startswith("m "))
+        coords_o = [float(t) for t in res_origin.split() if t not in ('m', 'l', 'b', 'c')]
+        xs_o = coords_o[0::2]
+        ys_o = coords_o[1::2]
+        self.assertAlmostEqual(min(xs_o), 0.0, delta=1.0)
+        self.assertAlmostEqual(min(ys_o), 0.0, delta=1.0)
+
+        # 3. Mode: absolute (Centroid translated to fx.pos_x, fx.pos_y)
+        node_abs = {
+            "id": 403,
+            "type": "Shape/Multi",
+            "properties": {
+                "mode": "concentric_squares",
+                "size": "100.0",
+                "px": "10",
+                "separation": "0",
+                "t": "1.0",
+                "anchor": "absolute"
+            },
+            "inputs": []
+        }
+        res_abs = GraphEngine({"nodes": [node_abs], "links": []}).evaluate_data_node(403, ctx_abs)
+        self.assertTrue(isinstance(res_abs, str) and res_abs.startswith("m "))
+        coords_a = [float(t) for t in res_abs.split() if t not in ('m', 'l', 'b', 'c')]
+        xs_a = coords_a[0::2]
+        ys_a = coords_a[1::2]
+        cx_a = (min(xs_a) + max(xs_a)) / 2.0
+        cy_a = (min(ys_a) + max(ys_a)) / 2.0
+        self.assertAlmostEqual(cx_a, 305.0, delta=1.0)
+        self.assertAlmostEqual(cy_a, 205.0, delta=1.0)
+
+    def test_img_to_shape_anchor_canonical_transform(self):
+        """Verifica la transformación canónica de Shape Anchor en el motor vectorial de imágenes."""
+        from img_tracer_engine import _transform_ass_shape
+
+        raw_square = "m 0 0 l 100 0 l 100 100 l 0 100 "
+
+        # 1. center: canvas center (50, 50) maps to (0, 0)
+        shp_c, w_c, h_c, _ = _transform_ass_shape(raw_square, out_scale=1.0, out_w=0.0, out_h=0.0, anchor="center", offset_x=0.0, offset_y=0.0, img_w=100.0, img_h=100.0)
+        coords_c = [float(t) for t in shp_c.split() if t not in ('m', 'l', 'b', 'c')]
+        self.assertEqual(min(coords_c[0::2]), -50.0)
+        self.assertEqual(max(coords_c[0::2]), 50.0)
+        self.assertEqual(min(coords_c[1::2]), -50.0)
+        self.assertEqual(max(coords_c[1::2]), 50.0)
+
+        # 2. origin: top-left (0, 0) maps to (0, 0)
+        shp_o, w_o, h_o, _ = _transform_ass_shape(raw_square, out_scale=1.0, out_w=0.0, out_h=0.0, anchor="origin", offset_x=0.0, offset_y=0.0, img_w=100.0, img_h=100.0)
+        coords_o = [float(t) for t in shp_o.split() if t not in ('m', 'l', 'b', 'c')]
+        self.assertEqual(min(coords_o[0::2]), 0.0)
+        self.assertEqual(max(coords_o[0::2]), 100.0)
+        self.assertEqual(min(coords_o[1::2]), 0.0)
+        self.assertEqual(max(coords_o[1::2]), 100.0)
+
+        # 3. absolute offset in GraphEngine
+        node_img_abs = {
+            "id": 404,
+            "type": "Shape/IMG to Shape",
+            "properties": {
+                "image_path": "",
+                "anchor": "absolute",
+                "offset_x": "10.0",
+                "offset_y": "5.0"
+            },
+            "inputs": []
+        }
+        # Evaluation with invalid image returns graceful error or empty string
+        engine_img = GraphEngine({"nodes": [node_img_abs], "links": []})
+        res_img = engine_img.evaluate_data_node(404, {"fx_pos_x": 200.0, "fx_pos_y": 150.0})
+        self.assertIsInstance(res_img, str)
+
+
+class TestAnchorResolversAndProfiles(unittest.TestCase):
+    """Test suite exhaustivo para la infraestructura canónica de Anchor (Lotes 0 a 5)."""
+
+    def test_resolve_shape_anchor_modes(self):
+        from nodes.shape_nodes import resolve_shape_anchor
+        square = "m 0 0 l 100 0 l 100 100 l 0 100"
+
+        # 1. center mode -> ref=(50, 50), base=(0, 0)
+        ref_x, ref_y, base_x, base_y, min_x, min_y, max_x, max_y, cx, cy = resolve_shape_anchor(square, anchor="center")
+        self.assertEqual(ref_x, 50.0)
+        self.assertEqual(ref_y, 50.0)
+        self.assertEqual(base_x, 0.0)
+        self.assertEqual(base_y, 0.0)
+        self.assertEqual(cx, 50.0)
+        self.assertEqual(cy, 50.0)
+
+        # 2. origin mode -> ref=(0, 0), base=(0, 0)
+        ref_x, ref_y, base_x, base_y, min_x, min_y, max_x, max_y, cx, cy = resolve_shape_anchor(square, anchor="origin")
+        self.assertEqual(ref_x, 0.0)
+        self.assertEqual(ref_y, 0.0)
+        self.assertEqual(base_x, 0.0)
+        self.assertEqual(base_y, 0.0)
+
+        # 3. absolute mode with context -> ref=(0, 0), base=(pos_x, pos_y)
+        ctx = {"fx_pos_x": 300.0, "fx_pos_y": 200.0}
+        ref_x, ref_y, base_x, base_y, min_x, min_y, max_x, max_y, cx, cy = resolve_shape_anchor(square, anchor="absolute", context=ctx)
+        self.assertEqual(ref_x, 0.0)
+        self.assertEqual(ref_y, 0.0)
+        self.assertEqual(base_x, 300.0)
+        self.assertEqual(base_y, 200.0)
+
+        # 4. empty input fallback
+        ref_x, ref_y, base_x, base_y, min_x, min_y, max_x, max_y, cx, cy = resolve_shape_anchor("")
+        self.assertEqual(ref_x, 0.0)
+        self.assertEqual(ref_y, 0.0)
+
+    def test_resolve_piece_anchor_all_modes(self):
+        from nodes.shape_nodes import resolve_piece_anchor
+        piece_square = "m 10 10 l 30 10 l 30 30 l 10 30"
+        cx, cy = 20.0, 20.0
+        parent_x, parent_y = 100.0, 200.0
+
+        # 1. pieces mode
+        ctx1 = {}
+        res1 = resolve_piece_anchor(piece_square, piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor="pieces", context=ctx1)
+        self.assertEqual(res1["pos_x"], 120.0)
+        self.assertEqual(res1["pos_y"], 220.0)
+        self.assertEqual(res1["org_x"], 120.0)
+        self.assertEqual(res1["org_y"], 220.0)
+        self.assertTrue(res1["has_org"])
+        self.assertTrue(res1["pos_overridden"])
+        self.assertEqual(ctx1["pos_x"], 120.0)
+        self.assertEqual(ctx1["org_x"], 120.0)
+
+        # 2. relative mode
+        ctx2 = {}
+        res2 = resolve_piece_anchor(piece_square, piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor="relative", context=ctx2)
+        self.assertEqual(res2["pos_x"], 100.0)
+        self.assertEqual(res2["pos_y"], 200.0)
+        self.assertEqual(res2["org_x"], 100.0)
+        self.assertEqual(res2["org_y"], 200.0)
+        self.assertTrue(res2["has_org"])
+        self.assertFalse(res2["pos_overridden"])
+        self.assertEqual(res2["formatted_code"], piece_square)
+
+        # 3. org_padre mode
+        ctx3 = {}
+        res3 = resolve_piece_anchor(piece_square, piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor="org_padre", context=ctx3)
+        self.assertEqual(res3["pos_x"], 120.0)
+        self.assertEqual(res3["pos_y"], 220.0)
+        self.assertEqual(res3["org_x"], 100.0)
+        self.assertEqual(res3["org_y"], 200.0)
+        self.assertTrue(res3["has_org"])
+        self.assertTrue(res3["pos_overridden"])
+
+        # 4. pos mode
+        ctx4 = {}
+        res4 = resolve_piece_anchor(piece_square, piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor="pos", context=ctx4)
+        self.assertEqual(res4["pos_x"], 120.0)
+        self.assertEqual(res4["pos_y"], 220.0)
+        self.assertFalse(res4["has_org"])
+        self.assertTrue(res4["pos_overridden"])
+        self.assertFalse(ctx4["has_org"])
+
+        # 5. absolute mode
+        ctx5 = {}
+        res5 = resolve_piece_anchor(piece_square, piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor="absolute", context=ctx5)
+        self.assertEqual(res5["pos_x"], 100.0)
+        self.assertEqual(res5["pos_y"], 200.0)
+        self.assertFalse(res5["has_org"])
+        self.assertFalse(res5["pos_overridden"])
+        self.assertIn("110", res5["formatted_code"])
 
 
 if __name__ =="__main__":

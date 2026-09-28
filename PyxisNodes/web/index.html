@@ -9,11 +9,11 @@
     <title>Pyxis Node Engine</title>
     <link rel="stylesheet" type="text/css" href="litegraph.css">
     <link rel="stylesheet" type="text/css" href="pyxis_ui.css">
-    <script type="text/javascript" src="litegraph.js"></script>
-    <script type="text/javascript" src="i18n.js"></script>
-    <script type="text/javascript" src="theme_manager.js"></script>
-    <script type="text/javascript" src="libs/artplayer/artplayer.js"></script>
-    <script type="text/javascript" src="libs/jassub/jassub.umd.js"></script>
+    <script type="text/javascript" src="litegraph.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='litegraph.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
+    <script type="text/javascript" src="i18n.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='i18n.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
+    <script type="text/javascript" src="theme_manager.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='theme_manager.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
+    <script type="text/javascript" src="libs/artplayer/artplayer.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='libs/artplayer/artplayer.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
+    <script type="text/javascript" src="libs/jassub/jassub.umd.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='libs/jassub/jassub.umd.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
     <script type="text/javascript">
         if (typeof window.define === 'undefined') {
             window.__ace_pending_modules = [];
@@ -76,6 +76,46 @@
         </div>
     </div>
 
+    <!-- Pyxis Integrated Debug Console (F1 / Escape) -->
+    <div id="pyxis-debug-console-overlay">
+        <div class="pyxis-debug-console-modal" role="dialog" aria-modal="true" aria-labelledby="pyxis-debug-console-title-text">
+            <div class="pyxis-debug-console-header">
+                <div class="pyxis-debug-console-title-wrap">
+                    <div class="pyxis-debug-console-title" id="pyxis-debug-console-title-text">
+                        <svg class="svg-icon" viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--accent-primary, #22858c);fill:none;stroke-width:2;"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                        <span data-i18n="ui.console.title">Debug Console</span>
+                    </div>
+                    <span class="pyxis-debug-console-badge" id="pyxis-debug-log-count">0 lines</span>
+                </div>
+                <div class="pyxis-debug-console-toolbar">
+                    <div class="pyxis-debug-search-box">
+                        <svg class="pyxis-debug-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input type="text" class="pyxis-debug-search-input" id="pyxis-debug-search-input" placeholder="Search logs..." data-i18n-placeholder="ui.console.search_placeholder" spellcheck="false">
+                    </div>
+                    <button class="pyxis-debug-btn" id="pyxis-debug-btn-copy" title="Copy entire log history to clipboard" data-i18n-title="ui.console.copy_tooltip" data-i18n-tooltip="ui.console.copy_tooltip">
+                        <svg class="svg-icon" viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span id="pyxis-debug-copy-label" data-i18n="ui.console.copy">Copy</span>
+                    </button>
+                    <button class="pyxis-debug-btn" id="pyxis-debug-btn-clear" title="Clear log history" data-i18n-title="ui.console.clear_tooltip" data-i18n-tooltip="ui.console.clear_tooltip">
+                        <svg class="svg-icon" viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        <span data-i18n="ui.console.clear">Clear</span>
+                    </button>
+                    <button class="pyxis-debug-console-close" id="pyxis-debug-btn-close" title="Close console (Esc / F1)" data-i18n-title="ui.console.close_tooltip" data-i18n-tooltip="ui.console.close_tooltip">
+                        <svg class="svg-icon" viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="pyxis-debug-console-body-wrap">
+                <div class="pyxis-debug-console-body" id="pyxis-debug-console-body">
+                    <div class="pyxis-debug-console-empty" data-i18n="ui.console.empty">No console logs.</div>
+                </div>
+                <button class="pyxis-debug-scroll-btn" id="pyxis-debug-btn-autoscroll" data-i18n-tooltip="ui.console.autoscroll_tooltip" data-tooltip="Scroll to bottom">
+                    <svg class="svg-icon" viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.2;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
     
     <div class="top-bar">
         <div class="top-bar-left">
@@ -83,7 +123,7 @@
                 <img src="icon.png" class="brand-icon" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover;">
                 <span>PYXIS EFFECTOR</span>
             </div>
-            <span class="brand-badge">v1.1.0</span>
+            <span class="brand-badge">v1.1.1</span>
 
             
             <button class="pyxis-btn" id="btn-save-main" onclick="triggerSave()" data-i18n-tooltip="topbar.save_tooltip" data-tooltip="Save changes to active template">
@@ -107,7 +147,7 @@
         </div>
 
         <div class="top-bar-right">
-            <button class="pyxis-btn pyxis-btn-icon" id="btn-settings-open" onclick="PyxisThemeManager.openSettingsModal();" data-i18n-tooltip="topbar.settings_tooltip" data-tooltip="Settings and themes">
+            <button class="pyxis-btn pyxis-btn-icon" id="btn-settings-open" onclick="if(window.PyxisThemeManager && typeof window.PyxisThemeManager.openSettingsModal === 'function') window.PyxisThemeManager.openSettingsModal();" data-i18n-tooltip="topbar.settings_tooltip" data-tooltip="Settings and themes">
                 <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             </button>
 
@@ -456,7 +496,7 @@
 
         var graph = new LGraph();
         var canvas = new LGraphCanvas("#node_canvas", graph);
-        canvas.background_color = PyxisThemeManager ? PyxisThemeManager.THEMES[PyxisThemeManager.getCurrentTheme()].canvasBg : "#0d0f12";
+        canvas.background_color = (window.PyxisThemeManager && window.PyxisThemeManager.THEMES && typeof window.PyxisThemeManager.getCurrentTheme === 'function' && window.PyxisThemeManager.THEMES[window.PyxisThemeManager.getCurrentTheme()]) ? window.PyxisThemeManager.THEMES[window.PyxisThemeManager.getCurrentTheme()].canvasBg : "#0d0f12";
         window.addEventListener("resize", () => canvas.resize());
         setTimeout(() => canvas.resize(), 50);
 
@@ -1461,9 +1501,9 @@
                     videoEl.poster = bgSettings.posterUrl;
                 }
 
-                const activeTheme = (window.PyxisThemeManager && PyxisThemeManager.getCurrentTheme()) || "teal";
-                const allThemes = (window.PyxisThemeManager && PyxisThemeManager.getAllThemes()) || {};
-                const themeData = allThemes[activeTheme] || (window.PyxisThemeManager && PyxisThemeManager.THEMES[activeTheme]) || {};
+                const activeTheme = (window.PyxisThemeManager && typeof window.PyxisThemeManager.getCurrentTheme === "function" && window.PyxisThemeManager.getCurrentTheme()) || "teal";
+                const allThemes = (window.PyxisThemeManager && typeof window.PyxisThemeManager.getAllThemes === "function" && window.PyxisThemeManager.getAllThemes()) || {};
+                const themeData = allThemes[activeTheme] || (window.PyxisThemeManager && window.PyxisThemeManager.THEMES && window.PyxisThemeManager.THEMES[activeTheme]) || {};
                 const themeBg = themeData.canvasBg || "#081116";
 
                 videoEl.style.backgroundColor = themeBg;
@@ -1547,9 +1587,9 @@
         canvas.onRenderBackground = function(html_canvas, ctx) {
             try {
                 ctx.save();
-                const activeTheme = (window.PyxisThemeManager && PyxisThemeManager.getCurrentTheme()) || "teal";
-                const allThemes = (window.PyxisThemeManager && PyxisThemeManager.getAllThemes()) || {};
-                const themeData = allThemes[activeTheme] || (window.PyxisThemeManager && PyxisThemeManager.THEMES[activeTheme]) || {};
+                const activeTheme = (window.PyxisThemeManager && typeof window.PyxisThemeManager.getCurrentTheme === "function" && window.PyxisThemeManager.getCurrentTheme()) || "teal";
+                const allThemes = (window.PyxisThemeManager && typeof window.PyxisThemeManager.getAllThemes === "function" && window.PyxisThemeManager.getAllThemes()) || {};
+                const themeData = allThemes[activeTheme] || (window.PyxisThemeManager && window.PyxisThemeManager.THEMES && window.PyxisThemeManager.THEMES[activeTheme]) || {};
                 const themeBg = themeData.canvasBg || "#081116";
 
                 const bgSettings = window.backgroundImageSettings || {};
@@ -2020,7 +2060,7 @@
             header.innerHTML = `
                 <div class="pyxis-modal-title">
                     <svg class="svg-icon" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    <span>${window.PyxisI18n && PyxisI18n.currentLang === "es" ? "Editor Multilínea: " + (titleName || "Propiedad") : "Multiline Editor: " + (titleName || "Property")}</span>
+                    <span>${window.PyxisI18n && window.PyxisI18n.currentLang === "es" ? "Editor Multilínea: " + (titleName || "Propiedad") : "Multiline Editor: " + (titleName || "Property")}</span>
                 </div>
             `;
 
@@ -3094,7 +3134,7 @@
 
                         const catTitle = document.createElement("div");
                         catTitle.className = "pyxis-tag-cat-title";
-                        const catT = (window.PyxisI18n && cat.i18nKey) ? PyxisI18n.t(cat.i18nKey, null, cat.title) : cat.title;
+                        const catT = (window.PyxisI18n && typeof window.PyxisI18n.t === "function" && cat.i18nKey) ? window.PyxisI18n.t(cat.i18nKey, null, cat.title) : cat.title;
                         catTitle.innerHTML = `${cat.icon || ""} <span>${catT}</span>`;
                         catDiv.appendChild(catTitle);
 
@@ -3269,9 +3309,9 @@
                     <div class="pyxis-tag-picker-header">
                         <div class="pyxis-tag-picker-title">
                             <svg class="svg-icon" viewBox="0 0 24 24" style="stroke: var(--accent-primary, #8b5cf6); width:18px; height:18px; fill:none; stroke-width:2;"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-                            <span>${window.PyxisI18n ? PyxisI18n.t("ui.picker.sysvar_title") : "Pyxis System Variables (Sys Var)"}</span>
+                            <span>${(window.PyxisI18n && typeof window.PyxisI18n.t === "function") ? window.PyxisI18n.t("ui.picker.sysvar_title") : "Pyxis System Variables (Sys Var)"}</span>
                         </div>
-                        <input type="text" class="pyxis-tag-picker-search" id="pyxis-sysvar-picker-search-input" placeholder="${window.PyxisI18n ? PyxisI18n.t("ui.picker.sysvar_search") : "Search variable (e.g. l.text, syl.dur, fx.pos_x)..."}" autofocus>
+                        <input type="text" class="pyxis-tag-picker-search" id="pyxis-sysvar-picker-search-input" placeholder="${(window.PyxisI18n && typeof window.PyxisI18n.t === "function") ? window.PyxisI18n.t("ui.picker.sysvar_search") : "Search variable (e.g. l.text, syl.dur, fx.pos_x)..."}" autofocus>
                         <button class="pyxis-modal-close" id="btn-close-sysvar-picker" style="background:transparent; border:none; color:var(--text-muted); cursor:pointer;">
                             <svg class="svg-icon" viewBox="0 0 24 24" style="width:18px; height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
@@ -3757,9 +3797,9 @@
                     <div class="pyxis-tag-picker-header">
                         <div class="pyxis-tag-picker-title">
                             <svg class="svg-icon" viewBox="0 0 24 24" style="stroke: #8b5cf6; width:18px; height:18px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                            <span>${window.PyxisI18n ? PyxisI18n.t("ui.picker.shapes_title") : "Vector Shapes Library (Shapes Library)"}</span>
+                            <span>${(window.PyxisI18n && typeof window.PyxisI18n.t === "function") ? window.PyxisI18n.t("ui.picker.shapes_title") : "Vector Shapes Library (Shapes Library)"}</span>
                         </div>
-                        <input type="text" class="pyxis-tag-picker-search" id="pyxis-shapes-picker-search-input" placeholder="${window.PyxisI18n ? PyxisI18n.t("ui.picker.shapes_search") : "Search vector shape (e.g. star, heart, flower, gear)..."}" autofocus>
+                        <input type="text" class="pyxis-tag-picker-search" id="pyxis-shapes-picker-search-input" placeholder="${(window.PyxisI18n && typeof window.PyxisI18n.t === "function") ? window.PyxisI18n.t("ui.picker.shapes_search") : "Search vector shape (e.g. star, heart, flower, gear)..."}" autofocus>
                         <button class="pyxis-modal-close" id="btn-close-shapes-picker" style="background:transparent; border:none; color:var(--text-muted); cursor:pointer;">
                             <svg class="svg-icon" viewBox="0 0 24 24" style="width:18px; height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
@@ -6774,24 +6814,18 @@
                 secondaryModesMap: {
                     "Potrace": [
                         { full: "Center", short: "Center" },
-                        { full: "TopLeft", short: "TopLeft" },
-                        { full: "BottomLeft", short: "BottomLeft" },
-                        { full: "TopRight", short: "TopRight" },
-                        { full: "BottomRight", short: "BottomRight" }
+                        { full: "Origin", short: "Origin" },
+                        { full: "Absolute", short: "Absolute" }
                     ],
                     "Polygon": [
                         { full: "Center", short: "Center" },
-                        { full: "TopLeft", short: "TopLeft" },
-                        { full: "BottomLeft", short: "BottomLeft" },
-                        { full: "TopRight", short: "TopRight" },
-                        { full: "BottomRight", short: "BottomRight" }
+                        { full: "Origin", short: "Origin" },
+                        { full: "Absolute", short: "Absolute" }
                     ],
                     "Borders": [
                         { full: "Center", short: "Center" },
-                        { full: "TopLeft", short: "TopLeft" },
-                        { full: "BottomLeft", short: "BottomLeft" },
-                        { full: "TopRight", short: "TopRight" },
-                        { full: "BottomRight", short: "BottomRight" }
+                        { full: "Origin", short: "Origin" },
+                        { full: "Absolute", short: "Absolute" }
                     ]
                 },
                 tertiaryPropKey: "invert",
@@ -7058,6 +7092,26 @@
                     { full: "syl2end", short: "SYL2END" },
                     { full: "abs", short: "ABS" },
                     { full: "sylpct", short: "SYLPCT" }
+                ]
+            },
+            "Synced": {
+                propKey: "mode",
+                modes: [
+                    { full: "order", short: "ORDER" },
+                    { full: "style", short: "STYLE" },
+                    { full: "actor", short: "ACTOR" },
+                    { full: "layer", short: "LAYER" },
+                    { full: "effect", short: "EFFECT" }
+                ]
+            },
+            "Time/Synced": {
+                propKey: "mode",
+                modes: [
+                    { full: "order", short: "ORDER" },
+                    { full: "style", short: "STYLE" },
+                    { full: "actor", short: "ACTOR" },
+                    { full: "layer", short: "LAYER" },
+                    { full: "effect", short: "EFFECT" }
                 ]
             },
             "Glitter": {
@@ -7947,10 +8001,21 @@
             },
             "Synced": {
                 "DEFAULT": [
+                    { name: "Mode:", default: "order", property: "mode", type: "combo", values: ["order", "style", "actor", "layer", "effect"] },
                     { name: "Constant", default: "0", property: "progression_const" },
                     { name: "Fade (ms)", default: "300", property: "fade_dur" },
                     { name: "Max Extra", default: "2000", property: "max_added_time" },
-                    { name: "Delay Line", default: "250", property: "delay" },
+                    { name: "Delay Line", default: "250", property: "delay_ms" },
+                    { name: "Threshold", default: "3000", property: "max_gap_threshold" }
+                ]
+            },
+            "Time/Synced": {
+                "DEFAULT": [
+                    { name: "Mode:", default: "order", property: "mode", type: "combo", values: ["order", "style", "actor", "layer", "effect"] },
+                    { name: "Constant", default: "0", property: "progression_const" },
+                    { name: "Fade (ms)", default: "300", property: "fade_dur" },
+                    { name: "Max Extra", default: "2000", property: "max_added_time" },
+                    { name: "Delay Line", default: "250", property: "delay_ms" },
                     { name: "Threshold", default: "3000", property: "max_gap_threshold" }
                 ]
             },
@@ -8603,6 +8668,15 @@
                     { name: "Offset In (ms)", default: "0", property: "offset_in" },
                     { name: "Offset Out (ms)", default: "0", property: "offset_out" },
                     { name: "Accel", default: "1.0", property: "accel" }
+                ]
+            },
+            "Time/Synced": {
+                "DEFAULT": [
+                    { name: "Constant", default: "0", property: "progression_const" },
+                    { name: "Fade (ms)", default: "300", property: "fade_dur" },
+                    { name: "Max Extra", default: "2000", property: "max_added_time" },
+                    { name: "Delay Line", default: "250", property: "delay_ms" },
+                    { name: "Threshold", default: "3000", property: "max_gap_threshold" }
                 ]
             },
             "Concatenate": {
@@ -9502,26 +9576,36 @@
             }
         };
 
-        const SLICER_ANCHOR_MODES = [
-            { full: "pieces", short: "Pieces" },
-            { full: "relative", short: "Relative" },
-            { full: "center", short: "Center" },
-            { full: "topleft", short: "TopLeft" },
-            { full: "bottomleft", short: "BottomLeft" },
-            { full: "topright", short: "TopRight" },
-            { full: "bottomright", short: "BottomRight" }
-        ];
+        const ANCHOR_PROFILES = {
+            shape: [
+                { full: "center", short: "Center" },
+                { full: "origin", short: "Origin" },
+                { full: "absolute", short: "Absolute" }
+            ],
+            piece: [
+                { full: "pieces", short: "Pieces" },
+                { full: "relative", short: "Relative" },
+                { full: "org_padre", short: "Org Padre" },
+                { full: "pos", short: "Pos" },
+                { full: "absolute", short: "Absolute" }
+            ],
+            trajectory: [
+                { full: "center", short: "Center" },
+                { full: "origin", short: "Origin" },
+                { full: "first_point", short: "First Pt" }
+            ],
+            cardinal: [
+                { full: "center", short: "Center" },
+                { full: "topleft", short: "TopLeft" },
+                { full: "topright", short: "TopRight" },
+                { full: "bottomleft", short: "BottomLeft" },
+                { full: "bottomright", short: "BottomRight" }
+            ]
+        };
 
-        const GEOMETRIC_ANCHOR_MODES = [
-            { full: "center", short: "Center" },
-            { full: "topleft", short: "TopLeft" },
-            { full: "bottomleft", short: "BottomLeft" },
-            { full: "topright", short: "TopRight" },
-            { full: "bottomright", short: "BottomRight" },
-            { full: "relative", short: "Relative" },
-            { full: "pieces", short: "Pieces" }
-        ];
-
+        const SLICER_ANCHOR_MODES = ANCHOR_PROFILES.piece;
+        const GEOMETRIC_ANCHOR_MODES = ANCHOR_PROFILES.shape;
+        const SHAPE_ANCHOR_MODES = ANCHOR_PROFILES.shape;
         const ANCHOR_MODES = SLICER_ANCHOR_MODES;
 
         const OUT_MODES = [
@@ -10042,19 +10126,18 @@
                     } else if (portName === "Anchor" || portName === "Anclaje") {
                         function getAnchorListAndDef(targetNode) {
                             const t = String((targetNode && (targetNode.title || targetNode.type)) || "");
-                            if (t.includes("Multi")) {
-                                const loopM = String((targetNode.properties && (targetNode.properties.loop_mode || targetNode.properties.out_mode)) || "Shape").toLowerCase();
-                                if (loopM.includes("loop") || loopM.includes("pieza")) {
-                                    return { list: SLICER_ANCHOR_MODES, def: "piezas" };
-                                } else {
-                                    return { list: GEOMETRIC_ANCHOR_MODES, def: "center" };
-                                }
+                            if (t.includes("IMG to pixels") || (targetNode.type && String(targetNode.type).includes("IMG to pixels"))) {
+                                return { list: ANCHOR_PROFILES.cardinal, def: "center" };
                             }
-                            const isSlicerLike = t.includes("Slicer") || t.includes("Array") || t.includes("Union & Divide") || t.includes("Unir y Dividir") || (targetNode.type && (String(targetNode.type).includes("Slicer") || String(targetNode.type).includes("Array") || String(targetNode.type).includes("Union & Divide") || String(targetNode.type).includes("Unir y Dividir")));
+                            if (t.includes("Move Tag") || t.includes("Move Text") || (targetNode.type && (String(targetNode.type).includes("Move Tag") || String(targetNode.type).includes("Move Text")))) {
+                                return { list: ANCHOR_PROFILES.trajectory, def: "center" };
+                            }
+                            const isSlicerLike = t.includes("Slicer") || t.includes("Array") || t.includes("Union & Divide") || t.includes("Unir y Dividir") || t.includes("Concentric Borders") || (targetNode.type && (String(targetNode.type).includes("Slicer") || String(targetNode.type).includes("Array") || String(targetNode.type).includes("Union & Divide") || String(targetNode.type).includes("Unir y Dividir") || String(targetNode.type).includes("Concentric Borders")));
                             if (isSlicerLike) {
-                                return { list: SLICER_ANCHOR_MODES, def: "piezas" };
+                                return { list: ANCHOR_PROFILES.piece, def: t.includes("Concentric") ? "relative" : "pieces" };
                             }
-                            return { list: GEOMETRIC_ANCHOR_MODES, def: "center" };
+                            // Formas monolíticas (Manipulator, Transform, Filter, Multi, IMG to Shape)
+                            return { list: ANCHOR_PROFILES.shape, def: "center" };
                         }
 
                         w.draw = function(ctx, n, width, y, height) {
@@ -12332,6 +12415,30 @@ function setupDynamicInlineNode(node) {
                 const h = calculatePrevisualizadorNodeHeight(w, curAspect);
                 size[0] = w;
                 size[1] = h;
+                this.size[0] = w;
+                this.size[1] = h;
+
+                const pMgr = window.PyxisNodePlayerManager;
+                const p = (pMgr && pMgr.activePlayers && this.id !== undefined) ? pMgr.activePlayers[String(this.id)] : null;
+                if (p) {
+                    p.lastW = w;
+                    p.lastH = h;
+                    const unscaledW = Math.max(100, w - 20);
+                    const unscaledH = Math.max(100, h - 56);
+                    if (p.wrapper && !p.isPinned) {
+                        p.wrapper.style.width = unscaledW + 'px';
+                        p.wrapper.style.height = unscaledH + 'px';
+                    }
+                    if (p.art && typeof p.art.resize === 'function') {
+                        try { p.art.resize(); } catch(e) {}
+                    }
+                    if (p.jassub && typeof p.jassub.resize === 'function') {
+                        try { p.jassub.resize(); } catch(e) {}
+                    }
+                    if (typeof p.applyTransform === 'function') {
+                        p.applyTransform();
+                    }
+                }
 
                 if (typeof updateInNodePlayersPosition === 'function') {
                     updateInNodePlayersPosition();
@@ -12690,10 +12797,10 @@ function setupDynamicInlineNode(node) {
         function setupValueUnitNode(node) {
             if (!node) return;
             const titleStr = String(node.title || node.type || "");
-            const propKey = "valor";
+            const propKey = "value";
             if (!node.properties) node.properties = {};
             if (node.properties[propKey] === undefined) {
-                node.properties[propKey] = (titleStr.includes("Number") || titleStr.includes("Number")) ? "0" : "";
+                node.properties[propKey] = (titleStr.includes("Number") || titleStr.includes("Número")) ? "0" : "";
             }
 
             node.widgets = [];
@@ -18673,8 +18780,8 @@ function setupDynamicInlineNode(node) {
                 this.resizable = true;
 
                 const nodeCat = typeof window.getNodeCategory === "function" ? window.getNodeCategory(this) : category;
-                const themeCategories = (window.PyxisThemeManager && PyxisThemeManager.THEMES[PyxisThemeManager.getCurrentTheme()])
-                    ? PyxisThemeManager.THEMES[PyxisThemeManager.getCurrentTheme()].categories
+                const themeCategories = (window.PyxisThemeManager && window.PyxisThemeManager.THEMES && typeof window.PyxisThemeManager.getCurrentTheme === "function" && window.PyxisThemeManager.THEMES[window.PyxisThemeManager.getCurrentTheme()])
+                    ? window.PyxisThemeManager.THEMES[window.PyxisThemeManager.getCurrentTheme()].categories
                     : {};
                 const themeCatEntry = (window.CATEGORY_COLORS && window.CATEGORY_COLORS[nodeCat]) || (themeCategories && themeCategories[nodeCat]);
                 const themeCatColor = typeof themeCatEntry === "object" && themeCatEntry !== null ? themeCatEntry.color : themeCatEntry;
@@ -19310,8 +19417,9 @@ function setupDynamicInlineNode(node) {
                 },
                 "Synced": {
                     "node_kind": "data", "inputs": ["Constant", "Fade (ms)", "Max Extra", "Delay Line", "Threshold"], "outputs": ["Extra ms", "Sync End"], "color": "#2563EB",
-                    "properties": { "progression_const": "0", "fade_dur": "300", "max_added_time": "2000", "delay_ms": "250", "max_gap_threshold": "3000" },
+                    "properties": { "mode": "order", "progression_const": "0", "fade_dur": "300", "max_added_time": "2000", "delay_ms": "250", "max_gap_threshold": "3000" },
                     "widgets": [
+                        { "type": "combo", "name": "Mode:", "property": "mode", "values": ["order", "style", "actor", "layer", "effect"] },
                         { "type": "text", "name": "Constant", "property": "progression_const" },
                         { "type": "text", "name": "Fade (ms)", "property": "fade_dur" },
                         { "type": "text", "name": "Max Extra", "property": "max_added_time" },
@@ -19518,12 +19626,14 @@ function setupDynamicInlineNode(node) {
                                         window.__pyxis_active_template_id = activeTplId;
                                         window.__pyxis_active_template_name = activeTplName;
                                     }
-                                    if (typeof window.updateTemplateUIState === "function") window.updateTemplateUIState();
-                                    if (typeof window.update_checkpoint === "function") {
+                                    if (typeof window.sync_template_checkpoint === "function") {
+                                        await window.sync_template_checkpoint(activeTplId, activeTplName);
+                                    } else if (typeof window.update_checkpoint === "function") {
                                         window.update_checkpoint();
                                     } else if (typeof window.update_template_checkpoint === "function") {
                                         window.update_template_checkpoint();
                                     }
+                                    if (typeof window.updateTemplateUIState === "function") window.updateTemplateUIState();
                                     if (window.PyxisUndoManager && typeof window.PyxisUndoManager.initInitialState === "function") {
                                         window.PyxisUndoManager.initInitialState();
                                     }
@@ -19726,8 +19836,8 @@ function setupDynamicInlineNode(node) {
                 if (userConfig.language && window.PyxisI18n) {
                     window.PyxisI18n.setLanguage(userConfig.language, false);
                 }
-                if (userConfig.theme) {
-                    PyxisThemeManager.applyTheme(userConfig.theme);
+                if (userConfig.theme && window.PyxisThemeManager && typeof window.PyxisThemeManager.applyTheme === "function") {
+                    window.PyxisThemeManager.applyTheme(userConfig.theme);
                 }
                 if (userConfig.grid_mode !== undefined) {
                     window.gridMode = parseInt(userConfig.grid_mode);
@@ -19868,11 +19978,314 @@ function setupDynamicInlineNode(node) {
             start_pyxis_graph();
         }());
 
+        /* =============================================================================
+           PYXIS INTEGRATED DEBUG CONSOLE (F1 / ESCAPE)
+           ============================================================================= */
+        window.PyxisDebugConsole = (function () {
+            let isOpen = false;
+            let searchQuery = "";
+            let logs = [];
+            let initialFetched = false;
+
+            function getOverlay() {
+                return document.getElementById("pyxis-debug-console-overlay");
+            }
+
+            function getBody() {
+                return document.getElementById("pyxis-debug-console-body");
+            }
+
+            function getScrollBtn() {
+                return document.getElementById("pyxis-debug-btn-autoscroll");
+            }
+
+            function getCountBadge() {
+                return document.getElementById("pyxis-debug-log-count");
+            }
+
+            function isNearBottom(threshold = 50) {
+                const body = getBody();
+                if (!body) return true;
+                const distanceToBottom = body.scrollHeight - body.scrollTop - body.clientHeight;
+                return distanceToBottom <= threshold;
+            }
+
+            function updateScrollBtnVisibility() {
+                const btn = getScrollBtn();
+                if (!btn) return;
+                const nearBottom = isNearBottom(50);
+                btn.classList.toggle("is-visible", !nearBottom);
+            }
+
+            function scrollToBottom(smooth = true) {
+                const body = getBody();
+                if (!body) return;
+                if (smooth && typeof body.scrollTo === "function") {
+                    body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+                } else {
+                    body.scrollTop = body.scrollHeight;
+                }
+                setTimeout(updateScrollBtnVisibility, 150);
+            }
+
+            function formatLine(line) {
+                let cls = "log-dim";
+                const l = String(line).toLowerCase();
+                if (l.includes("error") || l.includes("exception") || l.includes("traceback") || l.includes("failed")) {
+                    cls = "log-error";
+                } else if (l.includes("warning") || l.includes("warn")) {
+                    cls = "log-warn";
+                } else if (l.includes("[pyxis scan]") || l.includes("loaded:") || l.includes("res=")) {
+                    cls = "log-scan";
+                } else if (l.includes("[pyxis") || l.includes("info") || l.includes("success") || l.includes("completed")) {
+                    cls = "log-info";
+                }
+                return `<div class="pyxis-log-row ${cls}">${escapeHtml(line)}</div>`;
+            }
+
+            function escapeHtml(str) {
+                return String(str)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+
+            function renderLogs(forceScrollToBottom = false) {
+                const body = getBody();
+                if (!body) return;
+
+                const shouldScroll = forceScrollToBottom || isNearBottom(50);
+
+                const filtered = searchQuery
+                    ? logs.filter(line => String(line).toLowerCase().includes(searchQuery.toLowerCase()))
+                    : logs;
+
+                const countBadge = getCountBadge();
+                if (countBadge) {
+                    const lineWord = window.PyxisI18n ? PyxisI18n.t("ui.console.lines") : "lines";
+                    countBadge.textContent = `${filtered.length} ${lineWord}`;
+                }
+
+                if (filtered.length === 0) {
+                    const emptyText = window.PyxisI18n ? PyxisI18n.t("ui.console.empty") : "No console logs.";
+                    body.innerHTML = `<div class="pyxis-debug-console-empty">${escapeHtml(emptyText)}</div>`;
+                    updateScrollBtnVisibility();
+                    return;
+                }
+
+                body.innerHTML = filtered.map(formatLine).join("");
+
+                if (shouldScroll) {
+                    body.scrollTop = body.scrollHeight;
+                }
+                updateScrollBtnVisibility();
+            }
+
+            function appendLog(line) {
+                if (!line) return;
+                logs.push(line);
+                if (logs.length > 3000) {
+                    logs.shift();
+                }
+                if (isOpen) {
+                    const body = getBody();
+                    if (!body) return;
+
+                    if (searchQuery && !String(line).toLowerCase().includes(searchQuery.toLowerCase())) {
+                        return;
+                    }
+
+                    const shouldScroll = isNearBottom(50);
+
+                    const emptyEl = body.querySelector(".pyxis-debug-console-empty");
+                    if (emptyEl) {
+                        emptyEl.remove();
+                    }
+
+                    const temp = document.createElement("div");
+                    temp.innerHTML = formatLine(line);
+                    const row = temp.firstElementChild;
+                    if (row) {
+                        body.appendChild(row);
+                        if (shouldScroll) {
+                            body.scrollTop = body.scrollHeight;
+                        }
+                    }
+
+                    const countBadge = getCountBadge();
+                    if (countBadge) {
+                        const lineWord = window.PyxisI18n ? PyxisI18n.t("ui.console.lines") : "lines";
+                        const total = searchQuery ? body.querySelectorAll(".pyxis-log-row").length : logs.length;
+                        countBadge.textContent = `${total} ${lineWord}`;
+                    }
+
+                    updateScrollBtnVisibility();
+                }
+            }
+
+            let pollTimer = null;
+
+            function fetchLogsFromBackend() {
+                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.get_console_logs === "function") {
+                    window.pywebview.api.get_console_logs().then(res => {
+                        if (res && res.success && Array.isArray(res.logs)) {
+                            const isFirst = !initialFetched;
+                            logs = res.logs.slice();
+                            initialFetched = true;
+                            if (isOpen) {
+                                renderLogs(isFirst);
+                            }
+                        }
+                    }).catch(() => {});
+                }
+            }
+
+            function open() {
+                isOpen = true;
+                const overlay = getOverlay();
+                if (overlay) {
+                    overlay.classList.add("is-open");
+                }
+                fetchLogsFromBackend();
+                if (pollTimer) clearInterval(pollTimer);
+                pollTimer = setInterval(fetchLogsFromBackend, 800);
+
+                const searchInput = document.getElementById("pyxis-debug-search-input");
+                if (searchInput) {
+                    setTimeout(() => searchInput.focus(), 50);
+                }
+                setTimeout(() => {
+                    scrollToBottom(false);
+                    updateScrollBtnVisibility();
+                }, 80);
+            }
+
+            function close() {
+                isOpen = false;
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+                const overlay = getOverlay();
+                if (overlay) {
+                    overlay.classList.remove("is-open");
+                }
+            }
+
+            function toggle() {
+                if (isOpen) close();
+                else open();
+            }
+
+            function clear() {
+                logs = [];
+                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.clear_console_logs === "function") {
+                    window.pywebview.api.clear_console_logs();
+                }
+                renderLogs(true);
+            }
+
+            function copy() {
+                const text = logs.join("");
+                if (!navigator.clipboard) {
+                    const ta = document.createElement("textarea");
+                    ta.value = text;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                } else {
+                    navigator.clipboard.writeText(text);
+                }
+                const btn = document.getElementById("pyxis-debug-copy-label");
+                if (btn) {
+                    const originalText = btn.textContent;
+                    btn.textContent = window.PyxisI18n ? PyxisI18n.t("ui.console.copied") : "Copied!";
+                    setTimeout(() => {
+                        btn.textContent = window.PyxisI18n ? PyxisI18n.t("ui.console.copy") : originalText;
+                    }, 1800);
+                }
+            }
+
+            function init() {
+                const closeBtn = document.getElementById("pyxis-debug-btn-close");
+                if (closeBtn) closeBtn.addEventListener("click", close);
+
+                const clearBtn = document.getElementById("pyxis-debug-btn-clear");
+                if (clearBtn) clearBtn.addEventListener("click", clear);
+
+                const copyBtn = document.getElementById("pyxis-debug-btn-copy");
+                if (copyBtn) copyBtn.addEventListener("click", copy);
+
+                const autoScrollBtn = document.getElementById("pyxis-debug-btn-autoscroll");
+                if (autoScrollBtn) {
+                    autoScrollBtn.addEventListener("click", () => {
+                        scrollToBottom(true);
+                    });
+                }
+
+                const body = getBody();
+                if (body) {
+                    body.addEventListener("scroll", updateScrollBtnVisibility, { passive: true });
+                }
+
+                const searchInput = document.getElementById("pyxis-debug-search-input");
+                if (searchInput) {
+                    searchInput.addEventListener("input", (e) => {
+                        searchQuery = e.target.value.trim();
+                        renderLogs();
+                    });
+                }
+
+                const overlay = getOverlay();
+                if (overlay) {
+                    overlay.addEventListener("click", (e) => {
+                        if (e.target === overlay) {
+                            close();
+                        }
+                    });
+                }
+            }
+
+            window.__pyxis_push_log = function (text) {
+                appendLog(text);
+            };
+
+            window.addEventListener("pywebviewready", () => {
+                fetchLogsFromBackend();
+            });
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", init);
+            } else {
+                init();
+            }
+
+            return {
+                open,
+                close,
+                toggle,
+                clear,
+                copy,
+                appendLog,
+                fetchLogs: fetchLogsFromBackend,
+                isOpen: () => isOpen,
+                scrollToBottom
+            };
+        })();
+
         window.addEventListener("keydown", function(e) {
             if (e.key === "F1") {
                 e.preventDefault();
-                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.toggle_python_console === "function") {
-                    window.pywebview.api.toggle_python_console();
+                if (window.PyxisDebugConsole) {
+                    window.PyxisDebugConsole.toggle();
+                }
+            } else if (e.key === "Escape") {
+                if (window.PyxisDebugConsole && window.PyxisDebugConsole.isOpen()) {
+                    e.preventDefault();
+                    window.PyxisDebugConsole.close();
                 }
             }
         });
@@ -20646,6 +21059,12 @@ function setupDynamicInlineNode(node) {
                                         pUpdated.lastW = node.size[0];
                                         pUpdated.lastH = node.size[1];
                                         pUpdated.art.resize();
+                                        if (pUpdated.jassub && typeof pUpdated.jassub.resize === 'function') {
+                                            try { pUpdated.jassub.resize(); } catch(e) {}
+                                        }
+                                        if (typeof pUpdated.applyTransform === 'function') {
+                                            pUpdated.applyTransform();
+                                        }
                                     }
                                 }
                             }
@@ -21036,6 +21455,30 @@ function setupDynamicInlineNode(node) {
                                     artInstance.template.$video.loop = true;
                                     const vidEl = artInstance.template.$video;
                                     vidEl.loop = true;
+
+                                    const playerEl = artInstance.template.$player;
+                                    if (playerEl && vidEl && vidEl.parentNode) {
+                                        let frame = playerEl.querySelector('.pyxis-video-frame');
+                                        if (!frame) {
+                                            frame = document.createElement('div');
+                                            frame.className = 'pyxis-video-frame';
+                                            vidEl.parentNode.insertBefore(frame, vidEl);
+                                        }
+                                        let viewport = frame.querySelector('.pyxis-video-viewport');
+                                        if (!viewport) {
+                                            viewport = document.createElement('div');
+                                            viewport.className = 'pyxis-video-viewport';
+                                            frame.appendChild(viewport);
+                                        }
+                                        if (vidEl.parentNode !== viewport) {
+                                            viewport.appendChild(vidEl);
+                                        }
+                                        const existingJassub = playerEl.querySelector('div.JASSUB');
+                                        if (existingJassub && existingJassub.parentNode !== viewport) {
+                                            viewport.appendChild(existingJassub);
+                                        }
+                                    }
+
                                     const onVideoMeta = () => {
                                         if (vidEl.videoWidth > 0 && vidEl.videoHeight > 0) {
                                             const detectedAspect = vidEl.videoWidth / vidEl.videoHeight;
@@ -21044,22 +21487,34 @@ function setupDynamicInlineNode(node) {
                                             const curSource = (node.properties && node.properties.preview_source) || "base";
                                             if (curSource === "base" && window.PyxisPreviewConfigBase) {
                                                 window.PyxisPreviewConfigBase.aspect_ratio = detectedAspect;
+                                                window.PyxisPreviewConfigBase.res_x = vidEl.videoWidth;
+                                                window.PyxisPreviewConfigBase.res_y = vidEl.videoHeight;
                                             } else if (curSource === "aegisub" && window.PyxisPreviewConfigAegi) {
                                                 window.PyxisPreviewConfigAegi.aspect_ratio = detectedAspect;
+                                                window.PyxisPreviewConfigAegi.res_x = vidEl.videoWidth;
+                                                window.PyxisPreviewConfigAegi.res_y = vidEl.videoHeight;
                                             }
                                             if (window.PyxisPreviewConfig) {
                                                 window.PyxisPreviewConfig.aspect_ratio = detectedAspect;
+                                                window.PyxisPreviewConfig.res_x = vidEl.videoWidth;
+                                                window.PyxisPreviewConfig.res_y = vidEl.videoHeight;
                                             }
                                             const pActive = activePlayers[nodeIdStr];
                                             if (!pActive || !pActive.isPinned) {
                                                 const dynMinW = getDynamicMinPreviewWidth(detectedAspect);
                                                 const curW = (node.size && node.size[0] && node.size[0] >= dynMinW) ? node.size[0] : 520;
                                                 const targetH = calculatePrevisualizadorNodeHeight(curW, detectedAspect);
-                                                if (!node.size || Math.abs(node.size[1] - targetH) > 1.5 || node.size[0] < dynMinW) {
-                                                    node.size = [curW, targetH];
-                                                    if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
-                                                    if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
+                                                node.size = [curW, targetH];
+                                                if (pActive) {
+                                                    pActive.lastW = curW;
+                                                    pActive.lastH = targetH;
+                                                    if (pActive.wrapper && !pActive.isPinned) {
+                                                        pActive.wrapper.style.width = Math.max(100, curW - 20) + 'px';
+                                                        pActive.wrapper.style.height = Math.max(100, targetH - 56) + 'px';
+                                                    }
                                                 }
+                                                if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
+                                                if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                             } else if (pActive && pActive.isPinned) {
                                                 if (pActive.originalSize) {
                                                     pActive.originalSize[1] = calculatePrevisualizadorNodeHeight(pActive.originalSize[0], detectedAspect);
@@ -21073,15 +21528,25 @@ function setupDynamicInlineNode(node) {
                                                     pActive.wrapper.style.setProperty('height', newFloatingH + 'px', 'important');
                                                     pActive.savedFloatingWidth = curFloatingW + 'px';
                                                     pActive.savedFloatingHeight = newFloatingH + 'px';
-                                                    if (pActive.art && typeof pActive.art.resize === 'function') {
-                                                        try { pActive.art.resize(); } catch(e) {}
-                                                    }
-                                                    if (pActive.jassub && typeof pActive.jassub.resize === 'function') {
-                                                        try { pActive.jassub.resize(); } catch(e) {}
-                                                    }
                                                 }
                                                 if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
                                                 if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
+                                            }
+                                            if (typeof updateInNodePlayersPosition === 'function') {
+                                                updateInNodePlayersPosition();
+                                            }
+                                            if (pActive) {
+                                                if (pActive.art && typeof pActive.art.resize === 'function') {
+                                                    try { pActive.art.resize(); } catch(e) {}
+                                                }
+                                                if (typeof pActive.resetTransform === 'function') {
+                                                    pActive.resetTransform();
+                                                } else if (typeof pActive.applyTransform === 'function') {
+                                                    pActive.applyTransform();
+                                                }
+                                                if (pActive.jassub && typeof pActive.jassub.resize === 'function') {
+                                                    try { pActive.jassub.resize(); } catch(e) {}
+                                                }
                                             }
                                         }
                                     };
@@ -21090,6 +21555,7 @@ function setupDynamicInlineNode(node) {
                                     }
                                     vidEl.addEventListener('loadedmetadata', onVideoMeta);
                                     artInstance.on('video:loadedmetadata', onVideoMeta);
+                                    artInstance.on('restart', onVideoMeta);
 
                                     artInstance.template.$video.addEventListener('play', function(e) {
                                         if ('mediaSession' in navigator) {
@@ -21105,6 +21571,7 @@ function setupDynamicInlineNode(node) {
                                 } catch(e) {}
                             }
                             setupCustomPlayerControls(artInstance, nodeIdStr, node, wrapper);
+                            setupPlayerViewportZoomPan(artInstance, nodeIdStr, box);
 
                             if (artInstance.template && artInstance.template.$progress) {
                                 const releaseProgressDrag = () => {
@@ -21122,7 +21589,10 @@ function setupDynamicInlineNode(node) {
                                         workerUrl: 'libs/jassub/jassub-worker.js',
                                         wasmUrl: location.origin + '/libs/jassub/jassub-worker.wasm',
                                         onDemandRender: false,
-                                        debug: false
+                                        debug: false,
+                                        prescaleFactor: 1.0,
+                                        prescaleHeightLimit: 4320,
+                                        maxRenderHeight: 0
                                     };
                                     if (initialAss) {
                                         jassOpts.subContent = initialAss;
@@ -21153,6 +21623,13 @@ function setupDynamicInlineNode(node) {
                                         jassOpts.fallbackFont = primaryFontClean;
                                     }
                                     jassubInstance = new JASSUB(jassOpts);
+                                    if (jassubInstance && jassubInstance._canvasParent) {
+                                        const playerContainer = (artInstance.template && artInstance.template.$player) || box;
+                                        const vp = playerContainer ? playerContainer.querySelector('.pyxis-video-viewport') : null;
+                                        if (vp && jassubInstance._canvasParent.parentNode !== vp) {
+                                            vp.appendChild(jassubInstance._canvasParent);
+                                        }
+                                    }
                                     if (initialAss && typeof updateJassubTrack === "function") {
                                         await updateJassubTrack(jassubInstance, initialAss);
                                     }
@@ -21166,6 +21643,315 @@ function setupDynamicInlineNode(node) {
                                 }
                             }
                         });
+                    }
+
+                    function setupPlayerViewportZoomPan(artInstance, nodeIdStr, box) {
+                        if (!artInstance || !box) return;
+
+                        const transformState = {
+                            zoom: 1.0,
+                            panX: 0,
+                            panY: 0,
+                            isPanning: false,
+                            startX: 0,
+                            startY: 0,
+                            startPanX: 0,
+                            startPanY: 0,
+                            isCustom: false,
+                            actualScale: 1.0,
+                            lastPW: null,
+                            lastPH: null
+                        };
+
+                        function getVideoContainer() {
+                            const vp = box.querySelector('.pyxis-video-viewport');
+                            if (vp) return vp;
+                            const vid = artInstance.template ? artInstance.template.$video : box.querySelector('video');
+                            if (vid && vid.parentElement && !vid.parentElement.classList.contains('art-video-player')) {
+                                return vid.parentElement;
+                            }
+                            return vid;
+                        }
+
+                        function getNativeResolution() {
+                            const vid = artInstance.template ? artInstance.template.$video : box.querySelector('video');
+                            const pActive = (window.PyxisNodePlayerManager && window.PyxisNodePlayerManager.activePlayers) 
+                                ? window.PyxisNodePlayerManager.activePlayers[nodeIdStr] 
+                                : null;
+                            const curSource = (pActive && pActive.node && pActive.node.properties && pActive.node.properties.preview_source) || "base";
+                            const pInfo = (curSource === "aegisub" && window.PyxisPreviewConfigAegi) 
+                                ? window.PyxisPreviewConfigAegi 
+                                : ((curSource === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig) || {};
+
+                            let nW = (vid && vid.videoWidth > 0) ? vid.videoWidth : (pInfo.res_x || 1920);
+                            let nH = (vid && vid.videoHeight > 0) ? vid.videoHeight : (pInfo.res_y || 1080);
+                            return { w: nW, h: nH };
+                        }
+
+                        function applyTransform() {
+                            const videoContainer = getVideoContainer();
+                            if (!videoContainer) return;
+                            const vid = artInstance.template ? artInstance.template.$video : box.querySelector('video');
+                            if (vid && videoContainer && vid.parentNode !== videoContainer) {
+                                videoContainer.appendChild(vid);
+                            }
+                            const jassubParent = box.querySelector('div.JASSUB');
+                            if (jassubParent && jassubParent.parentNode !== videoContainer) {
+                                videoContainer.appendChild(jassubParent);
+                            }
+                            const { w: nW, h: nH } = getNativeResolution();
+                            const safeNW = Math.max(1, nW || 1920);
+                            const safeNH = Math.max(1, nH || 1080);
+                            videoContainer.style.width = safeNW + 'px';
+                            videoContainer.style.height = safeNH + 'px';
+                            videoContainer.style.marginLeft = (-safeNW / 2) + 'px';
+                            videoContainer.style.marginTop = (-safeNH / 2) + 'px';
+
+                            const p = (window.PyxisNodePlayerManager && window.PyxisNodePlayerManager.activePlayers) 
+                                ? window.PyxisNodePlayerManager.activePlayers[nodeIdStr] 
+                                : null;
+                            const node = p ? p.node : null;
+
+                            let pW = 520;
+                            let pH = 292;
+
+                            const frameEl = box.querySelector('.pyxis-video-frame');
+                            if (frameEl && frameEl.clientWidth > 0 && frameEl.clientHeight > 0) {
+                                pW = frameEl.clientWidth;
+                                pH = frameEl.clientHeight;
+                            } else if (p && p.isFullscreen) {
+                                pW = window.innerWidth;
+                                pH = Math.max(50, window.innerHeight - 68);
+                            } else if (p && p.isPinned) {
+                                const targetWrapper = p.wrapper || box;
+                                pW = Math.max(100, targetWrapper.clientWidth || targetWrapper.offsetWidth || parseFloat(targetWrapper.style.width) || (p.savedFloatingWidth ? parseFloat(p.savedFloatingWidth) : 560));
+                                const totalH = targetWrapper.clientHeight || targetWrapper.offsetHeight || parseFloat(targetWrapper.style.height) || (p.savedFloatingHeight ? parseFloat(p.savedFloatingHeight) : 380);
+                                pH = Math.max(50, totalH - 98);
+                            } else if (node && node.size) {
+                                pW = Math.max(100, node.size[0] - 20);
+                                pH = Math.max(50, node.size[1] - 124);
+                            } else {
+                                const viewportParent = videoContainer.parentElement || box.querySelector('.pyxis-video-frame') || box;
+                                pW = viewportParent.clientWidth || viewportParent.offsetWidth || 520;
+                                pH = viewportParent.clientHeight || viewportParent.offsetHeight || 292;
+                                if (viewportParent.classList.contains('art-video-player') || viewportParent === box) {
+                                    pH = Math.max(50, pH - 68);
+                                }
+                            }
+
+                            const baseScale = Math.min(pW / safeNW, pH / safeNH);
+                            const pActiveObj = (window.PyxisNodePlayerManager && window.PyxisNodePlayerManager.activePlayers) 
+                                ? window.PyxisNodePlayerManager.activePlayers[nodeIdStr] 
+                                : null;
+
+                            let actualScale;
+                            if (transformState.isCustom && transformState.actualScale) {
+                                actualScale = transformState.actualScale;
+                                if (transformState.lastPW !== null && transformState.lastPH !== null) {
+                                    const dW = pW - transformState.lastPW;
+                                    const dH = pH - transformState.lastPH;
+                                    if (dW !== 0 || dH !== 0) {
+                                        const handleType = (pActiveObj && pActiveObj.activeResizeHandle) || 'se';
+                                        if (handleType === 'nw') {
+                                            transformState.panX += dW / 2;
+                                            transformState.panY += dH / 2;
+                                        } else if (handleType === 'ne') {
+                                            transformState.panX -= dW / 2;
+                                            transformState.panY += dH / 2;
+                                        } else if (handleType === 'sw') {
+                                            transformState.panX += dW / 2;
+                                            transformState.panY -= dH / 2;
+                                        } else { // 'se' and in-node player
+                                            transformState.panX -= dW / 2;
+                                            transformState.panY -= dH / 2;
+                                        }
+                                        transformState.panX = Math.round(transformState.panX * 100) / 100;
+                                        transformState.panY = Math.round(transformState.panY * 100) / 100;
+                                    }
+                                }
+                                transformState.zoom = Math.round((actualScale / baseScale) * 1000) / 1000;
+                            } else {
+                                transformState.isCustom = false;
+                                transformState.zoom = 1.0;
+                                transformState.panX = 0;
+                                transformState.panY = 0;
+                                actualScale = Math.round(baseScale * 100000) / 100000;
+                                transformState.actualScale = actualScale;
+                            }
+
+                            transformState.lastPW = pW;
+                            transformState.lastPH = pH;
+
+                            if (!isFinite(actualScale) || isNaN(actualScale) || actualScale <= 0) {
+                                actualScale = 1.0;
+                            }
+
+                            videoContainer.style.transform = `translate3d(${transformState.panX}px, ${transformState.panY}px, 0px) scale(${actualScale})`;
+                        }
+
+                        function resetTransform() {
+                            transformState.isCustom = false;
+                            transformState.zoom = 1.0;
+                            transformState.panX = 0;
+                            transformState.panY = 0;
+                            transformState.isPanning = false;
+                            transformState.actualScale = null;
+                            box.classList.remove('is-panning');
+                            applyTransform();
+                        }
+
+                        // 1. Zoom con la rueda del ratón focalizado en el puntero
+                        const onWheel = (e) => {
+                            const target = e.target;
+                            if (target && target.closest && target.closest('.pyxis-custom-player-controls')) {
+                                return;
+                            }
+                            e.preventDefault();
+                            e.stopPropagation();
+
+                            const videoContainer = getVideoContainer();
+                            if (!videoContainer) return;
+
+                            const viewportParent = videoContainer.parentElement || box.querySelector('.pyxis-video-frame') || box;
+                            const parentRect = viewportParent.getBoundingClientRect();
+                            const { w: nW, h: nH } = getNativeResolution();
+                            const safeNW = Math.max(1, nW || 1920);
+                            const safeNH = Math.max(1, nH || 1080);
+                            const pW = viewportParent.clientWidth || 520;
+                            const pH = viewportParent.clientHeight || 292;
+                            const baseScale = Math.min(pW / safeNW, pH / safeNH);
+
+                            const mouseX = e.clientX - parentRect.left;
+                            const mouseY = e.clientY - parentRect.top;
+
+                            const midX = parentRect.width / 2;
+                            const midY = parentRect.height / 2;
+
+                            const dx = mouseX - midX;
+                            const dy = mouseY - midY;
+
+                            const curScale = (transformState.isCustom && transformState.actualScale) 
+                                ? transformState.actualScale 
+                                : baseScale;
+                            const zoomFactor = e.deltaY < 0 ? 1.15 : (1 / 1.15);
+                            let newScale = curScale * zoomFactor;
+
+                            if (newScale <= baseScale * 1.02) {
+                                resetTransform();
+                                return;
+                            } else if (newScale > baseScale * 15.0) {
+                                newScale = baseScale * 15.0;
+                            }
+
+                            const scaleRatio = newScale / curScale;
+                            transformState.panX = Math.round((dx - (dx - transformState.panX) * scaleRatio) * 100) / 100;
+                            transformState.panY = Math.round((dy - (dy - transformState.panY) * scaleRatio) * 100) / 100;
+                            transformState.actualScale = newScale;
+                            transformState.zoom = Math.round((newScale / baseScale) * 1000) / 1000;
+                            transformState.isCustom = true;
+                            transformState.lastPW = pW;
+                            transformState.lastPH = pH;
+
+                            applyTransform();
+                        };
+
+                        // 2. Pan con botón medio del ratón (button === 1)
+                        const onPointerDown = (e) => {
+                            if (e.button === 1) {
+                                const target = e.target;
+                                if (target && target.closest && target.closest('.pyxis-custom-player-controls')) {
+                                    return;
+                                }
+                                e.preventDefault();
+                                e.stopPropagation();
+
+                                transformState.isPanning = true;
+                                transformState.startX = e.clientX;
+                                transformState.startY = e.clientY;
+                                transformState.startPanX = transformState.panX;
+                                transformState.startPanY = transformState.panY;
+
+                                box.classList.add('is-panning');
+                                try { box.setPointerCapture(e.pointerId); } catch(err) {}
+                            }
+                        };
+
+                        const onPointerMove = (e) => {
+                            if (!transformState.isPanning) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+
+                            const dx = e.clientX - transformState.startX;
+                            const dy = e.clientY - transformState.startY;
+
+                            transformState.panX = transformState.startPanX + dx;
+                            transformState.panY = transformState.startPanY + dy;
+                            transformState.isCustom = true;
+
+                            applyTransform();
+                        };
+
+                        const onPointerUp = (e) => {
+                            if (transformState.isPanning) {
+                                transformState.isPanning = false;
+                                box.classList.remove('is-panning');
+                                try { box.releasePointerCapture(e.pointerId); } catch(err) {}
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }
+                        };
+
+                        // 3. Prevenir menú auxiliar o scroll por defecto con botón medio
+                        const onAuxClick = (e) => {
+                            if (e.button === 1) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }
+                        };
+
+                        // 4. Restablecer con la tecla R cuando el ratón está sobre el reproductor
+                        let isMouseOver = false;
+                        const onMouseEnter = () => { isMouseOver = true; };
+                        const onMouseLeave = () => { isMouseOver = false; };
+                        box.addEventListener('mouseenter', onMouseEnter);
+                        box.addEventListener('mouseleave', onMouseLeave);
+
+                        const onKeyDown = (e) => {
+                            if (!isMouseOver) return;
+                            const activeEl = document.activeElement;
+                            if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
+                                return;
+                            }
+                            if (e.key === 'r' || e.key === 'R') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                resetTransform();
+                            }
+                        };
+                        window.addEventListener('keydown', onKeyDown);
+
+                        box.addEventListener('wheel', onWheel, { passive: false });
+                        box.addEventListener('pointerdown', onPointerDown);
+                        box.addEventListener('pointermove', onPointerMove);
+                        box.addEventListener('pointerup', onPointerUp);
+                        box.addEventListener('pointercancel', onPointerUp);
+                        box.addEventListener('auxclick', onAuxClick);
+
+                        applyTransform();
+                        artInstance.on('resize', () => {
+                            applyTransform();
+                        });
+
+                        if (activePlayers[nodeIdStr]) {
+                            activePlayers[nodeIdStr].transformState = transformState;
+                            activePlayers[nodeIdStr].resetTransform = resetTransform;
+                            activePlayers[nodeIdStr].applyTransform = applyTransform;
+                            activePlayers[nodeIdStr].destroyZoomPan = () => {
+                                window.removeEventListener('keydown', onKeyDown);
+                                box.removeEventListener('mouseenter', onMouseEnter);
+                                box.removeEventListener('mouseleave', onMouseLeave);
+                            };
+                        }
                     }
 
                     function setupCustomPlayerControls(artInstance, nodeIdStr, node, wrapper) {
@@ -21488,6 +22274,7 @@ function setupDynamicInlineNode(node) {
                             setTimeout(() => {
                                 if (artInstance && typeof artInstance.resize === 'function') artInstance.resize();
                                 if (p && p.jassub && typeof p.jassub.resize === 'function') p.jassub.resize();
+                                if (p && typeof p.applyTransform === 'function') p.applyTransform();
                             }, 60);
                         }
 
@@ -21650,7 +22437,8 @@ function setupDynamicInlineNode(node) {
                     }
 
                     const hasAegi = Boolean(previewInfo && previewInfo.has_aegisub);
-                    activePlayers[nodeIdStr] = {
+                    const existingP = activePlayers[nodeIdStr] || {};
+                    activePlayers[nodeIdStr] = Object.assign(existingP, {
                         wrapper: wrapper,
                         headerActions: headerActions,
                         art: artInstance,
@@ -21660,7 +22448,7 @@ function setupDynamicInlineNode(node) {
                         hasRefreshed: false,
                         hasAegisub: hasAegi,
                         videoUrl: videoUrl
-                    };
+                    });
                     updateSourceButtonUI(nodeIdStr, curSource, hasAegi);
                     updatePreviewMetadataBadges(nodeIdStr, previewInfo);
                 } finally {
@@ -21680,6 +22468,9 @@ function setupDynamicInlineNode(node) {
                 }
                 if (p.art && typeof p.art.destroy === 'function') {
                     try { p.art.destroy(true); } catch (e) {}
+                }
+                if (typeof p.destroyZoomPan === 'function') {
+                    try { p.destroyZoomPan(); } catch (e) {}
                 }
                 if (p.wrapper && p.wrapper.parentNode) {
                     p.wrapper.parentNode.removeChild(p.wrapper);
@@ -21755,6 +22546,10 @@ function setupDynamicInlineNode(node) {
                 const nextSource = (curSource === "base") ? "aegisub" : "base";
                 p.node.properties.preview_source = nextSource;
 
+                if (typeof p.resetTransform === 'function') {
+                    p.resetTransform();
+                }
+
                 updateSourceButtonUI(nodeIdStr, nextSource, hasAegi);
 
                 if (typeof window.showPyxisToast === 'function') {
@@ -21787,11 +22582,15 @@ function setupDynamicInlineNode(node) {
                                             targetW = Math.max(dynMinW, Math.min(1280, scaled));
                                         }
                                         const newH = calculatePrevisualizadorNodeHeight(targetW, nodeAspect);
-                                        if (!p.node.size || p.node.size[0] !== targetW || Math.abs(p.node.size[1] - newH) > 1.5) {
-                                            p.node.size = [targetW, newH];
-                                            if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
-                                            if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
+                                        p.node.size = [targetW, newH];
+                                        p.lastW = targetW;
+                                        p.lastH = newH;
+                                        if (p.wrapper && !p.isPinned) {
+                                            p.wrapper.style.width = Math.max(100, targetW - 20) + 'px';
+                                            p.wrapper.style.height = Math.max(100, newH - 56) + 'px';
                                         }
+                                        if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
+                                        if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                     } else {
                                         p.node.size = [300, 54];
                                         if (p.originalSize) {
@@ -21817,6 +22616,11 @@ function setupDynamicInlineNode(node) {
                                             if (p.jassub && typeof p.jassub.resize === 'function') {
                                                 try { p.jassub.resize(); } catch(e) {}
                                             }
+                                            if (typeof p.resetTransform === 'function') {
+                                                try { p.resetTransform(); } catch(e) {}
+                                            } else if (typeof p.applyTransform === 'function') {
+                                                try { p.applyTransform(); } catch(e) {}
+                                            }
                                         }
                                         if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                         if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
@@ -21829,7 +22633,7 @@ function setupDynamicInlineNode(node) {
                             const newVideoUrl = await window.pywebview.api.get_preview_video_data_url(nextSource, connectedOutputs, serialized);
                             if (newVideoUrl && p.art && p.videoUrl !== newVideoUrl) {
                                 p.videoUrl = newVideoUrl;
-                                try { p.art.switchUrl(newVideoUrl); } catch (e) {}
+                                try { await p.art.switchUrl(newVideoUrl); } catch (e) {}
                             }
                         }
                         if (typeof window.pywebview.api.get_preview_fonts_map === 'function' && p.jassub) {
@@ -21852,6 +22656,17 @@ function setupDynamicInlineNode(node) {
                             try { p.art.seek = 0; } catch (e) {}
                             try { p.art.currentTime = 0; } catch (e) {}
                         }
+                        if (typeof updateInNodePlayersPosition === 'function') {
+                            updateInNodePlayersPosition();
+                        }
+                        if (p.art && typeof p.art.resize === 'function') {
+                            try { p.art.resize(); } catch(e) {}
+                        }
+                        if (typeof p.resetTransform === 'function') {
+                            try { p.resetTransform(); } catch(e) {}
+                        } else if (typeof p.applyTransform === 'function') {
+                            p.applyTransform();
+                        }
                         if (p.jassub && typeof p.jassub.resize === 'function') {
                             try { p.jassub.resize(); } catch (e) {}
                         }
@@ -21871,7 +22686,7 @@ function setupDynamicInlineNode(node) {
 
                 function parseAndPushString(strVal) {
                     if (!strVal) return;
-                    const items = String(strVal).split(',').map(s => s.trim()).filter(Boolean);
+                    const items = String(strVal).split(/[,;]+/).map(s => s.trim()).filter(Boolean);
                     items.forEach(item => {
                         if (!connectedOutputIds.includes(item)) {
                             connectedOutputIds.push(item);
@@ -21889,46 +22704,47 @@ function setupDynamicInlineNode(node) {
                     const nType = (targetNode.type || '').toLowerCase();
                     const nTitle = (targetNode.title || '').toLowerCase();
 
-                    if (nType.includes('salida') || nType.includes('output') || nTitle.includes('salida') || nTitle.includes('output')) {
-                        const customId = (targetNode.properties && (targetNode.properties.output_id || targetNode.properties.salida_id || targetNode.properties.queue_id)) 
-                            ? String(targetNode.properties.output_id || targetNode.properties.salida_id || targetNode.properties.queue_id).trim() 
-                            : "";
-                        
-                        if (customId && !connectedOutputIds.includes(customId)) {
-                            connectedOutputIds.push(customId);
-                        }
-                        if (targetNode.title && targetNode.title.trim() && !connectedOutputIds.includes(targetNode.title.trim())) {
-                            connectedOutputIds.push(targetNode.title.trim());
-                        }
+                    // If it is an Output / Salida node:
+                    if (nType.includes('salida') || nType.includes('output') || nTitle === 'salida' || nTitle === 'output' || targetNode.kind === 'output') {
+                        // 1. Identify precisely by node id (unique integer string)
                         const numId = String(targetNode.id);
                         if (!connectedOutputIds.includes(numId)) {
                             connectedOutputIds.push(numId);
                         }
-                        if (!customId && !connectedOutputIds.includes("default")) {
-                            connectedOutputIds.push("default");
+
+                        // 2. Identify by custom user output_id / queue_id if specified
+                        const customId = (targetNode.properties && (targetNode.properties.output_id || targetNode.properties.salida_id || targetNode.properties.queue_id)) 
+                            ? String(targetNode.properties.output_id || targetNode.properties.salida_id || targetNode.properties.queue_id).trim() 
+                            : "";
+                        if (customId && !connectedOutputIds.includes(customId)) {
+                            connectedOutputIds.push(customId);
                         }
+
+                        // 3. If targetNode has a custom non-generic title (renamed by user), include it
+                        const rawTitle = (targetNode.title || '').trim();
+                        const isGenericTitle = (rawTitle.toLowerCase() === 'salida' || rawTitle.toLowerCase() === 'output');
+                        if (rawTitle && !isGenericTitle && !connectedOutputIds.includes(rawTitle)) {
+                            connectedOutputIds.push(rawTitle);
+                        }
+
+                        // Do NOT push generic "default", "Salida", or "Output"
                         return;
                     }
 
-                    if (nType.includes('string') || nType.includes('texto') || nTitle.includes('string') || nTitle.includes('texto')) {
+                    // If it is a String / Text / Variable node connected to preview:
+                    if (nType.includes('string') || nType.includes('text') || nType.includes('texto') || nType.includes('var') || nTitle.includes('string') || nTitle.includes('text')) {
                         let textVal = (targetNode.properties && (targetNode.properties.value !== undefined ? targetNode.properties.value : targetNode.properties.text)) 
                             ? String(targetNode.properties.value !== undefined ? targetNode.properties.value : targetNode.properties.text)
                             : "";
                         if (!textVal && targetNode.widgets && targetNode.widgets[0]) {
                             textVal = String(targetNode.widgets[0].value || "");
                         }
-                        parseAndPushString(textVal);
-                    }
-
-                    if (targetNode.properties) {
-                        for (const k in targetNode.properties) {
-                            if (k.toLowerCase().startsWith('in') || k.toLowerCase().includes('val') || k.toLowerCase() === 'texto' || k.toLowerCase() === 'salida_ids' || k.toLowerCase() === 'output_ids') {
-                                const v = String(targetNode.properties[k] || "");
-                                if (v && (v.includes(',') || v.includes(';') || v.includes(' '))) parseAndPushString(v);
-                            }
+                        if (textVal && textVal.trim()) {
+                            parseAndPushString(textVal);
                         }
                     }
 
+                    // Trace upstream links (e.g. if connected via a pass-through or router node)
                     if (targetNode.inputs && targetNode.inputs.length > 0) {
                         targetNode.inputs.forEach(inp => {
                             const linkIds = [];
@@ -21948,23 +22764,26 @@ function setupDynamicInlineNode(node) {
                     }
                 }
 
-                if (previewNode.inputs && previewNode.inputs[0]) {
-                    const inp0 = previewNode.inputs[0];
-                    const linkIds = [];
-                    if (Array.isArray(inp0.links) && inp0.links.length > 0) {
-                        linkIds.push(...inp0.links);
-                    } else if (inp0.link !== null && inp0.link !== undefined) {
-                        linkIds.push(inp0.link);
-                    }
-
-                    linkIds.forEach(lId => {
-                        const link = window.graph.links[lId];
-                        if (link && link.origin_id) {
-                            traceUpstreamNode(link.origin_id);
+                // Check links directly connected to previewNode's inputs (all input slots)
+                if (previewNode.inputs && previewNode.inputs.length > 0) {
+                    previewNode.inputs.forEach(inp => {
+                        const linkIds = [];
+                        if (Array.isArray(inp.links) && inp.links.length > 0) {
+                            linkIds.push(...inp.links);
+                        } else if (inp.link !== null && inp.link !== undefined) {
+                            linkIds.push(inp.link);
                         }
+
+                        linkIds.forEach(lId => {
+                            const link = window.graph.links[lId];
+                            if (link && link.origin_id) {
+                                traceUpstreamNode(link.origin_id);
+                            }
+                        });
                     });
                 }
 
+                // Check text properties configured directly on the preview node
                 let textIdsStr = (previewNode.properties && (previewNode.properties.output_ids !== undefined ? previewNode.properties.output_ids : previewNode.properties.salida_ids)) ? String(previewNode.properties.output_ids !== undefined ? previewNode.properties.output_ids : previewNode.properties.salida_ids) : "";
                 if (!textIdsStr && previewNode.widgets) {
                     const w = previewNode.widgets.find(w => w.property === "output_ids" || w.property === "salida_ids" || w.name === "salida_ids" || w.name === "Output IDs");
@@ -21975,36 +22794,8 @@ function setupDynamicInlineNode(node) {
                     parseAndPushString(textIdsStr);
                 }
 
-                if (connectedOutputIds.length === 0 && window.graph && window.graph._nodes) {
-                    const allSalidas = window.graph._nodes.filter(n => {
-                        if (!n) return false;
-                        const nType = (n.type || '').toLowerCase();
-                        const nTitle = (n.title || '').toLowerCase();
-                        return nType.includes('salida') || nType.includes('output') || nTitle.includes('salida') || nTitle.includes('output');
-                    });
-                    allSalidas.forEach(targetNode => {
-                        const customId = (targetNode.properties && (targetNode.properties.output_id || targetNode.properties.salida_id || targetNode.properties.queue_id)) 
-                            ? String(targetNode.properties.output_id || targetNode.properties.salida_id || targetNode.properties.queue_id).trim() 
-                            : "";
-                        if (customId && !connectedOutputIds.includes(customId)) {
-                            connectedOutputIds.push(customId);
-                        }
-                        if (targetNode.title && targetNode.title.trim() && !connectedOutputIds.includes(targetNode.title.trim())) {
-                            connectedOutputIds.push(targetNode.title.trim());
-                        }
-                        const numId = String(targetNode.id);
-                        if (!connectedOutputIds.includes(numId)) {
-                            connectedOutputIds.push(numId);
-                        }
-                        if (!customId && !connectedOutputIds.includes("default")) {
-                            connectedOutputIds.push("default");
-                        }
-                    });
-                    if (connectedOutputIds.length === 0) {
-                        connectedOutputIds.push("default");
-                    }
-                }
-
+                // STRICT: Do NOT fall back to allSalidas or "default".
+                // If nothing is connected or typed, connectedOutputIds remains []!
                 return connectedOutputIds;
             }
 
@@ -22030,13 +22821,6 @@ function setupDynamicInlineNode(node) {
 
                     logPlayer("refreshPreview source=" + curSource + " resolved output IDs: " + JSON.stringify(connectedOutputIds));
 
-                    if (connectedOutputIds.length === 0) {
-                        if (typeof window.showPyxisToast === 'function') {
-                            window.showPyxisToast(window.t ? window.t("preview.no_outputs_warning") : "No outputs connected or specified", "warning");
-                        }
-                        return;
-                    }
-
                     let updatedInfo = null;
                     if (typeof window.pywebview.api.get_preview_info === 'function') {
                         updatedInfo = await window.pywebview.api.get_preview_info(curSource, connectedOutputIds, serialized);
@@ -22054,11 +22838,15 @@ function setupDynamicInlineNode(node) {
                                         const dynMinW = getDynamicMinPreviewWidth(nodeAspect);
                                         const curW = (p.node.size && p.node.size[0] && p.node.size[0] >= dynMinW) ? p.node.size[0] : 520;
                                         const newH = calculatePrevisualizadorNodeHeight(curW, nodeAspect);
-                                        if (!p.node.size || Math.abs(p.node.size[1] - newH) > 1.5) {
-                                            p.node.size = [curW, newH];
-                                            if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
-                                            if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
+                                        p.node.size = [curW, newH];
+                                        p.lastW = curW;
+                                        p.lastH = newH;
+                                        if (p.wrapper && !p.isPinned) {
+                                            p.wrapper.style.width = Math.max(100, curW - 20) + 'px';
+                                            p.wrapper.style.height = Math.max(100, newH - 56) + 'px';
                                         }
+                                        if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
+                                        if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                     } else {
                                         p.node.size = [300, 54];
                                         if (p.originalSize) {
@@ -22078,6 +22866,9 @@ function setupDynamicInlineNode(node) {
                                             }
                                             if (p.jassub && typeof p.jassub.resize === 'function') {
                                                 try { p.jassub.resize(); } catch(e) {}
+                                            }
+                                            if (typeof p.applyTransform === 'function') {
+                                                try { p.applyTransform(); } catch(e) {}
                                             }
                                         }
                                         if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
@@ -22120,20 +22911,45 @@ function setupDynamicInlineNode(node) {
 
                     const assFilename = 'preview_dummy_' + nodeId + '.ass';
                     const res = await window.pywebview.api.generate_preview_ass(serialized, connectedOutputIds, assFilename, undefined, undefined, curSource);
+                    let trackUpdated = false;
                     if (res && (res === true || res.success) && res.content !== undefined) {
                         if (p && p.jassub) {
                             await updateJassubTrack(p.jassub, res.content);
+                            trackUpdated = true;
                         }
-                        if (res.content && typeof window.showPyxisToast === 'function') {
+                    }
+                    if (!trackUpdated && connectedOutputIds.length === 0 && typeof window.pywebview.api.get_initial_base_ass === 'function' && p && p.jassub) {
+                        const baseAss = await window.pywebview.api.get_initial_base_ass(curSource, connectedOutputIds, serialized);
+                        if (baseAss) {
+                            await updateJassubTrack(p.jassub, baseAss);
+                            trackUpdated = true;
+                        }
+                    }
+                    if (typeof window.showPyxisToast === 'function') {
+                        if (connectedOutputIds.length === 0) {
+                            window.showPyxisToast(window.t ? window.t("preview.restored_base") : "Previsualización restablecida al subtítulo base original (sin salidas conectadas)", "info");
+                        } else if (trackUpdated) {
                             window.showPyxisToast("toast.effect_generated_preview", "success");
                         }
                     }
                     if (videoChanged && p && p.art) {
                         try { p.art.seek = 0; } catch (e) {}
                         try { p.art.currentTime = 0; } catch (e) {}
+                        if (typeof p.resetTransform === 'function') {
+                            try { p.resetTransform(); } catch(e) {}
+                        }
+                    }
+                    if (typeof updateInNodePlayersPosition === 'function') {
+                        updateInNodePlayersPosition();
+                    }
+                    if (p && p.art && typeof p.art.resize === 'function') {
+                        try { p.art.resize(); } catch(e) {}
+                    }
+                    if (p && typeof p.applyTransform === 'function') {
+                        p.applyTransform();
                     }
                     if (p && p.jassub && typeof p.jassub.resize === 'function') {
-                        try { p.jassub.resize(); } catch (e) {}
+                        try { p.jassub.resize(); } catch(e) {}
                     }
                 } catch (err) {
                     console.error("[Pyxis Preview Refresh Error]", err);
@@ -22460,8 +23276,14 @@ function setupDynamicInlineNode(node) {
                     const currentAspect = getNodePreviewAspectRatio(p.node);
                     const initFloatingW = 560;
                     const initFloatingH = Math.round(initFloatingW / currentAspect) + 98;
-                    const targetW = p.savedFloatingWidth || (initFloatingW + 'px');
-                    const targetH = p.savedFloatingHeight || (initFloatingH + 'px');
+                    const curFloatingW = p.savedFloatingWidth ? Math.max(340, parseFloat(p.savedFloatingWidth)) : initFloatingW;
+                    const expectedFloatingH = Math.round(curFloatingW / currentAspect) + 98;
+                    const targetW = curFloatingW + 'px';
+                    let targetH = p.savedFloatingHeight;
+                    if (!targetH || Math.abs((parseFloat(targetH) || 0) - expectedFloatingH) > 8) {
+                        targetH = expectedFloatingH + 'px';
+                        p.savedFloatingHeight = targetH;
+                    }
                     const targetLeft = p.savedFloatingLeft || defaultLeft;
                     let targetTop = p.savedFloatingTop || defaultTop;
                     if (parseInt(targetTop, 10) < topBarH + 8) {
@@ -22525,6 +23347,7 @@ function setupDynamicInlineNode(node) {
                                 document.body.classList.add('pyxis-resizing-active');
                                 pObj.wrapper.classList.add('is-resizing');
                                 pObj.wrapper.style.transition = 'none';
+                                pObj.activeResizeHandle = handleType;
                                 handle.setPointerCapture(e.pointerId);
                             });
 
@@ -22537,45 +23360,107 @@ function setupDynamicInlineNode(node) {
                                 const dy = e.clientY - startY;
 
                                 const minW = 340;
-                                const maxW = cachedMaxW;
                                 const chromeH = 98;
                                 const curAspect = cachedAspect;
+                                const margin = 8;
+                                const minLeft = margin;
+                                const maxRight = window.innerWidth - margin;
+                                const minTop = cachedMinTop;
+                                const maxBottom = window.innerHeight - margin;
+
+                                const eff_dx = (handleType === 'se' || handleType === 'ne') ? dx : -dx;
+                                const eff_dy = (handleType === 'se' || handleType === 'sw') ? dy : -dy;
+                                const deltaW = Math.round((eff_dx * curAspect + eff_dy) * curAspect / (curAspect * curAspect + 1));
+                                const targetW = startW + deltaW;
 
                                 let newW = startW;
                                 let newH = startH;
                                 let newLeft = startLeft;
                                 let newTop = startTop;
 
-                                if (handleType === 'se') {
-                                    const proj = (dx * curAspect + dy) / (curAspect * curAspect + 1);
-                                    newW = Math.max(minW, Math.min(maxW, Math.round(startW + proj * curAspect)));
-                                    newH = Math.round(newW / curAspect) + chromeH;
-                                    newLeft = startLeft;
-                                    newTop = startTop;
-                                } else if (handleType === 'sw') {
-                                    const proj = (-dx * curAspect + dy) / (curAspect * curAspect + 1);
-                                    newW = Math.max(minW, Math.min(maxW, Math.round(startW + proj * curAspect)));
+                                if (handleType === 'nw') {
+                                    const limitW_x = Math.max(minW, startRight - minLeft);
+                                    const limitH_y = Math.max(minW / curAspect + chromeH, startBottom - minTop);
+                                    const limitW_y = Math.max(minW, Math.round((limitH_y - chromeH) * curAspect));
+                                    const maxAllowedW = Math.min(cachedMaxW, limitW_x, limitW_y);
+
+                                    newW = Math.max(minW, Math.min(maxAllowedW, targetW));
                                     newH = Math.round(newW / curAspect) + chromeH;
                                     newLeft = startRight - newW;
-                                    newTop = startTop;
+                                    newTop = startBottom - newH;
+
+                                    if (newLeft < minLeft) {
+                                        newLeft = minLeft;
+                                        newW = startRight - newLeft;
+                                        newH = Math.round(newW / curAspect) + chromeH;
+                                        newTop = startBottom - newH;
+                                    }
+                                    if (newTop < minTop) {
+                                        newTop = minTop;
+                                        newH = startBottom - newTop;
+                                        newW = Math.round((newH - chromeH) * curAspect);
+                                        newLeft = startRight - newW;
+                                    }
                                 } else if (handleType === 'ne') {
-                                    const proj = (dx * curAspect - dy) / (curAspect * curAspect + 1);
-                                    newW = Math.max(minW, Math.min(maxW, Math.round(startW + proj * curAspect)));
+                                    const limitW_x = Math.max(minW, maxRight - startLeft);
+                                    const limitH_y = Math.max(minW / curAspect + chromeH, startBottom - minTop);
+                                    const limitW_y = Math.max(minW, Math.round((limitH_y - chromeH) * curAspect));
+                                    const maxAllowedW = Math.min(cachedMaxW, limitW_x, limitW_y);
+
+                                    newW = Math.max(minW, Math.min(maxAllowedW, targetW));
                                     newH = Math.round(newW / curAspect) + chromeH;
                                     newLeft = startLeft;
                                     newTop = startBottom - newH;
-                                } else if (handleType === 'nw') {
-                                    const proj = (-dx * curAspect - dy) / (curAspect * curAspect + 1);
-                                    newW = Math.max(minW, Math.min(maxW, Math.round(startW + proj * curAspect)));
-                                    newH = Math.round(newW / curAspect) + chromeH;
-                                }
 
-                                if (newTop < cachedMinTop) {
-                                    newTop = cachedMinTop;
-                                    newH = startBottom - cachedMinTop;
-                                    newW = Math.max(minW, Math.min(maxW, Math.round((newH - chromeH) * curAspect)));
-                                    if (handleType === 'nw') {
+                                    if (newLeft + newW > maxRight) {
+                                        newW = maxRight - newLeft;
+                                        newH = Math.round(newW / curAspect) + chromeH;
+                                        newTop = startBottom - newH;
+                                    }
+                                    if (newTop < minTop) {
+                                        newTop = minTop;
+                                        newH = startBottom - newTop;
+                                        newW = Math.round((newH - chromeH) * curAspect);
+                                    }
+                                } else if (handleType === 'sw') {
+                                    const limitW_x = Math.max(minW, startRight - minLeft);
+                                    const limitH_y = Math.max(minW / curAspect + chromeH, maxBottom - startTop);
+                                    const limitW_y = Math.max(minW, Math.round((limitH_y - chromeH) * curAspect));
+                                    const maxAllowedW = Math.min(cachedMaxW, limitW_x, limitW_y);
+
+                                    newW = Math.max(minW, Math.min(maxAllowedW, targetW));
+                                    newH = Math.round(newW / curAspect) + chromeH;
+                                    newLeft = startRight - newW;
+                                    newTop = startTop;
+
+                                    if (newLeft < minLeft) {
+                                        newLeft = minLeft;
+                                        newW = startRight - newLeft;
+                                        newH = Math.round(newW / curAspect) + chromeH;
+                                    }
+                                    if (newTop + newH > maxBottom) {
+                                        newH = maxBottom - newTop;
+                                        newW = Math.round((newH - chromeH) * curAspect);
                                         newLeft = startRight - newW;
+                                    }
+                                } else if (handleType === 'se') {
+                                    const limitW_x = Math.max(minW, maxRight - startLeft);
+                                    const limitH_y = Math.max(minW / curAspect + chromeH, maxBottom - startTop);
+                                    const limitW_y = Math.max(minW, Math.round((limitH_y - chromeH) * curAspect));
+                                    const maxAllowedW = Math.min(cachedMaxW, limitW_x, limitW_y);
+
+                                    newW = Math.max(minW, Math.min(maxAllowedW, targetW));
+                                    newH = Math.round(newW / curAspect) + chromeH;
+                                    newLeft = startLeft;
+                                    newTop = startTop;
+
+                                    if (newLeft + newW > maxRight) {
+                                        newW = maxRight - newLeft;
+                                        newH = Math.round(newW / curAspect) + chromeH;
+                                    }
+                                    if (newTop + newH > maxBottom) {
+                                        newH = maxBottom - newTop;
+                                        newW = Math.round((newH - chromeH) * curAspect);
                                     }
                                 }
 
@@ -22595,6 +23480,9 @@ function setupDynamicInlineNode(node) {
                                 if (pObj.jassub && typeof pObj.jassub.resize === 'function') {
                                     try { pObj.jassub.resize(); } catch (err) {}
                                 }
+                                if (typeof pObj.applyTransform === 'function') {
+                                    try { pObj.applyTransform(); } catch (err) {}
+                                }
                             };
 
                             handle.addEventListener('pointermove', onResizeMove);
@@ -22605,6 +23493,7 @@ function setupDynamicInlineNode(node) {
                                 window.__pyxisDraggingFloating = false;
                                 document.body.classList.remove('pyxis-resizing-active');
                                 pObj.wrapper.classList.remove('is-resizing');
+                                pObj.activeResizeHandle = null;
                                 try { handle.releasePointerCapture(e.pointerId); } catch (err) {}
 
                                 pObj.savedFloatingWidth = currentW + 'px';
@@ -22623,11 +23512,22 @@ function setupDynamicInlineNode(node) {
 
                     attachPyxisFloatingResizers(p);
 
+                    if (p.art && typeof p.art.resize === 'function') try { p.art.resize(); } catch (e) {}
+                    if (p.jassub && typeof p.jassub.resize === 'function') try { p.jassub.resize(); } catch (e) {}
+                    if (typeof p.applyTransform === 'function') try { p.applyTransform(); } catch (e) {}
+
+                    requestAnimationFrame(() => {
+                        if (p.art && typeof p.art.resize === 'function') try { p.art.resize(); } catch (e) {}
+                        if (p.jassub && typeof p.jassub.resize === 'function') try { p.jassub.resize(); } catch (e) {}
+                        if (typeof p.applyTransform === 'function') try { p.applyTransform(); } catch (e) {}
+                    });
+
                     if (!p.resizeObserver && window.ResizeObserver) {
                         p.resizeObserver = new ResizeObserver(() => {
                             if (p.isPinned) {
                                 if (p.art && typeof p.art.resize === 'function') try { p.art.resize(); } catch (e) {}
                                 if (p.jassub && typeof p.jassub.resize === 'function') try { p.jassub.resize(); } catch (e) {}
+                                if (typeof p.applyTransform === 'function') try { p.applyTransform(); } catch (e) {}
                             }
                         });
                         p.resizeObserver.observe(p.wrapper);
@@ -22698,6 +23598,9 @@ function setupDynamicInlineNode(node) {
                     }
                     if (p.art && typeof p.art.resize === 'function') {
                         try { p.art.resize(); } catch (e) {}
+                    }
+                    if (typeof p.applyTransform === 'function') {
+                        try { p.applyTransform(); } catch (e) {}
                     }
                 }, 100);
             }

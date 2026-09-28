@@ -1039,7 +1039,7 @@ def execute_python_script(context, script, inputs_map):
     eval_scope["R2d"] = lambda min_v=0, max_v=100: math_random_master(context, modo="R2d", min_val=min_v, max_val=max_v)
     eval_scope["Rbool"] = lambda min_v=0.5: math_random_master(context, modo="Rbool", min_val=min_v)
     eval_scope["Rstep"] = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="Rstep", min_val=min_v, max_val=max_v, step=step_v)
-    eval_scope["Rr"] = lambda min_v=0, max_v=100, step_v=1: _pyxis_random_rr(context, min_v, max_v, step_v)
+    eval_scope["Rr"] = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="Rr", min_val=min_v, max_val=max_v, step=step_v)
 
     eval_scope["clamp"] = _pyxis_clamp
     eval_scope["lerp"] = _pyxis_lerp
@@ -1205,11 +1205,11 @@ def execute_lua_script(context, script, inputs_map):
         g.Rcolor = lambda c1="#FFFFFF", c2="#000000": math_random_master(context, modo="Rcolor", min_val=c1, max_val=c2)
         g.Rds = lambda min_v=0, max_v=100: math_random_master(context, modo="Rds", min_val=min_v, max_val=max_v)
         g.Rcs = lambda min_v=0, max_v=100: math_random_master(context, modo="Rcs", min_val=min_v, max_val=max_v)
-        g.Rms = lambda min_v=0, max_v=100: math_random_master(context, modo="Rms", min_val=min_val, max_val=max_v)
+        g.Rms = lambda min_v=0, max_v=100: math_random_master(context, modo="Rms", min_val=min_v, max_val=max_v)
         g.R2d = lambda min_v=0, max_v=100: math_random_master(context, modo="R2d", min_val=min_v, max_val=max_v)
         g.Rbool = lambda min_v=0.5: math_random_master(context, modo="Rbool", min_val=min_v)
         g.Rstep = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="Rstep", min_val=min_v, max_val=max_v, step=step_v)
-        g.Rr = lambda min_v=0, max_v=100, step_v=1: _pyxis_random_rr(context, min_v, max_v, step_v)
+        g.Rr = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="Rr", min_val=min_v, max_val=max_v, step=step_v)
 
         g.clamp = _pyxis_clamp
         g.lerp = _pyxis_lerp

@@ -401,15 +401,42 @@ def time_synchronized_extra_node(context=None, *args, **kwargs):
     char_count = max(1, char_count)
     p2_current = p_const * (char_count - 1 if char_count > 1 else 0) + delay_val
 
+    mode = str(kwargs.get("mode", "order")).strip().lower()
+
     next_line = None
     if isinstance(context, dict):
-        next_line = context.get('next_line')
-        if not next_line:
-            lines_list = context.get('selected_lines') or context.get('all_lines') or []
-            if lines_list and line in lines_list:
-                curr_idx = lines_list.index(line)
-                if curr_idx + 1 < len(lines_list):
-                    next_line = lines_list[curr_idx + 1]
+        lines_list = context.get('target_lines') or context.get('selected_lines') or context.get('all_lines') or []
+        valid_lines = [l for l in lines_list if not getattr(l, 'is_comment', False)]
+        if valid_lines:
+            curr_idx = -1
+            for idx, l in enumerate(valid_lines):
+                if l is line:
+                    curr_idx = idx
+                    break
+            if curr_idx == -1:
+                for idx, l in enumerate(valid_lines):
+                    if hasattr(line, 'i') and hasattr(l, 'i') and l.i == line.i:
+                        curr_idx = idx
+                        break
+            if curr_idx != -1:
+                remaining = valid_lines[curr_idx + 1:]
+                if mode == "style":
+                    cur_style = getattr(line, 'style_name', getattr(line, 'style', ''))
+                    next_line = next((l for l in remaining if getattr(l, 'style_name', getattr(l, 'style', '')) == cur_style), None)
+                elif mode == "actor":
+                    cur_actor = getattr(line, 'actor', '')
+                    next_line = next((l for l in remaining if getattr(l, 'actor', '') == cur_actor), None)
+                elif mode == "layer":
+                    cur_layer = getattr(line, 'layer', 0)
+                    next_line = next((l for l in remaining if getattr(l, 'layer', 0) == cur_layer), None)
+                elif mode == "effect":
+                    cur_effect = getattr(line, 'effect', '')
+                    next_line = next((l for l in remaining if getattr(l, 'effect', '') == cur_effect), None)
+                else: # "order"
+                    if curr_idx + 1 < len(valid_lines):
+                        next_line = valid_lines[curr_idx + 1]
+        if not next_line and context.get('next_line'):
+            next_line = context.get('next_line')
 
     curr_end = float(getattr(line, 'end_time', getattr(line, 'end', 0)))
 

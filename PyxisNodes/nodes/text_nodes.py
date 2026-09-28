@@ -728,12 +728,12 @@ def move_text_node(
         pts = _parse_points_input(traj_raw, step_px=step_f)
 
     if pts:
-        if anchor_mode in ("first_point", "first", "zero", "0,0", "start"):
+        if anchor_mode == "first_point":
             p0_x, p0_y = pts[0][0], pts[0][1]
             pts = [(p[0] - p0_x, p[1] - p0_y, p[2] if len(p) >= 3 else 0.0) for p in pts]
-        elif anchor_mode in ("origin", "none", "absolute", "raw"):
+        elif anchor_mode == "origin":
             pass
-        else:
+        else:  # "center" fallback
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
             bx = (min(xs) + max(xs)) / 2.0

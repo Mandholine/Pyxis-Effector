@@ -2742,22 +2742,26 @@ body {
     flex-direction: column !important;
     width: 100% !important;
     height: 100% !important;
+    min-height: 100% !important;
     background: #090d16 !important;
     overflow: hidden !important;
     position: relative !important;
     pointer-events: auto !important;
 }
 
-.pyxis-artplayer-box .art-video-player {
+.pyxis-artplayer-box .art-video-player,
+.pyxis-artplayer-box .art-video-player.art-video-player {
     position: relative !important;
     width: 100% !important;
     height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
     overflow: hidden !important;
     background: #000 !important;
 }
 
-/* Área del vídeo: Ocupa el espacio superior disponible dejando libre la barra de controles inferior */
-.pyxis-artplayer-box .art-video {
+/* Área del marco exterior de vídeo: recorta con overflow:hidden y reserva los 68px inferiores para los controles */
+.pyxis-artplayer-box .pyxis-video-frame {
     position: absolute !important;
     top: 0 !important;
     left: 0 !important;
@@ -2768,12 +2772,29 @@ body {
     max-height: calc(100% - 68px) !important;
     overflow: hidden !important;
     background: #000 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
     z-index: 1 !important;
 }
 
+/* Viewport interno que contiene el vídeo y el lienzo de subtítulos JASSUB. 
+   Se dimensiona a la resolución nativa del vídeo y se escala vía GPU transform */
+.pyxis-artplayer-box .pyxis-video-viewport {
+    position: absolute !important;
+    top: 50% !important;
+    left: 50% !important;
+    overflow: visible !important;
+    background: transparent !important;
+    transform-origin: center center !important;
+    will-change: transform !important;
+}
+
+.pyxis-artplayer-box.is-panning,
+.pyxis-artplayer-box.is-panning * {
+    cursor: grabbing !important;
+    user-select: none !important;
+}
+
+.pyxis-artplayer-box .pyxis-video-viewport video,
+.pyxis-artplayer-box video.art-video,
 .pyxis-artplayer-box .art-video video,
 .pyxis-artplayer-box video {
     position: absolute !important;
@@ -2784,21 +2805,36 @@ body {
     width: 100% !important;
     height: 100% !important;
     max-height: 100% !important;
-    margin: auto !important;
-    object-fit: contain !important;
-    object-position: center center !important;
-    background: #000 !important;
+    margin: 0 !important;
+    object-fit: fill !important;
+    background: transparent !important;
 }
 
-/* Lienzo de Subtítulos JASSUB: JASSUB gestiona su posicionamiento nativo sobre el video */
+/* Lienzo de Subtítulos JASSUB: contenedor con la misma dimensión y origen exacto del viewport */
+.pyxis-artplayer-box div.JASSUB,
 div.JASSUB,
-.JASSUB,
+.JASSUB {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    pointer-events: none !important;
+    z-index: 25 !important;
+}
+
+div.JASSUB canvas,
 .JASSUB canvas,
 .pyxis-artplayer-box canvas, 
 .pyxis-artplayer-box .jassub-canvas,
 .jassub-canvas {
-    z-index: 25 !important;
+    position: absolute !important;
     pointer-events: none !important;
+    z-index: 25 !important;
 }
 
 /* Ocultar elementos internos nativos de Artplayer */
@@ -3271,6 +3307,8 @@ div.JASSUB,
     z-index: 15 !important;
 }
 
+.pyxis-node-player-wrapper.pyxis-player-fullscreen .pyxis-video-frame,
+.pyxis-floating-player-wrapper.pyxis-player-fullscreen .pyxis-video-frame,
 .pyxis-node-player-wrapper.pyxis-player-fullscreen .art-video,
 .pyxis-floating-player-wrapper.pyxis-player-fullscreen .art-video {
     position: absolute !important;
@@ -3385,8 +3423,19 @@ div.JASSUB,
     overflow: hidden !important;
     display: flex !important;
     flex-direction: column !important;
+    box-sizing: border-box !important;
     min-width: 380px !important;
     min-height: 180px !important;
+}
+
+.pyxis-floating-player-wrapper:not(.pyxis-player-fullscreen) .pyxis-artplayer-box {
+    box-sizing: border-box !important;
+    flex: 1 1 0% !important;
+    height: calc(100% - 30px) !important;
+    min-height: 0 !important;
+    max-height: calc(100% - 30px) !important;
+    width: 100% !important;
+    position: relative !important;
 }
 
 body.pyxis-resizing-active,
@@ -3479,6 +3528,9 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
 
 .pyxis-floating-header {
     height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+    box-sizing: border-box !important;
     background: linear-gradient(90deg, rgba(30, 27, 75, 0.95), rgba(15, 23, 42, 0.95)) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
     display: flex !important;
@@ -4230,4 +4282,292 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     stroke: var(--text-main) !important;
     flex-shrink: 0 !important;
 }
+
+/* =============================================================================
+   INTEGRATED DEBUG CONSOLE OVERLAY (F1 / ESCAPE)
+   z-index: 200,000,000 (Always on top, even above the startup cosmic loading overlay)
+   ============================================================================= */
+#pyxis-debug-console-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200000000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(4, 8, 12, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.22s ease;
+}
+
+#pyxis-debug-console-overlay.is-open {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
+}
+
+.pyxis-debug-console-modal {
+    width: 92vw;
+    max-width: 1150px;
+    height: 82vh;
+    max-height: 800px;
+    background: var(--bg-panel, #101d24);
+    border: 1px solid var(--border-highlight, rgba(34, 133, 140, 0.5));
+    border-radius: 12px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.85), 0 0 35px var(--accent-glow, rgba(34, 133, 140, 0.25));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-family: var(--font-sans, system-ui);
+    transform: scale(0.97);
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#pyxis-debug-console-overlay.is-open .pyxis-debug-console-modal {
+    transform: scale(1);
+}
+
+.pyxis-debug-console-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 18px;
+    background: var(--bg-topbar, rgba(12, 23, 29, 0.95));
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    gap: 14px;
+    flex-shrink: 0;
+}
+
+.pyxis-debug-console-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pyxis-debug-console-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-main, #ffffff);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    letter-spacing: 0.3px;
+}
+
+.pyxis-debug-console-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--bg-card, #152630);
+    color: var(--text-muted, #c7d8e2);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    font-family: var(--font-mono, monospace);
+}
+
+.pyxis-debug-console-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pyxis-debug-search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.pyxis-debug-search-icon {
+    position: absolute;
+    left: 9px;
+    width: 14px;
+    height: 14px;
+    stroke: var(--text-muted, #c7d8e2);
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.pyxis-debug-search-input {
+    width: 220px;
+    height: 30px;
+    padding: 0 10px 0 28px;
+    background: var(--bg-input, #0a1318);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 6px;
+    color: var(--text-main, #ffffff);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.2s ease, width 0.2s ease;
+}
+
+.pyxis-debug-search-input:focus {
+    border-color: var(--accent-primary, #22858c);
+    width: 260px;
+}
+
+.pyxis-debug-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    height: 30px;
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 6px;
+    color: var(--text-muted, #c7d8e2);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.1s ease;
+    user-select: none;
+}
+
+.pyxis-debug-btn:hover {
+    background: var(--bg-input, #0a1318);
+    color: var(--text-main, #ffffff);
+    border-color: var(--accent-primary, #22858c);
+}
+
+.pyxis-debug-btn:active {
+    transform: translateY(1px);
+}
+
+.pyxis-debug-btn.is-active {
+    background: rgba(34, 133, 140, 0.2);
+    color: var(--accent-primary, #22858c);
+    border-color: var(--accent-primary, #22858c);
+}
+
+.pyxis-debug-console-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted, #c7d8e2);
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease;
+}
+
+.pyxis-debug-console-close:hover {
+    background: rgba(248, 113, 113, 0.18);
+    color: #f87171;
+}
+
+.pyxis-debug-console-body-wrap {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.pyxis-debug-scroll-btn {
+    position: absolute;
+    right: 20px;
+    bottom: 18px;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.18));
+    color: var(--text-muted, #c7d8e2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+    z-index: 10;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity 0.2s ease, transform 0.2s ease, background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.pyxis-debug-scroll-btn.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.pyxis-debug-scroll-btn:hover {
+    background: var(--bg-input, #0a1318);
+    color: var(--text-main, #ffffff);
+    border-color: var(--accent-primary, #22858c);
+    box-shadow: 0 0 14px var(--accent-glow, rgba(34, 133, 140, 0.45));
+}
+
+.pyxis-debug-scroll-btn:active {
+    transform: translateY(1px) scale(0.95);
+}
+
+.pyxis-debug-scroll-btn[data-tooltip]::after {
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: auto;
+    right: 0;
+    transform: translateY(3px);
+}
+
+.pyxis-debug-scroll-btn[data-tooltip]:hover::after {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.pyxis-debug-console-body {
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--bg-canvas, #081116);
+    overflow-y: auto;
+    font-family: var(--font-mono, 'Fira Code', 'Cascadia Code', monospace);
+    font-size: 12px;
+    line-height: 1.55;
+    user-select: text;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.pyxis-log-row {
+    padding: 1px 0;
+    color: #e2e8f0;
+}
+
+.pyxis-log-row.log-error {
+    color: #f87171;
+}
+
+.pyxis-log-row.log-warn {
+    color: #fbbf24;
+}
+
+.pyxis-log-row.log-info {
+    color: #34d399;
+}
+
+.pyxis-log-row.log-scan {
+    color: #38bdf8;
+}
+
+.pyxis-log-row.log-dim {
+    color: #94a3b8;
+}
+
+.pyxis-debug-console-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted, #94a3b8);
+    font-style: italic;
+    font-size: 13px;
+    user-select: none;
+}
+
+
 

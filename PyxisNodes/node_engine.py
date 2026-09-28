@@ -22,13 +22,13 @@ import time
 import threading 
 import multiprocessing 
 import concurrent .futures 
-from typing import Any 
+from typing import Any, Dict, Optional, List, Tuple 
 from utils import format_time 
 from decorators import NODE_REGISTRY ,PYXIS_DB 
 import nodes_library 
 from models import PyxisLine ,PyxisUnit 
 
-_AN_RE =re .compile (r'\\an\d+')
+_AN_RE = re.compile(r'\\an(?:\d*|(?=[\\\}\s]|$))')
 _POS_RE =re .compile (r'\\pos\(')
 _MOVE_RE =re .compile (r'\\move\(')
 _TAG_BLOCK_RE =re .compile (r'\{.*?\}')
@@ -79,7 +79,7 @@ def _to_int_or_default (value ,default ,context =None ):
         return 0 
 
 
-def merge_ass_tags (return_tags_str :str ,port_tags_str :str )->str :
+def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional [Dict [str ,Any ]]=None )->str :
     r"""Combina y desduplica limpiamente las etiquetas ASS de Return y Tags port.
     Las etiquetas del puerto Tags tienen prioridad absoluta y reemplazan a las de Return en caso de colisión.
     Soporta secuencias complejas de etiquetas con cierre/apertura de llaves (ej: \p1}m 0 0 m 100 100 {\p0\r).
@@ -105,10 +105,18 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str )->str :
     clean_port_tags , port_tail = _extract_head_and_tail (port_tags_str )
     clean_return_tags , return_tail = _extract_head_and_tail (return_tags_str )
 
+    try:
+        from string_evaluator import expand_custom_dark_tags
+        clean_port_tags = expand_custom_dark_tags(clean_port_tags, context)
+        clean_return_tags = expand_custom_dark_tags(clean_return_tags, context)
+    except Exception:
+        pass
+
     def _parse_tag_dict (s_raw ):
         if not s_raw :return {}
         s =re .sub (r'[\{\}]','',str (s_raw )).strip ()
-        pattern =r'(\\(?:pos|org|move|clip|iclip|fad|fade|t)\([^)]*\)|\\(?:[1-4]?c|[1-4]?a|alpha|an|a|fscx|fscy|frz|frx|fry|fr|fax|fay|xbord|ybord|bord|xshad|yshad|shad|blur|be|fsp|fs|fn|p|q|r|b|i|u|s|[kK]f?|ko?)(?:&H[0-9a-fA-F]+&|[^\\]*))'
+        if not s: return {}
+        pattern = r'(\\[a-zA-Z0-9]+(?:\([^)]*\)|&[hH][0-9a-fA-F]+&|[0-9a-fA-F]+|[^\\\(]*))'
         matches =re .findall (pattern ,s )
         t_dict ={}
         t_cnt =0 
@@ -124,7 +132,7 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str )->str :
             elif m_str .startswith ('\\t'):
                 k =f't_{t_cnt }'
                 t_cnt +=1 
-            elif m_str .startswith ('\\an')or (m_str .startswith ('\\a')and not m_str .startswith ('\\alpha')):k ='an'
+            elif m_str .startswith ('\\an')or (m_str .startswith ('\\a')and not m_str .startswith ('\\alpha')and not re.match(r'^\\[1-4]a', m_str)):k ='an'
             elif m_str .startswith ('\\1c')or m_str .startswith ('\\c'):k ='1c'
             elif m_str .startswith ('\\2c'):k ='2c'
             elif m_str .startswith ('\\3c'):k ='3c'
@@ -136,7 +144,7 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str )->str :
             elif m_str .startswith ('\\alpha'):k ='alpha'
             elif m_str .startswith ('\\fscx'):k ='fscx'
             elif m_str .startswith ('\\fscy'):k ='fscy'
-            elif m_str .startswith ('\\frz')or m_str .startswith ('\\fr'):k ='frz'
+            elif m_str .startswith ('\\frz')or (m_str .startswith ('\\fr') and not m_str.startswith('\\frx') and not m_str.startswith('\\fry')):k ='frz'
             elif m_str .startswith ('\\frx'):k ='frx'
             elif m_str .startswith ('\\fry'):k ='fry'
             elif m_str .startswith ('\\fax'):k ='fax'
@@ -152,23 +160,23 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str )->str :
             elif m_str .startswith ('\\p'):k ='p'
             elif m_str .startswith ('\\q'):k ='q'
             elif m_str .startswith ('\\fn'):k ='fn'
-            elif m_str .startswith ('\\fs'):k ='fs'
+            elif m_str .startswith ('\\fs') and not m_str.startswith('\\fsc') and not m_str.startswith('\\fsp'):k ='fs'
             elif m_str .startswith ('\\fsp'):k ='fsp'
-            elif m_str .startswith ('\\b'):k ='b'
-            elif m_str .startswith ('\\i'):k ='i'
+            elif m_str .startswith ('\\b') and not m_str.startswith('\\blur') and not m_str.startswith('\\be') and not m_str.startswith('\\bord'):k ='b'
+            elif m_str .startswith ('\\i') and not m_str.startswith('\\iclip'):k ='i'
             elif m_str .startswith ('\\u'):k ='u'
-            elif m_str .startswith ('\\s'):k ='s'
+            elif m_str .startswith ('\\s') and not m_str.startswith('\\shad'):k ='s'
             elif m_str .startswith ('\\r'):k ='r'
-            else :k =m_str 
+            else :
+                k =f"tag_{t_cnt}_{m_str}"
+                t_cnt +=1
             t_dict [k ]=m_str 
         return t_dict 
 
     ret_dict =_parse_tag_dict (clean_return_tags )
     port_dict =_parse_tag_dict (clean_port_tags )
 
-
     ret_dict .update (port_dict )
-
 
     sorted_keys =sorted (ret_dict .keys (),key =lambda k :(
     0 if k =='an'else 
@@ -313,8 +321,6 @@ def _get_prop_value (props ,key ,default =""):
             if _clean_key (p )==ck :
                 return v 
 
-    if key in props :
-        return props [key ]
     return default 
 
 
@@ -1303,7 +1309,7 @@ class GraphEngine :
             origin_align =5 
 
 
-        if not _AN_RE .search (tags_raw )and not _MOVE_RE .search (tags_raw ):
+        if not _AN_RE .search (tags_raw ):
             tags_raw =r"\an5"+tags_raw 
 
 
@@ -1598,11 +1604,16 @@ class GraphEngine :
                 return ""
 
         elif node_type in ["Basics/Number", "Number"] or name == "Number":
-            val_raw = props.get("value", props.get("valor", "0"))
-            return str(_eval_num_expr(val_raw, context, 0.0))
+            val_raw = _get_prop_value(props, "value", "0")
+            res = _eval_num_expr(val_raw, context, default=0.0)
+            if isinstance(res, (int, float)):
+                if float(res).is_integer():
+                    return str(int(res))
+                return f"{res:.4f}".rstrip('0').rstrip('.')
+            return str(res)
 
         elif node_type in ["Basics/String", "String"] or name == "String":
-            return str(props.get("value", props.get("valor", "")))
+            return str(_get_prop_value(props, "value", ""))
 
         elif node_type in ["Tag Manipulator", "Tags/Tag Manipulator", "Functions/Tag Manipulator"] or name == "Tag Manipulator":
             try:
@@ -2021,143 +2032,77 @@ class GraphEngine :
 
                 total_pieces =len (pieces )
 
-                anchor_mode =get_val (["Anchor","anchor","anclaje"],props .get ("anchor","piezas")).lower ()
-                loop_mode =get_val (["Loop Mode","loop_mode","modo_bucle"],props .get ("loop_mode","Loops")).lower ()
-                out_mode =get_val (["Output Type","out_mode","output_type","tipo_salida"],props .get ("out_mode","Shape")).lower ()
+                anchor_mode = get_val(["Anchor", "anchor", "anclaje"], props.get("anchor", "pieces")).lower()
+                loop_mode = get_val(["Loop Mode", "loop_mode", "modo_bucle"], props.get("loop_mode", "Loops")).lower()
+                out_mode = get_val(["Output Type", "out_mode", "output_type", "tipo_salida"], props.get("out_mode", "Shape")).lower()
 
-                is_shape_mode =("shape"in loop_mode and "loop"not in loop_mode and "pieza"not in loop_mode )
-
-
-                s_val =int (context .get ('s_i',context .get ('slice_i',context .get ('j',context .get ('J',1 )))))
-
-                if is_shape_mode :
-                    context ['s_i']=1 
-                    context ['s_n']=1 
-                    context ['s_max']=1 
-                    context ['slice_i']=1 
-                    context ['slice_n']=1 
-                    context ['slice_max']=1 
-                    context ['maxloop']=1 
-                else :
-                    context ['s_i']=s_val 
-                    context ['s_n']=total_pieces 
-                    context ['s_max']=total_pieces 
-                    context ['slice_i']=s_val 
-                    context ['slice_n']=total_pieces 
-                    context ['slice_max']=total_pieces 
-                    context ['maxloop']=total_pieces 
+                is_shape_mode = ("shape" in loop_mode and "loop" not in loop_mode and "pieza" not in loop_mode)
 
 
-                if is_shape_mode :
-                    piece_drawings =[]
-                    for p_item in pieces :
-                        c_val =str (p_item .get ("code",""))
-                        p_cx ,p_cy =float (p_item .get ("cx",0 )),float (p_item .get ("cy",0 ))
-                        if "abs"in anchor_mode or "absoluto"in anchor_mode :
-                            fmt_p =ClipperEngine .transform_shape (c_val ,mode ="Offset",offset_x =parent_x ,offset_y =parent_y )
-                        elif "rel"in anchor_mode :
-                            fmt_p =c_val 
-                        elif any (k in anchor_mode for k in ["pieza","piece","true"]):
-                            fmt_p =ClipperEngine .transform_shape (c_val ,mode ="Offset",offset_x =p_cx ,offset_y =p_cy )
-                        elif "org"in anchor_mode :
-                            fmt_p =ClipperEngine .transform_shape (c_val ,mode ="Offset",offset_x =p_cx ,offset_y =p_cy )
-                        elif "pos"in anchor_mode :
-                            fmt_p =ClipperEngine .transform_shape (c_val ,mode ="Offset",offset_x =p_cx ,offset_y =p_cy )
-                        else :
-                            fmt_p =ClipperEngine .transform_shape (c_val ,mode ="Offset",offset_x =parent_x ,offset_y =parent_y )
-                        piece_drawings .append (fmt_p )
+                s_val = int(context.get('s_i', context.get('slice_i', context.get('j', context.get('J', 1)))))
 
-                    combined_code =" ".join (piece_drawings )
-                    if "iclip"in out_mode :
-                        final_res =f"{{\\iclip({combined_code })}}"
-                    elif "clip"in out_mode :
-                        final_res =f"{{\\clip({combined_code })}}"
-                    else :
-                        final_res =combined_code 
-
-                    if output_slot_index ==1 :return str (parent_x )
-                    elif output_slot_index ==2 :return str (parent_y )
-                    elif output_slot_index ==3 :return "1"
-                    elif output_slot_index ==4 :return "1"
-                    return str (final_res )
+                if is_shape_mode:
+                    context['s_i'] = 1
+                    context['s_n'] = 1
+                    context['s_max'] = 1
+                    context['slice_i'] = 1
+                    context['slice_n'] = 1
+                    context['slice_max'] = 1
+                    context['maxloop'] = 1
+                else:
+                    context['s_i'] = s_val
+                    context['s_n'] = total_pieces
+                    context['s_max'] = total_pieces
+                    context['slice_i'] = s_val
+                    context['slice_n'] = total_pieces
+                    context['slice_max'] = total_pieces
+                    context['maxloop'] = total_pieces
 
 
-                piece_idx =max (0 ,min (s_val -1 ,total_pieces -1 ))
-                piece =pieces [piece_idx ]
-                cx ,cy =float (piece .get ("cx",0 )),float (piece .get ("cy",0 ))
+                if is_shape_mode:
+                    from nodes.shape_nodes import resolve_piece_anchor
+                    piece_drawings = []
+                    for p_item in pieces:
+                        c_val = str(p_item.get("code", ""))
+                        p_cx, p_cy = float(p_item.get("cx", 0)), float(p_item.get("cy", 0))
+                        anc_res = resolve_piece_anchor(c_val, piece_cx=p_cx, piece_cy=p_cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
+                        piece_drawings.append(anc_res['formatted_code'])
 
-                abs_x =parent_x +cx 
-                abs_y =parent_y +cy 
+                    combined_code = " ".join(piece_drawings)
+                    if "iclip" in out_mode:
+                        final_res = f"{{\\iclip({combined_code})}}"
+                    elif "clip" in out_mode:
+                        final_res = f"{{\\clip({combined_code})}}"
+                    else:
+                        final_res = combined_code
 
-                code_val =str (piece .get ("code",""))
+                    if output_slot_index == 1: return str(parent_x)
+                    elif output_slot_index == 2: return str(parent_y)
+                    elif output_slot_index == 3: return "1"
+                    elif output_slot_index == 4: return "1"
+                    return str(final_res)
 
 
-                if "abs"in anchor_mode or "absoluto"in anchor_mode :
-                    context ['pos_overridden']=False 
-                    context ['has_org']=False 
-                    context ['pos_x']=parent_x 
-                    context ['pos_y']=parent_y 
-                    context ['col']=piece .get ("col",1 )
-                    context ['row']=piece .get ("row",1 )
-                    formatted_code =ClipperEngine .transform_shape (code_val ,mode ="Offset",offset_x =parent_x ,offset_y =parent_y )
-                elif "rel"in anchor_mode :
-                    context ['pos_overridden']=False 
-                    context ['has_org']=True 
-                    context ['org_x']=parent_x 
-                    context ['org_y']=parent_y 
-                    context ['pos_x']=parent_x 
-                    context ['pos_y']=parent_y 
-                    context ['col']=piece .get ("col",1 )
-                    context ['row']=piece .get ("row",1 )
-                    formatted_code =code_val 
-                elif any (k in anchor_mode for k in ["pieza","piece","true"]):
-                    context ['x']=abs_x 
-                    context ['y']=abs_y 
-                    context ['fx_pos_x']=abs_x 
-                    context ['fx_pos_y']=abs_y 
-                    context ['pos_x']=abs_x 
-                    context ['pos_y']=abs_y 
-                    context ['pos_overridden']=True 
-                    context ['has_org']=True 
-                    context ['org_x']=abs_x 
-                    context ['org_y']=abs_y 
-                    context ['col']=piece .get ("col",1 )
-                    context ['row']=piece .get ("row",1 )
-                    formatted_code =ClipperEngine .transform_shape (code_val ,mode ="Offset",offset_x =-cx ,offset_y =-cy )
-                elif "org"in anchor_mode :
-                    context ['x']=abs_x 
-                    context ['y']=abs_y 
-                    context ['fx_pos_x']=abs_x 
-                    context ['fx_pos_y']=abs_y 
-                    context ['pos_x']=abs_x 
-                    context ['pos_y']=abs_y 
-                    context ['pos_overridden']=True 
-                    context ['has_org']=True 
-                    context ['org_x']=parent_x 
-                    context ['org_y']=parent_y 
-                    context ['col']=piece .get ("col",1 )
-                    context ['row']=piece .get ("row",1 )
-                    formatted_code =ClipperEngine .transform_shape (code_val ,mode ="Offset",offset_x =-cx ,offset_y =-cy )
-                elif "pos"in anchor_mode :
-                    context ['x']=abs_x 
-                    context ['y']=abs_y 
-                    context ['fx_pos_x']=abs_x 
-                    context ['fx_pos_y']=abs_y 
-                    context ['pos_x']=abs_x 
-                    context ['pos_y']=abs_y 
-                    context ['pos_overridden']=True 
-                    context ['has_org']=False 
-                    context ['col']=piece .get ("col",1 )
-                    context ['row']=piece .get ("row",1 )
-                    formatted_code =ClipperEngine .transform_shape (code_val ,mode ="Offset",offset_x =-cx ,offset_y =-cy )
-                else :
-                    context ['pos_overridden']=False 
-                    context ['has_org']=False 
-                    context ['pos_x']=parent_x 
-                    context ['pos_y']=parent_y 
-                    context ['col']=piece .get ("col",1 )
-                    context ['row']=piece .get ("row",1 )
-                    formatted_code =ClipperEngine .transform_shape (code_val ,mode ="Offset",offset_x =parent_x ,offset_y =parent_y )
+                piece_idx = max(0, min(s_val - 1, total_pieces - 1))
+                piece = pieces[piece_idx]
+                cx, cy = float(piece.get("cx", 0)), float(piece.get("cy", 0))
+
+                abs_x = parent_x + cx
+                abs_y = parent_y + cy
+
+                code_val = str(piece.get("code", ""))
+
+                from nodes.shape_nodes import resolve_piece_anchor
+                anc_res = resolve_piece_anchor(code_val, piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
+                formatted_code = anc_res['formatted_code']
+                if isinstance(context, dict):
+                    context['col'] = piece.get("col", 1)
+                    context['row'] = piece.get("row", 1)
+                    if anc_res['pos_overridden']:
+                        context['x'] = abs_x
+                        context['y'] = abs_y
+                        context['fx_pos_x'] = abs_x
+                        context['fx_pos_y'] = abs_y
 
 
                 if "iclip"in out_mode :
@@ -3254,13 +3199,20 @@ class GraphEngine :
                 if not bin_mode or str (bin_mode ).strip ()=="":
                     bin_mode =str (_get_prop_value (props ,"bin_mode","Luminance")).strip ()
 
-                mode =str (_get_prop_value (props ,"mode","Potrace")).strip ()
-                anchor =str (_get_prop_value (props ,"anchor","Center")).strip ()
-                invert_str =str (_get_prop_value (props ,"invert","Normal")).strip ()
-                invert =invert_str .lower ()=="inverted"
+                mode = str(_get_prop_value(props, "mode", "potrace")).strip()
+                anchor = str(_get_prop_value(props, "anchor", "center")).strip().lower()
+                if anchor in ("absolute", "absoluto", "zero", "pantalla"):
+                    unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit') if isinstance(context, dict) else None
+                    pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0))))) if isinstance(context, dict) else 0.0
+                    pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0))))) if isinstance(context, dict) else 0.0
+                    offset_x += pos_x
+                    offset_y += pos_y
 
-                invert_img_str =str (_get_prop_value (props ,"invert_img","Normal")).strip ()
-                use_inverted_img =invert_img_str .lower ()=="inverted"
+                invert_str = str(_get_prop_value(props, "invert", "normal")).strip()
+                invert = invert_str.lower() in ("inverted", "invert")
+
+                invert_img_str = str(_get_prop_value(props, "invert_img", "normal")).strip()
+                use_inverted_img = invert_img_str.lower() in ("inverted", "invert")
 
                 from img_tracer_engine import trace_image 
                 traced =trace_image (
@@ -3310,25 +3262,40 @@ class GraphEngine :
                     if not line and context .get ('active_unit'):
                         line =getattr (context ['active_unit'],'line',None )
 
-                p_const_raw =self .get_input_value (node ,0 ,context )
-                if p_const_raw =="":p_const_raw =_get_prop_value (props ,"progression_const","0")
-                p_const =_eval_num_expr (p_const_raw ,context ,0.0 )
+                inputs_list = node.get('inputs', [])
+                def _get_synced_input(prop_names, default_val, fallback_idx):
+                    for idx, inp in enumerate(inputs_list):
+                        if isinstance(inp, dict):
+                            inp_p = str(inp.get('property') or '').lower()
+                            inp_n = str(inp.get('name') or '').lower()
+                            if any(p.lower() in (inp_p, inp_n) for p in prop_names):
+                                if self.is_port_connected(node, idx):
+                                    return self.get_input_value(node, idx, context)
+                                val = _get_prop_value(props, inp.get('property') or inp.get('name'), "")
+                                if val != "": return str(val)
+                    for p in prop_names:
+                        val = _get_prop_value(props, p, "")
+                        if val != "": return str(val)
+                    if fallback_idx < len(inputs_list) and self.is_port_connected(node, fallback_idx):
+                        return self.get_input_value(node, fallback_idx, context)
+                    return str(default_val)
 
-                fade_raw =self .get_input_value (node ,1 ,context )
-                if fade_raw =="":fade_raw =_get_prop_value (props ,"fade_dur","300")
-                fade_dur =_eval_num_expr (fade_raw ,context ,300.0 )
+                p_const_raw = _get_synced_input(["progression_const", "constant", "p_const"], "0", 0)
+                p_const = _eval_num_expr(p_const_raw, context, 0.0)
 
-                max_add_raw =self .get_input_value (node ,2 ,context )
-                if max_add_raw =="":max_add_raw =_get_prop_value (props ,"max_added_time","2000")
-                max_add =_eval_num_expr (max_add_raw ,context ,2000.0 )
+                fade_raw = _get_synced_input(["fade_dur", "fade", "fade_ms"], "300", 1)
+                fade_dur = _eval_num_expr(fade_raw, context, 300.0)
 
-                delay_raw =self .get_input_value (node ,3 ,context )
-                if delay_raw =="":delay_raw =_get_prop_value (props ,"delay","250")
-                delay =_eval_num_expr (delay_raw ,context ,250.0 )
+                max_add_raw = _get_synced_input(["max_added_time", "max_extra", "max extra"], "2000", 2)
+                max_add = _eval_num_expr(max_add_raw, context, 2000.0)
 
-                thresh_raw =self .get_input_value (node ,4 ,context )
-                if thresh_raw =="":thresh_raw =_get_prop_value (props ,"max_gap_threshold","3000")
-                max_gap =_eval_num_expr (thresh_raw ,context ,3000.0 )
+                delay_raw = _get_synced_input(["delay_ms", "delay", "delay_line", "delay line"], "250", 3)
+                delay = _eval_num_expr(delay_raw, context, 250.0)
+
+                thresh_raw = _get_synced_input(["max_gap_threshold", "threshold", "max_gap"], "3000", 4)
+                max_gap = _eval_num_expr(thresh_raw, context, 3000.0)
+
+                mode = str(_get_prop_value(props, "mode", "order")).strip().lower()
 
                 from nodes .time_nodes import time_synchronized_extra_node 
                 final_extra =time_synchronized_extra_node (
@@ -3336,8 +3303,9 @@ class GraphEngine :
                 progression_const =p_const ,
                 fade_dur =fade_dur ,
                 max_added_time =max_add ,
-                delay =delay ,
-                max_gap_threshold =max_gap 
+                delay_ms =delay ,
+                max_gap_threshold =max_gap ,
+                mode =mode 
                 )
 
                 line_end =getattr (line ,'end_time',getattr (line ,'end',0 ))if line else 0 
@@ -3669,7 +3637,7 @@ class GraphEngine :
                         else :
                             abs_x ,abs_y =parent_x ,parent_y 
 
-                        if any (k in anchor_clean for k in ["pieza","piece","local"]):
+                        if anchor_clean == "pieces":
                             context ['x']=round (abs_x ,3 )
                             context ['y']=round (abs_y ,3 )
                             context ['fx_pos_x']=round (abs_x ,3 )
@@ -3680,7 +3648,7 @@ class GraphEngine :
                             context ['has_org']=True 
                             context ['org_x']=round (abs_x ,3 )
                             context ['org_y']=round (abs_y ,3 )
-                        elif "org"in anchor_clean :
+                        elif anchor_clean == "org_padre":
                             context ['x']=round (abs_x ,3 )
                             context ['y']=round (abs_y ,3 )
                             context ['fx_pos_x']=round (abs_x ,3 )
@@ -3691,7 +3659,7 @@ class GraphEngine :
                             context ['has_org']=True 
                             context ['org_x']=round (parent_x ,3 )
                             context ['org_y']=round (parent_y ,3 )
-                        elif "pos"in anchor_clean :
+                        elif anchor_clean == "pos":
                             context ['x']=round (abs_x ,3 )
                             context ['y']=round (abs_y ,3 )
                             context ['fx_pos_x']=round (abs_x ,3 )
@@ -4453,7 +4421,7 @@ class GraphEngine :
                     val_in = self.get_input_value(node, 0, context)
                     iter_raw = self.get_input_value(node, 1, context)
 
-                if val_in == "": val_in = str(_get_prop_value(props, "val_in", _get_prop_value(props, "valor", "")))
+                if val_in == "": val_in = str(_get_prop_value(props, "val_in", _get_prop_value(props, "value", "")))
                 if iter_raw == "": iter_raw = _get_prop_value(props, "iterations", "10000")
                 iterations = max(1, int(_eval_num_expr(iter_raw, context, 10000.0)))
 
@@ -4611,14 +4579,10 @@ class GraphEngine :
 
             return str (_eval_sys_var (v_name ,context ))
 
-        if node_type in ["String"]:
-            val =_get_prop_value (props ,"value","")
-            if val is None or val == "":
-                return ""
-            from string_evaluator import eval_string_template
-            return str(eval_string_template(val, context))
+        if node_type in ["Basics/String", "String"] or name == "String":
+            return str(_get_prop_value(props, "value", ""))
 
-        if node_type in ["Number"]:
+        if node_type in ["Basics/Number", "Number"] or name == "Number":
             raw_val =_get_prop_value (props ,"value",0 )
             res =_eval_num_expr (raw_val ,context ,default =0.0 )
             if isinstance (res ,float )and res .is_integer ():
@@ -5376,7 +5340,12 @@ class GraphEngine :
             queue_order =_to_int_or_default (queue_order ,0 ,context =context )
 
             pyxis_line =context ['line']
+            line_idx = getattr(pyxis_line, 'i', 0) if pyxis_line else 0
+            from string_evaluator import evaluate_ass_line_tag_blocks
+            evaluated_text = evaluate_ass_line_tag_blocks(f"{{{tags_str }}}{retorno_str }", context)
+
             ass_line ={
+            'line_idx':line_idx ,
             'layer':layer ,
             'start_time':st ,
             'end_time':et ,
@@ -5386,7 +5355,7 @@ class GraphEngine :
             'margin_r':pyxis_line .margin_r ,
             'margin_v':pyxis_line .margin_v ,
             'effect':'pyxis_fx',
-            'text':f"{{{tags_str }}}{retorno_str }",
+            'text':evaluated_text ,
             'queue_id':queue_id ,
             'queue_order':queue_order 
             }
@@ -5651,15 +5620,16 @@ class GraphEngine :
                 pyxis_line =processor .process_line (raw_line ,styles .get (style_name ,{}),metrics )
             if pyxis_line :
                 parsed_lines .append (pyxis_line )
-                if pyxis_line .is_selected :
+                if not getattr(pyxis_line, 'is_comment', False) and pyxis_line .is_selected :
                     selected_styles .add (pyxis_line .style_name )
 
-        selected_lines_list =[l for l in parsed_lines if l .is_selected ]
+        selected_lines_list =[l for l in parsed_lines if l .is_selected and not getattr(l, 'is_comment', False)]
         if not selected_lines_list and allow_fallback_select_all :
             for l in parsed_lines :
-                l .is_selected =True 
-                selected_styles .add (l .style_name )
-            selected_lines_list =list (parsed_lines )
+                if not getattr(l, 'is_comment', False):
+                    l .is_selected =True 
+                    selected_styles .add (l .style_name )
+            selected_lines_list =[l for l in parsed_lines if not getattr(l, 'is_comment', False)]
 
         output_nodes =[n for n in self .nodes .values ()if 'salida'in str (n .get ('type','')).lower ()or 'output'in str (n .get ('type','')).lower ()]
 
@@ -5711,6 +5681,7 @@ class GraphEngine :
                     pass 
 
             for pyxis_line in parsed_lines :
+                if getattr(pyxis_line, 'is_comment', False): continue
                 if apply_to in ["Selected Lines","Sel. Lines"]and not pyxis_line .is_selected :continue 
                 if apply_to =="Style Lines"and pyxis_line .style_name not in selected_styles :continue 
 
@@ -5802,7 +5773,7 @@ class GraphEngine :
         "is_heavy":total_estimated_lines >=30000 
         }
 
-    def process_single (self ,dialogue_items ,styles ,progress_callback =None ,check_cancel_callback =None ,allow_fallback_select_all =True ,global_selected_styles =None ):
+    def process_single (self ,dialogue_items ,styles ,progress_callback =None ,check_cancel_callback =None ,allow_fallback_select_all =True ,global_selected_styles =None ,chunk_indices =None ):
         """Ejecución secuencial en un solo proceso/hilo para un bloque de líneas."""
         self .all_generated_lines =[]
         self .is_cancelled =False 
@@ -5914,15 +5885,24 @@ class GraphEngine :
                     pyxis_line .i =item .i 
                 else :
                     pyxis_line .i =idx 
+                
+                is_item_selected = bool(
+                    (isinstance(item, dict) and (item.get('is_selected') or (isinstance(item.get('metrics'), dict) and item['metrics'].get('sel'))))
+                    or getattr(item, 'is_selected', False)
+                    or getattr(pyxis_line, 'is_selected', False)
+                )
+                pyxis_line.is_selected = is_item_selected
+
                 parsed_lines .append (pyxis_line )
-                if pyxis_line .is_selected :
+                if not getattr(pyxis_line, 'is_comment', False) and pyxis_line .is_selected :
                     selected_styles .add (pyxis_line .style_name )
 
-        selected_lines_list =[l for l in parsed_lines if l .is_selected ]
+        selected_lines_list =[l for l in parsed_lines if l .is_selected and not getattr(l, 'is_comment', False)]
         if not selected_lines_list and allow_fallback_select_all :
             for l in parsed_lines :
-                l .is_selected =True 
-            selected_lines_list =list (parsed_lines )
+                if not getattr(l, 'is_comment', False):
+                    l .is_selected =True 
+            selected_lines_list =[l for l in parsed_lines if not getattr(l, 'is_comment', False)]
 
 
 
@@ -5944,6 +5924,8 @@ class GraphEngine :
             is_noblank = "Con Blanks" not in _nb_str3 and "With" not in _nb_str3
 
             for pyxis_line in parsed_lines :
+                if getattr(pyxis_line, 'is_comment', False): continue
+                if chunk_indices is not None and getattr(pyxis_line, 'i', None) not in chunk_indices: continue
                 if apply_to in ["Selected Lines","Sel. Lines"]and not pyxis_line .is_selected :continue 
                 if apply_to =="Style Lines"and pyxis_line .style_name not in selected_styles :continue 
 
@@ -5969,13 +5951,22 @@ class GraphEngine :
             loop_chain =self .trace_loop_chain (out_node )
             if not loop_chain :continue 
 
+            if apply_to in ["Selected Lines", "Sel. Lines"]:
+                target_lines_list = selected_lines_list
+            elif apply_to == "Style Lines":
+                target_lines_list = [l for l in parsed_lines if not getattr(l, 'is_comment', False) and l.style_name in selected_styles]
+            else:
+                target_lines_list = [l for l in parsed_lines if not getattr(l, 'is_comment', False)]
+
             for pyxis_line in parsed_lines :
                 if self .is_cancelled :break 
+                if getattr(pyxis_line, 'is_comment', False): continue
+                if chunk_indices is not None and getattr(pyxis_line, 'i', None) not in chunk_indices: continue
                 if apply_to in ["Selected Lines","Sel. Lines"]and not pyxis_line .is_selected :continue 
                 if apply_to =="Style Lines"and pyxis_line .style_name not in selected_styles :continue 
                 self .execute_loops_recursive (
                 loop_chain ,
-                {'line':pyxis_line ,'processor':processor ,'all_lines':parsed_lines ,'selected_lines':selected_lines_list },
+                {'line':pyxis_line ,'processor':processor ,'all_lines':parsed_lines ,'selected_lines':selected_lines_list ,'target_lines':target_lines_list },
                 out_node ,
                 None ,
                 check_cancel_callback ,
@@ -6020,12 +6011,18 @@ class GraphEngine :
         or getattr (d ,'is_selected',False )
         )
         for d in dialogue_items 
+        if not (
+            (isinstance (d ,dict )and (str (d .get ('raw','')).strip ().startswith ('Comment:')or str (d .get ('raw','')).strip ().startswith ('Comment :')))
+            or getattr (d ,'is_comment',False )
+        )
         )
         allow_fallback_select_all =not has_any_selection 
 
         global_selected_styles =set ()
         for item in dialogue_items :
             raw_line =item ['raw']if isinstance (item ,dict )else getattr (item ,'raw','')
+            if str (raw_line ).strip ().startswith ('Comment:')or str (raw_line ).strip ().startswith ('Comment :')or getattr (item ,'is_comment',False ):
+                continue 
             style_name =raw_line .split (',')[3 ]if ','in raw_line else ''
             is_sel =bool (
             (isinstance (item ,dict )and (item .get ('is_selected')or (isinstance (item .get ('metrics'),dict )and item ['metrics'].get ('sel'))))
@@ -6034,6 +6031,13 @@ class GraphEngine :
             if (is_sel or allow_fallback_select_all )and style_name :
                 global_selected_styles .add (style_name )
 
+        for idx, item in enumerate(dialogue_items, 1):
+            if isinstance(item, dict):
+                if 'i' not in item:
+                    item['i'] = idx
+            else:
+                if not hasattr(item, 'i'):
+                    setattr(item, 'i', idx)
 
         if use_multiprocessing and num_items >1 and cpu_cores >1 :
             stop_monitor =threading .Event ()
@@ -6041,7 +6045,6 @@ class GraphEngine :
             try :
                 max_workers =min (cpu_cores ,num_items )
                 chunk_size =max (1 ,math .ceil (num_items /max_workers ))
-                chunks =[dialogue_items [i :i +chunk_size ]for i in range (0 ,num_items ,chunk_size )]
 
                 shared_line_counter =multiprocessing .Value ('i',0 )
                 shared_cancel_flag =multiprocessing .Value ('b',False )
@@ -6049,22 +6052,27 @@ class GraphEngine :
                 self .shared_cancel_flag =shared_cancel_flag 
 
                 target_out =getattr (self ,'target_output_id',None )
-                payloads =[
-                (
-                getattr (self ,'raw_graph',{}),
-                self .rx ,
-                self .ry ,
-                self .fd ,
-                self .default_audio_source ,
-                chunk ,
-                styles ,
-                cached_particle_data ,
-                target_out ,
-                allow_fallback_select_all ,
-                list (global_selected_styles )
-                )
-                for chunk in chunks 
-                ]
+                payloads =[]
+                for i in range (0 ,num_items ,chunk_size ):
+                    chunk_slice =dialogue_items [i :i +chunk_size ]
+                    chunk_indices =set (
+                        (item ['i']if isinstance (item ,dict )and 'i'in item else getattr (item ,'i',idx_fallback ))
+                        for idx_fallback ,item in enumerate (chunk_slice ,i +1 )
+                    )
+                    payloads .append ((
+                        getattr (self ,'raw_graph',{}),
+                        self .rx ,
+                        self .ry ,
+                        self .fd ,
+                        self .default_audio_source ,
+                        dialogue_items ,
+                        styles ,
+                        cached_particle_data ,
+                        target_out ,
+                        allow_fallback_select_all ,
+                        list (global_selected_styles ),
+                        chunk_indices 
+                    ))
 
 
                 est_info =self .estimate_workload (dialogue_items ,styles ,allow_fallback_select_all =allow_fallback_select_all ,global_selected_styles =global_selected_styles )
@@ -6121,7 +6129,7 @@ class GraphEngine :
                     _GLOBAL_ACTIVE_EXECUTOR =pool 
 
                     future_map ={
-                    pool .submit (_process_line_chunk_worker ,p ):(i +1 ,len (p [5 ]),time .perf_counter ())
+                    pool .submit (_process_line_chunk_worker ,p ):(i +1 ,len (p [11 ])if len (p )>=12 and p [11 ]is not None else len (p [5 ]),time .perf_counter ())
                     for i ,p in enumerate (payloads )
                     }
 
@@ -6205,7 +6213,7 @@ class GraphEngine :
             })
 
         for qid in sorted (queues .keys ()):
-            queue =sorted (queues [qid ],key =lambda x :(x ['queue_order'],x ['layer'],x ['start_time']))
+            queue =sorted (queues [qid ],key =lambda x :(x ['queue_order'],x .get ('line_idx',0 )))
             for line in queue :
                 st_val =format_time (int (round (line ['start_time'])))
                 et_val =format_time (int (round (line ['end_time'])))
@@ -6222,6 +6230,7 @@ class GraphEngine :
             "phase":"Completed. Transferring to Aegisub..."
             })
 
+        self .used_line_indices = {line ['line_idx'] for line in self .all_generated_lines if line .get ('line_idx')}
         return final_lines 
 
 
@@ -6233,15 +6242,18 @@ Returns: list of generated line dictionaries for this chunk.
         target_output_id =None 
         allow_fallback_select_all =True 
         global_selected_styles =None 
+        chunk_indices =None 
 
-        if len (payload )>=11 :
-            graph_data ,rx ,ry ,fd ,default_audio_source ,chunk_items ,styles ,particle_caches ,target_output_id ,allow_fallback_select_all ,global_selected_styles =payload [:11 ]
+        if len (payload )>=12 :
+            graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches ,target_output_id ,allow_fallback_select_all ,global_selected_styles ,chunk_indices =payload [:12 ]
+        elif len (payload )>=11 :
+            graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches ,target_output_id ,allow_fallback_select_all ,global_selected_styles =payload [:11 ]
         elif len (payload )>=9 :
-            graph_data ,rx ,ry ,fd ,default_audio_source ,chunk_items ,styles ,particle_caches ,target_output_id =payload [:9 ]
+            graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches ,target_output_id =payload [:9 ]
         elif len (payload )>=8 :
-            graph_data ,rx ,ry ,fd ,default_audio_source ,chunk_items ,styles ,particle_caches =payload [:8 ]
+            graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches =payload [:8 ]
         else :
-            graph_data ,rx ,ry ,fd ,default_audio_source ,chunk_items ,styles =payload [:7 ]
+            graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles =payload [:7 ]
 
         if particle_caches :
             from particle_nodes import _GLOBAL_PARTICLE_PTS_CACHE ,_GLOBAL_PARTICLE_IMG_CACHE 
@@ -6258,11 +6270,12 @@ Returns: list of generated line dictionaries for this chunk.
             return bool (_WORKER_CANCEL_FLAG and _WORKER_CANCEL_FLAG .value )
 
         worker_engine .process_single (
-        chunk_items ,
+        all_dialogue_items ,
         styles ,
         check_cancel_callback =check_worker_cancelled ,
         allow_fallback_select_all =allow_fallback_select_all ,
-        global_selected_styles =global_selected_styles 
+        global_selected_styles =global_selected_styles ,
+        chunk_indices =chunk_indices 
         )
         return worker_engine .all_generated_lines 
     except Exception as e :

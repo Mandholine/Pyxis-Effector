@@ -38,7 +38,7 @@ class TestSessionLifecycle (unittest .TestCase ):
         {
         "id":2 ,
         "type":"String",
-        "properties":{"valor":"Persistent Node Data"}
+        "properties":{"value":"Persistent Node Data"}
         }
         ],
         "links":[]

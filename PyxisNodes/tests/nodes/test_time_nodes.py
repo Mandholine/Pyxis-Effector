@@ -18,7 +18,9 @@
 
 import unittest 
 from ass_parser import KaraokeProcessor 
+from utils import format_time 
 from models import PyxisLine ,PyxisUnit 
+from node_engine import GraphEngine 
 from nodes .time_nodes import (
 time_lead_in ,time_lead_out ,time_middle_1 ,time_middle_2 ,
 time_loop_1 ,time_loop_2 ,time_ipol ,time_offset ,time_duration ,
@@ -279,6 +281,100 @@ class TestTimeAMicroBatch(unittest.TestCase):
         )
         self.assertEqual(sync_end, round(2000.0 + extra_ms, 2))
 
+    def test_time_synced_modes(self):
+        l1 = _make_line(text="L1", start=1000, end=2000)
+        l1.style_name = "Romaji"
+        l1.actor = "SingerA"
+        l1.layer = 1
+        l1.effect = "fx1"
+
+        l2_interleaved = _make_line(text="L2 Interleaved", start=2100, end=2200)
+        l2_interleaved.style_name = "Kanji"
+        l2_interleaved.actor = "SingerB"
+        l2_interleaved.layer = 2
+        l2_interleaved.effect = "fx2"
+
+        l3_match = _make_line(text="L3 Match", start=3000, end=4000)
+        l3_match.style_name = "Romaji"
+        l3_match.actor = "SingerA"
+        l3_match.layer = 1
+        l3_match.effect = "fx1"
+
+        ctx = {
+            'line': l1,
+            'target_lines': [l1, l2_interleaved, l3_match]
+        }
+
+        # 1. Mode 'order': next is l2_interleaved (start=2100) -> gap=100 < delay=250 -> 0.0
+        res_order = time_synchronized_extra_node(ctx, progression_const=0, delay_ms=250, fade_dur=100, mode="order")
+        self.assertEqual(res_order, 0.0)
+
+        # 2. Mode 'style': next is l3_match (start=3000) -> gap=1000 -> 1000 + 125 - 100 = 1025.0
+        res_style = time_synchronized_extra_node(ctx, progression_const=0, delay_ms=250, fade_dur=100, mode="style")
+        self.assertEqual(res_style, 1025.0)
+
+        # 3. Mode 'actor': next is l3_match -> 1025.0
+        res_actor = time_synchronized_extra_node(ctx, progression_const=0, delay_ms=250, fade_dur=100, mode="actor")
+        self.assertEqual(res_actor, 1025.0)
+
+        # 4. Mode 'layer': next is l3_match -> 1025.0
+        res_layer = time_synchronized_extra_node(ctx, progression_const=0, delay_ms=250, fade_dur=100, mode="layer")
+        self.assertEqual(res_layer, 1025.0)
+
+        # 5. Mode 'effect': next is l3_match -> 1025.0
+        res_effect = time_synchronized_extra_node(ctx, progression_const=0, delay_ms=250, fade_dur=100, mode="effect")
+        self.assertEqual(res_effect, 1025.0)
+
+    def test_user_exact_lines_simulation(self):
+        def parse_t(s):
+            h, m, sec = s.split(':')
+            return int(h)*3600000 + int(m)*60000 + int(round(float(sec)*1000))
+
+        r_times = [
+            ('0:19:30.69', '0:19:32.61'), ('0:19:33.00', '0:19:35.28'),
+            ('0:19:35.47', '0:19:37.64'), ('0:19:38.00', '0:19:40.19'),
+            ('0:19:40.48', '0:19:44.17'), ('0:19:44.51', '0:19:49.07'),
+            ('0:19:49.35', '0:19:52.47'), ('0:19:52.71', '0:19:54.58'),
+            ('0:19:54.77', '0:19:57.59'), ('0:19:57.91', '0:19:59.67'),
+            ('0:19:59.96', '0:20:02.66'), ('0:20:02.85', '0:20:04.47'),
+            ('0:20:04.71', '0:20:09.44'), ('0:20:09.82', '0:20:14.39'),
+            ('0:20:14.82', '0:20:20.44')
+        ]
+        def_time = ('0:20:20.44', '0:20:23.94')
+
+        all_lines = []
+        for st, et in r_times:
+            l = _make_line(text="short text", start=parse_t(st), end=parse_t(et))
+            l.style_name = 'EP11INS_R'
+            l.layer = 1
+            all_lines.append(l)
+
+        d = _make_line(text="", start=parse_t(def_time[0]), end=parse_t(def_time[1]))
+        d.style_name = 'Default'
+        d.layer = 0
+        all_lines.append(d)
+
+        for st, et in r_times:
+            l = _make_line(text="very long english translation text with much wider width and more characters", start=parse_t(st), end=parse_t(et))
+            l.style_name = 'EP11INS_TL'
+            l.layer = 0
+            all_lines.append(l)
+
+        # Interleaved order simulation test verifying mode=style vs mode=order
+        interleaved_lines = []
+        for i in range(15):
+            interleaved_lines.append(all_lines[i]) # R_i
+            interleaved_lines.append(all_lines[16 + i]) # TL_i
+        interleaved_lines.append(all_lines[15]) # Default
+
+        # 1. Under mode='style', R and TL get 100% identical values line by line
+        for i in range(15):
+            ctx_r = {'line': all_lines[i], 'target_lines': interleaved_lines}
+            ctx_tl = {'line': all_lines[16 + i], 'target_lines': interleaved_lines}
+            res_r = time_synchronized_extra_node(ctx_r, progression_const=0, fade_dur=0, max_added_time=200, delay_ms=250, max_gap_threshold=3000, mode="style")
+            res_tl = time_synchronized_extra_node(ctx_tl, progression_const=0, fade_dur=0, max_added_time=200, delay_ms=250, max_gap_threshold=3000, mode="style")
+            self.assertEqual(res_r, res_tl, f"Mismatch at line {i}: R={res_r}, TL={res_tl}")
+
     def test_retime_node_canonical_evaluation(self):
         from nodes.time_nodes import RetimeNode
         # Slot 0: \t Out
@@ -355,6 +451,111 @@ class TestTimeAMicroBatch(unittest.TestCase):
         self.assertGreater(float(res_synced_extra), 0.0)
         res_synced_end = engine_synced.evaluate_data_node(4, self.ctx1, output_slot_index=1)
         self.assertEqual(float(res_synced_end), round(2000.0 + float(res_synced_extra), 2))
+
+    def test_synced_multiprocessing_consistency(self):
+        """Verifica que Time/Synced en modo style mantenga paridad y contexto global en multiprocessing."""
+        times = [
+            (1170690, 1172610),
+            (1173000, 1175280),
+            (1175470, 1177640),
+            (1178000, 1180190),
+            (1180480, 1184170),
+            (1184510, 1189070),
+            (1189350, 1192470),
+            (1192710, 1194580),
+            (1194770, 1197590),
+            (1197910, 1199670),
+            (1199960, 1202660),
+            (1202850, 1204470),
+            (1204660, 1207900),
+            (1208090, 1210110),
+            (1210400, 1213450),
+        ]
+        items = []
+        for i, (st, et) in enumerate(times, 1):
+            st_str = format_time(st)
+            et_str = format_time(et)
+            items.append({'raw': f"Dialogue: 0,{st_str},{et_str},Style_R,,0,0,0,,Text R {i}", 'is_selected': True, 'i': i})
+        
+        items.append({'raw': "Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,Mid", 'is_selected': False, 'i': 16})
+        
+        for i, (st, et) in enumerate(times, 1):
+            st_str = format_time(st)
+            et_str = format_time(et)
+            items.append({'raw': f"Dialogue: 0,{st_str},{et_str},Style_TL,,0,0,0,,Text TL {i}", 'is_selected': True, 'i': 16 + i})
+
+        styles = {
+            'Style_R': {'Fontname': 'Arial', 'Fontsize': 20},
+            'Style_TL': {'Fontname': 'Arial', 'Fontsize': 20},
+            'Default': {'Fontname': 'Arial', 'Fontsize': 20},
+        }
+
+        graph = {
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "Loops/Main Loop",
+                    "properties": {"base_unit": "line", "noblank": "No Blank"},
+                    "inputs": []
+                },
+                {
+                    "id": 2,
+                    "type": "Time/Synced",
+                    "properties": {
+                        "mode": "style",
+                        "progression_const": "0",
+                        "fade_dur": "300",
+                        "max_added_time": "2000",
+                        "delay_ms": "200",
+                        "max_gap_threshold": "3000"
+                    },
+                    "inputs": []
+                },
+                {
+                    "id": 3,
+                    "type": "String",
+                    "properties": {"value": "TestText"},
+                    "inputs": []
+                },
+                {
+                    "id": 4,
+                    "type": "System/Output",
+                    "properties": {
+                        "apply_to": "Selected Lines"
+                    },
+                    "inputs": [
+                        {"name": "Loop", "type": "data", "link": 101},
+                        {"name": "Capa", "type": 0, "link": None},
+                        {"name": "Start", "type": 0, "link": None},
+                        {"name": "End", "type": 0, "link": 102},
+                        {"name": "Tags", "type": 0, "link": None},
+                        {"name": "Retorno", "type": "string", "link": 103}
+                    ]
+                }
+            ],
+            "links": [
+                [101, 1, 0, 4, 0, "data"],
+                [102, 2, 1, 4, 3, "number"],
+                [103, 3, 0, 4, 5, "string"]
+            ]
+        }
+
+        engine_seq = GraphEngine(graph_data=graph)
+        lines_seq = engine_seq.process(items, styles, use_multiprocessing=False)
+
+        engine_mp = GraphEngine(graph_data=graph)
+        lines_mp = engine_mp.process(items, styles, use_multiprocessing=True)
+
+        self.assertEqual(len(lines_seq), len(lines_mp))
+        self.assertEqual(len(lines_mp), 30)
+
+        for i in range(15):
+            line_r = lines_mp[i]
+            line_tl = lines_mp[15 + i]
+            parts_r = line_r.split(',')
+            parts_tl = line_tl.split(',')
+            self.assertEqual(parts_r[1], parts_tl[1], f"Mismatch in start time for index {i}")
+            self.assertEqual(parts_r[2], parts_tl[2], f"Mismatch in end time for index {i}: {parts_r[2]} vs {parts_tl[2]}")
 
 
 class TestTimeBMicroBatch(unittest.TestCase):

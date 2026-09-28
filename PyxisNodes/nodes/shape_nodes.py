@@ -147,13 +147,156 @@ def shape_sakura_flower_3t(context):
 
 import math
 
+
+def resolve_shape_anchor(drawing, anchor="center", context=None):
+    """Calculates canonical Shape Anchor reference and base offsets for monolithic shapes:
+    - 'center': Centers local bounding box around (0, 0) [ref = (cx, cy), base = (0, 0)].
+    - 'origin': Aligns top-left corner of ink bounding box to (0, 0) [ref = (min_x, min_y), base = (0, 0)].
+    - 'absolute': Translates shape to canvas context position (fx.pos_x, fx.pos_y) [ref = (cx, cy), base = (pos_x, pos_y)].
+    Returns (ref_x, ref_y, base_x, base_y, min_x, min_y, max_x, max_y, cx, cy).
+    """
+    tokens = str(drawing or "").split()
+    coords = []
+    for token in tokens:
+        try:
+            coords.append(float(token))
+        except ValueError:
+            pass
+
+    min_x, max_x = 0.0, 0.0
+    min_y, max_y = 0.0, 0.0
+    cx, cy = 0.0, 0.0
+
+    if coords and len(coords) >= 2:
+        xs = coords[0::2]
+        ys = coords[1::2]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        cx = (min_x + max_x) / 2.0
+        cy = (min_y + max_y) / 2.0
+
+    pos_x, pos_y = 0.0, 0.0
+    if isinstance(context, dict):
+        unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+        try:
+            pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
+        except: pos_x = 0.0
+        try:
+            pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
+        except: pos_y = 0.0
+
+    anchor_str = str(anchor or "center").strip().lower()
+
+    if anchor_str == "origin":
+        ref_x, ref_y = min_x, min_y
+        base_x, base_y = 0.0, 0.0
+    elif anchor_str == "absolute":
+        ref_x, ref_y = 0.0, 0.0
+        base_x, base_y = pos_x, pos_y
+    elif anchor_str == "relative":
+        ref_x, ref_y = 0.0, 0.0
+        base_x, base_y = 0.0, 0.0
+    else:  # "center" fallback
+        ref_x, ref_y = cx, cy
+        base_x, base_y = 0.0, 0.0
+
+    return ref_x, ref_y, base_x, base_y, min_x, min_y, max_x, max_y, cx, cy
+
+
+def resolve_piece_anchor(piece_code, piece_cx=0.0, piece_cy=0.0, parent_x=0.0, parent_y=0.0, anchor="pieces", context=None):
+    """Calculates canonical Piece Anchor coordinates and shape transformation for piece/slicer/array elements:
+    - 'pieces': Recenters piece to local (0, 0) [-cx, -cy], pos = (parent_x + cx, parent_y + cy), org = (pos_x, pos_y), has_org = True.
+    - 'relative': Keeps relative offset to parent center [code unmodified], pos = (parent_x, parent_y), org = (parent_x, parent_y), has_org = True.
+    - 'org_padre': Recenters piece to local (0, 0) [-cx, -cy], pos = (parent_x + cx, parent_y + cy), org = (parent_x, parent_y), has_org = True.
+    - 'pos': Recenters piece to local (0, 0) [-cx, -cy], pos = (parent_x + cx, parent_y + cy), org = None, has_org = False.
+    - 'absolute': Bakes absolute screen coordinates into shape [offset +parent_x, +parent_y], pos = (parent_x, parent_y), org = None, has_org = False.
+    Returns a dict with:
+        'formatted_code': str,
+        'pos_x': float,
+        'pos_y': float,
+        'org_x': float,
+        'org_y': float,
+        'has_org': bool,
+        'pos_overridden': bool
+    """
+    from clipper_engine import ClipperEngine
+
+    anchor_str = str(anchor or "pieces").strip().lower()
+    raw_code = str(piece_code or "")
+    cx = float(piece_cx or 0.0)
+    cy = float(piece_cy or 0.0)
+    px = float(parent_x or 0.0)
+    py = float(parent_y or 0.0)
+    abs_x = px + cx
+    abs_y = py + cy
+
+    if anchor_str == "absolute":
+        formatted_code = ClipperEngine.transform_shape(raw_code, mode="Offset", offset_x=px, offset_y=py) if raw_code else ""
+        pos_x = px
+        pos_y = py
+        org_x = 0.0
+        org_y = 0.0
+        has_org = False
+        pos_overridden = False
+    elif anchor_str == "relative":
+        formatted_code = raw_code
+        pos_x = px
+        pos_y = py
+        org_x = px
+        org_y = py
+        has_org = True
+        pos_overridden = False
+    elif anchor_str == "org_padre":
+        formatted_code = ClipperEngine.transform_shape(raw_code, mode="Offset", offset_x=-cx, offset_y=-cy) if raw_code else ""
+        pos_x = abs_x
+        pos_y = abs_y
+        org_x = px
+        org_y = py
+        has_org = True
+        pos_overridden = True
+    elif anchor_str == "pos":
+        formatted_code = ClipperEngine.transform_shape(raw_code, mode="Offset", offset_x=-cx, offset_y=-cy) if raw_code else ""
+        pos_x = abs_x
+        pos_y = abs_y
+        org_x = 0.0
+        org_y = 0.0
+        has_org = False
+        pos_overridden = True
+    else:  # "pieces" (default canonical)
+        formatted_code = ClipperEngine.transform_shape(raw_code, mode="Offset", offset_x=-cx, offset_y=-cy) if raw_code else ""
+        pos_x = abs_x
+        pos_y = abs_y
+        org_x = abs_x
+        org_y = abs_y
+        has_org = True
+        pos_overridden = True
+
+    if isinstance(context, dict):
+        context['pos_x'] = pos_x
+        context['pos_y'] = pos_y
+        context['pos_overridden'] = pos_overridden
+        context['has_org'] = has_org
+        if has_org:
+            context['org_x'] = org_x
+            context['org_y'] = org_y
+
+    return {
+        'formatted_code': formatted_code,
+        'pos_x': pos_x,
+        'pos_y': pos_y,
+        'org_x': org_x,
+        'org_y': org_y,
+        'has_org': has_org,
+        'pos_overridden': pos_overridden
+    }
+
+
 def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offset_x=0.0, offset_y=0.0, offset_border=0.0, mode="center", op_mode="scale", density=2.0, angle_x=0.0, angle_y=0.0, angle_z=0.0, axis="y", t=1.0, **kwargs):
     """Applies advanced vector manipulations (Scale, Borders, Deform, Position, Redraw, 3D Rotation, Reflect).
-    Anchor modes (Shapery):
-      - 'center': Centers shape around (0,0) [Shape to center].
-      - 'origin': Aligns top-left corner of bounding box to (0,0) [Shape to origin].
-      - 'zero': Translates shape to screen/canvas coordinates (pos_x, pos_y) [Shape to 0,0].
-      - 'pos': Makes shape relative to position (pos_x, pos_y) [Shape to pos].
+    Canonical Shape Anchor modes:
+      - 'center': Centers shape around (0,0) [ref = (cx, cy), base = (0, 0)].
+      - 'origin': Aligns top-left corner of bounding box to (0,0) [ref = (min_x, min_y), base = (0, 0)].
+      - 'absolute': Translates shape to screen/canvas coordinates (pos_x, pos_y) [ref = (cx, cy), base = (pos_x, pos_y)].
     """
     raw_shp = resolve_shape_value(drawing if drawing else kwargs.get("shape", ""), context)
     if not raw_shp:
@@ -201,58 +344,12 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
     tx = raw_tx * t_val
     ty = raw_ty * t_val
 
-    anchor_str = str(mode or "center").strip().lower()
-
     rad = math.radians(angle)
     cos_a = math.cos(rad)
     sin_a = math.sin(rad)
 
     tokens = raw_shp.split()
-
-    coords = []
-    for token in tokens:
-        try:
-            coords.append(float(token))
-        except ValueError:
-            pass
-
-    min_x, max_x = 0.0, 0.0
-    min_y, max_y = 0.0, 0.0
-    cx, cy = 0.0, 0.0
-
-    if coords and len(coords) >= 2:
-        xs = coords[0::2]
-        ys = coords[1::2]
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
-        cx = (min_x + max_x) / 2.0
-        cy = (min_y + max_y) / 2.0
-
-    pos_x, pos_y = 0.0, 0.0
-    if isinstance(context, dict):
-        unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-        try:
-            pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
-        except: pos_x = 0.0
-        try:
-            pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
-        except: pos_y = 0.0
-
-    if anchor_str == "origin":
-        ref_x, ref_y = min_x, min_y
-        base_x, base_y = 0.0, 0.0
-    elif anchor_str == "zero":
-        ref_x, ref_y = cx, cy
-        base_x, base_y = pos_x, pos_y
-    elif anchor_str == "pos":
-        ref_x, ref_y = pos_x, pos_y
-        base_x, base_y = 0.0, 0.0
-    elif "rel" in anchor_str or "pieza" in anchor_str:
-        ref_x, ref_y = 0.0, 0.0
-        base_x, base_y = 0.0, 0.0
-    else:
-        ref_x, ref_y = cx, cy
-        base_x, base_y = 0.0, 0.0
+    ref_x, ref_y, base_x, base_y, _, _, _, _, _, _ = resolve_shape_anchor(raw_shp, anchor=mode, context=context)
 
     out_tokens = []
     i = 0
@@ -715,7 +812,7 @@ def _shape_inflate(drawing, t=1.0, ratio=1.0, mode="circle", anchor="center", co
     anchor_str = str(anchor or "center").strip().lower()
     if anchor_str == "origin":
         off_x, off_y = -new_min_x, -new_min_y
-    elif anchor_str == "zero":
+    elif anchor_str == "absolute":
         pos_x, pos_y = 0.0, 0.0
         if isinstance(context, dict):
             unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
@@ -723,17 +820,8 @@ def _shape_inflate(drawing, t=1.0, ratio=1.0, mode="circle", anchor="center", co
             except: pos_x = 0.0
             try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
-        off_x, off_y = pos_x - new_cx, pos_y - new_cy
-    elif anchor_str == "pos":
-        pos_x, pos_y = 0.0, 0.0
-        if isinstance(context, dict):
-            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
-            except: pos_x = 0.0
-            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
-            except: pos_y = 0.0
-        off_x, off_y = -pos_x, -pos_y
-    else:
+        off_x, off_y = pos_x, pos_y
+    else:  # "center" fallback
         off_x, off_y = -new_cx, -new_cy
 
     out_tokens = []
@@ -834,26 +922,7 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, conte
     tan_x = math.tan(math.radians(ax))
     tan_y = math.tan(math.radians(ay))
 
-    pos_x, pos_y = 0.0, 0.0
-    if isinstance(context, dict):
-        unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-        try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
-        except: pos_x = 0.0
-        try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
-        except: pos_y = 0.0
-
-    if anchor_str == "origin":
-        ref_x, ref_y = min_x, min_y
-        base_x, base_y = 0.0, 0.0
-    elif anchor_str == "zero":
-        ref_x, ref_y = cx, cy
-        base_x, base_y = pos_x, pos_y
-    elif anchor_str == "pos":
-        ref_x, ref_y = pos_x, pos_y
-        base_x, base_y = 0.0, 0.0
-    else:
-        ref_x, ref_y = cx, cy
-        base_x, base_y = 0.0, 0.0
+    ref_x, ref_y, base_x, base_y, _, _, _, _, _, _ = resolve_shape_anchor(drawing, anchor=anchor, context=context)
 
     out_tokens = []
     i = 0
@@ -1127,9 +1196,10 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=
     cx = (min_x + max_x) / 2.0
     cy = (min_y + max_y) / 2.0
 
+    anchor_str = str(anchor or "center").strip().lower()
     if anchor_str == "origin":
         off_x, off_y = -min_x, -min_y
-    elif anchor_str == "zero":
+    elif anchor_str == "absolute":
         pos_x, pos_y = 0.0, 0.0
         if isinstance(context, dict):
             unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
@@ -1137,17 +1207,8 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=
             except: pos_x = 0.0
             try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
-        off_x, off_y = pos_x - cx, pos_y - cy
-    elif anchor_str == "pos":
-        pos_x, pos_y = 0.0, 0.0
-        if isinstance(context, dict):
-            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
-            except: pos_x = 0.0
-            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
-            except: pos_y = 0.0
-        off_x, off_y = -pos_x, -pos_y
-    else:
+        off_x, off_y = pos_x, pos_y
+    else:  # "center" fallback
         off_x, off_y = -cx, -cy
 
     out_tokens = []
@@ -1393,9 +1454,10 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
     n_cx = (n_min_x + n_max_x) / 2.0
     n_cy = (n_min_y + n_max_y) / 2.0
 
+    anchor_str = str(anchor or "center").strip().lower()
     if anchor_str == "origin":
         off_x, off_y = -n_min_x, -n_min_y
-    elif anchor_str == "zero":
+    elif anchor_str == "absolute":
         pos_x, pos_y = 0.0, 0.0
         if isinstance(context, dict):
             unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
@@ -1403,17 +1465,8 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
             except: pos_x = 0.0
             try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
-        off_x, off_y = pos_x - n_cx, pos_y - n_cy
-    elif anchor_str == "pos":
-        pos_x, pos_y = 0.0, 0.0
-        if isinstance(context, dict):
-            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
-            except: pos_x = 0.0
-            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
-            except: pos_y = 0.0
-        off_x, off_y = -pos_x, -pos_y
-    else:
+        off_x, off_y = pos_x, pos_y
+    else:  # "center" fallback
         off_x, off_y = -n_cx, -n_cy
 
     out_tokens = []
@@ -1923,19 +1976,43 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
         if py0 < min_y: min_y = py0
         if py0 > max_y: max_y = py0
 
+        wave_t = math.sin(math.pi * t_val) if (0.0 < t_val < 1.0) else 0.0
+
         segs = []
         for k in range(M):
             segA, segB = bA[k], bB[k]
-            p1_x = segA[2][0] * (1.0 - t_val) + segB[2][0] * t_val
-            p1_y = segA[2][1] * (1.0 - t_val) + segB[2][1] * t_val
-            p2_x = segA[3][0] * (1.0 - t_val) + segB[3][0] * t_val
-            p2_y = segA[3][1] * (1.0 - t_val) + segB[3][1] * t_val
-            p3_x = segA[4][0] * (1.0 - t_val) + segB[4][0] * t_val
-            p3_y = segA[4][1] * (1.0 - t_val) + segB[4][1] * t_val
+            p1_raw_x = segA[2][0] * (1.0 - t_val) + segB[2][0] * t_val
+            p1_raw_y = segA[2][1] * (1.0 - t_val) + segB[2][1] * t_val
+            p2_raw_x = segA[3][0] * (1.0 - t_val) + segB[3][0] * t_val
+            p2_raw_y = segA[3][1] * (1.0 - t_val) + segB[3][1] * t_val
+            p3_raw_x = segA[4][0] * (1.0 - t_val) + segB[4][0] * t_val
+            p3_raw_y = segA[4][1] * (1.0 - t_val) + segB[4][1] * t_val
 
-            p1_m = to_dyn_bbox((p1_x, p1_y))
-            p2_m = to_dyn_bbox((p2_x, p2_y))
-            p3_m = to_dyn_bbox((p3_x, p3_y))
+            if wave_t > 0.0 and energy_val > 0.0:
+                p0_seg_x = segA[1][0] * (1.0 - t_val) + segB[1][0] * t_val
+                p0_seg_y = segA[1][1] * (1.0 - t_val) + segB[1][1] * t_val
+                dx = p3_raw_x - p0_seg_x
+                dy = p3_raw_y - p0_seg_y
+                chord_l = math.hypot(dx, dy)
+                if chord_l > 0.01:
+                    nx = -dy / chord_l
+                    ny = dx / chord_l
+                    h1_x = p1_raw_x - p0_seg_x
+                    h1_y = p1_raw_y - p0_seg_y
+                    h2_x = p2_raw_x - p3_raw_x
+                    h2_y = p2_raw_y - p3_raw_y
+                    
+                    swell_norm = wave_t * energy_val * min(chord_l * 0.25, 25.0)
+                    handle_scale = 1.0 + wave_t * energy_val * 0.35
+                    
+                    p1_raw_x = p0_seg_x + h1_x * handle_scale + nx * swell_norm
+                    p1_raw_y = p0_seg_y + h1_y * handle_scale + ny * swell_norm
+                    p2_raw_x = p3_raw_x + h2_x * handle_scale + nx * swell_norm
+                    p2_raw_y = p3_raw_y + h2_y * handle_scale + ny * swell_norm
+
+            p1_m = to_dyn_bbox((p1_raw_x, p1_raw_y))
+            p2_m = to_dyn_bbox((p2_raw_x, p2_raw_y))
+            p3_m = to_dyn_bbox((p3_raw_x, p3_raw_y))
 
             for pmx, pmy in (p1_m, p2_m, p3_m):
                 if pmx < min_x: min_x = pmx
@@ -1955,11 +2032,10 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
     n_cx = (n_min_x + n_max_x) / 2.0
     n_cy = (n_min_y + n_max_y) / 2.0
 
-    if anchor_str == 'origin':
+    anchor_str = str(anchor or "center").strip().lower()
+    if anchor_str == "origin":
         off_x, off_y = -n_min_x, -n_min_y
-    elif anchor_str in ('abs', 'absoluto', 'none', 'screen', 'pantalla', 'raw'):
-        off_x, off_y = 0.0, 0.0
-    elif anchor_str == 'zero':
+    elif anchor_str == "absolute":
         pos_x, pos_y = 0.0, 0.0
         if isinstance(context, dict):
             unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
@@ -1967,17 +2043,8 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
             except: pos_x = 0.0
             try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
             except: pos_y = 0.0
-        off_x, off_y = pos_x - n_cx, pos_y - n_cy
-    elif anchor_str == 'pos':
-        pos_x, pos_y = 0.0, 0.0
-        if isinstance(context, dict):
-            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
-            try: pos_x = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
-            except: pos_x = 0.0
-            try: pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
-            except: pos_y = 0.0
-        off_x, off_y = -pos_x, -pos_y
-    else:
+        off_x, off_y = pos_x, pos_y
+    else:  # "center" fallback
         off_x, off_y = -n_cx, -n_cy
 
     def fmt_num(v):
@@ -1985,7 +2052,7 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
         return iv if v == iv else round(v, 2)
 
     out_parts = []
-    if s_px >= 0.5:
+    if s_px > 0.05:
         for segs in active_pairs:
             if not segs:
                 continue
@@ -1996,7 +2063,7 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
                 chord = math.hypot(p3[0] - p0[0], p3[1] - p0[1])
                 poly = math.hypot(p1[0] - p0[0], p1[1] - p0[1]) + math.hypot(p2[0] - p1[0], p2[1] - p1[1]) + math.hypot(p3[0] - p2[0], p3[1] - p2[1])
                 approx_l = (chord + poly) / 2.0
-                steps = max(2, int(math.ceil(approx_l / s_px)))
+                steps = max(1, int(round(approx_l / s_px)))
                 for s in range(1, steps + 1):
                     u = s / float(steps)
                     um = 1.0 - u
@@ -2697,7 +2764,7 @@ def apply_geometric_anchor(drawing, anchor="center", context=None, ref_bbox=None
         cx = (min_x + max_x) / 2.0
         cy = (min_y + max_y) / 2.0
 
-    if ref_bbox is not None and anchor_str not in ("piece", "pieza", "piezas", "local", "individual"):
+    if ref_bbox is not None and anchor_str != "pieces":
         if isinstance(ref_bbox, dict):
             min_x = float(ref_bbox.get("x1", ref_bbox.get("min_x", ref_bbox.get(0, min_x))))
             min_y = float(ref_bbox.get("y1", ref_bbox.get("min_y", ref_bbox.get(1, min_y))))
@@ -2718,19 +2785,22 @@ def apply_geometric_anchor(drawing, anchor="center", context=None, ref_bbox=None
             pos_y = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
         except: pos_y = 0.0
 
-    if anchor_str in ("origin", "origen", "org_padre", "padre"):
+    if anchor_str == "origin":
         ref_x, ref_y = min_x, min_y
         base_x, base_y = 0.0, 0.0
-    elif anchor_str in ("zero", "0,0", "0", "absoluto"):
-        ref_x, ref_y = cx, cy
+    elif anchor_str == "absolute":
+        ref_x, ref_y = 0.0, 0.0
         base_x, base_y = pos_x, pos_y
-    elif anchor_str in ("pos", "position", "posicion", "posic", "solo_pos"):
+    elif anchor_str == "pos":
         ref_x, ref_y = pos_x, pos_y
         base_x, base_y = 0.0, 0.0
-    elif anchor_str in ("piece", "pieza", "piezas", "local", "individual"):
+    elif anchor_str == "relative":
+        ref_x, ref_y = 0.0, 0.0
+        base_x, base_y = 0.0, 0.0
+    elif anchor_str == "pieces":
         ref_x, ref_y = cx, cy
         base_x, base_y = 0.0, 0.0
-    else:
+    else:  # "center" fallback
         ref_x, ref_y = cx, cy
         base_x, base_y = 0.0, 0.0
 
@@ -3979,14 +4049,10 @@ def shape_array_node(
             return "", pos_str, round(parent_x, 2), round(parent_y, 2), 0.0, 0, total_pieces, 1, 1
 
         active_pieces = pieces[:visible_count]
-        if "abs" in anchor_mode:
-            piece_drawings = [shape_manipulator(context, drawing=p["code"], offset_x=parent_x + p["cx"], offset_y=parent_y + p["cy"], mode="center") for p in active_pieces]
-        elif "origin" in anchor_mode:
-            piece_drawings = [shape_manipulator(context, drawing=p["code"], offset_x=p["cx"], offset_y=p["cy"], mode="origin") for p in active_pieces]
-        elif "rel" in anchor_mode:
-            piece_drawings = [p.get("code") or p.get("rel_code") for p in active_pieces]
-        else:
-            piece_drawings = [p.get("rel_code") or shape_manipulator(context, drawing=p["code"], offset_x=p["cx"], offset_y=p["cy"], mode="center") for p in active_pieces]
+        piece_drawings = []
+        for p in active_pieces:
+            anc_res = resolve_piece_anchor(p["code"], piece_cx=p["cx"], piece_cy=p["cy"], parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
+            piece_drawings.append(anc_res["formatted_code"])
 
         tags_val = tags if tags else (kwargs.get("tag") or "")
         if tags_val and str(tags_val).strip():
@@ -4014,62 +4080,14 @@ def shape_array_node(
 
     cx = piece["cx"]
     cy = piece["cy"]
-    px = round(parent_x + cx, 2)
-    py = round(parent_y + cy, 2)
     ang = piece["angle"]
     col_val = piece["col"]
     row_val = piece["row"]
 
-    if any(k in anchor_mode for k in ["pieza", "piece", "local", "true"]):
-        piece_code = piece["code"]
-        if isinstance(context, dict):
-            context['pos_x'] = px
-            context['pos_y'] = py
-            context['pos_overridden'] = True
-            context['has_org'] = True
-            context['org_x'] = px
-            context['org_y'] = py
-    elif "solo_pos" in anchor_mode or "pos" in anchor_mode:
-        piece_code = piece["code"]
-        if isinstance(context, dict):
-            context['pos_x'] = px
-            context['pos_y'] = py
-            context['pos_overridden'] = True
-            context['has_org'] = False
-    elif "org" in anchor_mode or "padre" in anchor_mode:
-        piece_code = piece["code"]
-        if isinstance(context, dict):
-            context['pos_x'] = px
-            context['pos_y'] = py
-            context['pos_overridden'] = True
-            context['has_org'] = True
-            context['org_x'] = parent_x
-            context['org_y'] = parent_y
-    elif "rel" in anchor_mode:
-        piece_code = shape_manipulator(context, drawing=piece["code"], offset_x=cx, offset_y=cy, mode="center")
-        if isinstance(context, dict):
-            context['pos_x'] = parent_x
-            context['pos_y'] = parent_y
-            context['pos_overridden'] = False
-            context['has_org'] = True
-            context['org_x'] = parent_x
-            context['org_y'] = parent_y
-    elif "abs" in anchor_mode:
-        piece_code = shape_manipulator(context, drawing=piece["code"], offset_x=px, offset_y=py, mode="center")
-        if isinstance(context, dict):
-            context['pos_x'] = 0.0
-            context['pos_y'] = 0.0
-            context['pos_overridden'] = True
-            context['has_org'] = False
-    else:
-        piece_code = piece["code"]
-        if isinstance(context, dict):
-            context['pos_x'] = px
-            context['pos_y'] = py
-            context['pos_overridden'] = True
-            context['has_org'] = True
-            context['org_x'] = px
-            context['org_y'] = py
+    anc_res = resolve_piece_anchor(piece["code"], piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
+    piece_code = anc_res["formatted_code"]
+    px = round(anc_res["pos_x"], 2)
+    py = round(anc_res["pos_y"], 2)
 
     if isinstance(context, dict):
         context['a_i'] = a_i_val
@@ -4575,16 +4593,10 @@ def _finish_multi_pieces(pieces, anchor="center", tags="", context=None, return_
     if anchor_str == "origin":
         ref_x, ref_y = min_x, min_y
         base_x, base_y = 0.0, 0.0
-    elif anchor_str == "zero":
-        ref_x, ref_y = cx, cy
-        base_x, base_y = pos_x, pos_y
-    elif anchor_str == "pos":
-        ref_x, ref_y = pos_x, pos_y
-        base_x, base_y = 0.0, 0.0
-    elif "rel" in anchor_str and not return_list:
+    elif anchor_str == "absolute":
         ref_x, ref_y = 0.0, 0.0
-        base_x, base_y = 0.0, 0.0
-    else:  # "center", "piezas", "piece", "relativo", "org_padre", "solo_pos", "absoluto"
+        base_x, base_y = pos_x, pos_y
+    else:  # "center" fallback
         if canonical_center is not None:
             ref_x, ref_y = canonical_center
         else:

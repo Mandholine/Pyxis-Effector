@@ -48,9 +48,8 @@ def _get_eval_globals() -> Dict[str, Any]:
         b_c = max(0, min(255, int(b)))
         return f"&H{b_c:02X}{g_c:02X}{r_c:02X}&"
 
-    def ass_alpha(a: int) -> str:
-        a_c = max(0, min(255, int(a)))
-        return f"&H{a_c:02X}&"
+    def ass_alpha(a: Any) -> str:
+        return _format_ass_alpha(a)
 
     def random_color() -> str:
         return f"&H{random.randint(0, 255):02X}{random.randint(0, 255):02X}{random.randint(0, 255):02X}&"
@@ -132,6 +131,57 @@ def _get_eval_globals() -> Dict[str, Any]:
 
     _STATIC_STRING_GLOBALS = g
     return _STATIC_STRING_GLOBALS
+
+
+def _format_ass_alpha(val: Any) -> str:
+    """Formats an alpha value into canonical ASS alpha hex &HXX& (00 to FF)."""
+    if val is None:
+        return "&H00&"
+    if isinstance(val, (int, float)):
+        a_c = max(0, min(255, int(round(float(val)))))
+        return f"&H{a_c:02X}&"
+    s = str(val).strip()
+    if not s:
+        return "&H00&"
+
+    m_color = re.match(r'^&?[hH]?([0-9a-fA-F]{2})[0-9a-fA-F]{6}&?$', s)
+    if m_color:
+        return f"&H{m_color.group(1).upper()}&"
+
+    m_hex = re.match(r'^&?[hH]([0-9a-fA-F]{1,2})&?$', s)
+    if m_hex:
+        return f"&H{m_hex.group(1).upper().zfill(2)}&"
+
+    try:
+        f_val = float(s)
+        a_c = max(0, min(255, int(round(f_val))))
+        return f"&H{a_c:02X}&"
+    except ValueError:
+        pass
+
+    m_raw_hex = re.match(r'^[0-9a-fA-F]{1,2}$', s)
+    if m_raw_hex:
+        return f"&H{m_raw_hex.group(0).upper().zfill(2)}&"
+
+    return s
+
+
+def _clean_ass_color(col: Any) -> str:
+    """Formats a color value into canonical ASS color hex &HBBGGRR&."""
+    if col is None:
+        return "&H00FFFFFF&"
+    s = str(col).strip()
+    if not s:
+        return "&H00FFFFFF&"
+    m = re.findall(r'[0-9a-fA-F]{2}', s)
+    if len(m) >= 4:
+        return f"&H{''.join(m[-3:]).upper()}&"
+    elif len(m) == 3:
+        return f"&H{''.join(m).upper()}&"
+    m_hex = re.search(r'([0-9a-fA-F]{6})', s)
+    if m_hex:
+        return f"&H{m_hex.group(1).upper()}&"
+    return s
 
 
 def _fmt_num(val: Any) -> str:
@@ -325,7 +375,7 @@ def substitute_dollar_vars(text: str, context: Optional[Dict[str, Any]] = None) 
     if not isinstance(context, dict):
         context = {}
 
-    active_unit = context.get("active_unit")
+    active_unit = context.get("active_unit") or context.get("syl") or context.get("char") or context.get("word")
     active_line = context.get("active_line", context.get("line"))
     if not active_line and hasattr(active_unit, "line") and getattr(active_unit, "line", None):
         active_line = getattr(active_unit, "line")
@@ -343,24 +393,36 @@ def substitute_dollar_vars(text: str, context: Optional[Dict[str, Any]] = None) 
         v = var_name.strip()
         v_lower = v.lower()
 
+        if v in context:
+            val = context[v]
+            if isinstance(val, (int, float)):
+                if "alpha" in v_lower or v_lower in ("a1", "a2", "a3", "a4"):
+                    return _format_ass_alpha(val)
+                return _fmt_num(val)
+            if "color" in v_lower:
+                return _clean_ass_color(val)
+            if "alpha" in v_lower or v_lower in ("a1", "a2", "a3", "a4"):
+                return _format_ass_alpha(val)
+            return str(val)
+
         if v_lower in ("start", "st"):
-            st = getattr(active_unit, "start_time", 0.0) if active_unit else 0.0
+            st = getattr(active_unit, "start_time", context.get("start_time", context.get("st", 0.0))) if active_unit else context.get("start_time", context.get("st", 0.0))
             return _fmt_num(st)
         if v_lower in ("end", "et"):
-            et = getattr(active_unit, "end_time", 0.0) if active_unit else 0.0
+            et = getattr(active_unit, "end_time", context.get("end_time", context.get("et", 0.0))) if active_unit else context.get("end_time", context.get("et", 0.0))
             return _fmt_num(et)
         if v_lower == "dur":
-            dur = getattr(active_unit, "dur", getattr(active_unit, "duration", 0.0)) if active_unit else 0.0
+            dur = getattr(active_unit, "dur", getattr(active_unit, "duration", context.get("dur", context.get("duration", 0.0)))) if active_unit else context.get("dur", context.get("duration", 0.0))
             return _fmt_num(dur)
         if v_lower == "kdur":
-            dur = getattr(active_unit, "dur", getattr(active_unit, "duration", 0.0)) if active_unit else 0.0
+            dur = getattr(active_unit, "dur", getattr(active_unit, "duration", context.get("dur", context.get("duration", 0.0)))) if active_unit else context.get("dur", context.get("duration", 0.0))
             return _fmt_num(dur / 10.0)
         if v_lower == "mid":
-            st = getattr(active_unit, "start_time", 0.0) if active_unit else 0.0
-            dur = getattr(active_unit, "dur", getattr(active_unit, "duration", 0.0)) if active_unit else 0.0
+            st = getattr(active_unit, "start_time", context.get("start_time", 0.0)) if active_unit else context.get("start_time", 0.0)
+            dur = getattr(active_unit, "dur", getattr(active_unit, "duration", context.get("dur", 0.0))) if active_unit else context.get("dur", 0.0)
             return _fmt_num(st + dur / 2.0)
         if v_lower in ("left", "right", "center", "top", "middle", "bottom", "width", "height", "x", "y"):
-            val = getattr(active_unit, v_lower, 0.0) if active_unit else 0.0
+            val = getattr(active_unit, v_lower, context.get(v_lower, context.get(f"val_{v_lower}", 0.0))) if active_unit else context.get(v_lower, context.get(f"val_{v_lower}", 0.0))
             return _fmt_num(val)
         if v_lower == "si":
             syl_obj = context.get("syl", active_unit)
@@ -380,20 +442,16 @@ def substitute_dollar_vars(text: str, context: Optional[Dict[str, Any]] = None) 
             res = _eval_sys_var(v, context)
             if res != "":
                 if isinstance(res, (int, float)):
+                    if "alpha" in v_lower or v_lower in ("a1", "a2", "a3", "a4"):
+                        return _format_ass_alpha(res)
                     return _fmt_num(res)
                 if "color" in v_lower:
-                    return _clean_color_str(res)
+                    return _clean_ass_color(res)
+                if "alpha" in v_lower or v_lower in ("a1", "a2", "a3", "a4"):
+                    return _format_ass_alpha(res)
                 return str(res)
         except ImportError:
             pass
-
-        if v in context:
-            val = context[v]
-            if isinstance(val, (int, float)):
-                return _fmt_num(val)
-            if "color" in v_lower:
-                return _clean_color_str(val)
-            return str(val)
 
         return f"${var_name}"
 
@@ -427,18 +485,49 @@ def evaluate_inline_bang_expressions(text: str, context: Optional[Dict[str, Any]
     return result.replace("\x01ESC_BANG\x01", "!")
 
 
-def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None) -> str:
-    """
-    Expande tags compuestos, tags de restauración (~) y tags estocásticos (\\tagR)
-    al estándar ASS puro.
-    """
-    if not text or "\\" not in text:
-        return text
+def _get_context_origin(context: Optional[Dict[str, Any]]) -> tuple[str, str]:
+    """Obtiene las coordenadas cartesianas (X, Y) del origen / pivote del contexto activo."""
+    if not isinstance(context, dict):
+        return ("0", "0")
+    active_unit = context.get("active_unit") or context.get("syl") or context.get("char") or context.get("word")
+    fx_obj = context.get("fx")
 
+    ox: Any = 0.0
+    if "fx_pos_x" in context:
+        ox = context["fx_pos_x"]
+    elif fx_obj and hasattr(fx_obj, "pos_x"):
+        ox = getattr(fx_obj, "pos_x")
+    elif "pos_x" in context:
+        ox = context["pos_x"]
+    elif "x" in context:
+        ox = context["x"]
+    elif active_unit and hasattr(active_unit, "center"):
+        ox = getattr(active_unit, "center")
+    elif active_unit and hasattr(active_unit, "x"):
+        ox = getattr(active_unit, "x")
+
+    oy: Any = 0.0
+    if "fx_pos_y" in context:
+        oy = context["fx_pos_y"]
+    elif fx_obj and hasattr(fx_obj, "pos_y"):
+        oy = getattr(fx_obj, "pos_y")
+    elif "pos_y" in context:
+        oy = context["pos_y"]
+    elif "y" in context:
+        oy = context["y"]
+    elif active_unit and hasattr(active_unit, "middle"):
+        oy = getattr(active_unit, "middle")
+    elif active_unit and hasattr(active_unit, "y"):
+        oy = getattr(active_unit, "y")
+
+    return (_fmt_num(ox), _fmt_num(oy))
+
+
+def _get_context_style_props(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Extrae de manera segura las propiedades métricas del estilo del contexto activo."""
     if not isinstance(context, dict):
         context = {}
-
-    active_unit = context.get("active_unit")
+    active_unit = context.get("active_unit") or context.get("syl") or context.get("char") or context.get("word")
     active_line = context.get("active_line", context.get("line"))
     if not active_line and hasattr(active_unit, "line") and getattr(active_unit, "line", None):
         active_line = getattr(active_unit, "line")
@@ -447,7 +536,7 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 
     styleref = getattr(active_line, "styleref", None) if active_line else None
 
-    def _get_style_prop(prop: str, default: Any = "") -> Any:
+    def _get_prop(prop: str, default: Any = "") -> Any:
         if styleref and hasattr(styleref, prop):
             val = getattr(styleref, prop)
             return val() if callable(val) else val
@@ -456,30 +545,80 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
             return val() if callable(val) else val
         return default
 
-    style_color1 = str(_get_style_prop("color1", "&H00FFFFFF&"))
-    style_color2 = str(_get_style_prop("color2", "&H000000FF&"))
-    style_color3 = str(_get_style_prop("color3", "&H00000000&"))
-    style_color4 = str(_get_style_prop("color4", "&H00000000&"))
-    style_alpha1 = str(_get_style_prop("alpha1", "&H00&"))
-    style_alpha2 = str(_get_style_prop("alpha2", "&H00&"))
-    style_alpha3 = str(_get_style_prop("alpha3", "&H00&"))
-    style_alpha4 = str(_get_style_prop("alpha4", "&H00&"))
-    style_scale_x = _fmt_num(_get_style_prop("scale_x", 100))
-    style_scale_y = _fmt_num(_get_style_prop("scale_y", 100))
-    style_fontsize = _fmt_num(_get_style_prop("fontsize", 25))
-    style_spacing = _fmt_num(_get_style_prop("spacing", 0))
-    style_outline = _fmt_num(_get_style_prop("outline", 2))
-    style_shadow = _fmt_num(_get_style_prop("shadow", 2))
-    style_angle = _fmt_num(_get_style_prop("angle", 0))
+    scale_x_raw = _get_prop("scale_x", 100.0)
+    scale_y_raw = _get_prop("scale_y", 100.0)
+    fontsize_raw = _get_prop("fontsize", 25.0)
 
-    def _clean_ass_color(col: str) -> str:
-        m = re.findall(r'[0-9a-fA-F]{2}', col)
-        if len(m) >= 4:
-            return f"&H{''.join(m[-3:])}&"
-        elif len(m) == 3:
-            return f"&H{''.join(m)}&"
-        m_hex = re.search(r'([0-9a-fA-F]{6})', col)
-        return f"&H{m_hex.group(1)}&" if m_hex else col
+    try:
+        scale_x = float(scale_x_raw) if scale_x_raw is not None else 100.0
+    except (ValueError, TypeError):
+        scale_x = 100.0
+
+    try:
+        scale_y = float(scale_y_raw) if scale_y_raw is not None else 100.0
+    except (ValueError, TypeError):
+        scale_y = 100.0
+
+    try:
+        fontsize = float(fontsize_raw) if fontsize_raw is not None else 25.0
+    except (ValueError, TypeError):
+        fontsize = 25.0
+
+    return {
+        "scale_x": scale_x,
+        "scale_y": scale_y,
+        "fontsize": fontsize,
+        "scale_x_str": _fmt_num(scale_x),
+        "scale_y_str": _fmt_num(scale_y),
+        "fontsize_str": _fmt_num(fontsize),
+        "color1": str(_get_prop("color1", "&H00FFFFFF&")),
+        "color2": str(_get_prop("color2", "&H000000FF&")),
+        "color3": str(_get_prop("color3", "&H00000000&")),
+        "color4": str(_get_prop("color4", "&H00000000&")),
+        "alpha1": _format_ass_alpha(_get_prop("alpha1", "&H00&")),
+        "alpha2": _format_ass_alpha(_get_prop("alpha2", "&H00&")),
+        "alpha3": _format_ass_alpha(_get_prop("alpha3", "&H00&")),
+        "alpha4": _format_ass_alpha(_get_prop("alpha4", "&H00&")),
+        "spacing": _fmt_num(_get_prop("spacing", 0)),
+        "outline": _fmt_num(_get_prop("outline", 2)),
+        "shadow": _fmt_num(_get_prop("shadow", 2)),
+        "angle": _fmt_num(_get_prop("angle", 0)),
+    }
+
+
+def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Expande tags compuestos, tags de restauración (~), tags estocásticos (\\tagR)
+    y Dark Tags de rotación auto-origen y ratio al estándar ASS puro.
+    """
+    if not text or "\\" not in text:
+        return text
+
+    if not isinstance(context, dict):
+        context = {}
+
+    style_props = _get_context_style_props(context)
+    ox, oy = _get_context_origin(context)
+
+    style_color1 = style_props["color1"]
+    style_color2 = style_props["color2"]
+    style_color3 = style_props["color3"]
+    style_color4 = style_props["color4"]
+    style_alpha1 = style_props["alpha1"]
+    style_alpha2 = style_props["alpha2"]
+    style_alpha3 = style_props["alpha3"]
+    style_alpha4 = style_props["alpha4"]
+    style_scale_x = style_props["scale_x_str"]
+    style_scale_y = style_props["scale_y_str"]
+    style_fontsize = style_props["fontsize_str"]
+    style_spacing = style_props["spacing"]
+    style_outline = style_props["outline"]
+    style_shadow = style_props["shadow"]
+    style_angle = style_props["angle"]
+
+    style_scale_x_num = style_props["scale_x"]
+    style_scale_y_num = style_props["scale_y"]
+    style_fontsize_num = style_props["fontsize"]
 
     style_color1_clean = _clean_ass_color(style_color1)
     style_color2_clean = _clean_ass_color(style_color2)
@@ -496,57 +635,75 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
         eval_globals = _get_eval_globals()
         eval_locals = _prepare_eval_locals(context)
 
-        if re.match(r'^(?:1c|2c|3c|4c|c|13c|14c|34c|134c)$', tag_name):
+        m_multi_c = re.match(r'^([1-4]+)c$', tag_name)
+        if m_multi_c or tag_name == "c":
             col = eval_globals["random_color"]()
-            if tag_name == "134c": return f"\\1c{col}\\3c{col}\\4c{col}"
-            if tag_name == "13c": return f"\\1c{col}\\3c{col}"
-            if tag_name == "14c": return f"\\1c{col}\\4c{col}"
-            if tag_name == "34c": return f"\\3c{col}\\4c{col}"
-            return f"\\{tag_name}{col}"
+            if tag_name == "c":
+                return f"\\c{col}"
+            return "".join(f"\\{digit}c{col}" for digit in m_multi_c.group(1))
 
-        if re.match(r'^(?:1a|2a|3a|4a|alpha|13a|14a|34a|134a)$', tag_name):
-            alp = eval_globals["random_alpha"]()
-            if tag_name == "134a": return f"\\1a{alp}\\3a{alp}\\4a{alp}"
-            if tag_name == "13a": return f"\\1a{alp}\\3a{alp}"
-            if tag_name == "14a": return f"\\1a{alp}\\4a{alp}"
-            if tag_name == "34a": return f"\\3a{alp}\\4a{alp}"
-            return f"\\{tag_name}{alp}"
+        m_multi_a = re.match(r'^([1-4]+)a$', tag_name)
+        if m_multi_a or tag_name in ("a", "alpha"):
+            if args:
+                min_v = float(eval_python_expr(args[0], context, 0)) if len(args) > 0 else 0.0
+                max_v = float(eval_python_expr(args[1], context, 255)) if len(args) > 1 else 255.0
+                step_v = float(eval_python_expr(args[2], context, 1)) if len(args) > 2 else 1.0
+                r_fn = eval_locals.get("R", lambda a, b, c: random.randint(int(a), int(b)))
+                val = r_fn(min_v, max_v, step_v)
+                alp = _format_ass_alpha(val)
+            else:
+                alp = eval_globals["random_alpha"]()
+            if tag_name in ("a", "alpha"):
+                return f"\\alpha{alp}"
+            return "".join(f"\\{digit}a{alp}" for digit in m_multi_a.group(1))
 
         min_v = float(eval_python_expr(args[0], context, 0)) if len(args) > 0 else 0.0
         max_v = float(eval_python_expr(args[1], context, 100)) if len(args) > 1 else 100.0
         step_v = float(eval_python_expr(args[2], context, 1)) if len(args) > 2 else 1.0
 
         r_fn = eval_locals.get("R", lambda a, b, c: random.randint(int(a), int(b)))
-        rand_val = _fmt_num(r_fn(min_v, max_v, step_v))
+        rand_num = r_fn(min_v, max_v, step_v)
+        rand_val = _fmt_num(rand_num)
 
         if tag_name == "fscxy": return f"\\fscx{rand_val}\\fscy{rand_val}"
         if tag_name == "faxy": return f"\\fax{rand_val}\\fay{rand_val}"
         if tag_name == "frxyz": return f"\\frx{rand_val}\\fry{rand_val}\\frz{rand_val}"
+        if tag_name == "frxy": return f"\\frx{rand_val}\\fry{rand_val}"
+        if tag_name == "frxz": return f"\\frx{rand_val}\\frz{rand_val}"
+        if tag_name == "fryz": return f"\\fry{rand_val}\\frz{rand_val}"
         if tag_name == "xybord": return f"\\xbord{rand_val}\\ybord{rand_val}"
         if tag_name == "xyshad": return f"\\xshad{rand_val}\\yshad{rand_val}"
         if tag_name == "bs": return f"\\bord{rand_val}\\shad{rand_val}"
+
+        # Auto-origin stochastic rotations
+        if tag_name in ("fro", "frzo"): return f"\\org({ox},{oy})\\frz{rand_val}"
+        if tag_name == "frxo": return f"\\org({ox},{oy})\\frx{rand_val}"
+        if tag_name == "fryo": return f"\\org({ox},{oy})\\fry{rand_val}"
+        if tag_name == "frxyo": return f"\\org({ox},{oy})\\frx{rand_val}\\fry{rand_val}"
+        if tag_name == "frxzo": return f"\\org({ox},{oy})\\frx{rand_val}\\frz{rand_val}"
+        if tag_name == "fryzo": return f"\\org({ox},{oy})\\fry{rand_val}\\frz{rand_val}"
+        if tag_name == "frxyzo": return f"\\org({ox},{oy})\\frx{rand_val}\\fry{rand_val}\\frz{rand_val}"
+
+        # Style ratio stochastic tags
+        if tag_name == "fscxyr":
+            ratio = float(rand_num)
+            return f"\\fscx{_fmt_num(style_scale_x_num * ratio)}\\fscy{_fmt_num(style_scale_y_num * ratio)}"
+        if tag_name == "fscxr":
+            ratio = float(rand_num)
+            return f"\\fscx{_fmt_num(style_scale_x_num * ratio)}"
+        if tag_name == "fscyr":
+            ratio = float(rand_num)
+            return f"\\fscy{_fmt_num(style_scale_y_num * ratio)}"
+        if tag_name == "fsr":
+            ratio = float(rand_num)
+            return f"\\fs{_fmt_num(style_fontsize_num * ratio)}"
+
         return f"\\{tag_name}{rand_val}"
 
     s = re.sub(r'\\([a-zA-Z0-9]+)R\((.*?)\)', _replace_stochastic_tag, s)
 
     tag_restorations = [
-        (r'\134c~', f"\\1c{style_color1_clean}\\3c{style_color3_clean}\\4c{style_color4_clean}"),
-        (r'\13c~', f"\\1c{style_color1_clean}\\3c{style_color3_clean}"),
-        (r'\14c~', f"\\1c{style_color1_clean}\\4c{style_color4_clean}"),
-        (r'\34c~', f"\\3c{style_color3_clean}\\4c{style_color4_clean}"),
-        (r'\1c~', f"\\1c{style_color1_clean}"),
-        (r'\2c~', f"\\2c{style_color2_clean}"),
-        (r'\3c~', f"\\3c{style_color3_clean}"),
-        (r'\4c~', f"\\4c{style_color4_clean}"),
         (r'\c~', f"\\c{style_color1_clean}"),
-        (r'\134a~', f"\\1a{style_alpha1}\\3a{style_alpha3}\\4a{style_alpha4}"),
-        (r'\13a~', f"\\1a{style_alpha1}\\3a{style_alpha3}"),
-        (r'\14a~', f"\\1a{style_alpha1}\\4a{style_alpha4}"),
-        (r'\34a~', f"\\3a{style_alpha3}\\4a{style_alpha4}"),
-        (r'\1a~', f"\\1a{style_alpha1}"),
-        (r'\2a~', f"\\2a{style_alpha2}"),
-        (r'\3a~', f"\\3a{style_alpha3}"),
-        (r'\4a~', f"\\4a{style_alpha4}"),
         (r'\alpha~', r"\alpha&H00&"),
         (r'\fscxy~', f"\\fscx{style_scale_x}\\fscy{style_scale_y}"),
         (r'\fscx~', f"\\fscx{style_scale_x}"),
@@ -580,6 +737,29 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
     for literal_pat, repl in tag_restorations:
         s = s.replace(literal_pat, repl)
 
+    style_colors = {"1": style_color1_clean, "2": style_color2_clean, "3": style_color3_clean, "4": style_color4_clean}
+    style_alphas = {"1": style_alpha1, "2": style_alpha2, "3": style_alpha3, "4": style_alpha4}
+
+    s = re.sub(r'\\([1-4]+)c~', lambda m: "".join(f"\\{d}c{style_colors.get(d, style_color1_clean)}" for d in m.group(1)), s)
+    s = re.sub(r'\\([1-4]+)a~', lambda m: "".join(f"\\{d}a{style_alphas.get(d, '&H00&')}" for d in m.group(1)), s)
+
+    # Style ratio tags (direct numeric value)
+    s = re.sub(r'\\fscxyr([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fscx{_fmt_num(style_scale_x_num * float(m.group(1)))}\\fscy{_fmt_num(style_scale_y_num * float(m.group(1)))}", s)
+    s = re.sub(r'\\fscxr([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fscx{_fmt_num(style_scale_x_num * float(m.group(1)))}", s)
+    s = re.sub(r'\\fscyr([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fscy{_fmt_num(style_scale_y_num * float(m.group(1)))}", s)
+    s = re.sub(r'\\fsr([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fs{_fmt_num(style_fontsize_num * float(m.group(1)))}", s)
+
+    # Auto-origin rotations (direct numeric value)
+    s = re.sub(r'\\frxyzo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}\\fry{m.group(1)}\\frz{m.group(1)}", s)
+    s = re.sub(r'\\frxyo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}\\fry{m.group(1)}", s)
+    s = re.sub(r'\\frxzo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}\\frz{m.group(1)}", s)
+    s = re.sub(r'\\fryzo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\fry{m.group(1)}\\frz{m.group(1)}", s)
+    s = re.sub(r'\\frxo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}", s)
+    s = re.sub(r'\\fryo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\fry{m.group(1)}", s)
+    s = re.sub(r'\\frzo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frz{m.group(1)}", s)
+    s = re.sub(r'\\fro([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frz{m.group(1)}", s)
+
+    # Standard composite tags
     s = re.sub(r'\\fscxy([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fscx{m.group(1)}\\fscy{m.group(1)}", s)
     s = re.sub(r'\\faxy([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fax{m.group(1)}\\fay{m.group(1)}", s)
     s = re.sub(r'\\frxyz([+-]?\d+(?:\.\d+)?)', lambda m: f"\\frx{m.group(1)}\\fry{m.group(1)}\\frz{m.group(1)}", s)
@@ -590,17 +770,14 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
     s = re.sub(r'\\xyshad([+-]?\d+(?:\.\d+)?)', lambda m: f"\\xshad{m.group(1)}\\yshad{m.group(1)}", s)
     s = re.sub(r'\\bs([+-]?\d+(?:\.\d+)?)', lambda m: f"\\bord{m.group(1)}\\shad{m.group(1)}", s)
 
-    color_val_pat = r'(&[hH]?[0-9a-fA-F]+&?)'
-    s = re.sub(rf'\\134c{color_val_pat}', lambda m: f"\\1c{m.group(1)}\\3c{m.group(1)}\\4c{m.group(1)}", s)
-    s = re.sub(rf'\\13c{color_val_pat}', lambda m: f"\\1c{m.group(1)}\\3c{m.group(1)}", s)
-    s = re.sub(rf'\\14c{color_val_pat}', lambda m: f"\\1c{m.group(1)}\\4c{m.group(1)}", s)
-    s = re.sub(rf'\\34c{color_val_pat}', lambda m: f"\\3c{m.group(1)}\\4c{m.group(1)}", s)
+    color_val_pat = r'(&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{6})(?=[\\\}\s]|$)'
+    s = re.sub(rf'\\([1-4]+)c{color_val_pat}', lambda m: "".join(f"\\{d}c{_clean_ass_color(m.group(2))}" for d in m.group(1)), s)
 
-    alpha_val_pat = r'(&[hH]?[0-9a-fA-F]+&?|\d+)'
-    s = re.sub(rf'\\134a{alpha_val_pat}', lambda m: f"\\1a{m.group(1)}\\3a{m.group(1)}\\4a{m.group(1)}", s)
-    s = re.sub(rf'\\13a{alpha_val_pat}', lambda m: f"\\1a{m.group(1)}\\3a{m.group(1)}", s)
-    s = re.sub(rf'\\14a{alpha_val_pat}', lambda m: f"\\1a{m.group(1)}\\4a{m.group(1)}", s)
-    s = re.sub(rf'\\34a{alpha_val_pat}', lambda m: f"\\3a{m.group(1)}\\4a{m.group(1)}", s)
+    alpha_val_pat = r'(&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{2}|\d+)(?=[\\\}\s]|$)'
+    s = re.sub(rf'\\([1-4]+)a{alpha_val_pat}', lambda m: "".join(f"\\{d}a{_format_ass_alpha(m.group(2))}" for d in m.group(1)), s)
+
+    # Convert standalone decimal alpha tags (e.g. \4a100, \alpha255, \1a0, \2a128) to canonical ASS &HXX&
+    s = re.sub(r'\\(alpha|[1-4]a)(\d{1,3})(?=[\\\}\s]|$)', lambda m: f"\\{m.group(1)}{_format_ass_alpha(m.group(2))}", s)
 
     return s
 
@@ -608,13 +785,72 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None) -> str:
     """
     Evalúa automáticamente cualquier expresión matemática, función o variable
-    dentro de paréntesis de tags ASS: \\pos(...), \\move(...), \\frz(...), \\fscxy(...), \\t(...), etc.
+    dentro de paréntesis de tags ASS: \\pos(...), \\move(...), \\frz(...), \\fscxy(...), \\t(...), \\te(...), etc.
     """
     if not text or "\\" not in text or "(" not in text:
         return text
 
     if not isinstance(context, dict):
         context = {}
+
+    style_props = _get_context_style_props(context)
+    ox, oy = _get_context_origin(context)
+    style_scale_x_num = style_props["scale_x"]
+    style_scale_y_num = style_props["scale_y"]
+    style_fontsize_num = style_props["fontsize"]
+
+    active_unit = context.get("active_unit") or context.get("syl") or context.get("char") or context.get("word")
+    unit_dur = getattr(active_unit, "dur", getattr(active_unit, "duration", context.get("dur", context.get("duration", 0.0)))) if active_unit else context.get("dur", context.get("duration", 0.0))
+    fx_obj = context.get("fx")
+    total_dur = getattr(fx_obj, "dur", unit_dur) if fx_obj else unit_dur
+
+    s = text
+
+    def _eval_context_time_transform(tag_prefix: str, body: str) -> str:
+        tag_start_idx = body.find("\\")
+        if tag_start_idx != -1:
+            times_part = body[:tag_start_idx].strip().rstrip(",")
+            tags_part = body[tag_start_idx:].strip()
+
+            eval_tags = expand_custom_dark_tags(tags_part, context)
+            eval_tags = evaluate_tag_parentheses(eval_tags, context)
+
+            if not times_part:
+                return f"\\t({eval_tags})"
+
+            time_args = [a.strip() for a in times_part.split(",") if a.strip()]
+            eval_nums = [float(eval_python_expr(arg, context, default=0)) for arg in time_args]
+
+            if tag_prefix == "te":
+                if len(eval_nums) >= 2:
+                    t1, t2 = eval_nums[0], eval_nums[1]
+                    st = max(0.0, float(total_dur) - t2)
+                    et = max(0.0, float(total_dur) - t1)
+                    return f"\\t({_fmt_num(st)}, {_fmt_num(et)}, {eval_tags})"
+                elif len(eval_nums) == 1:
+                    t = eval_nums[0]
+                    st = max(0.0, float(total_dur) - t)
+                    return f"\\t({_fmt_num(st)}, {_fmt_num(total_dur)}, {eval_tags})"
+            elif tag_prefix in ("ts", "tc", "tw"):
+                target_obj = context.get("syl" if tag_prefix == "ts" else ("char" if tag_prefix == "tc" else "word"), active_unit)
+                base_st = float(getattr(target_obj, "start_time", 0.0) if target_obj else 0.0)
+                if len(eval_nums) >= 2:
+                    st = base_st + eval_nums[0]
+                    et = base_st + eval_nums[1]
+                    return f"\\t({_fmt_num(st)}, {_fmt_num(et)}, {eval_tags})"
+                elif len(eval_nums) == 1:
+                    st = base_st
+                    et = base_st + eval_nums[0]
+                    return f"\\t({_fmt_num(st)}, {_fmt_num(et)}, {eval_tags})"
+
+            eval_times = [_fmt_num(n) for n in eval_nums]
+            return f"\\t({', '.join(eval_times)}, {eval_tags})"
+        else:
+            args = [a.strip() for a in body.split(",") if a.strip()]
+            eval_args = [_fmt_num(eval_python_expr(a, context, default=a)) for a in args]
+            return f"\\t({', '.join(eval_args)})"
+
+    s = re.sub(r'\\(te|ts|tc|tw)\((.*?)\)(?=[\\\}\s]|$)', lambda m: _eval_context_time_transform(m.group(1), m.group(2)), s)
 
     def _eval_t_tag(match: re.Match) -> str:
         body = match.group(1).strip()
@@ -644,7 +880,7 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
                 eval_args.append(_fmt_num(res))
             return f"\\t({', '.join(eval_args)})"
 
-    s = re.sub(r'\\t\((.*?)\)(?=[\\\}\s]|$)', _eval_t_tag, text)
+    s = re.sub(r'\\t\((.*?)\)(?=[\\\}\s]|$)', _eval_t_tag, s)
 
     def _eval_clip_tag(match: re.Match) -> str:
         tag_name = match.group(1)
@@ -652,17 +888,18 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
 
         if "m " in args_str or "center" in args_str.lower():
             if "center" in args_str.lower():
-                active_unit = context.get("active_unit")
                 center_x = getattr(active_unit, "center", context.get("x", 0.0))
                 middle_y = getattr(active_unit, "middle", context.get("y", 0.0))
                 args_clean = re.sub(r'\bcenter\b', f"{center_x}, {middle_y}", args_str, flags=re.IGNORECASE)
                 return f"\\{tag_name}({args_clean})"
             return f"\\{tag_name}({args_str})"
 
+        has_space = ", " in args_str
+        sep = ", " if has_space else ","
         args = [a.strip() for a in args_str.split(",") if a.strip()]
         if len(args) in (2, 4):
             eval_args = [_fmt_num(eval_python_expr(a, context, a)) for a in args]
-            return f"\\{tag_name}({', '.join(eval_args)})"
+            return f"\\{tag_name}({sep.join(eval_args)})"
 
         return f"\\{tag_name}({args_str})"
 
@@ -670,10 +907,12 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
 
     def _eval_multi_arg_tag(match: re.Match) -> str:
         tag_name = match.group(1)
-        args_str = match.group(2).strip()
+        args_str = match.group(2)
+        has_space = ", " in args_str
+        sep = ", " if has_space else ","
         args = [a.strip() for a in args_str.split(",") if a.strip()]
         eval_args = [_fmt_num(eval_python_expr(a, context, a)) for a in args]
-        return f"\\{tag_name}({', '.join(eval_args)})"
+        return f"\\{tag_name}({sep.join(eval_args)})"
 
     s = re.sub(r'\\(pos|move|org|fad|fade)\((.*?)\)', _eval_multi_arg_tag, s)
 
@@ -681,29 +920,99 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
         tag_name = match.group(1)
         expr = match.group(2).strip()
         res = eval_python_expr(expr, context, default=expr)
+
+        m_multi_c = re.match(r'^([1-4]+)c$', tag_name)
+        if m_multi_c or tag_name == "c":
+            c_val = _clean_ass_color(str(res)) if not isinstance(res, (int, float)) else _clean_ass_color(f"&H{int(res):06X}&")
+            if tag_name == "c":
+                return f"\\c{c_val}"
+            return "".join(f"\\{digit}c{c_val}" for digit in m_multi_c.group(1))
+
+        m_multi_a = re.match(r'^([1-4]+)a$', tag_name)
+        if m_multi_a or tag_name in ("a", "alpha"):
+            a_val = _format_ass_alpha(res)
+            if tag_name in ("a", "alpha"):
+                return f"\\alpha{a_val}"
+            return "".join(f"\\{digit}a{a_val}" for digit in m_multi_a.group(1))
+
         fmt_res = _fmt_num(res) if isinstance(res, (int, float)) else str(res)
 
+        # Auto-origin rotations (evaluated)
+        if tag_name in ("fro", "frzo"): return f"\\org({ox},{oy})\\frz{fmt_res}"
+        if tag_name == "frxo": return f"\\org({ox},{oy})\\frx{fmt_res}"
+        if tag_name == "fryo": return f"\\org({ox},{oy})\\fry{fmt_res}"
+        if tag_name == "frxyo": return f"\\org({ox},{oy})\\frx{fmt_res}\\fry{fmt_res}"
+        if tag_name == "frxzo": return f"\\org({ox},{oy})\\frx{fmt_res}\\frz{fmt_res}"
+        if tag_name == "fryzo": return f"\\org({ox},{oy})\\fry{fmt_res}\\frz{fmt_res}"
+        if tag_name == "frxyzo": return f"\\org({ox},{oy})\\frx{fmt_res}\\fry{fmt_res}\\frz{fmt_res}"
+
+        # Style ratio tags (evaluated)
+        try:
+            f_ratio = float(res)
+            if tag_name == "fscxyr": return f"\\fscx{_fmt_num(style_scale_x_num * f_ratio)}\\fscy{_fmt_num(style_scale_y_num * f_ratio)}"
+            if tag_name == "fscxr": return f"\\fscx{_fmt_num(style_scale_x_num * f_ratio)}"
+            if tag_name == "fscyr": return f"\\fscy{_fmt_num(style_scale_y_num * f_ratio)}"
+            if tag_name == "fsr": return f"\\fs{_fmt_num(style_fontsize_num * f_ratio)}"
+        except (ValueError, TypeError):
+            pass
+
+        # Standard composite tags
         if tag_name == "fscxy": return f"\\fscx{fmt_res}\\fscy{fmt_res}"
         if tag_name == "faxy": return f"\\fax{fmt_res}\\fay{fmt_res}"
         if tag_name == "frxyz": return f"\\frx{fmt_res}\\fry{fmt_res}\\frz{fmt_res}"
+        if tag_name == "frxy": return f"\\frx{fmt_res}\\fry{fmt_res}"
+        if tag_name == "frxz": return f"\\frx{fmt_res}\\frz{fmt_res}"
+        if tag_name == "fryz": return f"\\fry{fmt_res}\\frz{fmt_res}"
         if tag_name == "xybord": return f"\\xbord{fmt_res}\\ybord{fmt_res}"
         if tag_name == "xyshad": return f"\\xshad{fmt_res}\\yshad{fmt_res}"
         if tag_name == "bs": return f"\\bord{fmt_res}\\shad{fmt_res}"
-        if tag_name == "134c": return f"\\1c{fmt_res}\\3c{fmt_res}\\4c{fmt_res}"
-        if tag_name == "13c": return f"\\1c{fmt_res}\\3c{fmt_res}"
-        if tag_name == "14c": return f"\\1c{fmt_res}\\4c{fmt_res}"
-        if tag_name == "34c": return f"\\3c{fmt_res}\\4c{fmt_res}"
-        if tag_name == "134a": return f"\\1a{fmt_res}\\3a{fmt_res}\\4a{fmt_res}"
-        if tag_name == "13a": return f"\\1a{fmt_res}\\3a{fmt_res}"
-        if tag_name == "14a": return f"\\1a{fmt_res}\\4a{fmt_res}"
-        if tag_name == "34a": return f"\\3a{fmt_res}\\4a{fmt_res}"
 
         return f"\\{tag_name}{fmt_res}"
 
-    single_tag_pat = r'\\(?!(?:pos|move|org|fad|fade|clip|iclip|t)\b)([a-zA-Z0-9]+)\(([^()]*?)\)'
+    single_tag_pat = r'\\(?!(?:pos|move|org|fad|fade|clip|iclip|t|te|ts|tc|tw)\b)([a-zA-Z0-9]+)\(([^()]*?)\)'
     s = re.sub(single_tag_pat, _eval_single_tag, s)
 
     return s
+
+
+def clean_tag_block_whitespace(block_str: str) -> str:
+    """
+    Limpia los espacios en blanco innecesarios dentro de bloques de etiquetas ASS {...} o secuencias de tags:
+    1. Limpia espacios iniciales/finales tras '{' y antes de '}'.
+    2. Elimina espacios en blanco entre etiquetas continuas (ej. '\\pos(10,10)   \\blur2' -> '\\pos(10,10)\\blur2').
+    3. Limpia espacios dentro de paréntesis y alrededor de comas en tags no vectoriales (ej. '\\pos( 10 , 20 )' -> '\\pos(10,20)', '\\t( 0 , 150 , \\blur2 )' -> '\\t(0,150,\\blur2)').
+    4. Preserva intactos los espacios necesarios en dibujos vectoriales dentro de \\clip(m ...) o \\iclip(m ...).
+    """
+    if not block_str or "\\" not in block_str:
+        return block_str
+
+    s = block_str
+
+    has_outer_braces = s.startswith("{") and s.endswith("}")
+    if has_outer_braces:
+        inner = s[1:-1].strip()
+    else:
+        inner = s.strip()
+
+    def _clean_parens(match: re.Match) -> str:
+        tag_name = match.group(1)
+        args_str = match.group(2).strip()
+        if tag_name in ("clip", "iclip") and re.search(r'\bm\s+-?\d+', args_str):
+            args_clean = re.sub(r'[ \t]+', ' ', args_str)
+            return f"\\{tag_name}({args_clean})"
+        
+        args_clean = re.sub(r'\s*,\s*', ',', args_str)
+        args_clean = re.sub(r'\s*\\\s*', r'\\', args_clean)
+        args_clean = re.sub(r'\s*([a-zA-Z0-9&]+)\s*\\', r'\1\\', args_clean)
+        return f"\\{tag_name}({args_clean})"
+
+    inner = re.sub(r'\\([a-zA-Z0-9]+)\((.*?)\)', _clean_parens, inner)
+    inner = re.sub(r'\s*\\\s*', r'\\', inner)
+    inner = inner.strip()
+
+    if has_outer_braces:
+        return f"{{{inner}}}"
+    return inner
 
 
 def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = None) -> str:
@@ -715,6 +1024,7 @@ def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = 
     3. Evaluación de expresiones inline (!expresion!).
     4. Expansión de Dark Tags, Restauración (~) y Estocásticos (\\tagR).
     5. Evaluación de expresiones directas en paréntesis ASS (\\pos(syl.center + 10, ...)).
+    6. Limpieza final de espacios en blanco entre tags y dentro de paréntesis.
     """
     if template_str is None:
         return ""
@@ -735,4 +1045,33 @@ def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = 
 
     res = evaluate_tag_parentheses(res, context)
 
+    res = clean_tag_block_whitespace(res)
+
     return res
+
+
+_TAG_BLOCK_BRACKETS_RE = re.compile(r'\{[^{}]*\}')
+
+
+def evaluate_ass_line_tag_blocks(ass_text: Any, context: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Evalúa de forma segura y exclusiva el contenido de los bloques de etiquetas {...}
+    en una línea ASS final, resolviendo variables, expresiones y tags dinámicos,
+    limpiando espacios innecesarios y dejando el texto plano y los trazados
+    de ASSdraw fuera de las llaves 100% intactos.
+    """
+    if ass_text is None:
+        return ""
+    raw = str(ass_text)
+    if not raw or "{" not in raw:
+        return raw
+
+    if not isinstance(context, dict):
+        context = {}
+
+    def _eval_block(match: re.Match) -> str:
+        block = match.group(0)
+        return eval_string_template(block, context)
+
+    return _TAG_BLOCK_BRACKETS_RE.sub(_eval_block, raw)
+

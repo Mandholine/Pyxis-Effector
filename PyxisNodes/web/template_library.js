@@ -1019,6 +1019,41 @@
         window.open_save_as_dialog = open_save_as_dialog;
     }
 
+    async function sync_checkpoint_with_active_template(activeId, activeName) {
+        var tplId = (activeId !== undefined && activeId !== null) ? activeId : (window.__pyxis_active_template_id || localStorage.getItem("pyxis_active_template_id"));
+        var tplName = (activeName !== undefined && activeName !== null) ? activeName : (window.__pyxis_active_template_name || localStorage.getItem("pyxis_active_template_name"));
+
+        if (tplId && tplName) {
+            window.__pyxis_active_template_id = tplId;
+            window.__pyxis_active_template_name = tplName;
+            try {
+                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.load_template === "function") {
+                    var doc = await window.pywebview.api.load_template(tplId);
+                    if (doc && doc.graph) {
+                        window.__pyxis_template_checkpoint = get_graph_content_signature(doc.graph);
+                        window.__pyxis_active_template_name = (doc.metadata && doc.metadata.name) || tplName;
+                    } else {
+                        update_checkpoint();
+                    }
+                } else {
+                    update_checkpoint();
+                }
+            } catch (e) {
+                update_checkpoint();
+            }
+        } else {
+            window.__pyxis_active_template_id = null;
+            window.__pyxis_active_template_name = null;
+            localStorage.removeItem("pyxis_active_template_id");
+            localStorage.removeItem("pyxis_active_template_name");
+            update_checkpoint();
+        }
+
+        if (typeof window.updateTemplateUIState === "function") {
+            window.updateTemplateUIState();
+        }
+    }
+
     async function wait_ready() {
         window.open_template_library_modal = open_library;
         window.open_save_dialog = open_save_dialog;
@@ -1026,37 +1061,10 @@
         window.has_template_changes = has_changes;
         window.update_template_checkpoint = update_checkpoint;
         window.update_checkpoint = update_checkpoint;
+        window.sync_template_checkpoint = sync_checkpoint_with_active_template;
 
         if (api_ready() && graph_ready() && window.__pyxis_graph_initialized === true) {
-            var activeId = window.__pyxis_active_template_id;
-            var activeName = window.__pyxis_active_template_name;
-
-            if (activeId && activeName) {
-                window.__pyxis_active_template_id = activeId;
-                window.__pyxis_active_template_name = activeName;
-                try {
-                    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.load_template === "function") {
-                        var doc = await window.pywebview.api.load_template(activeId);
-                        if (doc && doc.graph) {
-                            window.__pyxis_template_checkpoint = get_graph_content_signature(doc.graph);
-                            window.__pyxis_active_template_name = (doc.metadata && doc.metadata.name) || activeName;
-                        } else {
-                            update_checkpoint();
-                        }
-                    } else {
-                        update_checkpoint();
-                    }
-                } catch (e) {
-                    update_checkpoint();
-                }
-            } else {
-                window.__pyxis_active_template_id = null;
-                window.__pyxis_active_template_name = null;
-                localStorage.removeItem("pyxis_active_template_id");
-                localStorage.removeItem("pyxis_active_template_name");
-                update_checkpoint();
-            }
-
+            await sync_checkpoint_with_active_template(window.__pyxis_active_template_id, window.__pyxis_active_template_name);
             install_toolbar();
             if (typeof window.updateTemplateUIState === "function") {
                 window.updateTemplateUIState();

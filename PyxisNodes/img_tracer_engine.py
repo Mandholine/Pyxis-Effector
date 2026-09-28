@@ -557,7 +557,7 @@ def _transform_ass_shape(
     final_h = ref_canvas_h * scale_y
 
     anchor_clean = str(anchor).strip().lower()
-    if anchor_clean == "topleft":
+    if anchor_clean in ("origin", "origen", "topleft"):
         ref_x = 0.0
         ref_y = 0.0
     elif anchor_clean == "bottomleft":
@@ -569,7 +569,7 @@ def _transform_ass_shape(
     elif anchor_clean == "bottomright":
         ref_x = ref_canvas_w
         ref_y = ref_canvas_h
-    else:  # center
+    else:  # "center", "absolute", "absoluto"
         ref_x = ref_canvas_w / 2.0
         ref_y = ref_canvas_h / 2.0
 

@@ -296,8 +296,9 @@ system_node(
     "Time", "Synced", node_kind="data", color="#2563EB",
     inputs=["Constant", "Fade (ms)", "Max Extra", "Delay Line", "Threshold"],
     outputs=["Extra ms", "Sync End"],
-    properties={"progression_const": "0", "fade_dur": "300", "max_added_time": "2000", "delay_ms": "250", "max_gap_threshold": "3000"},
+    properties={"mode": "order", "progression_const": "0", "fade_dur": "300", "max_added_time": "2000", "delay_ms": "250", "max_gap_threshold": "3000"},
     widgets=[
+        {"type": "combo", "name": "Mode:", "property": "mode", "values": ["order", "style", "actor", "layer", "effect"]},
         {"type": "text", "name": "Constant", "property": "progression_const"},
         {"type": "text", "name": "Fade (ms)", "property": "fade_dur"},
         {"type": "text", "name": "Max Extra", "property": "max_added_time"},
@@ -347,18 +348,6 @@ system_node(
     widgets=[]
 )
 
-system_node(
-    "Shape", "IMG to Shape", node_kind="data", color="#5B2C6F",
-    inputs=["Image Path", "Frame (j)", "Threshold", "Tolerance", "Smoothing", "Optimization", "Scale Out", "Width Out", "Height Out", "Offset X", "Offset Y", "Image Scale", "Binarize Mode"],
-    outputs=["Shape Out", "Width", "Height", "Points", "Shapes Array", "Total Frames"],
-    properties={
-        "image_path": "", "frame_idx": "1", "threshold": "128", "tolerance": "1.0",
-        "alphamax": "1.0", "opttoler": "0.2", "out_scale": "1.0", "out_w": "0.0",
-        "out_h": "0.0", "offset_x": "0.0", "offset_y": "0.0", "img_scale": "1.0",
-        "bin_mode": "luminance", "mode": "potrace", "anchor": "center", "invert": "normal"
-    },
-    widgets=[]
-)
 
 system_node(
     "Shape", "Array", node_kind="data", color="#5B2C6F",
@@ -380,14 +369,6 @@ system_node(
             "ashlar", "bez", "octagon", "ray", "web", "quad", "pattern"
         ]}
     ]
-)
-
-system_node(
-    "Shape", "Manipulator", node_kind="data", color="#5B2C6F",
-    inputs=["Shape / Text", "Factor (t)", "Scale X", "Scale Y", "Anchor"],
-    outputs=["Shape"],
-    properties={"shape": "", "t": "1.0", "scale_x": "100", "scale_y": "100", "angle": "0", "offset_x": "0", "offset_y": "0", "offset_border": "2.0", "factor": "100", "density": "2.0", "angle_x": "0", "angle_y": "0", "angle_z": "0", "axis": "y", "anchor": "center", "mode": "Scale"},
-    widgets=[]
 )
 
 
@@ -548,7 +529,7 @@ system_node(
     },
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": ["trajectory", "waypoints", "jitter"]},
-        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin"]},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin", "first_point"]},
         {"type": "text", "name": "Tags:", "property": "tags"},
         {"type": "text", "name": "Shape (d):", "property": "shape"},
         {"type": "text", "name": "Points:", "property": "points"},
@@ -591,13 +572,14 @@ system_node(
         "offset_x": "0.0",
         "offset_y": "0.0",
         "img_scale": "1.0",
-        "bin_mode": "Luminance",
-        "mode": "Potrace",
-        "anchor": "Center",
-        "invert": "Normal",
-        "invert_img": "Normal"
+        "bin_mode": "luminance",
+        "mode": "potrace",
+        "anchor": "center",
+        "invert": "normal",
+        "invert_img": "normal"
     },
     widgets=[
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin", "absolute"]},
         {"type": "text", "name": "Image Path:", "property": "image_path", "default": ""},
         {"type": "text", "name": "Frame (j):", "property": "frame_idx", "default": "1"},
         {"type": "text", "name": "Threshold:", "property": "threshold", "default": "128"},
@@ -610,7 +592,7 @@ system_node(
         {"type": "text", "name": "Offset X:", "property": "offset_x", "default": "0.0"},
         {"type": "text", "name": "Offset Y:", "property": "offset_y", "default": "0.0"},
         {"type": "text", "name": "Image Scale:", "property": "img_scale", "default": "1.0"},
-        {"type": "text", "name": "Binarize Mode:", "property": "bin_mode", "default": "Luminance"}
+        {"type": "text", "name": "Binarize Mode:", "property": "bin_mode", "default": "luminance"}
     ]
 )
 
@@ -619,7 +601,7 @@ system_node(
     inputs=["Shape", "Cols", "Rows", "Size X", "Size Y", "Scale X", "Scale Y", "Off X", "Off Y", "Angle", "Step Angle", "Bleed", "Accel", "Text Scale", "Pre-Offset", "Anchor", "Output Type", "Order", "Loop Mode"],
     outputs=["Array", "X", "Y", "Col", "Row", "Angle"],
     properties={
-        "mode": "grid", "out_mode": "shape", "anchor": "center", "order": "79",
+        "mode": "grid", "out_mode": "shape", "anchor": "pieces", "order": "79",
         "overlap": "0", "accel": "1.0", "loop_mode": "shape",
         "cols": "2", "rows": "2", "size_x": "20", "size_y": "20",
         "scale_x": "1.0", "scale_y": "1.0", "offset_x": "0", "offset_y": "0",
@@ -687,7 +669,7 @@ system_node(
             "scale", "rotate", "reflect", "redraw", "deform", "position", "borders"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "center", "origin", "zero", "pos", "topleft", "bottomleft", "topright", "bottomright", "relative"
+            "center", "origin", "absolute"
         ]},
         {"type": "combo", "name": "Axis:", "property": "axis", "values": ["x", "y", "xy"]},
         {"type": "text", "name": "Factor (t):", "property": "t", "default": "1.0"},
@@ -710,7 +692,7 @@ system_node(
             "inflate", "skew", "round_corners", "flexor", "distort", "distort2"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "center", "origin", "topleft", "bottomleft", "topright", "bottomright", "relative"
+            "center", "origin", "absolute"
         ]},
         {"type": "combo", "name": "Axis:", "property": "axis", "values": ["x", "y"]},
         {"type": "combo", "name": "Inflate Mode:", "property": "inflate_mode", "values": ["circle", "ellipse"]},
@@ -729,7 +711,7 @@ system_node(
     },
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": ["vertices", "group", "noise"]},
-        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin"]},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin", "absolute"]},
         {"type": "text", "name": "Expr X:", "property": "expr_x", "default": "x"},
         {"type": "text", "name": "Expr Y:", "property": "expr_y", "default": "y"},
         {"type": "text", "name": "Factor (t):", "property": "t", "default": "1.0"},
@@ -760,7 +742,7 @@ system_node(
             "evenodd", "nonzero", "positive", "negative"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "pieces", "center", "origin", "relative", "absolute"
+            "pieces", "relative", "org_padre", "pos", "absolute"
         ]},
         {"type": "combo", "name": "Order:", "property": "order", "values": [
             "79", "13", "97", "31", "5", "-5", "71", "rand", "cw", "ccw"
@@ -783,7 +765,7 @@ system_node(
             "concentric_squares", "multi_shape_mosaic", "concentric_rings", "honeycomb", "pixel_art"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "center", "origin", "relative"
+            "center", "origin", "absolute"
         ]},
         {"type": "text", "name": "Size:", "property": "size", "default": "100.0"},
         {"type": "text", "name": "Width:", "property": "width", "default": "70.0"},
@@ -805,7 +787,7 @@ system_node(
     widgets=[
         {"type": "combo", "name": "Base Mode:", "property": "mode", "values": ["hollow", "solid"]},
         {"type": "combo", "name": "Output Mode:", "property": "out_mode", "values": ["shape", "clip", "iclip"]},
-        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["relative", "absolute", "center"]},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["relative", "pieces", "org_padre", "pos", "absolute"]},
         {"type": "text", "name": "Max Rings:", "property": "loop_count", "default": "5"},
         {"type": "text", "name": "Separation:", "property": "separation", "default": "5"},
         {"type": "text", "name": "Overlap:", "property": "overlap", "default": "0.5"}

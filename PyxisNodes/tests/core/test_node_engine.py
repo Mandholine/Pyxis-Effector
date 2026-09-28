@@ -49,7 +49,7 @@ class TestGraphEngineCore (unittest .TestCase ):
         self .sample_line .syls =[self .sample_syl ]
 
     def test_version_current (self ):
-        self .assertEqual (PYXIS_ENGINE_VERSION ,"1.1.0")
+        self .assertEqual (PYXIS_ENGINE_VERSION ,"1.1.1")
 
     def test_remember_and_recall_memory (self ):
         engine =GraphEngine ({"nodes":[],"links":[]})
@@ -71,7 +71,7 @@ class TestGraphEngineCore (unittest .TestCase ):
         {
         "id":2 ,
         "type":"String",
-        "properties":{"valor":"Processed Text"}
+        "properties":{"value":"Processed Text"}
         },
         {
         "id":3 ,
@@ -126,8 +126,8 @@ class TestPyxisAutonomousProcessing (unittest .TestCase ):
         graph ={
         "nodes":[
         {"id":1 ,"type":"Loops/Main Loop","properties":{"base_unit":"line","noblank":"No Blank"},"inputs":[]},
-        {"id":2 ,"type":"String","properties":{"valor":"{\\1c&H51F6ED&}m 0 0 l 10 10{\\1c&H8FF5B5&}m 20 20 l 30 30"},"inputs":[]},
-        {"id":3 ,"type":"String","properties":{"valor":"\\blur2"},"inputs":[]},
+        {"id":2 ,"type":"String","properties":{"value":"{\\1c&H51F6ED&}m 0 0 l 10 10{\\1c&H8FF5B5&}m 20 20 l 30 30"},"inputs":[]},
+        {"id":3 ,"type":"String","properties":{"value":"\\blur2"},"inputs":[]},
         {
         "id":4 ,
         "type":"System/Output",
@@ -172,8 +172,8 @@ class TestPyxisAutonomousProcessing (unittest .TestCase ):
         graph ={
         "nodes":[
         {"id":1 ,"type":"Loops/Main Loop","properties":{"base_unit":"line","noblank":"No Blank"},"inputs":[]},
-        {"id":2 ,"type":"String","properties":{"valor":"{\\1c&H0000FF&\\fscx100}m 0 0 l 10 10"},"inputs":[]},
-        {"id":3 ,"type":"String","properties":{"valor":"\\1c&HFFFFFF&"},"inputs":[]},
+        {"id":2 ,"type":"String","properties":{"value":"{\\1c&H0000FF&\\fscx100}m 0 0 l 10 10"},"inputs":[]},
+        {"id":3 ,"type":"String","properties":{"value":"\\1c&HFFFFFF&"},"inputs":[]},
         {
         "id":4 ,
         "type":"System/Output",
@@ -251,6 +251,169 @@ class TestPyxisAutonomousProcessing (unittest .TestCase ):
         self.assertTrue(tags_out_explicit.startswith(r"\an1"))
         self.assertNotIn(r"\an5", tags_out_explicit)
         self.assertIn(r"\pos(100,50)", tags_out_explicit)
+
+    def test_commented_lines_are_ignored(self):
+        """Verifica que las líneas comentadas (Comment:) sean totalmente ignoradas por Pyxis."""
+        graph = {
+            "nodes": [
+                {"id": 1, "type": "Loops/Main Loop", "properties": {"base_unit": "line", "noblank": "No Blank"}},
+                {"id": 2, "type": "String", "properties": {"value": "FX"}},
+                {
+                    "id": 3,
+                    "type": "System/Output",
+                    "properties": {"apply_to": "All Lines"},
+                    "inputs": [
+                        {"name": "Loop", "type": "data", "link": 101},
+                        {"name": "Capa", "type": 0, "link": None},
+                        {"name": "Start", "type": 0, "link": None},
+                        {"name": "End", "type": 0, "link": None},
+                        {"name": "Tags", "type": 0, "link": None},
+                        {"name": "Retorno", "type": "string", "link": 102}
+                    ]
+                }
+            ],
+            "links": [
+                [101, 1, 0, 3, 0, "data"],
+                [102, 2, 0, 3, 5, "string"]
+            ]
+        }
+        styles = {'Default': {'Fontname': 'Arial', 'Fontsize': 40.0}}
+        dialogues = [
+            {'raw': "Comment: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Line 1 commented"},
+            {'raw': "Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,Line 2 dialogue"}
+        ]
+        engine = GraphEngine(graph)
+        result = engine.process(dialogues, styles)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(engine.used_line_indices, {2})
+
+    def test_only_commented_lines_generates_nothing(self):
+        """Si la única línea existente/coincidente está comentada, no genera nada."""
+        graph = {
+            "nodes": [
+                {"id": 1, "type": "Loops/Main Loop", "properties": {"base_unit": "line", "noblank": "No Blank"}},
+                {"id": 2, "type": "String", "properties": {"value": "FX"}},
+                {
+                    "id": 3,
+                    "type": "System/Output",
+                    "properties": {"apply_to": "All Lines"},
+                    "inputs": [
+                        {"name": "Loop", "type": "data", "link": 101},
+                        {"name": "Capa", "type": 0, "link": None},
+                        {"name": "Start", "type": 0, "link": None},
+                        {"name": "End", "type": 0, "link": None},
+                        {"name": "Tags", "type": 0, "link": None},
+                        {"name": "Retorno", "type": "string", "link": 102}
+                    ]
+                }
+            ],
+            "links": [
+                [101, 1, 0, 3, 0, "data"],
+                [102, 2, 0, 3, 5, "string"]
+            ]
+        }
+        styles = {'Default': {'Fontname': 'Arial', 'Fontsize': 40.0}}
+        dialogues = [
+            {'raw': "Comment: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Only line commented"}
+        ]
+        engine = GraphEngine(graph)
+        result = engine.process(dialogues, styles)
+        self.assertEqual(len(result), 0)
+        self.assertEqual(len(engine.used_line_indices), 0)
+
+    def test_used_line_indices_style_and_selected(self):
+        """Verifica used_line_indices para Style Lines y Selected Lines."""
+        graph_style = {
+            "nodes": [
+                {"id": 1, "type": "Loops/Main Loop", "properties": {"base_unit": "line", "noblank": "No Blank"}},
+                {"id": 2, "type": "String", "properties": {"value": "FX"}},
+                {
+                    "id": 3,
+                    "type": "System/Output",
+                    "properties": {"apply_to": "Style Lines"},
+                    "inputs": [
+                        {"name": "Loop", "type": "data", "link": 101},
+                        {"name": "Capa", "type": 0, "link": None},
+                        {"name": "Start", "type": 0, "link": None},
+                        {"name": "End", "type": 0, "link": None},
+                        {"name": "Tags", "type": 0, "link": None},
+                        {"name": "Retorno", "type": "string", "link": 102}
+                    ]
+                }
+            ],
+            "links": [
+                [101, 1, 0, 3, 0, "data"],
+                [102, 2, 0, 3, 5, "string"]
+            ]
+        }
+        styles = {'StyleA': {'Fontname': 'Arial', 'Fontsize': 40.0}, 'StyleB': {'Fontname': 'Arial', 'Fontsize': 40.0}}
+        dialogues = [
+            {'raw': "Dialogue: 0,0:00:01.00,0:00:03.00,StyleA,,0,0,0,,Line 1", 'metrics': {'sel': 1}},
+            {'raw': "Dialogue: 0,0:00:04.00,0:00:06.00,StyleA,,0,0,0,,Line 2", 'metrics': {'sel': 0}},
+            {'raw': "Dialogue: 0,0:00:07.00,0:00:09.00,StyleB,,0,0,0,,Line 3", 'metrics': {'sel': 0}},
+            {'raw': "Comment: 0,0:00:10.00,0:00:12.00,StyleA,,0,0,0,,Line 4 (commented)", 'metrics': {'sel': 0}}
+        ]
+        # Con Style Lines, el estilo seleccionado es StyleA (de la línea 1 seleccionada).
+        # Debe generar sobre líneas 1 y 2 (ambas StyleA activas), e ignorar línea 3 (StyleB) y línea 4 (Comment).
+        engine = GraphEngine(graph_style)
+        res = engine.process(dialogues, styles)
+        self.assertEqual(len(res), 2)
+        self.assertEqual(engine.used_line_indices, {1, 2})
+
+    def test_multiple_output_nodes_union_used_indices(self):
+        """Verifica que con múltiples nodos Salida con distintos modos de apply_to se realice la unión exacta de líneas usadas."""
+        graph_multi = {
+            "nodes": [
+                {"id": 1, "type": "Loops/Main Loop", "properties": {"base_unit": "line", "noblank": "No Blank"}},
+                {"id": 2, "type": "String", "properties": {"value": "FX1"}},
+                {"id": 3, "type": "String", "properties": {"value": "FX2"}},
+                {
+                    "id": 10,
+                    "type": "System/Output",
+                    "properties": {"apply_to": "Selected Lines"},
+                    "inputs": [
+                        {"name": "Loop", "type": "data", "link": 101},
+                        {"name": "Capa", "type": 0, "link": None},
+                        {"name": "Start", "type": 0, "link": None},
+                        {"name": "End", "type": 0, "link": None},
+                        {"name": "Tags", "type": 0, "link": None},
+                        {"name": "Retorno", "type": "string", "link": 102}
+                    ]
+                },
+                {
+                    "id": 20,
+                    "type": "System/Output",
+                    "properties": {"apply_to": "All Lines"},
+                    "inputs": [
+                        {"name": "Loop", "type": "data", "link": 201},
+                        {"name": "Capa", "type": 0, "link": None},
+                        {"name": "Start", "type": 0, "link": None},
+                        {"name": "End", "type": 0, "link": None},
+                        {"name": "Tags", "type": 0, "link": None},
+                        {"name": "Retorno", "type": "string", "link": 202}
+                    ]
+                }
+            ],
+            "links": [
+                [101, 1, 0, 10, 0, "data"],
+                [102, 2, 0, 10, 5, "string"],
+                [201, 1, 0, 20, 0, "data"],
+                [202, 3, 0, 20, 5, "string"]
+            ]
+        }
+        styles = {'Default': {'Fontname': 'Arial', 'Fontsize': 40.0}}
+        dialogues = [
+            {'raw': "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Line 1 (selected)", 'metrics': {'sel': 1}},
+            {'raw': "Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,Line 2 (not selected)", 'metrics': {'sel': 0}},
+            {'raw': "Comment: 0,0:00:07.00,0:00:09.00,Default,,0,0,0,,Line 3 (commented)", 'metrics': {'sel': 0}}
+        ]
+        # Salida 10 (Selected Lines) procesa línea 1.
+        # Salida 20 (All Lines) procesa líneas 1 y 2 (la 3 está comentada y se ignora).
+        # La unión de líneas usadas debe ser {1, 2}.
+        engine = GraphEngine(graph_multi)
+        res = engine.process(dialogues, styles)
+        self.assertEqual(len(res), 3) # 1 de Salida 10 + 2 de Salida 20
+        self.assertEqual(engine.used_line_indices, {1, 2})
 
 
 if __name__ =="__main__":

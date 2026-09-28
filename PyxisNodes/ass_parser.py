@@ -268,6 +268,8 @@ class KaraokeProcessor:
 
         groups = match.groups()
         line = PyxisLine()
+        raw_stripped = raw_line.strip()
+        line.is_comment = raw_stripped.startswith("Comment:") or raw_stripped.startswith("Comment :")
         line.layer = int(groups[0])
         line.start_time, line.end_time = parse_time(groups[1]), parse_time(groups[2])
         line.duration = line.end_time - line.start_time

@@ -68,7 +68,8 @@ class GpuEngineManager:
         """Live probe for NVIDIA CUDA (CuPy / PyCUDA / Numba CUDA / Driver API)."""
         try:
             try:
-                import cupy as cp
+                import importlib
+                cp = importlib.import_module("cupy")
                 arr = cp.array([1.0, 2.0, 3.0, 4.0], dtype=cp.float32)
                 res = (arr * 2.0).get()
                 if np.allclose(res, [2.0, 4.0, 6.0, 8.0]):
@@ -81,7 +82,8 @@ class GpuEngineManager:
                 pass
 
             try:
-                from numba import cuda
+                import importlib
+                cuda = importlib.import_module("numba.cuda")
                 if cuda.is_available():
                     device = cuda.get_current_device()
                     dev_name = getattr(device, 'name', 'NVIDIA GPU')
@@ -117,7 +119,8 @@ class GpuEngineManager:
         """Live probe for Universal OpenCL (NVIDIA, AMD, Intel)."""
         try:
             try:
-                import pyopencl as cl
+                import importlib
+                cl = importlib.import_module("pyopencl")
                 platforms = cl.get_platforms()
                 for platform in platforms:
                     devices = platform.get_devices(device_type=cl.device_type.GPU)
@@ -187,7 +190,8 @@ class GpuEngineManager:
 
         if self.backend.startswith("OpenCL (PyOpenCL)") and self.cl_context and self.cl_queue:
             try:
-                import pyopencl as cl
+                import importlib
+                cl = importlib.import_module("pyopencl")
                 if not hasattr(self, '_cl_trans_kernel') or self._cl_trans_kernel is None:
                     trans_code = """
                     __kernel void transform_2d(__global float2* coords, int count, float sc_x, float sc_y, float cos_a, float sin_a, float off_x, float off_y) {

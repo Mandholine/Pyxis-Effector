@@ -275,8 +275,10 @@ def eval_condition_bool(condition, context=None) -> bool:
                     from nodes.math_nodes import math_random_master
                 except (ImportError, ModuleNotFoundError):
                     try:
-                        from math_nodes import math_random_master
-                    except (ImportError, ModuleNotFoundError):
+                        import importlib
+                        _mn = importlib.import_module("nodes.math_nodes")
+                        math_random_master = getattr(_mn, "math_random_master", None)
+                    except Exception:
                         math_random_master = None
                 if math_random_master:
                     eval_scope["R"] = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="R", min_val=min_v, max_val=max_v, step=step_v)
@@ -291,7 +293,7 @@ def eval_condition_bool(condition, context=None) -> bool:
                 return bool(res)
             except Exception:
                 return len(v) > 0
-    return bool(condicion)
+    return bool(condition)
 
 
 @pyxis_node("Functions", "Conditioner", ["Condition", "If True", "If False"])
@@ -1197,7 +1199,7 @@ def _relocate_points(points, anchor="center", context=None, is_text_vector=False
         return []
 
     anchor_str = str(anchor or "center").strip().lower()
-    if anchor_str in ("origin", "absolute", "none"):
+    if anchor_str == "origin":
         return points
 
     cx, cy = 0.0, 0.0

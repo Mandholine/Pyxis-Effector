@@ -179,6 +179,7 @@ class PyxisLine(PyxisUnit):
         self.margin_l, self.margin_r, self.margin_v = 0, 0, 0
         self.margin_t, self.margin_b = 0, 0
         self.is_selected = False
+        self.is_comment = False
         self.syls, self.words = [], []
         self.line = self
         self.styleref = StyleRef()

@@ -96,5 +96,45 @@ class TestASSParserDivisionModes(unittest.TestCase):
         self.assertIn(r"\an7", tags_out)
         self.assertIn(r"\pos(200,75)", tags_out)
 
+    def test_node_engine_origin_align_with_move(self):
+        """Verifica que node_engine aplique \an5 cuando se usa \move sin un \an explicito."""
+        engine = GraphEngine({"nodes": []}, 1280, 720, 41.7)
+        line = self.processor.process_line(self.raw_karaoke, self.style)
+        ctx = {"line": line, "val_left": 100.0, "val_center": 200.0, "val_top": 50.0, "val_middle": 75.0}
+        _, _, _, tags_out, _ = engine._apply_defaults(
+            line, 0, 0, 5000, r"\move(0,75,200,75)\bord1", "test", context=ctx
+        )
+        self.assertIn(r"\an5", tags_out)
+        self.assertIn(r"\move(0,75,200,75)", tags_out)
+
+    def test_node_engine_empty_an_preservation(self):
+        """Verifica que un tag \an vacio se preserve y no se le anteponga \an5."""
+        engine = GraphEngine({"nodes": []}, 1280, 720, 41.7)
+        line = self.processor.process_line(self.raw_karaoke, self.style)
+        ctx = {"line": line, "val_left": 100.0, "val_center": 200.0, "val_top": 50.0, "val_middle": 75.0}
+        _, _, _, tags_out, _ = engine._apply_defaults(
+            line, 0, 0, 5000, r"\an\bord1", "test", context=ctx
+        )
+        self.assertNotIn(r"\an5", tags_out)
+        self.assertIn(r"\an", tags_out)
+
+    def test_node_engine_always_an5_by_default(self):
+        """Verifica que SIEMPRE se genere \an5 en todas las lineas si el usuario no provee un \an."""
+        engine = GraphEngine({"nodes": []}, 1280, 720, 41.7)
+        line = self.processor.process_line(self.raw_karaoke, self.style)
+        ctx = {"line": line, "val_left": 100.0, "val_center": 200.0, "val_top": 50.0, "val_middle": 75.0}
+        
+        # Caso 1: Tags vacios
+        _, _, _, tags_empty, _ = engine._apply_defaults(line, 0, 0, 5000, "", "test", context=ctx)
+        self.assertIn(r"\an5", tags_empty)
+
+        # Caso 2: Solo bord
+        _, _, _, tags_bord, _ = engine._apply_defaults(line, 0, 0, 5000, r"\bord2\shad2", "test", context=ctx)
+        self.assertIn(r"\an5", tags_bord)
+
+        # Caso 3: Shapes y drawings
+        _, _, _, tags_shape, _ = engine._apply_defaults(line, 0, 0, 5000, r"\1c&HFFFFFF&", "m 0 0 l 10 10", context=ctx)
+        self.assertIn(r"\an5", tags_shape)
+
 if __name__ == '__main__':
     unittest.main()

@@ -53,7 +53,7 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
         if self.path == "/status":
             self._send_json({
                 "status": "ok",
-                "version": "1.1.0",
+                "version": "1.1.1",
                 "pid": os.getpid(),
                 "daemon_mode": getattr(self.daemon_context, "daemon_mode", True)
             })
@@ -301,7 +301,6 @@ class PyxisDaemonServer:
                             self.window.resize(saved_state["width"], saved_state["height"])
                         except Exception:
                             pass
-                self.window.focus()
             except Exception as e:
                 print(f"[Pyxis Daemon Warning Window Reopen] {e}", flush=True)
 
@@ -325,6 +324,7 @@ class PyxisDaemonServer:
             import ctypes
             user32 = ctypes.windll.user32
             kernel32 = ctypes.windll.kernel32
+            con_hwnd = kernel32.GetConsoleWindow() if hasattr(kernel32, "GetConsoleWindow") else None
 
             my_pid = os.getpid()
             found_hwnd = None
@@ -332,6 +332,12 @@ class PyxisDaemonServer:
             WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
             def enum_windows_callback(hwnd, lParam):
                 nonlocal found_hwnd
+                if con_hwnd and hwnd == con_hwnd:
+                    return True
+                cls_buff = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(hwnd, cls_buff, 64)
+                if cls_buff.value == "ConsoleWindowClass":
+                    return True
                 lpdwProcessId = ctypes.c_ulong()
                 user32.GetWindowThreadProcessId(hwnd, ctypes.byref(lpdwProcessId))
                 if lpdwProcessId.value == my_pid:
@@ -339,7 +345,7 @@ class PyxisDaemonServer:
                     if length > 0:
                         buff = ctypes.create_unicode_buffer(length + 1)
                         user32.GetWindowTextW(hwnd, buff, length + 1)
-                        if "Pyxis" in buff.value or "Engine" in buff.value or not title or str(title) in buff.value:
+                        if (title and (buff.value == title or str(title) in buff.value)) or "Pyxis Node Engine" in buff.value:
                             found_hwnd = hwnd
                             return False
                 return True

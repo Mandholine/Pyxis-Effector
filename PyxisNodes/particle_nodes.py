@@ -27,17 +27,11 @@ try:
     from nodes.shape_nodes import resolve_shape_value
 except (ImportError, ModuleNotFoundError):
     try:
-        from shape_nodes import resolve_shape_value
-    except (ImportError, ModuleNotFoundError):
-        import importlib.util
-        _sn_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nodes", "shape_nodes.py")
-        if os.path.exists(_sn_path):
-            _spec = importlib.util.spec_from_file_location("_shape_nodes", _sn_path)
-            _mod = importlib.util.module_from_spec(_spec)
-            _spec.loader.exec_module(_mod)
-            resolve_shape_value = _mod.resolve_shape_value
-        else:
-            resolve_shape_value = None
+        import importlib
+        _mod = importlib.import_module("nodes.shape_nodes")
+        resolve_shape_value = getattr(_mod, "resolve_shape_value", None)
+    except Exception:
+        resolve_shape_value = None
 
 _GLOBAL_PARTICLE_PTS_CACHE = {}
 _GLOBAL_PARTICLE_IMG_CACHE = {}
@@ -334,15 +328,15 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
             arr = np.array(img)
             h, w, c = arr.shape
 
-            if "center" in anchor_clean or "centro" in anchor_clean:
+            if anchor_clean == "center":
                 off_x, off_y = -w * sc / 2.0, -h * sc / 2.0
-            elif "topright" in anchor_clean:
+            elif anchor_clean == "topright":
                 off_x, off_y = -w * sc, 0.0
-            elif "bottomleft" in anchor_clean:
+            elif anchor_clean == "bottomleft":
                 off_x, off_y = 0.0, -h * sc
-            elif "bottomright" in anchor_clean:
+            elif anchor_clean == "bottomright":
                 off_x, off_y = -w * sc, -h * sc
-            else:
+            else:  # "topleft" fallback
                 off_x, off_y = 0.0, 0.0
 
             y_indices, x_indices = np.where(arr[:, :, 3] >= th)

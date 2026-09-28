@@ -31,7 +31,7 @@ class TestTemplateStore (unittest .TestCase ):
         self .sample_graph ={
         "nodes":[
         {"id":1 ,"type":"Loops/Main Loop","properties":{}},
-        {"id":2 ,"type":"String","properties":{"valor":"Test"}}
+        {"id":2 ,"type":"String","properties":{"value":"Test"}}
         ],
         "links":[]
         }

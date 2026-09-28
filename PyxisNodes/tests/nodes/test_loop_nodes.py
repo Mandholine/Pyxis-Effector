@@ -164,6 +164,97 @@ class TestLoopNodesEngine(unittest.TestCase):
         self.assertEqual(len(res), 2)
         self.assertIn("syl_out", res[0]["text"])
 
+    def test_maxloop_multiple_lines_order_111222333(self):
+        """Verifica que con varias líneas y loops de j devuelva 111222333 en vez de 123123123."""
+        graph = {
+            "nodes": [
+                {"id": 1, "type": "Loops/Main Loop", "properties": {"iterator": "line", "blank_mode": "no_blank"}},
+                {"id": 2, "type": "Loops/MaxLoop", "properties": {"mode": "normal", "iterations": "3", "var_name": "j"}, "inputs": [{"name": "Loop In", "link": 101}]},
+                {
+                    "id": 3,
+                    "type": "System/Output",
+                    "properties": {"apply_to": "All Lines"},
+                    "inputs": [
+                        {"name": "Loop / Domain", "link": 102},
+                        {"name": "Layer", "link": 103},
+                        {"name": "Start Time", "link": None},
+                        {"name": "End Time", "link": None},
+                        {"name": "Tags", "link": None},
+                        {"name": "Return", "link": None}
+                    ]
+                }
+            ],
+            "links": [
+                [101, 1, 0, 2, 0, "loop"],
+                [102, 2, 0, 3, 0, "loop"],
+                [103, 2, 1, 3, 1, "data"]
+            ]
+        }
+        dialogues = [
+            {"raw": "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Line1", "is_selected": True},
+            {"raw": "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Line2", "is_selected": True},
+            {"raw": "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Line3", "is_selected": True}
+        ]
+        styles = {"Default": {}}
+        engine = GraphEngine(graph)
+        res = engine.process(dialogues, styles, use_multiprocessing=False)
+        self.assertEqual(len(res), 9)
+        # Verify 111 222 333 ordering
+        self.assertIn("Line1", res[0])
+        self.assertIn("Line1", res[1])
+        self.assertIn("Line1", res[2])
+        self.assertIn("Line2", res[3])
+        self.assertIn("Line2", res[4])
+        self.assertIn("Line2", res[5])
+        self.assertIn("Line3", res[6])
+        self.assertIn("Line3", res[7])
+        self.assertIn("Line3", res[8])
+
+    def test_maxloop_multiple_lines_order_111222333_multiprocessing(self):
+        """Verifica que con varias líneas y loops en multiprocessing devuelva 111222333."""
+        graph = {
+            "nodes": [
+                {"id": 1, "type": "Loops/Main Loop", "properties": {"iterator": "line", "blank_mode": "no_blank"}},
+                {"id": 2, "type": "Loops/MaxLoop", "properties": {"mode": "normal", "iterations": "3", "var_name": "j"}, "inputs": [{"name": "Loop In", "link": 101}]},
+                {
+                    "id": 3,
+                    "type": "System/Output",
+                    "properties": {"apply_to": "All Lines"},
+                    "inputs": [
+                        {"name": "Loop / Domain", "link": 102},
+                        {"name": "Layer", "link": 103},
+                        {"name": "Start Time", "link": None},
+                        {"name": "End Time", "link": None},
+                        {"name": "Tags", "link": None},
+                        {"name": "Return", "link": None}
+                    ]
+                }
+            ],
+            "links": [
+                [101, 1, 0, 2, 0, "loop"],
+                [102, 2, 0, 3, 0, "loop"],
+                [103, 2, 1, 3, 1, "data"]
+            ]
+        }
+        dialogues = [
+            {"raw": "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Line1", "is_selected": True},
+            {"raw": "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Line2", "is_selected": True},
+            {"raw": "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Line3", "is_selected": True}
+        ]
+        styles = {"Default": {}}
+        engine = GraphEngine(graph)
+        res = engine.process(dialogues, styles, use_multiprocessing=True)
+        self.assertEqual(len(res), 9)
+        self.assertIn("Line1", res[0])
+        self.assertIn("Line1", res[1])
+        self.assertIn("Line1", res[2])
+        self.assertIn("Line2", res[3])
+        self.assertIn("Line2", res[4])
+        self.assertIn("Line2", res[5])
+        self.assertIn("Line3", res[6])
+        self.assertIn("Line3", res[7])
+        self.assertIn("Line3", res[8])
+
     def test_registry_and_system_db(self):
         self.assertIn("Loops/Main Loop", NODE_REGISTRY)
         self.assertIn("Loops/MaxLoop", NODE_REGISTRY)
