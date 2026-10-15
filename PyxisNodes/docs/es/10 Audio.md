@@ -45,25 +45,7 @@ Pyxis Effector procesa las pistas sonoras mediante un pipeline de búferes conti
 * **Categoría Canónica:** `Audio` (UI: *Audio / Modulator*)
 * **Propósito:** Muestrea la energía acústica en una ventana temporal definida, aplicando filtrado espectral y suavizado paso bajo para modular cualquier etiqueta ASS continua (`\fscy`, `\fscx`, `\blur`, `\alpha`, `\1c`, `\3c`, `\frz`, `\bord`). Genera cadenas concatenadas de transformaciones `\t(t1, t2, \tag...)` o valores interpolados para sub-bucles `Loops/MaxLoop`.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Audio/Modulator                              [ Mode: rms v ]│
-├─────────────────────────────────────────────────────────────┤
-│ (o) [Audio Path]                                            │
-│ (o) [Tag]                     [ "fscy"                    ] │
-│ (o) [Min Val]                 [ 100                       ] │
-│ (o) [Max Val]                 [ 160                       ] │
-│ (o) [Gain]                    [ 1.0                       ] │
-│ (o) [Step ms]                 [ 41.7                      ] │
-│ (o) [Smoothing]               [ 0.2                       ] │
-│ (o) [Start Time]              [                           ] │
-│ (o) [End Time]                [                           ] │
-│                                              Tags Out [1.1] (o)
-│                                         Current Value [1.2] (o)
-│                                          Values Array [1.3] (o)
-│                                           Average RMS [1.4] (o)
-└─────────────────────────────────────────────────────────────┘
-```
+![Audio/Modulator](img/modulator.png)
 
 > [!NOTE]
 > En modo `custom`, la interfaz despliega los campos adicionales `[Min Hz]` y `[Max Hz]` para configurar el rango de frecuencias de análisis.
@@ -164,26 +146,7 @@ Modulación simultánea de escala vertical `\fscy` con los graves (`bass`) y res
 * **Categoría Canónica:** `Audio` (UI: *Audio / Waveform*)
 * **Propósito:** Sintetiza trazados vectoriales ASSdraw (`m ... l ...`) en tiempo real representando la señal acústica instantánea. Permite renderizar osciloscopios de cinta continua, ecualizadores de barras espectrales, ondas con relleno a la base, visualizadores circulares polares y matrices de partículas reactivas.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Audio/Waveform                      [ Mode: oscilloscope v ]│
-├─────────────────────────────────────────────────────────────┤
-│ (o) [Audio Path]                                            │
-│ (o) [Width]                   [ 400.0                     ] │
-│ (o) [Height]                  [ 60.0                      ] │
-│ (o) [Samples]                 [ 32                        ] │
-│ (o) [Gain]                    [ 1.0                       ] │
-│ (o) [Thickness]               [ 2.0                       ] │
-│ (o) [Scale]                   [ 1.0                       ] │
-│ (o) [Start Time]              [                           ] │
-│ (o) [End Time]                [                           ] │
-│                                             Shape Out [1.1] (o)
-│                                              \pos Tag [1.2] (o)
-│                                               X Array [1.3] (o)
-│                                               Y Array [1.4] (o)
-│                                           Bands Array [1.5] (o)
-└─────────────────────────────────────────────────────────────┘
-```
+![Audio/Waveform](img/waveform.png)
 
 ---
 

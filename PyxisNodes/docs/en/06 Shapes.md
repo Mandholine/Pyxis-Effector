@@ -14,7 +14,7 @@ The **Shape** category contains nodes for generating, ingesting, manipulating, a
 * **Canonical Category:** `Shape` (UI: *Shape / Library*)
 * **Purpose:** Emits precalculated parametric geometric primitives normalised within a base $[0, 100]$ bounding box and centred at the local Cartesian origin `(0, 0)`.
 
-``
+![Shape/Library](img/library.png)
 
 ### 1.1. Interactive Preview Card and Shortcuts
 * **Live Vector Rendering:** The node body includes a live **Preview Card** rendering the vector silhouette of the selected shape in real time.
@@ -644,6 +644,8 @@ Continuous 3-stage morph: Start ($t=0.0$) $\to$ Mid ($t=0.5$) $\to$ Target ($t=1
 * **Canonical Category:** `Shape` (UI: *Shape / Walker*)
 * **Purpose:** Traverses and parametrically integrates the arc length of an ASSdraw vector path, calculating progressive stroke trimming (*write-on / stroke trimming*) across the $[start\_t, progress]$ interval, and emitting the Cartesian `\pos` tag and tangential angle `\frz` at the advancing tip.
 
+![Shape/Walker](img/walker.png)
+
 ### 7.1. Header Modes and Parameters
 1. **Integration Mode (`mode`):**
    * `global`: Integrates cumulative total arc length across all subcontours or independent path segments. The $[0.0, 1.0]$ range traverses the complete compound geometry sequentially from start to end.
@@ -699,7 +701,7 @@ Continuous 3-stage morph: Start ($t=0.0$) $\to$ Mid ($t=0.5$) $\to$ Target ($t=1
 * **Canonical Category:** `Shape` (UI: *Shape / Stroke*)
 * **Purpose:** Converts open lines, vector skeletons, or unfilled paths into closed double-contour polygonal drawings with parametric stroke thickness and topological control over corner joins and terminal caps via *Clipper2*.
 
-``
+![Shape/Stroke](img/stroke.png)
 
 ### 8.1. Input Ports (*Inputs*)
 1. **`Shape / Text`:** Vector ASSdraw path of an open line, curve, or text glyph to extrude.
@@ -985,6 +987,8 @@ Pairing `Union & Divide (FUSION)` with `Concatenate (Zip)` enables parallel mult
 
 * **Canonical Category:** `Shape` (UI: *Shape / IMG to Shape*)
 * **Purpose:** Vectorises raster images (PNG, JPG, WebP) or animated GIF sequences into continuous ASSdraw vector paths (`m`, `l`, `b`) via the integrated Potrace engine, polygonal approximation (Douglas-Peucker), or gradient edge detection.
+
+![Shape/IMG to Shape](img/img_to_shape.png)
 
 ### 12.1. Canvas Shortcuts and Frame Navigation
 1. **File Loading Shortcut (Double-Click):**

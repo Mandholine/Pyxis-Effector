@@ -14,7 +14,7 @@ La categoría **Shape** contiene los nodos de generación, ingestión, manipulac
 * **Categoría Canónica:** `Shape` (UI: *Shape / Library*)
 * **Propósito:** Emite primitivas geométricas paramétricas precalculadas normalizadas en una caja delimitadora base $[0, 100]$ y centradas en el origen cartesiano local `(0, 0)`.
 
-``
+![Shape/Library](img/library.png)
 
 ### 1.1. Tarjeta de Previsualización y Atajos Interactivos
 * **Renderizado Vectorial en Vivo:** El nodo incluye en su cuerpo una tarjeta interactiva (*Preview Card*) que dibuja el contorno vectorial seleccionado en tiempo real.
@@ -690,7 +690,7 @@ Permite transiciones morfológicas continuas en tres fases encadenadas: Forma In
 * **Categoría Canónica:** `Shape` (UI: *Shape / Walker*)
 * **Propósito:** Recorre e integra paramétricamente la longitud de arco de una forma vectorial ASSdraw, calculando la segmentación progresiva del trazado (*write-on / stroke trimming*) en el intervalo $[start\_t, progress]$ y emitiendo la posición cartesiana `\pos` y el ángulo tangencial `\frz` en la punta de avance.
 
-``
+![Shape/Walker](img/walker.png)
 
 ### 7.1. Modos de Cabecera y Parámetros
 1. **Modo de Integración (`mode`):**
@@ -747,7 +747,7 @@ Permite transiciones morfológicas continuas en tres fases encadenadas: Forma In
 * **Categoría Canónica:** `Shape` (UI: *Shape / Stroke*)
 * **Propósito:** Convierte líneas abiertas, contornos esqueléticos o trazados vectoriales sin grosor en polígonos cerrados de doble contorno con grosor paramétrico y control topológico de uniones angulares y remates terminales mediante *Clipper2*.
 
-``
+![Shape/Stroke](img/stroke.png)
 
 ### 8.1. Puertos de Entrada (*Inputs*)
 1. **`Shape / Text`:** Trazado vectorial ASSdraw de línea abierta, curva o texto sobre el que se aplicará la extrusión.
@@ -1062,6 +1062,8 @@ Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo
 
 * **Categoría Canónica:** `Shape` (UI: *Shape / IMG to Shape*)
 * **Propósito:** Vectoriza imágenes rasterizadas (PNG, JPG, WebP) o secuencias de animaciones GIF convirtiéndolas en trazados vectoriales ASSdraw (`m`, `l`, `b`) mediante el motor integrado Potrace, aproximación poligonal (Douglas-Peucker) o extracción perimetral por gradiente.
+
+![Shape/IMG to Shape](img/img_to_shape.png)
 
 ### 12.1. Atajos de Interfaz y Navegación de Cuadros
 1. **Atajo de Carga de Archivo (Doble Clic):**

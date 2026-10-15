@@ -9,17 +9,7 @@ The **Loops** category contains nodes that govern the decomposition domain of di
 * **Canonical Category:** `Loops` (UI: *Loops / Main Loop*)
 * **Purpose:** Establishes the fundamental domain over which each selected Aegisub dialogue line is decomposed and processed (`syl`, `char`, `word`, `line`), initialising the graph lifecycle and emitting the execution flow signal and metric iteration counters.
 
-```
-┌────────────────────────────────────────────────────────┐
-│ [Loops] Main Loop               [NO BLANK] [syl ▼]    │
-├────────────────────────────────────────────────────────┤
-│ (No inputs)                        Loop  [loop] ──────►│
-│                            Iterator (i)  [data] ──────►│
-│                               Total (N)  [data] ──────►│
-├────────────────────────────────────────────────────────┤
-│                      syl.i, syl.n                      │
-└────────────────────────────────────────────────────────┘
-```
+![Loops/Main Loop](img/main_loop.png)
 
 ### 1.1. Header Badges
 1. **Domain Selector (`iterator`):** Switchable via direct click on the top-right header badge or within properties:
@@ -74,32 +64,7 @@ Upon evaluating each Aegisub dialogue line, the node constructs contextual metri
 * **Canonical Category:** `Loops` (UI: *Loops / MaxLoop*)
 * **Purpose:** Multiplies and expands incoming execution flow within the active unit into $N$ temporal sub-iterations or concurrent replicas (`normal`), or segments the time interval into discrete regular video frames (`fbf`).
 
-```
-┌────────────────────────────────────────────────────────┐
-│ [Loops] MaxLoop                            [NORMAL ▼]  │
-├────────────────────────────────────────────────────────┤
-│ ► [loop] Loop In                 Loop Out  [loop] ────►│
-│                                   Counter  [data] ────►│
-│   Iterations (N): [ 3        ]      Total  [data] ────►│
-│   Var Name (j):   [ j        ]                         │
-├────────────────────────────────────────────────────────┤
-│                         j, maxj                        │
-└────────────────────────────────────────────────────────┘
-
-┌────────────────────────────────────────────────────────┐
-│ [Loops] MaxLoop                               [FBF ▼]  │
-├────────────────────────────────────────────────────────┤
-│ ► [loop] Loop In                 Loop Out  [loop] ────►│
-│ ► [data] Start                    Counter  [data] ────►│
-│ ► [data] End                        Total  [data] ────►│
-│   Step (ms):    [ 41.7     ]                           │
-│   Inicio (ms):  [ start_time]                          │
-│   Fin (ms):     [ end_time  ]                          │
-│   Var Name (j): [ j        ]                           │
-├────────────────────────────────────────────────────────┤
-│                         j, maxj                        │
-└────────────────────────────────────────────────────────┘
-```
+![Loops/MaxLoop](img/maxloop.png)
 
 ### 2.1. Header Modes and Dynamic Layout
 The operating mode is toggled via the interactive header button:
@@ -166,18 +131,7 @@ The operating mode is toggled via the interactive header button:
 * **Canonical Category:** `Loops` (UI: *Loops / Module*)
 * **Purpose:** Computes the normalised progression factor across the $[0.0, 1.0]$ interval or modular offset divisions from ordinal loop counters ($i, j$).
 
-```
-┌────────────────────────────────────────────────────────┐
-│ [Loops] Module                                         │
-├────────────────────────────────────────────────────────┤
-│ ► [data] Iterator (i)                    Data  [data] ─►│
-│ ► [data] Total (N)                                     │
-│ ► [data] Sub-step (m)                                  │
-│   Iterator (i):  [ i        ]                          │
-│   Total (N):     [ N        ]                          │
-│   Sub-step (m):  [ 0        ]                          │
-└────────────────────────────────────────────────────────┘
-```
+![Loops/Module](img/module.png)
 
 ### 3.1. Input Ports (*Inputs*)
 1. **`Iterator (i)`:** Current iteration index. If unwired, evaluates the `iter` property.

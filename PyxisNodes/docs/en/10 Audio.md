@@ -45,25 +45,7 @@ Pyxis Effector processes sound tracks via a pipeline of contiguous memory buffer
 * **Canonical Category:** `Audio` (UI: *Audio / Modulator*)
 * **Purpose:** Samples acoustic energy within a defined time window, applying spectral filtering and low-pass smoothing to modulate any continuous ASS override tag (`\fscy`, `\fscx`, `\blur`, `\alpha`, `\1c`, `\3c`, `\frz`, `\bord`). Compiles concatenated chains of `\t(t1, t2, \tag...)` transitions or interpolated values for `Loops/MaxLoop` sub-loops.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Audio/Modulator                              [ Mode: rms v ]│
-├─────────────────────────────────────────────────────────────┤
-│ (o) [Audio Path]                                            │
-│ (o) [Tag]                     [ "fscy"                    ] │
-│ (o) [Min Val]                 [ 100                       ] │
-│ (o) [Max Val]                 [ 160                       ] │
-│ (o) [Gain]                    [ 1.0                       ] │
-│ (o) [Step ms]                 [ 41.7                      ] │
-│ (o) [Smoothing]               [ 0.2                       ] │
-│ (o) [Start Time]              [                           ] │
-│ (o) [End Time]                [                           ] │
-│                                              Tags Out [1.1] (o)
-│                                         Current Value [1.2] (o)
-│                                          Values Array [1.3] (o)
-│                                           Average RMS [1.4] (o)
-└─────────────────────────────────────────────────────────────┘
-```
+![Audio/Modulator](img/modulator.png)
 
 > [!NOTE]
 > In `custom` mode, the interface displays the additional `[Min Hz]` and `[Max Hz]` fields to configure the target frequency analysis range.
@@ -164,26 +146,7 @@ Simultaneous modulation of vertical scale `\fscy` driven by bass (`bass`) and gl
 * **Canonical Category:** `Audio` (UI: *Audio / Waveform*)
 * **Purpose:** Synthesises real-time ASSdraw vector paths (`m ... l ...`) representing the instantaneous acoustic signal. Allows rendering continuous ribbon oscilloscopes, spectral bar equalisers, baseline-filled waves, polar circular visualisers, and reactive particle matrices.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Audio/Waveform                      [ Mode: oscilloscope v ]│
-├─────────────────────────────────────────────────────────────┤
-│ (o) [Audio Path]                                            │
-│ (o) [Width]                   [ 400.0                     ] │
-│ (o) [Height]                  [ 60.0                      ] │
-│ (o) [Samples]                 [ 32                        ] │
-│ (o) [Gain]                    [ 1.0                       ] │
-│ (o) [Thickness]               [ 2.0                       ] │
-│ (o) [Scale]                   [ 1.0                       ] │
-│ (o) [Start Time]              [                           ] │
-│ (o) [End Time]                [                           ] │
-│                                             Shape Out [1.1] (o)
-│                                              \pos Tag [1.2] (o)
-│                                               X Array [1.3] (o)
-│                                               Y Array [1.4] (o)
-│                                           Bands Array [1.5] (o)
-└─────────────────────────────────────────────────────────────┘
-```
+![Audio/Waveform](img/waveform.png)
 
 ---
 

@@ -9,17 +9,7 @@ La categoría **Loops** contiene los nodos que controlan el dominio de iteració
 * **Categoría Canónica:** `Loops` (UI: *Bucles / Main Loop*)
 * **Propósito:** Define el dominio elemental sobre el cual se descompone y procesa cada línea de diálogo seleccionada de Aegisub (`syl`, `char`, `word`, `line`), inicializando el ciclo de vida del grafo y emitiendo la señal de flujo y los contadores métricos de iteración.
 
-```
-┌────────────────────────────────────────────────────────┐
-│ [Loops] Main Loop               [NO BLANK] [syl ▼]    │
-├────────────────────────────────────────────────────────┤
-│ (No inputs)                        Loop  [loop] ──────►│
-│                            Iterator (i)  [data] ──────►│
-│                               Total (N)  [data] ──────►│
-├────────────────────────────────────────────────────────┤
-│                      syl.i, syl.n                      │
-└────────────────────────────────────────────────────────┘
-```
+![Loops/Main Loop](img/main_loop.png)
 
 ### 1.1. Modos de Cabecera (*Header Badges*)
 1. **Selector de Dominio (`iterator`):** Conmutable mediante clic directo en el badge superior derecho o en sus propiedades:
@@ -74,32 +64,7 @@ Al evaluar cada línea de diálogo de Aegisub, el nodo construye las estructuras
 * **Categoría Canónica:** `Loops` (UI: *Bucles / MaxLoop*)
 * **Propósito:** Multiplica y expande el flujo de ejecución entrante dentro del elemento activo en $N$ sub-iteraciones temporales o copias concurrentes (`normal`), o segmenta el intervalo temporal en fotogramas discretos regulares (`fbf`).
 
-```
-┌────────────────────────────────────────────────────────┐
-│ [Loops] MaxLoop                            [NORMAL ▼]  │
-├────────────────────────────────────────────────────────┤
-│ ► [loop] Loop In                 Loop Out  [loop] ────►│
-│                                   Counter  [data] ────►│
-│   Iterations (N): [ 3        ]      Total  [data] ────►│
-│   Var Name (j):   [ j        ]                         │
-├────────────────────────────────────────────────────────┤
-│                         j, maxj                        │
-└────────────────────────────────────────────────────────┘
-
-┌────────────────────────────────────────────────────────┐
-│ [Loops] MaxLoop                               [FBF ▼]  │
-├────────────────────────────────────────────────────────┤
-│ ► [loop] Loop In                 Loop Out  [loop] ────►│
-│ ► [data] Start                    Counter  [data] ────►│
-│ ► [data] End                        Total  [data] ────►│
-│   Step (ms):    [ 41.7     ]                           │
-│   Inicio (ms):  [ start_time]                          │
-│   Fin (ms):     [ end_time  ]                          │
-│   Var Name (j): [ j        ]                           │
-├────────────────────────────────────────────────────────┤
-│                         j, maxj                        │
-└────────────────────────────────────────────────────────┘
-```
+![Loops/MaxLoop](img/maxloop.png)
 
 ### 2.1. Modos de Cabecera y Reconfiguración Dinámica
 El modo operativo se selecciona mediante el botón interactivo de la cabecera:
@@ -166,18 +131,7 @@ El modo operativo se selecciona mediante el botón interactivo de la cabecera:
 * **Categoría Canónica:** `Loops` (UI: *Bucles / Module*)
 * **Propósito:** Calcula el factor de progresión lineal normalizada en el rango $[0.0, 1.0]$ o divisiones con desplazamiento modular a partir de contadores ordinales de iteración ($i, j$).
 
-```
-┌────────────────────────────────────────────────────────┐
-│ [Loops] Module                                         │
-├────────────────────────────────────────────────────────┤
-│ ► [data] Iterator (i)                    Data  [data] ─►│
-│ ► [data] Total (N)                                     │
-│ ► [data] Sub-step (m)                                  │
-│   Iterator (i):  [ i        ]                          │
-│   Total (N):     [ N        ]                          │
-│   Sub-step (m):  [ 0        ]                          │
-└────────────────────────────────────────────────────────┘
-```
+![Loops/Module](img/module.png)
 
 ### 3.1. Puertos de Entrada (*Inputs*)
 1. **`Iterator (i)`:** Índice actual de la iteración. Si no está conectado, evalúa la propiedad `iter`.
