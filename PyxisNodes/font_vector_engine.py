@@ -18,6 +18,7 @@
 Supports Win32 GDI via ctypes on Windows with smooth fallback, normalized cache, and comprehensive context resolution.
 """
 
+from dataclasses import dataclass
 import ctypes
 from ctypes import wintypes
 import platform
@@ -35,12 +36,55 @@ class POINT(ctypes.Structure):
 class SIZE(ctypes.Structure):
     _fields_ = [("cx", wintypes.LONG), ("cy", wintypes.LONG)]
 
+class TEXTMETRICW(ctypes.Structure):
+    _fields_ = [
+        ("tmHeight", wintypes.LONG),
+        ("tmAscent", wintypes.LONG),
+        ("tmDescent", wintypes.LONG),
+        ("tmInternalLeading", wintypes.LONG),
+        ("tmExternalLeading", wintypes.LONG),
+        ("tmAveCharWidth", wintypes.LONG),
+        ("tmMaxCharWidth", wintypes.LONG),
+        ("tmWeight", wintypes.LONG),
+        ("tmOverhang", wintypes.LONG),
+        ("tmDigitizedAspectX", wintypes.LONG),
+        ("tmDigitizedAspectY", wintypes.LONG),
+        ("tmFirstChar", wintypes.WCHAR),
+        ("tmLastChar", wintypes.WCHAR),
+        ("tmDefaultChar", wintypes.WCHAR),
+        ("tmBreakChar", wintypes.WCHAR),
+        ("tmItalic", wintypes.BYTE),
+        ("tmUnderlined", wintypes.BYTE),
+        ("tmStruckOut", wintypes.BYTE),
+        ("tmPitchAndFamily", wintypes.BYTE),
+        ("tmCharSet", wintypes.BYTE),
+    ]
+
+@dataclass(frozen=True)
+class FontVectorMetrics:
+    """Retiene la ficha métrica completa y no destructiva de la fuente y de la forma vectorial."""
+    shape: str = ""
+    advance_width: float = 0.0
+    cell_height: float = 0.0
+    ascent: float = 0.0
+    descent: float = 0.0
+    spacing: float = 0.0
+    lsb: float = 0.0
+    rsb: float = 0.0
+    ink_min_x: float = 0.0
+    ink_min_y: float = 0.0
+    ink_max_x: float = 0.0
+    ink_max_y: float = 0.0
+    ink_width: float = 0.0
+    ink_height: float = 0.0
+    delta_x: float = 0.0
+    delta_y: float = 0.0
 
 class FontVectorEngine:
     """Canonical font-to-vector ASSdraw engine with normalized cache and context resolution."""
 
     MAX_CACHE_SIZE: int = 4096
-    _cache: Dict[tuple, str] = {}
+    _cache: Dict[tuple, FontVectorMetrics] = {}
 
     @classmethod
     def clear_cache(cls):
@@ -64,12 +108,13 @@ class FontVectorEngine:
         scale: float = 1.0,
         scale_x: Optional[float] = None,
         scale_y: Optional[float] = None,
+        spacing: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Canonically extracts typographic properties from text and context.
 
 Hierarchically inspects:
 1. Explicit user parameters.
-2. Inline override tags (\\fn, \\fs, \\fscx, \\fscy, \\b, \\i) in unit or line text.
+2. Inline override tags (\\fn, \\fs, \\fscx, \\fscy, \\fsp, \\b, \\i) in unit or line text.
 3. `styleref` object in `active_line`, `active_unit`, `line`, or `context`.
 4. Size metrics (`unit.height`, `line.height`).
 5. Standard guaranteed fallbacks.
@@ -95,9 +140,18 @@ Hierarchically inspects:
             if not styleref and hasattr(unit, 'line') and getattr(unit, 'line', None):
                 styleref = getattr(unit.line, 'styleref', None)
         if not styleref and isinstance(context, dict):
-            styleref = context.get('styleref')
+            styleref = context.get('styleref') or context.get('style')
 
-        if isinstance(styleref, dict):
+        style_override = getattr(unit, 'style_override', None) or getattr(line, 'style_override', None)
+        if style_override is not None:
+            base_fn = style_override.fontname
+            base_fs = style_override.fontsize
+            base_b = style_override.bold
+            base_i = style_override.italic
+            base_sc_x = style_override.scale_x
+            base_sc_y = style_override.scale_y
+            base_spacing = style_override.spacing
+        elif isinstance(styleref, dict):
             base_fn = str(styleref.get('Fontname', styleref.get('fontname', 'Arial')))
             try:
                 base_fs = float(styleref.get('Fontsize', styleref.get('fontsize', 40.0)))
@@ -115,6 +169,10 @@ Hierarchically inspects:
                 base_sc_y = float(styleref.get('ScaleY', styleref.get('scale_y', 100.0)))
             except Exception:
                 base_sc_y = 100.0
+            try:
+                base_spacing = float(styleref.get('Spacing', styleref.get('spacing', 0.0)))
+            except Exception:
+                base_spacing = 0.0
         elif styleref:
             base_fn = str(getattr(styleref, 'fontname', 'Arial'))
             try:
@@ -131,6 +189,10 @@ Hierarchically inspects:
                 base_sc_y = float(getattr(styleref, 'scale_y', 100.0))
             except Exception:
                 base_sc_y = 100.0
+            try:
+                base_spacing = float(getattr(styleref, 'spacing', 0.0))
+            except Exception:
+                base_spacing = 0.0
         else:
             base_fn = "Arial"
             base_fs = float(getattr(unit, 'height', getattr(line, 'height', 40.0)) or 40.0)
@@ -138,6 +200,7 @@ Hierarchically inspects:
             base_i = False
             base_sc_x = 100.0
             base_sc_y = 100.0
+            base_spacing = 0.0
 
         raw_text_src = (getattr(unit, 'text', '') or getattr(line, 'raw_text', '') or getattr(line, 'text', '') or '') if (unit or line) else ''
         if raw_text_src and '\\' in raw_text_src:
@@ -155,6 +218,10 @@ Hierarchically inspects:
             fscy_m = re.search(r'\\fscy(\d+(?:\.\d+)?)', raw_text_src)
             if fscy_m:
                 try: base_sc_y = float(fscy_m.group(1))
+                except Exception: pass
+            fsp_m = re.search(r'\\fsp(-?\d+(?:\.\d+)?)', raw_text_src)
+            if fsp_m:
+                try: base_spacing = float(fsp_m.group(1))
                 except Exception: pass
             b_m = re.search(r'\\b([01])', raw_text_src)
             if b_m:
@@ -179,6 +246,10 @@ Hierarchically inspects:
         except Exception:
             sc_y_final = base_sc_y
         try:
+            spacing_final = float(spacing) if (spacing is not None and str(spacing).strip() != "") else base_spacing
+        except Exception:
+            spacing_final = base_spacing
+        try:
             scale_final = float(scale) if scale is not None else 1.0
         except Exception:
             scale_final = 1.0
@@ -192,6 +263,7 @@ Hierarchically inspects:
             "scale": scale_final,
             "scale_x": sc_x_final,
             "scale_y": sc_y_final,
+            "spacing": spacing_final,
         }
 
     @classmethod
@@ -206,8 +278,43 @@ Hierarchically inspects:
         scale: float = 1.0,
         scale_x: Optional[float] = None,
         scale_y: Optional[float] = None,
+        spacing: Optional[float] = None,
+        anchor: str = "typographic"
     ) -> str:
-        """Función canónica y especializada para convertir texto a vector ASSdraw usando el contexto completo."""
+        """Función canónica para convertir texto a vector ASSdraw usando el contexto completo."""
+        metrics = cls.get_metrics_from_context(
+            text=text,
+            context=context,
+            font_name=font_name,
+            font_size=font_size,
+            bold=bold,
+            italic=italic,
+            scale=scale,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            spacing=spacing,
+            anchor=anchor
+        )
+        return metrics.shape if metrics else ""
+
+    text_to_shape_from_context = from_context
+
+    @classmethod
+    def get_metrics_from_context(
+        cls,
+        text: str = "",
+        context: Optional[dict] = None,
+        font_name: Optional[str] = None,
+        font_size: Optional[float] = None,
+        bold: Optional[bool] = None,
+        italic: Optional[bool] = None,
+        scale: float = 1.0,
+        scale_x: Optional[float] = None,
+        scale_y: Optional[float] = None,
+        spacing: Optional[float] = None,
+        anchor: str = "typographic"
+    ) -> FontVectorMetrics:
+        """Extrae la ficha métrica completa y no destructiva de la fuente y de la forma vectorial."""
         params = cls.extract_font_params(
             text=text,
             context=context,
@@ -217,12 +324,13 @@ Hierarchically inspects:
             italic=italic,
             scale=scale,
             scale_x=scale_x,
-            scale_y=scale_y
+            scale_y=scale_y,
+            spacing=spacing
         )
         if not params["text"]:
-            return ""
+            return FontVectorMetrics()
 
-        return cls.text_to_shape(
+        return cls.get_metrics(
             text=params["text"],
             font_name=params["font_name"],
             font_size=params["font_size"],
@@ -230,10 +338,10 @@ Hierarchically inspects:
             italic=params["italic"],
             scale=params["scale"],
             scale_x=params["scale_x"],
-            scale_y=params["scale_y"]
+            scale_y=params["scale_y"],
+            spacing=params["spacing"],
+            anchor=anchor
         )
-
-    text_to_shape_from_context = from_context
 
     @classmethod
     def text_to_shape(
@@ -245,11 +353,42 @@ Hierarchically inspects:
         italic: bool = False,
         scale: float = 1.0,
         scale_x: float = 100.0,
-        scale_y: float = 100.0
+        scale_y: float = 100.0,
+        spacing: float = 0.0,
+        anchor: str = "typographic"
     ) -> str:
-        """Convierte una cadena de texto a forma vectorial ASSdraw centrada con caché normalizado."""
+        """Convierte una cadena de texto a forma vectorial ASSdraw con caché normalizado."""
+        metrics = cls.get_metrics(
+            text=text,
+            font_name=font_name,
+            font_size=font_size,
+            bold=bold,
+            italic=italic,
+            scale=scale,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            spacing=spacing,
+            anchor=anchor
+        )
+        return metrics.shape if metrics else ""
+
+    @classmethod
+    def get_metrics(
+        cls,
+        text: str,
+        font_name: str = "Arial",
+        font_size: float = 100.0,
+        bold: bool = False,
+        italic: bool = False,
+        scale: float = 1.0,
+        scale_x: float = 100.0,
+        scale_y: float = 100.0,
+        spacing: float = 0.0,
+        anchor: str = "typographic"
+    ) -> FontVectorMetrics:
+        """Retorna la ficha métrica completa de vector y tipografía con caché normalizado."""
         if not text or not str(text).strip():
-            return ""
+            return FontVectorMetrics()
 
         text_str = str(text)
         fn_str = str(font_name or "Arial").strip().lower()
@@ -271,30 +410,37 @@ Hierarchically inspects:
             sc_y_val = round(float(scale_y), 2)
         except Exception:
             sc_y_val = 100.0
+        try:
+            sp_val = round(float(spacing), 3)
+        except Exception:
+            sp_val = 0.0
+        anchor_val = str(anchor or "typographic").strip().lower()
 
-        cache_key = (text_str, fn_str, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val)
+        cache_key = (text_str, fn_str, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val)
         if cache_key in cls._cache:
             return cls._cache[cache_key]
 
-        res = ""
+        res_metrics: Optional[FontVectorMetrics] = None
         if platform.system() == "Windows":
             try:
-                shape = cls._text_to_shape_gdi(text_str, font_name, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val)
-                if shape and shape != "m 0 0":
-                    res = shape
+                res_metrics = cls._text_to_shape_gdi(
+                    text_str, font_name, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val
+                )
             except Exception as e:
                 print(f"[FontVectorEngine GDI Warning] {e}")
 
-        if not res:
-            res = cls._text_to_shape_fallback(text_str, fs_val, sc_val)
+        if not res_metrics or not res_metrics.shape or res_metrics.shape == "m 0 0":
+            res_metrics = cls._text_to_shape_fallback(
+                text_str, fs_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val
+            )
 
         if len(cls._cache) >= cls.MAX_CACHE_SIZE:
             keys_to_remove = list(cls._cache.keys())[:cls.MAX_CACHE_SIZE // 4]
             for k in keys_to_remove:
                 cls._cache.pop(k, None)
 
-        cls._cache[cache_key] = res
-        return res
+        cls._cache[cache_key] = res_metrics
+        return res_metrics
 
     @staticmethod
     def _text_to_shape_gdi(
@@ -305,14 +451,15 @@ Hierarchically inspects:
         italic: bool,
         scale: float,
         scale_x: float = 100.0,
-        scale_y: float = 100.0
-    ) -> str:
+        scale_y: float = 100.0,
+        spacing: float = 0.0,
+        anchor: str = "typographic"
+    ) -> FontVectorMetrics:
         gdi32 = ctypes.windll.gdi32
-        user32 = ctypes.windll.user32
 
         hdc = gdi32.CreateCompatibleDC(None)
         if not hdc:
-            return ""
+            return FontVectorMetrics()
 
         gdi32.SetBkMode(hdc, 1)
 
@@ -327,7 +474,7 @@ Hierarchically inspects:
         )
         if not hfont:
             gdi32.DeleteDC(hdc)
-            return ""
+            return FontVectorMetrics()
 
         old_font = gdi32.SelectObject(hdc, hfont)
 
@@ -336,27 +483,35 @@ Hierarchically inspects:
             gdi32.SelectObject(hdc, old_font)
             gdi32.DeleteObject(hfont)
             gdi32.DeleteDC(hdc)
-            return ""
+            return FontVectorMetrics()
+
+        tm = TEXTMETRICW()
+        gdi32.GetTextMetricsW(hdc, ctypes.byref(tm))
 
         sz_c = SIZE()
         dx_array = None
         total_cx = 0.0
+        sp_subpixel = float(spacing) * 64.0
 
         if len(text_w) > 1:
             dx_list = []
-            total_adv = 0
-            for c in text_w:
+            total_adv = 0.0
+            for idx, c in enumerate(text_w):
                 gdi32.GetTextExtentPoint32W(hdc, c, 1, ctypes.byref(sz_c))
-                adv = int(round(sz_c.cx / 64.0))
-                dx_list.append(adv * 64)
-                total_adv += adv
+                adv_64 = float(sz_c.cx)
+                if idx < len(text_w) - 1:
+                    adv_with_sp = adv_64 + sp_subpixel
+                else:
+                    adv_with_sp = adv_64
+                adv_int = int(round(adv_with_sp))
+                dx_list.append(adv_int)
+                total_adv += adv_with_sp
             dx_array = (ctypes.c_int * len(text_w))(*dx_list)
-            total_cx = float(total_adv) * 64.0
+            total_cx = total_adv
         else:
             sz_single = SIZE()
             gdi32.GetTextExtentPoint32W(hdc, text_w, len(text_w), ctypes.byref(sz_single))
-            adv_single = int(round(sz_single.cx / 64.0))
-            total_cx = float(adv_single) * 64.0
+            total_cx = float(sz_single.cx)
 
         gdi32.BeginPath(hdc)
         gdi32.ExtTextOutW(hdc, 0, 0, 0, None, text_w, len(text_w), dx_array)
@@ -366,11 +521,26 @@ Hierarchically inspects:
         gdi32.GetTextExtentPoint32W(hdc, text_w, len(text_w), ctypes.byref(sz))
 
         num_points = gdi32.GetPath(hdc, None, None, 0)
+        scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0)
+        scale_factor_y = (1.0 / 64.0) * float(scale) * (float(scale_y) / 100.0)
+
+        adv_w = round(total_cx * scale_factor_x, 3)
+        cell_h = round(tm.tmHeight * scale_factor_y, 3)
+        ascent_val = round(tm.tmAscent * scale_factor_y, 3)
+        descent_val = round(tm.tmDescent * scale_factor_y, 3)
+
         if num_points <= 0:
             gdi32.SelectObject(hdc, old_font)
             gdi32.DeleteObject(hfont)
             gdi32.DeleteDC(hdc)
-            return ""
+            return FontVectorMetrics(
+                shape="",
+                advance_width=adv_w,
+                cell_height=cell_h,
+                ascent=ascent_val,
+                descent=descent_val,
+                spacing=float(spacing)
+            )
 
         points = (POINT * num_points)()
         types = (ctypes.c_byte * num_points)()
@@ -381,14 +551,44 @@ Hierarchically inspects:
         gdi32.DeleteObject(hfont)
         gdi32.DeleteDC(hdc)
 
+        min_px = min(points[i].x for i in range(num_points))
+        max_px = max(points[i].x for i in range(num_points))
+        min_py = min(points[i].y for i in range(num_points))
+        max_py = max(points[i].y for i in range(num_points))
+
+        lsb_val = round(min_px * scale_factor_x, 3)
+        rsb_val = round(adv_w - (max_px * scale_factor_x), 3)
+        ink_w = round(max(0.0, (max_px - min_px) * scale_factor_x), 3)
+        ink_h = round(max(0.0, (max_py - min_py) * scale_factor_y), 3)
+
+        typographic_cx = (total_cx * scale_factor_x) / 2.0
+        typographic_cy = (sz.cy * scale_factor_y) / 2.0
+
+        ink_cx = ((min_px + max_px) * scale_factor_x) / 2.0
+        ink_cy = ((min_py + max_py) * scale_factor_y) / 2.0
+
+        delta_x = round(ink_cx - typographic_cx, 3)
+        delta_y = round(ink_cy - typographic_cy, 3)
+
+        ink_min_x = round(min_px * scale_factor_x - typographic_cx, 3)
+        ink_max_x = round(max_px * scale_factor_x - typographic_cx, 3)
+        ink_min_y = round(min_py * scale_factor_y - typographic_cy, 3)
+        ink_max_y = round(max_py * scale_factor_y - typographic_cy, 3)
+
+        anchor_clean = str(anchor).strip().lower()
+        if anchor_clean == "ink":
+            layout_cx = ink_cx
+            layout_cy = ink_cy
+        elif anchor_clean in ("origin", "baseline"):
+            layout_cx = 0.0
+            layout_cy = tm.tmAscent * scale_factor_y
+        else:
+            # Default: typographic
+            layout_cx = typographic_cx
+            layout_cy = typographic_cy
+
         ass_parts = []
         i = 0
-        scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0)
-        scale_factor_y = (1.0 / 64.0) * float(scale) * (float(scale_y) / 100.0)
-
-        layout_cx = (total_cx * scale_factor_x) / 2.0
-        layout_cy = (sz.cy * scale_factor_y) / 2.0
-
         while i < num_points:
             pt_type = types[i]
             base_type = pt_type & ~PT_CLOSEFIGURE
@@ -415,12 +615,57 @@ Hierarchically inspects:
                 i += 1
 
         raw_shape = " ".join(ass_parts)
-        return raw_shape
+
+        return FontVectorMetrics(
+            shape=raw_shape,
+            advance_width=adv_w,
+            cell_height=cell_h,
+            ascent=ascent_val,
+            descent=descent_val,
+            spacing=float(spacing),
+            lsb=lsb_val,
+            rsb=rsb_val,
+            ink_min_x=ink_min_x,
+            ink_min_y=ink_min_y,
+            ink_max_x=ink_max_x,
+            ink_max_y=ink_max_y,
+            ink_width=ink_w,
+            ink_height=ink_h,
+            delta_x=delta_x,
+            delta_y=delta_y
+        )
 
     @staticmethod
-    def _text_to_shape_fallback(text: str, font_size: float, scale: float) -> str:
-        """Fallback aproximado de caja contenedora vectorial centrado en (0, 0)."""
-        width = float(len(text) * float(font_size) * 0.6 * float(scale))
-        height = float(float(font_size) * float(scale))
+    def _text_to_shape_fallback(
+        text: str,
+        font_size: float,
+        scale: float,
+        scale_x: float = 100.0,
+        scale_y: float = 100.0,
+        spacing: float = 0.0,
+        anchor: str = "typographic"
+    ) -> FontVectorMetrics:
+        """Fallback aproximado de caja contenedora vectorial centrado en (0, 0) con métricas."""
+        extra_sp = float(spacing) * max(0, len(text) - 1)
+        width = (float(len(text) * float(font_size) * 0.6) + extra_sp) * (float(scale_x) / 100.0) * float(scale)
+        height = float(float(font_size) * (float(scale_y) / 100.0) * float(scale))
         hw, hh = round(width * 0.5, 2), round(height * 0.5, 2)
-        return f"m {-hw} {-hh} l {hw} {-hh} l {hw} {hh} l {-hw} {hh}"
+        shape_str = f"m {-hw} {-hh} l {hw} {-hh} l {hw} {hh} l {-hw} {hh}"
+        return FontVectorMetrics(
+            shape=shape_str,
+            advance_width=round(width, 3),
+            cell_height=round(height, 3),
+            ascent=round(height * 0.8, 3),
+            descent=round(height * 0.2, 3),
+            spacing=float(spacing),
+            lsb=0.0,
+            rsb=0.0,
+            ink_min_x=-hw,
+            ink_min_y=-hh,
+            ink_max_x=hw,
+            ink_max_y=hh,
+            ink_width=round(width, 3),
+            ink_height=round(height, 3),
+            delta_x=0.0,
+            delta_y=0.0
+        )

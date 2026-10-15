@@ -201,8 +201,8 @@ system_node(
 
 system_node(
     "Basics", "MultiRandom", node_kind="data", color="#1A5F4C",
-    inputs=["Min", "Max", "Step", "Total (N)"], outputs=["Data", "Batch / List"],
-    properties={"mode": "R", "min": "0", "max": "100", "step": "", "options": "", "counter": "", "total": "1"},
+    inputs=["Min", "Max", "Step", "Total (N)", "Iterator"], outputs=["Data", "Batch / List"],
+    properties={"mode": "R", "min": "0", "max": "100", "step": "", "options": "", "counter": "", "total": "1", "iterator": ""},
     widgets=[]
 )
 
@@ -342,41 +342,19 @@ system_node(
 )
 
 system_node(
-    "Shape", "Library", node_kind="data", color="#5B2C6F",
+    "Shape", "Library", node_kind="data", color="#105A8C",
     inputs=[], outputs=["Shape"],
     properties={"category": "shapes", "shape": "circle"},
     widgets=[]
 )
 
 
-system_node(
-    "Shape", "Array", node_kind="data", color="#5B2C6F",
-    inputs=["Particle", "Cols", "Rows", "Spacing X", "Spacing Y", "Scale", "Anchor", "Order", "Tags"],
-    outputs=["Shape", "\\pos Tag", "X", "Y", "Angle (\\frz)", "Index (a_i)", "Total (a_n)", "Col / Ring", "Row / IdxRing"],
-    properties={"mode": "grid", "out_mode": "loops", "anchor": "pieces", "order": "79", "scale": "1.0", "cols": "5", "rows": "3"},
-    widgets=[]
-)
-
-system_node(
-    "Shape", "Slicer", node_kind="data", color="#5B2C6F",
-    inputs=["Shape", "Cols", "Rows", "Size X", "Size Y", "Scale X", "Scale Y", "Off X", "Off Y", "Angle", "Bleed", "Accel", "Text Scale", "Pre-Offset", "Anchor", "Output Type", "Order"],
-    outputs=["Piece", "X", "Y", "Col", "Row"],
-    properties={"shape": "", "cols": "2", "rows": "2", "size_x": "20", "size_y": "20", "scale_x": "1.0", "scale_y": "1.0", "offset_x": "0", "offset_y": "0", "angle": "0", "overlap": "0", "accel": "1.0", "text_scale": "1.0", "pre_offset": "0", "anchor": "pieces", "out_mode": "Shape", "order": "79", "mode": "Grid 1D/2D"},
-    widgets=[
-        {"type": "combo", "name": "Mode:", "property": "mode", "values": [
-            "Grid 1D/2D", "hex", "tri", "dia", "ring", "voronoi", "delaunay", "brick", "jigsaw",
-            "circuit", "kagome", "rhombille", "herringbone", "mondrian", "truchet", "scallop",
-            "ashlar", "bez", "octagon", "ray", "web", "quad", "pattern"
-        ]}
-    ]
-)
-
 
 system_node(
     "Functions", "Clip Gradient", node_kind="data", color="#5B2C6F",
-    inputs=["Stripes", "Angle", "Padding", "Overlap", "Order"],
-    outputs=["Output", "Progress (0-1)", "Index", "Total"],
-    properties={"num_clips": "5", "angle": "0", "padding": "4", "overlap": "0.5", "order": "normal", "out_mode": "clip"},
+    inputs=["Cols", "Rows", "Angle", "Overlap", "Order"],
+    outputs=["Output", "Progress (0-1)", "Index", "Total", "Col", "Row"],
+    properties={"cols": "5", "rows": "1", "angle": "0", "padding": "0", "pad_top": "0", "pad_bottom": "0", "pad_left": "0", "pad_right": "0", "overlap": "0.5", "order": "79", "out_mode": "clip"},
     widgets=[]
 )
 
@@ -436,7 +414,7 @@ system_node(
     properties={"shape": "", "particle_shape": "", "density": "5.0", "redraw_dist": "0", "seed": "1", "scale": "1.0", "mode": "outline_v2", "order": "79"},
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": ["outline_v2", "border", "inner_fill"]},
-        {"type": "combo", "name": "Order:", "property": "order", "values": ["79", "13", "97", "31", "5", "-5", "71", "rand"]},
+        {"type": "combo", "name": "Order:", "property": "order", "values": ["79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand"]},
         {"type": "text", "name": "Particle:", "property": "particle_shape"},
         {"type": "text", "name": "Density:", "property": "density"},
         {"type": "text", "name": "RedrawDist:", "property": "redraw_dist"},
@@ -452,7 +430,7 @@ system_node(
     properties={"image_path": "", "particle_shape": "", "frame_idx": "1", "frame": "1", "step": "2", "alpha_threshold": "128", "scale": "1.0", "anchor": "center", "order": "79"},
     widgets=[
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "topleft", "topright", "bottomleft", "bottomright"]},
-        {"type": "combo", "name": "Order:", "property": "order", "values": ["79", "13", "97", "31", "5", "-5", "71", "rand"]},
+        {"type": "combo", "name": "Order:", "property": "order", "values": ["79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand"]},
         {"type": "text", "name": "Particle:", "property": "particle_shape"},
         {"type": "text", "name": "Image Path:", "property": "image_path"},
         {"type": "text", "name": "Frame:", "property": "frame_idx"},
@@ -545,15 +523,6 @@ system_node(
 )
 
 
-system_node(
-    "Shape", "Library", node_kind="data", color="#0F766E",
-    inputs=[],
-    outputs=["Shape"],
-    properties={"shape_name": "Circle"},
-    widgets=[
-        {"type": "text", "name": "Shape Name:", "property": "shape_name", "default": "Circle"}
-    ]
-)
 
 system_node(
     "Shape", "IMG to Shape", node_kind="data", color="#0F766E",
@@ -579,7 +548,7 @@ system_node(
         "invert_img": "normal"
     },
     widgets=[
-        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin", "absolute"]},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin", "relative", "absolute"]},
         {"type": "text", "name": "Image Path:", "property": "image_path", "default": ""},
         {"type": "text", "name": "Frame (j):", "property": "frame_idx", "default": "1"},
         {"type": "text", "name": "Threshold:", "property": "threshold", "default": "128"},
@@ -648,11 +617,12 @@ system_node(
     inputs=["Shape / Text", "Progress (t)", "Start (t)", "Subdivs"],
     outputs=["Shape Out", r"\pos Tag", r"Angle (\frz)", "Length", "Tip X", "Tip Y"],
     properties={
-        "progress": "1.0", "start_t": "0.0", "mode": "global", "invert": "normal", "subdivs": "30"
+        "progress": "1.0", "start_t": "0.0", "mode": "global", "invert": "normal", "subdivs": "30", "close_path": False
     },
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": ["global", "piece"]},
-        {"type": "combo", "name": "Invert:", "property": "invert", "values": ["normal", "inverted"]}
+        {"type": "combo", "name": "Invert:", "property": "invert", "values": ["normal", "inverted"]},
+        {"type": "toggle", "name": "Close Path", "property": "close_path", "default": False}
     ]
 )
 
@@ -661,21 +631,23 @@ system_node(
     inputs=["Shape / Text", "Factor (t)", "Scale X", "Scale Y", "Anchor"],
     outputs=["Shape"],
     properties={
-        "mode": "scale", "anchor": "center", "axis": "y", "t": "1.0",
-        "scale_x": "100", "scale_y": "100", "angle": "0"
+        "mode": "scale", "anchor": "center", "axis": "none", "t": "1.0",
+        "scale_x": "100", "scale_y": "100", "angle": "0",
+        "skew_x": "0", "skew_y": "0", "density": "0.0", "offset_border": "0"
     },
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": [
-            "scale", "rotate", "reflect", "redraw", "deform", "position", "borders"
+            "scale", "rotate", "reflect", "redraw", "deform", "position", "borders", "matrix"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "center", "origin", "absolute"
+            "center", "origin", "relative", "absolute"
         ]},
-        {"type": "combo", "name": "Axis:", "property": "axis", "values": ["x", "y", "xy"]},
+        {"type": "combo", "name": "Axis:", "property": "axis", "values": ["none", "x", "y", "xy"]},
         {"type": "text", "name": "Factor (t):", "property": "t", "default": "1.0"},
         {"type": "text", "name": "Scale X:", "property": "scale_x", "default": "100"},
         {"type": "text", "name": "Scale Y:", "property": "scale_y", "default": "100"},
-        {"type": "text", "name": "Angle:", "property": "angle", "default": "0"}
+        {"type": "text", "name": "Angle:", "property": "angle", "default": "0"},
+        {"type": "text", "name": "Offset Border:", "property": "offset_border", "default": "0"}
     ]
 )
 
@@ -692,7 +664,7 @@ system_node(
             "inflate", "skew", "round_corners", "flexor", "distort", "distort2"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "center", "origin", "absolute"
+            "center", "origin", "relative", "absolute"
         ]},
         {"type": "combo", "name": "Axis:", "property": "axis", "values": ["x", "y"]},
         {"type": "combo", "name": "Inflate Mode:", "property": "inflate_mode", "values": ["circle", "ellipse"]},
@@ -711,11 +683,69 @@ system_node(
     },
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": ["vertices", "group", "noise"]},
-        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin", "absolute"]},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin", "relative", "absolute"]},
         {"type": "text", "name": "Expr X:", "property": "expr_x", "default": "x"},
         {"type": "text", "name": "Expr Y:", "property": "expr_y", "default": "y"},
         {"type": "text", "name": "Factor (t):", "property": "t", "default": "1.0"},
         {"type": "text", "name": "Subdivs:", "property": "subdivs", "default": "0"}
+    ]
+)
+
+system_node(
+    "Shape", "Clipper", node_kind="data", color="#0F766E",
+    inputs=["Shape A", "Shape B", "Mode", "Delta (px)", "Subj Fill", "Clip Fill", "Join Mode", "End Mode", "Miter Limit", "Post-Offset", "Clean Dist", "Anchor"],
+    outputs=["Shape Out", "Out List", "BBox Data"],
+    properties={
+        "mode": "difference",
+        "shape_a": "",
+        "shape_b": "",
+        "delta": "0.0",
+        "post_offset": "",
+        "subj_fill": "evenodd",
+        "clip_fill": "evenodd",
+        "join_type": "round",
+        "end_type": "closed_polygon",
+        "miter_limit": "2.0",
+        "arc_tolerance": "0.25",
+        "clean_dist": "0.0",
+        "strictly_simple": "0",
+        "reverse_subj": "0",
+        "reverse_clip": "0",
+        "anchor": "center",
+        "out_mode": "shape",
+        "scale": "10000.0"
+    },
+    widgets=[
+        {"type": "combo", "name": "Mode:", "property": "mode", "values": [
+            "difference", "intersection", "union", "xor", "offset", "minkowski_sum", "minkowski_diff"
+        ]},
+        {"type": "text", "name": "Shape A (Subject):", "property": "shape_a", "default": ""},
+        {"type": "text", "name": "Shape B (Clip):", "property": "shape_b", "default": ""},
+        {"type": "text", "name": "Delta (px):", "property": "delta", "default": "0.0"},
+        {"type": "combo", "name": "Subj Fill:", "property": "subj_fill", "values": [
+            "evenodd", "nonzero", "positive", "negative"
+        ]},
+        {"type": "combo", "name": "Clip Fill:", "property": "clip_fill", "values": [
+            "evenodd", "nonzero", "positive", "negative"
+        ]},
+        {"type": "combo", "name": "Join Mode:", "property": "join_type", "values": [
+            "round", "miter", "square"
+        ]},
+        {"type": "combo", "name": "End Mode:", "property": "end_type", "values": [
+            "closed_polygon", "closed_line", "open_round", "open_square", "open_butt"
+        ]},
+        {"type": "text", "name": "Miter Limit:", "property": "miter_limit", "default": "2.0"},
+        {"type": "text", "name": "Post-Offset:", "property": "post_offset", "default": ""},
+        {"type": "text", "name": "Clean Dist:", "property": "clean_dist", "default": "0.0"},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
+            "center", "origin", "relative", "absolute"
+        ]},
+        {"type": "combo", "name": "Out Mode:", "property": "out_mode", "values": [
+            "shape", "clip", "iclip"
+        ]},
+        {"type": "combo", "name": "Strictly Simple:", "property": "strictly_simple", "values": ["0", "1"]},
+        {"type": "combo", "name": "Reverse Subj:", "property": "reverse_subj", "values": ["0", "1"]},
+        {"type": "combo", "name": "Reverse Clip:", "property": "reverse_clip", "values": ["0", "1"]}
     ]
 )
 
@@ -736,16 +766,16 @@ system_node(
     },
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": [
-            "divide", "union", "difference", "intersection", "xor", "fusion"
+            "divide", "union", "subpaths", "fusion"
         ]},
         {"type": "combo", "name": "Fill Rule:", "property": "fill_type", "values": [
             "evenodd", "nonzero", "positive", "negative"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "pieces", "relative", "org_padre", "pos", "absolute"
+            "pieces", "relative", "parent_org", "pos", "absolute"
         ]},
         {"type": "combo", "name": "Order:", "property": "order", "values": [
-            "79", "13", "97", "31", "5", "-5", "71", "rand", "cw", "ccw"
+            "79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand"
         ]},
         {"type": "text", "name": "Auto-Intersect:", "property": "clean_self_intersect", "default": "1"}
     ]
@@ -765,7 +795,7 @@ system_node(
             "concentric_squares", "multi_shape_mosaic", "concentric_rings", "honeycomb", "pixel_art"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "center", "origin", "absolute"
+            "center", "origin", "relative", "absolute"
         ]},
         {"type": "text", "name": "Size:", "property": "size", "default": "100.0"},
         {"type": "text", "name": "Width:", "property": "width", "default": "70.0"},
@@ -787,7 +817,7 @@ system_node(
     widgets=[
         {"type": "combo", "name": "Base Mode:", "property": "mode", "values": ["hollow", "solid"]},
         {"type": "combo", "name": "Output Mode:", "property": "out_mode", "values": ["shape", "clip", "iclip"]},
-        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["relative", "pieces", "org_padre", "pos", "absolute"]},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["relative", "pieces", "parent_org", "pos", "absolute"]},
         {"type": "text", "name": "Max Rings:", "property": "loop_count", "default": "5"},
         {"type": "text", "name": "Separation:", "property": "separation", "default": "5"},
         {"type": "text", "name": "Overlap:", "property": "overlap", "default": "0.5"}

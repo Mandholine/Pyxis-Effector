@@ -256,9 +256,18 @@ NODE_REGISTRY["Basics/Math"] = eval_math_node
 
 import random
 
-def _pyxis_random_r(min_val=0.0, max_val=100.0, step=1.0, context=None):
-    mn = _eval_num(min_val, context, 0.0)
-    mx = _eval_num(max_val, context, 100.0)
+def _resolve_bounds(min_val=None, max_val=None, default_min=0.0, default_max=100.0, context=None):
+    if min_val is None and max_val is None:
+        return default_min, default_max
+    if max_val is None:
+        val = _eval_num(min_val, context, default_max)
+        return 0.0, float(val)
+    mn = _eval_num(min_val, context, default_min)
+    mx = _eval_num(max_val, context, default_max)
+    return float(mn), float(mx)
+
+def _pyxis_random_r(min_val=None, max_val=None, step=1.0, context=None):
+    mn, mx = _resolve_bounds(min_val, max_val, 0.0, 100.0, context)
     st = _eval_num(step, context, 1.0)
     if st == 0.0: st = 1.0
     
@@ -281,7 +290,7 @@ def _pyxis_random_r(min_val=0.0, max_val=100.0, step=1.0, context=None):
             return int(val)
         return round(val, 4)
 
-def _pyxis_random_rs(min_val=0.0, max_val=100.0, step=1.0, context=None):
+def _pyxis_random_rs(min_val=None, max_val=None, step=1.0, context=None):
     val = _pyxis_random_r(min_val, max_val, step, context)
     sign = 1 if random.random() >= 0.5 else -1
     res = val * sign
@@ -289,7 +298,7 @@ def _pyxis_random_rs(min_val=0.0, max_val=100.0, step=1.0, context=None):
         return int(res)
     return res
 
-def _pyxis_random_rr(context=None, min_val=0.0, max_val=100.0, step=1.0):
+def _pyxis_random_rr(context=None, min_val=None, max_val=None, step=1.0):
     val = _pyxis_random_r(min_val, max_val, step, context)
     ctx = context or {}
     rx = _eval_num(ctx.get("rx", 1280), ctx, 1280.0)
@@ -299,44 +308,41 @@ def _pyxis_random_rr(context=None, min_val=0.0, max_val=100.0, step=1.0):
         return int(res)
     return res
 
-def _pyxis_random_rd(min_val=0.0, max_val=100.0, step=0.1, context=None):
-    mn = _eval_num(min_val, context, 0.0) * 10.0
-    mx = _eval_num(max_val, context, 100.0) * 10.0
+def _pyxis_random_rd(min_val=None, max_val=None, step=0.1, context=None):
+    mn, mx = _resolve_bounds(min_val, max_val, 0.0, 100.0, context)
     st = _eval_num(step, context, 0.1) * 10.0
-    val = float(_pyxis_random_r(mn, mx, st, context))
+    val = float(_pyxis_random_r(mn * 10.0, mx * 10.0, st, context))
     res = round(val / 10.0, 1)
-    return f"{res:.1f}"
+    return int(res) if res.is_integer() else res
 
-def _pyxis_random_rc(min_val=0.0, max_val=100.0, step=0.01, context=None):
-    mn = _eval_num(min_val, context, 0.0) * 100.0
-    mx = _eval_num(max_val, context, 100.0) * 100.0
+def _pyxis_random_rc(min_val=None, max_val=None, step=0.01, context=None):
+    mn, mx = _resolve_bounds(min_val, max_val, 0.0, 100.0, context)
     st = _eval_num(step, context, 0.01) * 100.0
-    val = float(_pyxis_random_r(mn, mx, st, context))
+    val = float(_pyxis_random_r(mn * 100.0, mx * 100.0, st, context))
     res = round(val / 100.0, 2)
-    return f"{res:.2f}"
+    return int(res) if res.is_integer() else res
 
-def _pyxis_random_rm(min_val=0.0, max_val=100.0, step=0.001, context=None):
-    mn = _eval_num(min_val, context, 0.0) * 1000.0
-    mx = _eval_num(max_val, context, 100.0) * 1000.0
+def _pyxis_random_rm(min_val=None, max_val=None, step=0.001, context=None):
+    mn, mx = _resolve_bounds(min_val, max_val, 0.0, 100.0, context)
     st = _eval_num(step, context, 0.001) * 1000.0
-    val = float(_pyxis_random_r(mn, mx, st, context))
+    val = float(_pyxis_random_r(mn * 1000.0, mx * 1000.0, st, context))
     res = round(val / 1000.0, 3)
-    return f"{res:.3f}"
+    return int(res) if res.is_integer() else res
 
-def _pyxis_random_rds(min_val=0.0, max_val=100.0, step=0.1, context=None):
+def _pyxis_random_rds(min_val=None, max_val=None, step=0.1, context=None):
     sign = 1 if random.random() >= 0.5 else -1
     res = round(float(_pyxis_random_rd(min_val, max_val, step, context)) * sign, 1)
-    return f"{res:.1f}"
+    return int(res) if res.is_integer() else res
 
-def _pyxis_random_rcs(min_val=0.0, max_val=100.0, step=0.01, context=None):
+def _pyxis_random_rcs(min_val=None, max_val=None, step=0.01, context=None):
     sign = 1 if random.random() >= 0.5 else -1
     res = round(float(_pyxis_random_rc(min_val, max_val, step, context)) * sign, 2)
-    return f"{res:.2f}"
+    return int(res) if res.is_integer() else res
 
-def _pyxis_random_rms(min_val=0.0, max_val=100.0, step=0.001, context=None):
+def _pyxis_random_rms(min_val=None, max_val=None, step=0.001, context=None):
     sign = 1 if random.random() >= 0.5 else -1
     res = round(float(_pyxis_random_rm(min_val, max_val, step, context)) * sign, 3)
-    return f"{res:.3f}"
+    return int(res) if res.is_integer() else res
 
 def _pyxis_random_re(options_str="", context=None):
     s = str(options_str or "").strip()
@@ -404,47 +410,185 @@ def _pyxis_random_rstep(min_val=0.0, max_val=360.0, step=45.0, context=None):
         return int(val)
     return val
 
-def math_random_master(context, mode="R", min_val=0.0, max_val=100.0, step=1.0, options="", counter="", total=1, output_slot_index=0, **kwargs):
+def get_iterator_scope_key(context, iterator_name: str):
+    """Calculates canonical unique scope string for a given iterator or semantic unit."""
+    if not iterator_name or not str(iterator_name).strip():
+        return None
+    iter_key = str(iterator_name).strip()
+    ctx = context or {}
+
+    l = ctx.get("line")
+    l_id = getattr(l, "i", getattr(l, "idx", id(l) if l else 0))
+
+    if iter_key == "global":
+        return "global"
+    elif iter_key == "line":
+        return f"line_{l_id}"
+    elif iter_key == "syl":
+        s = ctx.get("syl")
+        s_id = getattr(s, "i", getattr(s, "syl_i", id(s) if s else 0))
+        return f"line_{l_id}_syl_{s_id}"
+    elif iter_key == "char":
+        c = ctx.get("char")
+        c_id = getattr(c, "i", getattr(c, "char_i", id(c) if c else 0))
+        return f"line_{l_id}_char_{c_id}"
+    elif iter_key == "word":
+        w = ctx.get("word")
+        w_id = getattr(w, "i", getattr(w, "word_i", id(w) if w else 0))
+        return f"line_{l_id}_word_{w_id}"
+    else:
+        val = ctx.get(iter_key)
+        if val is None:
+            u = ctx.get("active_unit") or ctx.get("unit") or ctx.get("syl") or ctx.get("char") or ctx.get("word") or ctx.get("line")
+            if u is not None and hasattr(u, iter_key):
+                val = getattr(u, iter_key)
+        if val is None:
+            val = 0
+        return f"line_{l_id}_{iter_key}_{val}"
+
+
+class PyxisScopedRandom:
+    """Wrapper providing scoped random generation tied to an iterator name or unit scope."""
+    def __init__(self, context, iterator_name: str):
+        self._context = context
+        self._iterator_name = str(iterator_name).strip()
+
+    def _get_scope_key(self):
+        return get_iterator_scope_key(self._context, self._iterator_name)
+
+    def _call_scoped(self, mode_name, *args, **kwargs):
+        ctx = self._context
+        if ctx is None or not isinstance(ctx, dict):
+            return math_random_master(ctx, mode=mode_name, *args, **kwargs)
+
+        scope_key = self._get_scope_key()
+        if scope_key is None:
+            return math_random_master(ctx, mode=mode_name, *args, **kwargs)
+
+        if not isinstance(ctx.get("_scoped_rnd_cache"), dict):
+            ctx["_scoped_rnd_cache"] = {}
+        cache = ctx["_scoped_rnd_cache"]
+
+        args_repr = tuple(str(a) for a in args)
+        kwargs_repr = tuple(sorted((k, str(v)) for k, v in kwargs.items() if k not in ("by", "iter", "iterator")))
+        cache_key = (self._iterator_name, scope_key, mode_name, args_repr, kwargs_repr)
+
+        if cache_key in cache:
+            return cache[cache_key]
+
+        if len(args) == 0:
+            mn = kwargs.get("min_val", kwargs.get("min", None))
+            mx = kwargs.get("max_val", kwargs.get("max", None))
+            st = kwargs.get("step", None)
+        elif len(args) == 1:
+            mn = args[0]
+            mx = None
+            st = kwargs.get("step", None)
+        elif len(args) == 2:
+            mn = args[0]
+            mx = args[1]
+            st = kwargs.get("step", None)
+        else:
+            mn = args[0]
+            mx = args[1]
+            st = args[2]
+
+        clean_kwargs = {k: v for k, v in kwargs.items() if k not in ("by", "iter", "iterator", "min_val", "min", "max_val", "max", "step")}
+        res = math_random_master(ctx, mode=mode_name, min_val=mn, max_val=mx, step=st, iterator="", by="", **clean_kwargs)
+        cache[cache_key] = res
+        return res
+
+    def R(self, *args, **kwargs): return self._call_scoped("R", *args, **kwargs)
+    def Rs(self, *args, **kwargs): return self._call_scoped("Rs", *args, **kwargs)
+    def Rc(self, *args, **kwargs): return self._call_scoped("Rc", *args, **kwargs)
+    def Rcs(self, *args, **kwargs): return self._call_scoped("Rcs", *args, **kwargs)
+    def Rm(self, *args, **kwargs): return self._call_scoped("Rm", *args, **kwargs)
+    def Rms(self, *args, **kwargs): return self._call_scoped("Rms", *args, **kwargs)
+    def Rd(self, *args, **kwargs): return self._call_scoped("Rd", *args, **kwargs)
+    def Rds(self, *args, **kwargs): return self._call_scoped("Rds", *args, **kwargs)
+    def Rr(self, *args, **kwargs): return self._call_scoped("Rr", *args, **kwargs)
+    def Rstep(self, *args, **kwargs): return self._call_scoped("Rstep", *args, **kwargs)
+    def R2d(self, *args, **kwargs): return self._call_scoped("R2d", *args, **kwargs)
+    def Rbool(self, *args, **kwargs): return self._call_scoped("Rbool", *args, **kwargs)
+    def Rcolor(self, *args, **kwargs): return self._call_scoped("Rcolor", *args, **kwargs)
+    def Re(self, *args, **kwargs): return self._call_scoped("Re", *args, **kwargs)
+    def Rfake(self, *args, **kwargs): return self._call_scoped("Rfake", *args, **kwargs)
+    def rand(self, *args, **kwargs): return self.R(*args, **kwargs)
+
+    def r(self, *args, **kwargs): return self.R(*args, **kwargs)
+    def rs(self, *args, **kwargs): return self.Rs(*args, **kwargs)
+    def rc(self, *args, **kwargs): return self.Rc(*args, **kwargs)
+    def rcs(self, *args, **kwargs): return self.Rcs(*args, **kwargs)
+    def rm(self, *args, **kwargs): return self.Rm(*args, **kwargs)
+    def rms(self, *args, **kwargs): return self.Rms(*args, **kwargs)
+    def rd(self, *args, **kwargs): return self.Rd(*args, **kwargs)
+    def rds(self, *args, **kwargs): return self.Rds(*args, **kwargs)
+    def rcolor(self, *args, **kwargs): return self.Rcolor(*args, **kwargs)
+    def rstep(self, *args, **kwargs): return self.Rstep(*args, **kwargs)
+    def rbool(self, *args, **kwargs): return self.Rbool(*args, **kwargs)
+
+
+class PyxisByDispatcher:
+    """Namespace dispatcher for 'by.<iterator>' syntax (e.g. by.s_i.Rms(0.01, 0.02) or by['j'].Rs(10))."""
+    def __init__(self, context):
+        self._context = context
+
+    def __getattr__(self, name: str):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        return PyxisScopedRandom(self._context, name)
+
+    def __getitem__(self, item):
+        return PyxisScopedRandom(self._context, str(item))
+
+
+def math_random_master(context, mode="R", min_val=None, max_val=None, step=None, options="", counter="", total=1, output_slot_index=0, iterator="", by="", **kwargs):
+    iter_name = str(kwargs.get("iterator", kwargs.get("by", iterator or by or ""))).strip()
+    if iter_name:
+        scoped = PyxisScopedRandom(context, iter_name)
+        clean_kwargs = {k: v for k, v in kwargs.items() if k not in ("iterator", "by", "iter")}
+        return scoped._call_scoped(mode, min_val=min_val, max_val=max_val, step=step, options=options, counter=counter, total=total, output_slot_index=output_slot_index, **clean_kwargs)
+
     m = str(kwargs.get("mode", mode or "R")).strip()
-    mn = kwargs.get("min", kwargs.get("min_val", min_val))
-    mx = kwargs.get("max", kwargs.get("max_val", max_val))
+    mn = kwargs.get("min_val", kwargs.get("min", min_val))
+    mx = kwargs.get("max_val", kwargs.get("max", max_val))
     st = kwargs.get("step", step)
     opt = kwargs.get("options", options)
     cnt = kwargs.get("counter", counter)
 
     def _gen_single():
         if m == "R":
-            return _pyxis_random_r(mn, mx, st, context)
+            return _pyxis_random_r(mn, mx, st if st is not None else 1.0, context)
         elif m == "Rs":
-            return _pyxis_random_rs(mn, mx, st, context)
+            return _pyxis_random_rs(mn, mx, st if st is not None else 1.0, context)
         elif m == "Rr":
-            return _pyxis_random_rr(context, mn, mx, st)
+            return _pyxis_random_rr(context, mn, mx, st if st is not None else 1.0)
         elif m == "Rc":
-            return _pyxis_random_rc(mn, mx, st, context)
+            return _pyxis_random_rc(mn, mx, st if st is not None else 0.01, context)
         elif m == "Rd":
-            return _pyxis_random_rd(mn, mx, st, context)
+            return _pyxis_random_rd(mn, mx, st if st is not None else 0.1, context)
         elif m == "Rm":
-            return _pyxis_random_rm(mn, mx, st, context)
+            return _pyxis_random_rm(mn, mx, st if st is not None else 0.001, context)
         elif m == "Rds":
-            return _pyxis_random_rds(mn, mx, st, context)
+            return _pyxis_random_rds(mn, mx, st if st is not None else 0.1, context)
         elif m == "Rcs":
-            return _pyxis_random_rcs(mn, mx, st, context)
+            return _pyxis_random_rcs(mn, mx, st if st is not None else 0.01, context)
         elif m == "Rms":
-            return _pyxis_random_rms(mn, mx, st, context)
+            return _pyxis_random_rms(mn, mx, st if st is not None else 0.001, context)
         elif m == "Re":
             return _pyxis_random_re(opt, context)
         elif m == "Rfake":
-            return _pyxis_random_rfake(context, mn, mx, cnt)
+            return _pyxis_random_rfake(context, mn if mn is not None else 0.0, mx if mx is not None else 100.0, cnt)
         elif m in ("Rcolor", "Rcol"):
-            return _pyxis_random_rcolor(mn, mx, context)
+            return _pyxis_random_rcolor(mn or "&HFFFFFF&", mx or "&H000000&", context)
         elif m == "R2d":
-            return _pyxis_random_r2d(mn, mx, st, context)
+            return _pyxis_random_r2d(mn if mn is not None else 0.0, mx if mx is not None else 100.0, st if st is not None else 1.0, context)
         elif m == "Rbool":
-            return _pyxis_random_rbool(mn, context)
+            return _pyxis_random_rbool(mn if mn is not None else 50.0, context)
         elif m == "Rstep":
-            return _pyxis_random_rstep(mn, mx, st, context)
+            return _pyxis_random_rstep(mn if mn is not None else 0.0, mx if mx is not None else 360.0, st if st is not None else 45.0, context)
         else:
-            return _pyxis_random_r(mn, mx, st, context)
+            return _pyxis_random_r(mn, mx, st if st is not None else 1.0, context)
 
     if output_slot_index == 1 or kwargs.get("return_batch", False):
         try:

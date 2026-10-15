@@ -317,6 +317,224 @@ class ClipperEngine:
             return shape_a + " " + shape_b
 
     @staticmethod
+    def boolean_xor(shape_a: str, shape_b: str, subj_fill="evenodd", clip_fill="evenodd", strictly_simple: bool = False, reverse_subj: bool = False, reverse_clip: bool = False, clean_dist: float = 0.0, scale: float = 10000.0) -> str:
+        """Performs real boolean vector XOR between shape_a and shape_b using Clipper/pyclipper."""
+        res, _ = ClipperEngine.execute_clipper_advanced(
+            subject_shape=shape_a, clip_shape=shape_b, mode="xor",
+            subj_fill=subj_fill, clip_fill=clip_fill, strictly_simple=strictly_simple,
+            reverse_subj=reverse_subj, reverse_clip=reverse_clip, clean_dist=clean_dist, scale=scale
+        )
+        return res
+
+    @staticmethod
+    def minkowski_sum(shape_a: str, pattern_shape: str, is_closed: bool = True, clean_dist: float = 0.0, scale: float = 10000.0) -> str:
+        """Performs Minkowski Sum between shape_a and pattern_shape."""
+        res, _ = ClipperEngine.execute_clipper_advanced(
+            subject_shape=shape_a, clip_shape=pattern_shape, mode="minkowski_sum",
+            clean_dist=clean_dist, scale=scale
+        )
+        return res
+
+    @staticmethod
+    def minkowski_diff(shape_a: str, pattern_shape: str, clean_dist: float = 0.0, scale: float = 10000.0) -> str:
+        """Performs Minkowski Difference between shape_a and pattern_shape."""
+        res, _ = ClipperEngine.execute_clipper_advanced(
+            subject_shape=shape_a, clip_shape=pattern_shape, mode="minkowski_diff",
+            clean_dist=clean_dist, scale=scale
+        )
+        return res
+
+    @staticmethod
+    def execute_clipper_advanced(
+        subject_shape: str,
+        clip_shape: str = "",
+        mode: str = "difference",
+        delta: float = 0.0,
+        post_offset: float = 0.0,
+        subj_fill: str = "evenodd",
+        clip_fill: str = "evenodd",
+        join_type: str = "round",
+        end_type: str = "closed_polygon",
+        miter_limit: float = 2.0,
+        arc_tolerance: float = 0.25,
+        clean_dist: float = 0.0,
+        strictly_simple: bool = False,
+        reverse_subj: bool = False,
+        reverse_clip: bool = False,
+        scale: float = 10000.0
+    ):
+        """Advanced PyClipper executor for Boolean, Offset, and Minkowski vector operations.
+        Returns a tuple of (combined_assdraw_string, list_of_individual_pieces).
+        """
+        if pyclipper is None:
+            return str(subject_shape or ""), [str(subject_shape or "")] if subject_shape else []
+
+        mode_clean = str(mode or "difference").strip().lower()
+        subj_contours = ClipperEngine.parse_assdraw(subject_shape)
+        clip_contours = ClipperEngine.parse_assdraw(clip_shape) if clip_shape else []
+
+        fill_map = {
+            "evenodd": pyclipper.PFT_EVENODD,
+            "nonzero": pyclipper.PFT_NONZERO,
+            "positive": pyclipper.PFT_POSITIVE,
+            "negative": pyclipper.PFT_NEGATIVE
+        }
+        join_map = {
+            "round": pyclipper.JT_ROUND,
+            "miter": pyclipper.JT_MITER,
+            "square": pyclipper.JT_SQUARE
+        }
+        end_map = {
+            "closed_polygon": pyclipper.ET_CLOSEDPOLYGON,
+            "closed_line": pyclipper.ET_CLOSEDLINE,
+            "open_round": pyclipper.ET_OPENROUND,
+            "open_square": pyclipper.ET_OPENSQUARE,
+            "open_butt": pyclipper.ET_OPENBUTT
+        }
+
+        pft_subj = fill_map.get(str(subj_fill or "evenodd").strip().lower(), pyclipper.PFT_EVENODD)
+        pft_clip = fill_map.get(str(clip_fill or "evenodd").strip().lower(), pyclipper.PFT_EVENODD)
+        jt = join_map.get(str(join_type or "round").strip().lower(), pyclipper.JT_ROUND)
+        et = end_map.get(str(end_type or "closed_polygon").strip().lower(), pyclipper.ET_CLOSEDPOLYGON)
+
+        solution = []
+
+        try:
+            if "offset" in mode_clean or "inflate" in mode_clean or "expand" in mode_clean:
+                if not subj_contours:
+                    return "", []
+                d_val = float(delta or 0.0)
+                if abs(d_val) < 0.0001:
+                    solution = [[[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c] for c in subj_contours if len(c) >= 3]
+                else:
+                    pco = pyclipper.PyclipperOffset(miter_limit=float(miter_limit or 2.0), arc_tolerance=float(arc_tolerance or 0.25) * scale)
+                    for c in subj_contours:
+                        if len(c) >= 2:
+                            path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c]
+                            pco.AddPath(path, jt, et)
+                    solution = pco.Execute(d_val * scale)
+
+            elif "minkowski_sum" in mode_clean or "minkowski+" in mode_clean:
+                if not subj_contours:
+                    return "", []
+                pattern_path = []
+                if clip_contours and len(clip_contours[0]) >= 3:
+                    pattern_path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in clip_contours[0]]
+                else:
+                    r = 5.0 * scale
+                    pattern_path = [[-int(r), -int(r)], [int(r), -int(r)], [int(r), int(r)], [-int(r), int(r)]]
+                for c in subj_contours:
+                    if len(c) >= 2:
+                        subj_path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c]
+                        m_res = pyclipper.MinkowskiSum(pattern_path, subj_path, True)
+                        if m_res:
+                            solution.extend(m_res)
+
+            elif "minkowski_diff" in mode_clean or "minkowski-" in mode_clean:
+                if not subj_contours:
+                    return "", []
+                pattern_path = []
+                if clip_contours and len(clip_contours[0]) >= 3:
+                    pattern_path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in clip_contours[0]]
+                else:
+                    r = 5.0 * scale
+                    pattern_path = [[-int(r), -int(r)], [int(r), -int(r)], [int(r), int(r)], [-int(r), int(r)]]
+                for c in subj_contours:
+                    if len(c) >= 2:
+                        subj_path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c]
+                        m_res = pyclipper.MinkowskiDiff(subj_path, pattern_path)
+                        if m_res:
+                            solution.extend(m_res)
+
+            else:
+                # Standard boolean operations (difference, intersection, union, xor)
+                clip_type_map = {
+                    "difference": pyclipper.CT_DIFFERENCE,
+                    "diff": pyclipper.CT_DIFFERENCE,
+                    "intersection": pyclipper.CT_INTERSECTION,
+                    "inter": pyclipper.CT_INTERSECTION,
+                    "union": pyclipper.CT_UNION,
+                    "merge": pyclipper.CT_UNION,
+                    "xor": pyclipper.CT_XOR
+                }
+                ct = clip_type_map.get(mode_clean, pyclipper.CT_DIFFERENCE)
+
+                if ct == pyclipper.CT_DIFFERENCE and not clip_contours:
+                    solution = [[[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c] for c in subj_contours if len(c) >= 3]
+                elif ct == pyclipper.CT_INTERSECTION and (not subj_contours or not clip_contours):
+                    return "", []
+                elif ct == pyclipper.CT_UNION and not clip_contours:
+                    solution = [[[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c] for c in subj_contours if len(c) >= 3]
+                elif ct == pyclipper.CT_UNION and not subj_contours:
+                    solution = [[[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c] for c in clip_contours if len(c) >= 3]
+                else:
+                    pc = pyclipper.Pyclipper()
+                    pc.StrictlySimple = bool(strictly_simple)
+
+                    for c in subj_contours:
+                        if len(c) >= 3:
+                            path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c]
+                            if reverse_subj:
+                                path = pyclipper.ReversePath(path)
+                            pc.AddPath(path, pyclipper.PT_SUBJECT, True)
+
+                    for c in clip_contours:
+                        if len(c) >= 3:
+                            path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c]
+                            if reverse_clip:
+                                path = pyclipper.ReversePath(path)
+                            target_pt = pyclipper.PT_SUBJECT if ct == pyclipper.CT_UNION else pyclipper.PT_CLIP
+                            pc.AddPath(path, target_pt, True)
+
+                    solution = pc.Execute(ct, pft_subj, pft_clip)
+
+            if clean_dist and float(clean_dist) > 0.0:
+                try:
+                    c_dist = float(clean_dist) * scale
+                    cleaned = pyclipper.CleanPolygons(solution, distance=c_dist)
+                    if cleaned:
+                        solution = cleaned
+                except Exception:
+                    pass
+
+            if "offset" not in mode_clean and "inflate" not in mode_clean and "expand" not in mode_clean:
+                if abs(float(post_offset or 0.0)) >= 0.0001 and solution:
+                    try:
+                        pco = pyclipper.PyclipperOffset(miter_limit=float(miter_limit or 2.0), arc_tolerance=float(arc_tolerance or 0.25) * scale)
+                        for path in solution:
+                            if len(path) >= 3:
+                                pco.AddPath(path, jt, et)
+                        post_sol = pco.Execute(float(post_offset) * scale)
+                        if post_sol:
+                            solution = post_sol
+                            if clean_dist and float(clean_dist) > 0.0:
+                                try:
+                                    cleaned = pyclipper.CleanPolygons(solution, distance=float(clean_dist) * scale)
+                                    if cleaned:
+                                        solution = cleaned
+                                except Exception:
+                                    pass
+                        else:
+                            solution = []
+                    except Exception:
+                        pass
+
+            if not solution:
+                return "", []
+
+            pieces = []
+            for path in solution:
+                if len(path) >= 3:
+                    pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
+                    path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]])
+                    pieces.append(path_str)
+
+            combined_str = " ".join(pieces)
+            return combined_str, pieces
+        except Exception:
+            return str(subject_shape or ""), [str(subject_shape or "")] if subject_shape else []
+
+    @staticmethod
     def offset_shape(shape_str: str, delta: float, join_type=None, scale: float = 10000.0) -> str:
         """Expande (delta > 0) o contrae (delta < 0) el contorno de un ASSdraw shape usando PyClipperOffset."""
         if not shape_str or not str(shape_str).strip() or pyclipper is None:
@@ -1211,23 +1429,7 @@ class ClipperEngine:
             except Exception:
                 continue
 
-        order = int(order)
-        if order == 5:
-            pieces.sort(key=lambda p: (p["cx"] - cx)**2 + (p["cy"] - cy)**2)
-        elif order == 97:
-            pieces.sort(key=lambda p: (p["row"], -p["col"]))
-        elif order == 13:
-            pieces.sort(key=lambda p: (-p["row"], p["col"]))
-        elif order == 31:
-            pieces.sort(key=lambda p: (-p["row"], -p["col"]))
-        elif order == 71:
-            pieces.sort(key=lambda p: (p["col"], p["row"]))
-        elif order == 17:
-            pieces.sort(key=lambda p: (p["col"], -p["row"]))
-        elif order == 39:
-            pieces.sort(key=lambda p: (-p["col"], -p["row"]))
-        else:
-            pieces.sort(key=lambda p: (p["row"], p["col"]))
+        pieces = ClipperEngine.sort_islands_by_order(pieces, order=str(order))
 
         if len(_SLICE_GRID_CACHE) >= _MAX_CACHE_SIZE:
             _SLICE_GRID_CACHE.popitem(last=False)
@@ -1357,22 +1559,40 @@ class ClipperEngine:
             elif order_str == "39":
                 return sorted(island_entries, key=lambda it: (-it['col'], -it['row']))
 
-        try:
-            import numpy as np
-            cxs = np.array([it.get('cx', (it['min_x'] + it['max_x']) / 2.0) for it in island_entries], dtype=np.float64)
-            cys = np.array([it.get('cy', (it['min_y'] + it['max_y']) / 2.0) for it in island_entries], dtype=np.float64)
-            min_xs = np.array([it['min_x'] for it in island_entries], dtype=np.float64)
-            min_ys = np.array([it['min_y'] for it in island_entries], dtype=np.float64)
+        def _get_cx(it):
+            if 'cx' in it:
+                return float(it['cx'])
+            if 'min_x' in it and 'max_x' in it:
+                return float(it['min_x'] + it['max_x']) / 2.0
+            return 0.0
 
-            global_cx = float(np.mean(cxs))
-            global_cy = float(np.mean(cys))
-        except Exception:
-            cxs = [(it.get('cx', (it['min_x'] + it['max_x']) / 2.0)) for it in island_entries]
-            cys = [(it.get('cy', (it['min_y'] + it['max_y']) / 2.0)) for it in island_entries]
-            min_xs = [it['min_x'] for it in island_entries]
-            min_ys = [it['min_y'] for it in island_entries]
-            global_cx = sum(cxs) / len(cxs) if cxs else 0.0
-            global_cy = sum(cys) / len(cys) if cys else 0.0
+        def _get_cy(it):
+            if 'cy' in it:
+                return float(it['cy'])
+            if 'min_y' in it and 'max_y' in it:
+                return float(it['min_y'] + it['max_y']) / 2.0
+            return 0.0
+
+        def _get_min_x(it):
+            if 'min_x' in it:
+                return float(it['min_x'])
+            if 'cx' in it:
+                return float(it['cx'])
+            return 0.0
+
+        def _get_min_y(it):
+            if 'min_y' in it:
+                return float(it['min_y'])
+            if 'cy' in it:
+                return float(it['cy'])
+            return 0.0
+
+        cxs = [_get_cx(it) for it in island_entries]
+        cys = [_get_cy(it) for it in island_entries]
+        min_xs = [_get_min_x(it) for it in island_entries]
+        min_ys = [_get_min_y(it) for it in island_entries]
+        global_cx = sum(cxs) / len(cxs) if cxs else 0.0
+        global_cy = sum(cys) / len(cys) if cys else 0.0
 
         if order_str in ("5", "centro", "centro a extremos", "center", "center to edges"):
             dist_sq = [(x - global_cx)**2 + (y - global_cy)**2 for x, y in zip(cxs, cys)]
@@ -1408,12 +1628,12 @@ class ClipperEngine:
         col_threshold = max(5.0, avg_w * 0.5)
 
         if order_str == "71":
-            sorted_by_x = sorted(island_entries, key=lambda it: it['min_x'])
+            sorted_by_x = sorted(island_entries, key=lambda it: _get_min_x(it))
             cols = []
             cur_col = []
             cur_x = None
             for it in sorted_by_x:
-                x = it['min_x']
+                x = _get_min_x(it)
                 if cur_x is None or abs(x - cur_x) <= col_threshold:
                     cur_col.append(it)
                     cur_x = x
@@ -1424,16 +1644,16 @@ class ClipperEngine:
             if cur_col: cols.append(cur_col)
             res = []
             for col in cols:
-                res.extend(sorted(col, key=lambda it: it['min_y']))
+                res.extend(sorted(col, key=lambda it: _get_min_y(it)))
             return res
 
         elif order_str == "17":
-            sorted_by_x = sorted(island_entries, key=lambda it: it['min_x'])
+            sorted_by_x = sorted(island_entries, key=lambda it: _get_min_x(it))
             cols = []
             cur_col = []
             cur_x = None
             for it in sorted_by_x:
-                x = it['min_x']
+                x = _get_min_x(it)
                 if cur_x is None or abs(x - cur_x) <= col_threshold:
                     cur_col.append(it)
                     cur_x = x
@@ -1444,16 +1664,16 @@ class ClipperEngine:
             if cur_col: cols.append(cur_col)
             res = []
             for col in cols:
-                res.extend(sorted(col, key=lambda it: -it['min_y']))
+                res.extend(sorted(col, key=lambda it: -_get_min_y(it)))
             return res
 
         elif order_str == "93":
-            sorted_by_x = sorted(island_entries, key=lambda it: -it['min_x'])
+            sorted_by_x = sorted(island_entries, key=lambda it: -_get_min_x(it))
             cols = []
             cur_col = []
             cur_x = None
             for it in sorted_by_x:
-                x = it['min_x']
+                x = _get_min_x(it)
                 if cur_x is None or abs(x - cur_x) <= col_threshold:
                     cur_col.append(it)
                     cur_x = x
@@ -1464,16 +1684,16 @@ class ClipperEngine:
             if cur_col: cols.append(cur_col)
             res = []
             for col in cols:
-                res.extend(sorted(col, key=lambda it: it['min_y']))
+                res.extend(sorted(col, key=lambda it: _get_min_y(it)))
             return res
 
         elif order_str == "39":
-            sorted_by_x = sorted(island_entries, key=lambda it: -it['min_x'])
+            sorted_by_x = sorted(island_entries, key=lambda it: -_get_min_x(it))
             cols = []
             cur_col = []
             cur_x = None
             for it in sorted_by_x:
-                x = it['min_x']
+                x = _get_min_x(it)
                 if cur_x is None or abs(x - cur_x) <= col_threshold:
                     cur_col.append(it)
                     cur_x = x
@@ -1484,19 +1704,19 @@ class ClipperEngine:
             if cur_col: cols.append(cur_col)
             res = []
             for col in cols:
-                res.extend(sorted(col, key=lambda it: -it['min_y']))
+                res.extend(sorted(col, key=lambda it: -_get_min_y(it)))
             return res
 
         avg_h = sum(it.get('h', 10.0) for it in island_entries) / len(island_entries)
         line_threshold = max(5.0, avg_h * 0.5)
 
         if order_str == "13":
-            sorted_by_y = sorted(island_entries, key=lambda it: -it['min_y'])
+            sorted_by_y = sorted(island_entries, key=lambda it: -_get_min_y(it))
             lines = []
             cur_line = []
             cur_y = None
             for it in sorted_by_y:
-                y = it['min_y']
+                y = _get_min_y(it)
                 if cur_y is None or abs(y - cur_y) <= line_threshold:
                     cur_line.append(it)
                     cur_y = y
@@ -1507,16 +1727,16 @@ class ClipperEngine:
             if cur_line: lines.append(cur_line)
             res = []
             for line in lines:
-                res.extend(sorted(line, key=lambda it: it['min_x']))
+                res.extend(sorted(line, key=lambda it: _get_min_x(it)))
             return res
 
         elif order_str == "31":
-            sorted_by_y = sorted(island_entries, key=lambda it: -it['min_y'])
+            sorted_by_y = sorted(island_entries, key=lambda it: -_get_min_y(it))
             lines = []
             cur_line = []
             cur_y = None
             for it in sorted_by_y:
-                y = it['min_y']
+                y = _get_min_y(it)
                 if cur_y is None or abs(y - cur_y) <= line_threshold:
                     cur_line.append(it)
                     cur_y = y
@@ -1527,16 +1747,16 @@ class ClipperEngine:
             if cur_line: lines.append(cur_line)
             res = []
             for line in lines:
-                res.extend(sorted(line, key=lambda it: -it['min_x']))
+                res.extend(sorted(line, key=lambda it: -_get_min_x(it)))
             return res
 
         elif order_str == "97":
-            sorted_by_y = sorted(island_entries, key=lambda it: it['min_y'])
+            sorted_by_y = sorted(island_entries, key=lambda it: _get_min_y(it))
             lines = []
             cur_line = []
             cur_y = None
             for it in sorted_by_y:
-                y = it['min_y']
+                y = _get_min_y(it)
                 if cur_y is None or abs(y - cur_y) <= line_threshold:
                     cur_line.append(it)
                     cur_y = y
@@ -1547,16 +1767,16 @@ class ClipperEngine:
             if cur_line: lines.append(cur_line)
             res = []
             for line in lines:
-                res.extend(sorted(line, key=lambda it: -it['min_x']))
+                res.extend(sorted(line, key=lambda it: -_get_min_x(it)))
             return res
 
         else:
-            sorted_by_y = sorted(island_entries, key=lambda it: it['min_y'])
+            sorted_by_y = sorted(island_entries, key=lambda it: _get_min_y(it))
             lines = []
             cur_line = []
             cur_y = None
             for it in sorted_by_y:
-                y = it['min_y']
+                y = _get_min_y(it)
                 if cur_y is None or abs(y - cur_y) <= line_threshold:
                     cur_line.append(it)
                     cur_y = y
@@ -1567,7 +1787,7 @@ class ClipperEngine:
             if cur_line: lines.append(cur_line)
             res = []
             for line in lines:
-                res.extend(sorted(line, key=lambda it: it['min_x']))
+                res.extend(sorted(line, key=lambda it: _get_min_x(it)))
             return res
 
     @staticmethod
@@ -1653,9 +1873,9 @@ class ClipperEngine:
             bbox_clean = str(bbox_mode).lower()
             for it in island_entries:
                 full_fig = it['figure']
-                if "origen" in bbox_clean:
+                if "origin" in bbox_clean or "origen" in bbox_clean:
                     full_fig = ClipperEngine.translate_shape(full_fig, -it['min_x'], -it['min_y'])
-                elif "centro" in bbox_clean:
+                elif "center" in bbox_clean or "centro" in bbox_clean:
                     full_fig = ClipperEngine.translate_shape(full_fig, -it['cx'], -it['cy'])
                 real_figures.append(full_fig)
 
@@ -1720,9 +1940,9 @@ class ClipperEngine:
         bbox_clean = str(bbox_mode).lower()
         for it in sub_entries:
             sub = it['figure']
-            if "origen" in bbox_clean:
+            if "origin" in bbox_clean or "origen" in bbox_clean:
                 sub = ClipperEngine.translate_shape(sub, -it['min_x'], -it['min_y'])
-            elif "centro" in bbox_clean:
+            elif "center" in bbox_clean or "centro" in bbox_clean:
                 sub = ClipperEngine.translate_shape(sub, -it['cx'], -it['cy'])
             subpaths.append(sub)
 

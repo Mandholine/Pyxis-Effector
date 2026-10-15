@@ -33,8 +33,11 @@ except (ImportError, ModuleNotFoundError):
     except Exception:
         resolve_shape_value = None
 
-_GLOBAL_PARTICLE_PTS_CACHE = {}
-_GLOBAL_PARTICLE_IMG_CACHE = {}
+from collections import OrderedDict
+
+_GLOBAL_PARTICLE_PTS_CACHE = OrderedDict()
+_GLOBAL_PARTICLE_IMG_CACHE = OrderedDict()
+_MAX_PARTICLE_CACHE = 512
 
 def clear_particle_caches():
     _GLOBAL_PARTICLE_PTS_CACHE.clear()
@@ -104,6 +107,14 @@ def sort_particles(items, order_code="79", get_xy=lambda item: (item[0], item[1]
         cx, cy = np.mean(xs), np.mean(ys)
         dist_sq = (xs - cx)**2 + (ys - cy)**2
         indices = np.argsort(-dist_sq)
+    elif order_str in ("cw", "clock", "clockwise"):
+        cx, cy = np.mean(xs), np.mean(ys)
+        angles = (np.degrees(np.arctan2(ys - cy, xs - cx)) + 90.0) % 360.0
+        indices = np.argsort(angles)
+    elif order_str in ("ccw", "counter", "counterclockwise"):
+        cx, cy = np.mean(xs), np.mean(ys)
+        angles = (360.0 - ((np.degrees(np.arctan2(ys - cy, xs - cx)) + 90.0) % 360.0)) % 360.0
+        indices = np.argsort(angles)
     elif order_str == "13":
         indices = np.lexsort((xs, -ys))
     elif order_str == "97":
@@ -114,6 +125,10 @@ def sort_particles(items, order_code="79", get_xy=lambda item: (item[0], item[1]
         indices = np.lexsort((ys, xs))
     elif order_str == "17":
         indices = np.lexsort((-ys, xs))
+    elif order_str == "93":
+        indices = np.lexsort((ys, -xs))
+    elif order_str == "39":
+        indices = np.lexsort((-ys, -xs))
     else:
         indices = np.lexsort((xs, ys))
 
@@ -155,9 +170,10 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
     mode_clean = str(mode or "Contorno v2").strip().lower()
 
     cache_key = (id(unit) if unit else (id(line) if line else 0), shp_val, str(particle_shape or ""), d_val, r_val, s_val, sc_val, mode_clean, str(order))
-    sampled_pts = _GLOBAL_PARTICLE_PTS_CACHE.get(cache_key)
-
-    if sampled_pts is None:
+    if cache_key in _GLOBAL_PARTICLE_PTS_CACHE:
+        sampled_pts = _GLOBAL_PARTICLE_PTS_CACHE[cache_key]
+        _GLOBAL_PARTICLE_PTS_CACHE.move_to_end(cache_key)
+    else:
         contours = ClipperEngine.parse_assdraw(shp_val)
         if not contours:
             contours = [np.array([[0,0], [100,0], [100,50], [0,50]], dtype=np.float64)]
@@ -230,19 +246,28 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
             sampled_pts = [np.array([0.0, 0.0])]
 
         sampled_pts = sort_particles(sampled_pts, order_code=order, get_xy=lambda pt: (pt[0], pt[1]))
+        if len(_GLOBAL_PARTICLE_PTS_CACHE) >= _MAX_PARTICLE_CACHE:
+            _GLOBAL_PARTICLE_PTS_CACHE.popitem(last=False)
         _GLOBAL_PARTICLE_PTS_CACHE[cache_key] = sampled_pts
 
     total_pts = len(sampled_pts)
     if isinstance(context, dict):
         context['p_n'] = total_pts
+        context['p_max'] = total_pts
+        context['particle_n'] = total_pts
+        context['particle_max'] = total_pts
         context['tp_n'] = total_pts
         context['tp_max'] = total_pts
         context['text_p_n'] = total_pts
         context['text_p_max'] = total_pts
+        context['tp_loop_count'] = total_pts
         context['maxloop'] = total_pts
 
     parent_x = float(getattr(unit, 'center', getattr(unit, 'x', getattr(line, 'center', getattr(line, 'x', 0))))) if (unit or line) else 0.0
     parent_y = float(getattr(unit, 'middle', getattr(unit, 'y', getattr(line, 'middle', getattr(line, 'y', 0))))) if (unit or line) else 0.0
+    if isinstance(context, dict) and context.get('pos_overridden'):
+        parent_x = float(context.get('pos_x', parent_x))
+        parent_y = float(context.get('pos_y', parent_y))
 
     tp_val = int(context.get('tp_i', context.get('p_i', context.get('text_p_i', context.get('fx_i', context.get('i', context.get('j', 1))))))) if isinstance(context, dict) else 1
     idx = max(0, min(tp_val - 1, total_pts - 1))
@@ -253,12 +278,19 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
 
     if isinstance(context, dict):
         context['p_i'] = tp_val
+        context['particle_i'] = tp_val
         context['tp_i'] = tp_val
         context['text_p_i'] = tp_val
         context['x'] = abs_x
         context['y'] = abs_y
         context['fx_pos_x'] = abs_x
         context['fx_pos_y'] = abs_y
+        context['pos_x'] = abs_x
+        context['pos_y'] = abs_y
+        context['pos_overridden'] = True
+        if context.get('has_org'):
+            context['org_x'] = abs_x
+            context['org_y'] = abs_y
 
     p_shape_clean = str(particle_shape or "").strip()
     if p_shape_clean:
@@ -283,6 +315,9 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
 
     parent_x = float(getattr(unit, 'center', getattr(unit, 'x', getattr(line, 'center', getattr(line, 'x', 0))))) if (unit or line) else 0.0
     parent_y = float(getattr(unit, 'middle', getattr(unit, 'y', getattr(line, 'middle', getattr(line, 'y', 0))))) if (unit or line) else 0.0
+    if isinstance(context, dict) and context.get('pos_overridden'):
+        parent_x = float(context.get('pos_x', parent_x))
+        parent_y = float(context.get('pos_y', parent_y))
 
     path_str = str(image_path or "").strip()
     st = max(1, int(_eval_num_expr(step, context, 2.0)))
@@ -319,9 +354,10 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
         n_frames = 1
 
     cache_key = (path_str, effective_frame, st, th, sc, anchor_clean, str(order))
-    items_data = _GLOBAL_PARTICLE_IMG_CACHE.get(cache_key)
-
-    if items_data is None:
+    if cache_key in _GLOBAL_PARTICLE_IMG_CACHE:
+        items_data = _GLOBAL_PARTICLE_IMG_CACHE[cache_key]
+        _GLOBAL_PARTICLE_IMG_CACHE.move_to_end(cache_key)
+    else:
         try:
             from PIL import Image
             img = Image.open(target_image_path).convert("RGBA")
@@ -364,6 +400,8 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
             print(f"[particle_image_node Error] {traceback.format_exc()}", flush=True)
             items_data = ([(0.0, 0.0, 255, 255, 255, 255)], 0.0, 0.0)
 
+        if len(_GLOBAL_PARTICLE_IMG_CACHE) >= _MAX_PARTICLE_CACHE:
+            _GLOBAL_PARTICLE_IMG_CACHE.popitem(last=False)
         _GLOBAL_PARTICLE_IMG_CACHE[cache_key] = items_data
 
     items, off_x, off_y = items_data
@@ -374,10 +412,14 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
         context['ip_max'] = total_pixels
         context['img_p_n'] = total_pixels
         context['img_p_max'] = total_pixels
+        context['p_n'] = total_pixels
+        context['p_max'] = total_pixels
+        context['particle_n'] = total_pixels
+        context['particle_max'] = total_pixels
         context['total_pixels'] = total_pixels
         context['maxloop'] = total_pixels
 
-    ip_val = int(context.get('ip_i', context.get('img_p_i', context.get('fx_i', context.get('i', context.get('j', 1)))))) if isinstance(context, dict) else 1
+    ip_val = int(context.get('ip_i', context.get('img_p_i', context.get('p_i', context.get('particle_i', context.get('fx_i', context.get('i', context.get('j', 1)))))))) if isinstance(context, dict) else 1
     idx = max(0, min(ip_val - 1, total_pixels - 1))
 
     item = items[idx]
@@ -399,10 +441,15 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
     if isinstance(context, dict):
         context['ip_i'] = ip_val
         context['img_p_i'] = ip_val
+        context['p_i'] = ip_val
+        context['particle_i'] = ip_val
         context['x'] = abs_x
         context['y'] = abs_y
         context['fx_pos_x'] = abs_x
         context['fx_pos_y'] = abs_y
+        context['pos_x'] = abs_x
+        context['pos_y'] = abs_y
+        context['pos_overridden'] = True
     return abs_x, abs_y, col_ass, alpha_ass, p_shape_str, total_pixels
  
 NODE_REGISTRY["Functions/IMG to pixels"] = particle_image_node

@@ -350,12 +350,28 @@
         root.style.setProperty("--border-highlight", priStart + "80");
         root.style.setProperty("--border-subtle", "rgba(255, 255, 255, 0.12)");
 
+        // Theme variable aliases for broad CSS compatibility
+        root.style.setProperty("--panel-bg", panelBg);
+        root.style.setProperty("--card-bg", cardBg);
+        root.style.setProperty("--border-color", priStart + "80");
+        root.style.setProperty("--text-primary", textMain);
+        root.style.setProperty("--text-secondary", textMuted);
+
         const secStart = themeData.accentSecondary || "#6366f1";
         const secGlow = themeData.accentSecondaryGlow || themeData.accentSecondaryEnd || themeData.accentSecondary || "#818cf8";
         root.style.setProperty("--accent-secondary", secStart);
         root.style.setProperty("--accent-secondary-glow", secGlow);
         root.style.setProperty("--accent-secondary-end", secGlow);
         root.style.setProperty("--accent-secondary-gradient", `linear-gradient(135deg, ${secStart} 0%, ${secGlow} 100%)`);
+
+        // Compute brightened accent for high-legibility manual elements (formula: shift lightness towards ~0.76-0.82 while preserving hue)
+        const [hp, sp, lp] = hexToHsl(priStart);
+        const docAccentBright = hslToHex(hp, Math.min(Math.max(sp, 0.60), 0.88), Math.max(0.74, lp + (1 - lp) * 0.50));
+        root.style.setProperty("--accent-light", docAccentBright);
+        root.style.setProperty("--doc-accent-bright", docAccentBright);
+        root.style.setProperty("--doc-text-amber", "#f5edd6");
+        root.style.setProperty("--doc-text-amber-bright", "#fff9ed");
+        root.style.setProperty("--doc-text-amber-muted", "#ded3be");
 
         const [h1, s1] = hexToHsl(priStart);
         const [h2, s2] = hexToHsl(secGlow);
@@ -449,6 +465,10 @@
                 window.canvas.draw(true, true);
             }
         }
+
+        if (window.PyxisTelemetry && typeof window.PyxisTelemetry.refreshTheme === "function") {
+            try { window.PyxisTelemetry.refreshTheme(); } catch (e) {}
+        }
     }
 
     function saveConfig(removeBg = false) {
@@ -462,6 +482,7 @@
                 has_bg_image: removeBg ? false : hasBg,
                 remove_bg_image: !!removeBg,
                 remove_bg_media: !!removeBg,
+                no_bg: removeBg ? true : !hasBg,
                 bg_media_type: removeBg ? "none" : (window.backgroundImageSettings ? window.backgroundImageSettings.mediaType || "image" : "none"),
                 bg_image_mode: window.backgroundImageSettings ? window.backgroundImageSettings.mode : "cover",
                 bg_image_opacity: window.backgroundImageSettings ? window.backgroundImageSettings.opacity : 0.85,
@@ -557,12 +578,13 @@
         function createColorFieldHtml(fieldId, currentHex, dataCat = "", dataProp = "", title = "Color") {
             const hex = (currentHex || "#10B981").toUpperCase();
             const dataAttrs = dataCat ? `data-cat="${dataCat}" data-prop="${dataProp}"` : `data-field-id="${fieldId}"`;
+            const baseId = dataCat ? `pyxis-col-${dataCat}-${dataProp}` : `pyxis-col-${fieldId || "field"}`;
             return `
                 <div class="pyxis-color-field" title="${title}">
                     <div class="pyxis-color-chip" style="background-color: ${hex};" ${dataAttrs}>
-                        <input type="color" class="pyxis-color-native-input" value="${hex}" ${dataAttrs}>
+                        <input type="color" id="${baseId}-native" name="${baseId}-native" class="pyxis-color-native-input" value="${hex}" ${dataAttrs}>
                     </div>
-                    <input type="text" class="pyxis-color-hex-text" value="${hex}" maxlength="7" ${dataAttrs} spellcheck="false">
+                    <input type="text" id="${baseId}-hex" name="${baseId}-hex" class="pyxis-color-hex-text" value="${hex}" maxlength="7" ${dataAttrs} spellcheck="false">
                     <button type="button" class="pyxis-color-pro-btn" title="${window.t ? window.t("theme_editor.pro_picker_tooltip") : "Selector avanzado HSV/RGB"}" ${dataAttrs}>
                         <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg>
                     </button>
@@ -714,15 +736,15 @@
                 <div class="global-cat-controls">
                     <div class="pyxis-color-field" title="${window.t ? window.t("theme_editor.global_cat_start_tooltip") : "Global Start Color"}">
                         <div class="pyxis-color-chip" id="global-cat-chip-col" style="background-color: #8B5CF6;">
-                            <input type="color" class="pyxis-color-native-input" id="global-cat-native-col" value="#8B5CF6">
+                            <input type="color" class="pyxis-color-native-input" id="global-cat-native-col" name="global-cat-native-col" value="#8B5CF6">
                         </div>
-                        <input type="text" class="pyxis-color-hex-text" id="global-cat-col-inp" value="#8B5CF6" maxlength="7" spellcheck="false">
+                        <input type="text" class="pyxis-color-hex-text" id="global-cat-col-inp" name="global-cat-col-inp" value="#8B5CF6" maxlength="7" spellcheck="false">
                     </div>
                     <div class="pyxis-color-field" title="${window.t ? window.t("theme_editor.global_cat_end_tooltip") : "Global End / Gradient Color"}">
                         <div class="pyxis-color-chip" id="global-cat-chip-grad" style="background-color: #6366F1;">
-                            <input type="color" class="pyxis-color-native-input" id="global-cat-native-grad" value="#6366F1">
+                            <input type="color" class="pyxis-color-native-input" id="global-cat-native-grad" name="global-cat-native-grad" value="#6366F1">
                         </div>
-                        <input type="text" class="pyxis-color-hex-text" id="global-cat-grad-inp" value="#6366F1" maxlength="7" spellcheck="false">
+                        <input type="text" class="pyxis-color-hex-text" id="global-cat-grad-inp" name="global-cat-grad-inp" value="#6366F1" maxlength="7" spellcheck="false">
                     </div>
                     <button type="button" class="pyxis-btn pyxis-btn-primary" id="btn-apply-all-categories" title="${window.t ? window.t("theme_editor.apply_all_tooltip") : "Apply to all categories"}">
                         <svg class="svg-icon" viewBox="0 0 24 24" style="width:14px;height:14px;stroke-width:2.5;fill:none;"><polyline points="20 6 9 17 4 12"/></svg>
@@ -781,11 +803,11 @@
                 <div style="display: flex; gap: 12px; margin-bottom: 14px;">
                     <div style="flex: 1;">
                         <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">${window.t ? window.t("theme_editor.name") : "Theme Name:"}</label>
-                        <input type="text" id="theme-edit-name" value="${editingTheme.name}" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%; box-sizing: border-box; outline: none;">
+                        <input type="text" id="theme-edit-name" name="theme-edit-name" value="${editingTheme.name}" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%; box-sizing: border-box; outline: none;">
                     </div>
                     <div style="width: 210px;">
                         <label style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); display: block; margin-bottom: 4px;">${window.t ? window.t("theme_editor.load_base_preset") : "Load Base Preset:"}</label>
-                        <select id="theme-edit-preset-select" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%; outline: none; cursor: pointer;">
+                        <select id="theme-edit-preset-select" name="theme-edit-preset-select" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%; outline: none; cursor: pointer;">
                             <option value="">${window.t ? window.t("theme_editor.select_base") : "-- Select Base --"}</option>
                             ${Object.keys(DEFAULT_THEMES).map(k => `<option value="${k}">${DEFAULT_THEMES[k].name}</option>`).join('')}
                         </select>
@@ -1485,13 +1507,13 @@
                             <span style="font-size: 13px; color: var(--text-main); font-weight: 500;">${window.t ? window.t("settings.daemon") : "Background Persistence:"}</span>
                             <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("settings.daemon_desc") : "Instant launch (0ms) after first start"}</span>
                         </div>
-                        <input type="checkbox" id="setting-daemon-mode" ${window.pyxisDaemonMode !== false ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-primary);">
+                        <input type="checkbox" id="setting-daemon-mode" name="setting-daemon-mode" ${window.pyxisDaemonMode !== false ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-primary);">
                     </div>
 
                     <!-- Estilo de Rejilla -->
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                         <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.grid_style") : "Grid Style:"}</span>
-                        <select id="setting-grid-mode" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none; width: 160px;">
+                        <select id="setting-grid-mode" name="setting-grid-mode" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none; width: 160px;">
                             <option value="0" ${window.gridMode === 0 ? 'selected' : ''}>${window.t ? window.t("settings.grid_lines") : "Lines"}</option>
                             <option value="1" ${window.gridMode === 1 ? 'selected' : ''}>${window.t ? window.t("settings.grid_dots") : "Puntos (Defecto)"}</option>
                             <option value="2" ${window.gridMode === 2 ? 'selected' : ''}>${window.t ? window.t("settings.grid_disabled") : "Desactivado"}</option>
@@ -1501,7 +1523,7 @@
                     <!-- Pasos de Deshacer / Rehacer -->
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                         <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.undo_steps") : "Undo / Redo steps:"}</span>
-                        <input type="number" id="setting-undo-steps" min="5" max="100" value="${window.PyxisUndoManager ? window.PyxisUndoManager.getMaxSteps() : 30}" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none; width: 80px; text-align: center;">
+                        <input type="number" id="setting-undo-steps" name="setting-undo-steps" min="5" max="100" value="${window.PyxisUndoManager ? window.PyxisUndoManager.getMaxSteps() : 30}" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none; width: 80px; text-align: center;">
                     </div>
 
                     <!-- Media Background (Images and Cyclic Videos) -->
@@ -1511,12 +1533,12 @@
                                 <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.canvas_bg") : "Canvas Background (Image or Cyclic Video):"}</span>
                                 <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("settings.canvas_bg_formats") : "Supports MP4, WebM, MOV, MKV, PNG, JPG, WebP"}</span>
                             </div>
-                            <div style="display: flex; gap: 6px;">
+                            <div style="display: gap: 6px;">
                                 <button class="pyxis-btn" id="btn-browse-bg" style="padding: 4px 10px; font-size: 12px; display: inline-flex; align-items: center;">${window.t ? window.t("settings.browse") : "Browse..."}</button>
                                 <button class="pyxis-btn pyxis-btn-danger" id="btn-clear-bg" style="padding: 4px 10px; font-size: 12px; display: ${hasBg ? 'inline-block' : 'none'};">${window.t ? window.t("settings.remove") : "Remove"}</button>
                             </div>
                         </div>
-                        <input type="text" id="setting-bg-path" readonly value="${bgPathDisplay}" style="background: var(--bg-input); color: var(--text-muted); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 11px; width: 100%; box-sizing: border-box; font-family: var(--font-mono); outline: none;">
+                        <input type="text" id="setting-bg-path" name="setting-bg-path" readonly value="${bgPathDisplay}" style="background: var(--bg-input); color: var(--text-muted); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; font-size: 11px; width: 100%; box-sizing: border-box; font-family: var(--font-mono); outline: none;">
                     </div>
 
                     <!-- Convert / Optimize Video with FFmpeg -->
@@ -1525,14 +1547,14 @@
                             <span style="font-size: 13px; color: var(--text-main); font-weight: 500;">${window.t ? window.t("settings.optimize_video") : "Convert / Optimize Video with FFmpeg"}</span>
                             <span style="font-size: 11px; color: var(--text-muted);">${window.t ? window.t("settings.daemon_desc") : "Recommended for optimal smoothness"}</span>
                         </div>
-                        <input type="checkbox" id="setting-convert-video" ${window.convertVideoSetting !== false ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-primary);">
+                        <input type="checkbox" id="setting-convert-video" name="setting-convert-video" ${window.convertVideoSetting !== false ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-primary);">
                     </div>
 
                     <!-- Fit Mode & Opacity -->
                     <div id="bg-options-panel" style="display: ${hasBg ? 'block' : 'none'};">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                             <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.fit_mode") : "Fit Mode:"}</span>
-                            <select id="setting-bg-mode" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none; width: 160px;">
+                            <select id="setting-bg-mode" name="setting-bg-mode" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; font-size: 13px; outline: none; width: 160px;">
                                 <option value="cover" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'cover') ? 'selected' : ''}>${window.t ? window.t("settings.fit_cover") : "Cover"}</option>
                                 <option value="contain" ${(window.backgroundImageSettings && (window.backgroundImageSettings.mode === 'contain' || !window.backgroundImageSettings.mode)) ? 'selected' : ''}>${window.t ? window.t("settings.fit_contain") : "Contain"}</option>
                                 <option value="stretch" ${(window.backgroundImageSettings && window.backgroundImageSettings.mode === 'stretch') ? 'selected' : ''}>${window.t ? window.t("settings.fit_stretch") : "Stretch"}</option>
@@ -1544,7 +1566,7 @@
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                             <span style="font-size: 13px; color: var(--text-main)">${window.t ? window.t("settings.opacity") : "Background Opacity:"}</span>
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="range" id="setting-bg-opacity" min="0" max="100" value="${window.backgroundImageSettings ? Math.round(window.backgroundImageSettings.opacity * 100) : 85}" style="width: 110px; cursor: pointer; accent-color: var(--accent-primary);">
+                                <input type="range" id="setting-bg-opacity" name="setting-bg-opacity" min="0" max="100" value="${window.backgroundImageSettings ? Math.round(window.backgroundImageSettings.opacity * 100) : 85}" style="width: 110px; cursor: pointer; accent-color: var(--accent-primary);">
                                 <span id="bg-opacity-label" style="font-size: 12px; color: var(--text-main); font-family: var(--font-mono); min-width: 32px; text-align: right;">${window.backgroundImageSettings ? Math.round(window.backgroundImageSettings.opacity * 100) : 85}%</span>
                             </div>
                         </div>

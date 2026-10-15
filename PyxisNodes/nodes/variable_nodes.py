@@ -33,7 +33,10 @@ def sys_var_node(context, var_name="syl.text"):
 
 @pyxis_node("Variables", "Define Vars", ["In"])
 def define_vars_node(context, in_val=None, variables=""):
-    """Define variables node for registration."""
+    """Define variables node for registration and data flow execution."""
+    if isinstance(context, dict) and variables:
+        from node_engine import _apply_set_vars_to_context_helper
+        _apply_set_vars_to_context_helper(variables, context, context.get("active_unit"))
     return in_val if in_val is not None else ""
 
 

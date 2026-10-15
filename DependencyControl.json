@@ -1,0 +1,39 @@
+{
+  "dependencyControlFeedFormatVersion": "0.3.0",
+  "name": "Pyxis Effector Automation Repository",
+  "description": "Repositorio oficial de Pyxis Effector para Aegisub",
+  "maintainer": "Pyxis Dev Team",
+  "baseUrl": "https://github.com/Mandholine/Pyxis-Effector",
+  "fileBaseUrl": "https://raw.githubusercontent.com/Mandholine/Pyxis-Effector/@{channel}",
+  "url": "@{baseUrl}",
+  "macros": {
+    "pyxis.NodeEngine": {
+      "name": "Pyxis Node Engine",
+      "author": "Pyxis Dev Team",
+      "description": "Visual Node-Based Subtitle and Karaoke Automation Engine",
+      "url": "@{baseUrl}",
+      "channels": {
+        "master": {
+          "version": "1.1.4",
+          "released": "2026-10-15",
+          "default": true,
+          "files": [
+            {
+              "name": ".lua",
+              "url": "@{fileBaseUrl}/pyxis.NodeEngine.lua",
+              "sha1": "46E0AB18D0236C0519695E5C78106E2FDE314D62"
+            }
+          ],
+          "requiredModules": []
+        }
+      },
+      "changelog": {
+        "1.1.4": [
+          "Soporte oficial para instalacion mediante DependencyControl.",
+          "Instalador y actualizador automatico del motor de ejecucion PyxisNodes.",
+          "Resolucion topologica DAG Trace y soporte condicional avanzado."
+        ]
+      }
+    }
+  }
+}

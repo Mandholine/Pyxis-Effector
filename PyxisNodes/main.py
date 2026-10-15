@@ -78,12 +78,12 @@ try:
 except Exception:
     pass
 
-PYXIS_ENGINE_VERSION = "1.1.1"
+PYXIS_ENGINE_VERSION = "1.1.4"
 
 if sys.platform == "win32":
     try:
         import ctypes
-        my_app_id = "Mandholine.Pyxis.NodeEngine.1.1.1"
+        my_app_id = "Mandholine.Pyxis.NodeEngine.1.1.4"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
     except Exception:
         pass
@@ -304,6 +304,8 @@ class PyxisAPI:
         self._active_engine = None
         self._cached_preview_base_info = None
         self._load_and_cache_preview_base()
+        self._cached_docs_toc = None
+        self._cached_node_map = None
 
         import threading
         self._clip_lock = threading.RLock()
@@ -354,6 +356,117 @@ class PyxisAPI:
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def send_bug_report(self, payload):
+        """Sends a structured bug report payload to the configured Cloudflare Worker proxy."""
+        import json
+        import time
+        import urllib.request
+        import urllib.error
+        import platform
+
+        if not hasattr(self, "_last_bug_report_time"):
+            self._last_bug_report_time = 0.0
+
+        now = time.time()
+        # Cooldown de 15 segundos para evitar envíos dobles o accidentales
+        if now - self._last_bug_report_time < 15.0:
+            remaining = int(15.0 - (now - self._last_bug_report_time))
+            return {
+                "success": False,
+                "error": f"Cooldown active. Please wait {remaining} seconds.",
+                "cooldown": True
+            }
+
+        if not isinstance(payload, dict):
+            return {"success": False, "error": "Invalid payload format"}
+
+        intent = str(payload.get("intent") or "").strip()
+        failure = str(payload.get("failure") or "").strip()
+        if not intent or not failure:
+            return {"success": False, "error": "Intent and failure descriptions are required"}
+
+        worker_url = payload.get("worker_url") or getattr(self, "_bug_report_worker_url", None)
+        if not worker_url:
+            worker_url = os.environ.get("PYXIS_BUG_REPORT_WORKER_URL") or "https://pyxis-bugs-reports.mandholine.workers.dev"
+
+        gpu_info = "Unknown"
+        try:
+            import gpu_engine
+            gpu_info = getattr(gpu_engine, "ACTIVE_BACKEND", None) or "OpenCL / CPU"
+        except Exception:
+            pass
+
+        diagnostics = {
+            "engine_version": PYXIS_ENGINE_VERSION,
+            "os": f"{platform.system()} {platform.release()} ({platform.architecture()[0]})",
+            "python": platform.python_version(),
+            "aegisub": getattr(self, "aegisub_version", "unknown"),
+            "gpu_backend": gpu_info,
+            "resolution": payload.get("resolution", "unknown"),
+            "devtools_logs": payload.get("devtools_logs") if payload.get("include_diagnostics", True) else [],
+            "backend_logs": _LogBufferStream.get_logs()[-100:] if payload.get("include_diagnostics", True) else [],
+        }
+
+        full_payload = {
+            "intent": intent,
+            "failure": failure,
+            "image_base64": payload.get("image_base64"),
+            "diagnostics": diagnostics,
+        }
+
+        try:
+            req_data = json.dumps(full_payload).encode("utf-8")
+            req = urllib.request.Request(
+                worker_url,
+                data=req_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": f"Pyxis-Effector/{PYXIS_ENGINE_VERSION}",
+                    "X-Pyxis-Client-Auth": "pyxis-beta-1.1.4-client",
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=15) as response:
+                status_code = response.getcode()
+                resp_text = response.read().decode("utf-8")
+                try:
+                    resp_json = json.loads(resp_text)
+                except Exception:
+                    resp_json = {"success": status_code == 200}
+
+                if resp_json.get("success"):
+                    self._last_bug_report_time = now
+                    return {"success": True}
+                else:
+                    return {
+                        "success": False,
+                        "error": resp_json.get("error", f"Worker returned status {status_code}")
+                    }
+        except urllib.error.HTTPError as he:
+            err_body = ""
+            try:
+                err_body = he.read().decode("utf-8")
+                err_json = json.loads(err_body)
+                if "error" in err_json:
+                    err_body = err_json["error"]
+            except Exception:
+                pass
+            return {"success": False, "error": f"HTTP {he.code}: {err_body or he.reason}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def open_external_url(self, url):
+        """Opens a web URL or mailto link safely in the operating system's default browser or mail client."""
+        import webbrowser
+        try:
+            url_str = str(url or "").strip()
+            if url_str.startswith("https://") or url_str.startswith("http://") or url_str.startswith("mailto:"):
+                webbrowser.open(url_str)
+                return True
+        except Exception:
+            pass
+        return False
 
     @property
     def template_store(self):
@@ -510,7 +623,19 @@ class PyxisAPI:
             "daemon_mode": True,
             "language": "es",
             "active_template_id": None,
-            "active_template_name": None
+            "active_template_name": None,
+            "telemetry_scales": {
+                "render_ms": "auto",
+                "total_kb": "auto",
+                "largest_kb": "auto",
+                "objects": "auto"
+            },
+            "telemetry_active_metrics": {
+                "render_ms": True,
+                "total_kb": True,
+                "largest_kb": False,
+                "objects": False
+            }
         }
         try:
             config_path = self._get_config_path()
@@ -584,9 +709,19 @@ class PyxisAPI:
             if saved_theme in ["obsidian", "cyber", "slate", "nordic"]:
                 saved_theme = "teal"
 
-            no_bg = is_removing_bg or (config_data.get("has_bg_image") is False and not is_removing_bg and config_data.get("no_bg", existing_config.get("no_bg", False)))
-            if config_data.get("has_bg_image") is True:
-                no_bg = False
+            if is_removing_bg:
+                no_bg = True
+            elif "no_bg" in config_data:
+                no_bg = bool(config_data["no_bg"])
+            elif "has_bg_image" in config_data:
+                if config_data["has_bg_image"] is True:
+                    no_bg = False
+                elif config_data["has_bg_image"] is False:
+                    no_bg = True
+                else:
+                    no_bg = bool(existing_config.get("no_bg", False))
+            else:
+                no_bg = bool(existing_config.get("no_bg", False))
 
             if no_bg:
                 bg_info = {"has_bg": False, "media_type": "none", "is_default": False}
@@ -623,6 +758,32 @@ class PyxisAPI:
             language = config_data.get("language", existing_config.get("language", "es"))
             window_state = config_data.get("window_state", existing_config.get("window_state", getattr(self, "_saved_window_state", {})))
 
+            default_tel_scales = {
+                "render_ms": "auto",
+                "total_kb": "auto",
+                "largest_kb": "auto",
+                "objects": "auto"
+            }
+            raw_tel_scales = config_data.get("telemetry_scales", existing_config.get("telemetry_scales", default_tel_scales))
+            telemetry_scales = dict(default_tel_scales)
+            if isinstance(raw_tel_scales, dict):
+                for k in default_tel_scales:
+                    if k in raw_tel_scales and raw_tel_scales[k] is not None:
+                        telemetry_scales[k] = str(raw_tel_scales[k])
+
+            default_tel_metrics = {
+                "render_ms": True,
+                "total_kb": True,
+                "largest_kb": False,
+                "objects": False
+            }
+            raw_tel_metrics = config_data.get("telemetry_active_metrics", existing_config.get("telemetry_active_metrics", default_tel_metrics))
+            telemetry_active_metrics = dict(default_tel_metrics)
+            if isinstance(raw_tel_metrics, dict):
+                for k in default_tel_metrics:
+                    if k in raw_tel_metrics:
+                        telemetry_active_metrics[k] = bool(raw_tel_metrics[k])
+
             clean_config = {
                 "theme": saved_theme,
                 "grid_mode": grid_mode,
@@ -638,7 +799,9 @@ class PyxisAPI:
                 "language": language,
                 "window_state": window_state,
                 "active_template_id": active_tpl_id,
-                "active_template_name": active_tpl_name
+                "active_template_name": active_tpl_name,
+                "telemetry_scales": telemetry_scales,
+                "telemetry_active_metrics": telemetry_active_metrics
             }
             _atomic_write(config_path, json.dumps(clean_config, ensure_ascii=False, indent=2))
 
@@ -1105,13 +1268,14 @@ class PyxisAPI:
         except Exception:
             pass
 
-    def _optimize_bg_video(self, input_path, output_path):
+    def _optimize_bg_video(self, input_path, output_path, poster_path=None):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         ffmpeg_exe = os.path.join(script_dir, "ffmpeg.exe")
         if not os.path.exists(ffmpeg_exe):
             ffmpeg_exe = "ffmpeg"
         
-        poster_path = os.path.join(os.path.dirname(output_path), "bg_poster.webp")
+        if poster_path is None:
+            poster_path = os.path.join(os.path.dirname(output_path), "bg_poster.webp")
         
         import subprocess
         startupinfo = None
@@ -1205,31 +1369,51 @@ class PyxisAPI:
             ext = os.path.splitext(file_path)[1].lower()
             is_video = ext in (".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v")
             
-            for f in ["bg_image.webp", "bg_image.png"]:
-                p = os.path.join(pyxis_config_dir, f)
-                if os.path.exists(p):
-                    try: os.remove(p)
-                    except OSError: pass
-            for vext in [".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"]:
-                p = os.path.join(bg_media_dir, f"bg_video{vext}")
-                if os.path.exists(p):
-                    try: os.remove(p)
-                    except OSError: pass
-            poster_p = os.path.join(bg_media_dir, "bg_poster.webp")
-            if os.path.exists(poster_p):
-                try: os.remove(poster_p)
-                except OSError: pass
-            
             if is_video:
                 should_convert = bool(convert_video) or ext not in (".mp4", ".webm")
-                dest_video = os.path.join(bg_media_dir, f"bg_video{'.mp4' if should_convert else ext}")
+                target_ext = '.mp4' if should_convert else ext
+                temp_video = os.path.join(bg_media_dir, f"bg_video_temp{target_ext}")
+                temp_poster = os.path.join(bg_media_dir, "bg_poster_temp.webp")
+
+                for p in [temp_video, temp_poster]:
+                    if os.path.exists(p):
+                        try: os.remove(p)
+                        except OSError: pass
+
                 if should_convert:
-                    self._optimize_bg_video(file_path, dest_video)
+                    self._optimize_bg_video(file_path, temp_video, temp_poster)
                 else:
                     import shutil
-                    shutil.copyfile(file_path, dest_video)
-                    self._generate_video_poster(dest_video, poster_p)
+                    shutil.copyfile(file_path, temp_video)
+                    self._generate_video_poster(temp_video, temp_poster)
                 
+                if not os.path.exists(temp_video) or os.path.getsize(temp_video) == 0:
+                    raise RuntimeError("Failed to process background video.")
+
+                # Conversion succeeded: safely remove previous background files
+                for f in ["bg_image.webp", "bg_image.png"]:
+                    p = os.path.join(pyxis_config_dir, f)
+                    if os.path.exists(p):
+                        try: os.remove(p)
+                        except OSError: pass
+                for vext in [".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"]:
+                    p = os.path.join(bg_media_dir, f"bg_video{vext}")
+                    if os.path.exists(p):
+                        try: os.remove(p)
+                        except OSError: pass
+                poster_p = os.path.join(bg_media_dir, "bg_poster.webp")
+                if os.path.exists(poster_p):
+                    try: os.remove(poster_p)
+                    except OSError: pass
+
+                dest_video = os.path.join(bg_media_dir, f"bg_video{target_ext}")
+                os.replace(temp_video, dest_video)
+                if os.path.exists(temp_poster) and os.path.getsize(temp_poster) > 0:
+                    os.replace(temp_poster, poster_p)
+                elif os.path.exists(temp_poster):
+                    try: os.remove(temp_poster)
+                    except OSError: pass
+
                 import urllib.parse
                 import time
                 ts = int(time.time() * 1000)
@@ -1245,14 +1429,40 @@ class PyxisAPI:
                     "filename": os.path.basename(file_path)
                 }
             else:
-                dest_image = os.path.join(pyxis_config_dir, "bg_image.webp")
+                temp_image = os.path.join(pyxis_config_dir, "bg_image_temp.webp")
+                if os.path.exists(temp_image):
+                    try: os.remove(temp_image)
+                    except OSError: pass
+
                 try:
-                    self._optimize_bg_image(file_path, dest_image)
+                    self._optimize_bg_image(file_path, temp_image)
                 except Exception as e:
                     print("Pyxis: WEBP compression not available, using direct copy", e)
                     import shutil
-                    shutil.copyfile(file_path, dest_image)
-                
+                    shutil.copyfile(file_path, temp_image)
+
+                if not os.path.exists(temp_image) or os.path.getsize(temp_image) == 0:
+                    raise RuntimeError("Failed to process background image.")
+
+                # Optimization succeeded: safely remove previous background files
+                for f in ["bg_image.webp", "bg_image.png"]:
+                    p = os.path.join(pyxis_config_dir, f)
+                    if os.path.exists(p):
+                        try: os.remove(p)
+                        except OSError: pass
+                for vext in [".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"]:
+                    p = os.path.join(bg_media_dir, f"bg_video{vext}")
+                    if os.path.exists(p):
+                        try: os.remove(p)
+                        except OSError: pass
+                poster_p = os.path.join(bg_media_dir, "bg_poster.webp")
+                if os.path.exists(poster_p):
+                    try: os.remove(poster_p)
+                    except OSError: pass
+
+                dest_image = os.path.join(pyxis_config_dir, "bg_image.webp")
+                os.replace(temp_image, dest_image)
+
                 import base64
                 import mimetypes
                 mime_type, _ = mimetypes.guess_type(dest_image)
@@ -1272,6 +1482,25 @@ class PyxisAPI:
                 }
         except Exception as e:
             print("Pyxis: error selecting background", e)
+            try:
+                appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
+                bg_media_dir = os.path.join(pyxis_config_dir, "bg_media")
+                temp_image = os.path.join(pyxis_config_dir, "bg_image_temp.webp")
+                if os.path.exists(temp_image):
+                    try: os.remove(temp_image)
+                    except OSError: pass
+                for vext in [".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"]:
+                    tp = os.path.join(bg_media_dir, f"bg_video_temp{vext}")
+                    if os.path.exists(tp):
+                        try: os.remove(tp)
+                        except OSError: pass
+                tp_poster = os.path.join(bg_media_dir, "bg_poster_temp.webp")
+                if os.path.exists(tp_poster):
+                    try: os.remove(tp_poster)
+                    except OSError: pass
+            except Exception:
+                pass
             return {"success": False, "error": str(e)}
 
     def select_bg_image(self):
@@ -1505,7 +1734,17 @@ class PyxisAPI:
             if parsed_ass and parsed_ass.dialogues:
                 styles, dialogues, res_x, res_y, frame_duration = parsed_ass
                 engine = GraphEngine(graph_data, res_x, res_y, frame_duration)
-                return engine.estimate_workload(dialogues, styles, allow_fallback_select_all=True)
+                est = engine.estimate_workload(dialogues, styles, allow_fallback_select_all=True)
+                try:
+                    from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
+                    last_tel = GLOBAL_TELEMETRY_MANAGER.get_last_result()
+                    if isinstance(last_tel, dict) and last_tel.get("success") and isinstance(last_tel.get("summary"), dict):
+                        summary = last_tel["summary"]
+                        est["last_telemetry_peak_ms"] = summary.get("peak_ms", 0.0)
+                        est["last_telemetry_budget_pct"] = summary.get("budget_usage_pct", 0.0)
+                except Exception:
+                    pass
+                return est
             else:
                 return {
                     "estimated_lines": 0,
@@ -1531,11 +1770,35 @@ class PyxisAPI:
     def cancel_generation(self):
         """Cancels active generation immediately across any thread or subprocess."""
         print("[Pyxis] Cancellation requested by user from UI.", flush=True)
+        self._preview_cancelled = True
         if getattr(self, '_active_engine', None) is not None:
             self._active_engine.is_cancelled = True
             if getattr(self._active_engine, 'shared_cancel_flag', None) is not None:
                 try:
                     self._active_engine.shared_cancel_flag.value = True
+                except Exception:
+                    pass
+        if getattr(self, '_active_preview_engine', None) is not None:
+            self._active_preview_engine.is_cancelled = True
+            if getattr(self._active_preview_engine, 'shared_cancel_flag', None) is not None:
+                try:
+                    self._active_preview_engine.shared_cancel_flag.value = True
+                except Exception:
+                    pass
+        from node_engine import abort_global_multiprocessing
+        abort_global_multiprocessing()
+        return {"success": True, "cancelled": True}
+
+    def cancel_preview_ass(self):
+        """Cancels active preview ASS generation immediately."""
+        print("[Pyxis] Preview cancellation requested by user from UI.", flush=True)
+        self.log_player_event("cancel_preview_ass called by user.")
+        self._preview_cancelled = True
+        if getattr(self, '_active_preview_engine', None) is not None:
+            self._active_preview_engine.is_cancelled = True
+            if getattr(self._active_preview_engine, 'shared_cancel_flag', None) is not None:
+                try:
+                    self._active_preview_engine.shared_cancel_flag.value = True
                 except Exception:
                     pass
         from node_engine import abort_global_multiprocessing
@@ -1556,6 +1819,31 @@ class PyxisAPI:
         else:
             self.shutdown_daemon()
         return {"success": True}
+
+    def validate_graph(self, payload):
+        try:
+            graph_data = self._normalize_graph(payload)
+            from node_validator import GraphValidator
+            validator = GraphValidator(graph_data)
+            issues = validator.validate()
+            return {
+                "success": True,
+                "issues": issues,
+                "has_critical": any(i.get("severity") == "critical" for i in issues),
+                "has_warning": any(i.get("severity") == "warning" for i in issues),
+                "total_issues": len(issues)
+            }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": str(e),
+                "issues": [],
+                "has_critical": False,
+                "has_warning": False,
+                "total_issues": 0
+            }
 
     def process_graph(self, payload):
         try:
@@ -2007,6 +2295,35 @@ class PyxisAPI:
 
         return None
 
+    @staticmethod
+    def _get_aegisub_mru_media():
+        """Reads the most recent valid video from Aegisub's mru.json as a defensive fallback."""
+        try:
+            appdata = os.environ.get("APPDATA")
+            if not appdata:
+                return None
+            mru_path = os.path.join(appdata, "Aegisub", "mru.json")
+            if not os.path.isfile(mru_path):
+                return None
+            import json
+            with open(mru_path, "r", encoding="utf-8", errors="ignore") as f:
+                data = json.load(f)
+            video_list = data.get("Video") or []
+            for v in video_list:
+                if not v or not isinstance(v, str):
+                    continue
+                v_clean = v.strip()
+                if (v_clean.startswith('"') and v_clean.endswith('"')) or (v_clean.startswith("'") and v_clean.endswith("'")):
+                    v_clean = v_clean[1:-1].strip()
+                lower_v = v_clean.lower()
+                if lower_v.startswith("dummy") or lower_v.startswith("?dummy") or "dummy-audio" in lower_v:
+                    continue
+                if os.path.isfile(v_clean):
+                    return os.path.abspath(v_clean)
+        except Exception:
+            pass
+        return None
+
     def _ensure_preview_media_clip(self, info, is_export=False):
         """Ensures presence of preview clip with synchronized video and audio in %APPDATA%/PyxisNodes/bg_media/."""
         if not hasattr(self, "_clip_lock"):
@@ -2180,7 +2497,7 @@ class PyxisAPI:
         if not node:
             return False
         n_type = str(node.get('type', '')).lower()
-        if 'output' not in n_type and 'salida' not in n_type:
+        if 'output' not in n_type:
             return False
 
         if target_ids is None:
@@ -2207,8 +2524,15 @@ class PyxisAPI:
         nid_int = node.get('id')
         node_title = str(node.get('title') or '').strip()
         props = node.get('properties', {}) or {}
-        out_id = str(props.get('output_id') or props.get('salida_id') or '').strip()
-        queue_id = str(props.get('queue_id') or '').strip()
+        out_id = str(props.get('output_id') or '').strip()
+        queue_id = str(props.get('queue_id') or props.get('Queue ID') or props.get('Queue_ID') or '').strip()
+        if not queue_id and isinstance(node.get('widgets'), list):
+            for w in node.get('widgets'):
+                if isinstance(w, dict) and str(w.get('property') or w.get('name') or '').lower() in ('queue_id', 'queue id', 'output_id'):
+                    w_val = str(w.get('value') or '').strip()
+                    if w_val:
+                        queue_id = w_val
+                        break
 
         numeric_targets = set()
         for t in target_strs:
@@ -2273,7 +2597,7 @@ class PyxisAPI:
         if isinstance(nodes_dict, list):
             nodes_dict = {n.get("id"): n for n in nodes_dict if isinstance(n, dict)}
 
-        all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower() or 'salida' in str(n.get('type', '')).lower()]
+        all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower()]
         matching_outputs = [n for n in all_output_nodes if self._matches_output_node(n, target_ids, all_output_nodes)]
 
         use_all_lines = False
@@ -2334,19 +2658,26 @@ class PyxisAPI:
             is_sel = False
             style_name = ""
             if isinstance(d, dict):
+                raw_str = str(d.get('raw', '')).strip()
+                if raw_str.startswith('Comment:') or raw_str.startswith('Comment :') or d.get('is_comment'):
+                    continue
                 st = d.get('start_time')
                 et = d.get('end_time')
                 is_sel = bool(d.get('is_selected', False) or (d.get('metrics') and d['metrics'].get('sel')))
                 style_name = str(d.get('style_name', ''))
-                if st is None or et is None:
-                    raw = str(d.get('raw', ''))
-                    if raw.startswith('Dialogue:') or raw.startswith('Dialogue :'):
-                        fields = raw.split(',', 9)
+                if (st is None or et is None or not style_name) and raw_str:
+                    if raw_str.startswith('Dialogue:') or raw_str.startswith('Dialogue :'):
+                        fields = raw_str.split(',', 9)
                         if len(fields) >= 4:
-                            st = self._parse_ass_time(fields[1])
-                            et = self._parse_ass_time(fields[2])
-                            style_name = fields[3].strip()
+                            if st is None:
+                                st = self._parse_ass_time(fields[1])
+                            if et is None:
+                                et = self._parse_ass_time(fields[2])
+                            if not style_name:
+                                style_name = fields[3].strip()
             elif hasattr(d, 'start_time') and hasattr(d, 'end_time'):
+                if getattr(d, 'is_comment', False):
+                    continue
                 st = d.start_time
                 et = d.end_time
                 is_sel = getattr(d, 'is_selected', False)
@@ -2402,6 +2733,13 @@ class PyxisAPI:
         self._aegisub_temp_hash = None
         self._aegisub_temp_mtime = None
         self._aegisub_temp_path = None
+        self._last_preview_ass_content = None
+        self._last_preview_ass_info = None
+        try:
+            from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
+            GLOBAL_TELEMETRY_MANAGER.clear_last_result()
+        except Exception:
+            pass
 
     def _load_and_cache_aegisub_source(self, payload=None, target_output_id=None, force_reload=False):
         if not self.temp_ass or not os.path.isfile(self.temp_ass):
@@ -2443,10 +2781,14 @@ class PyxisAPI:
             real_video = None
             if not is_dummy_video:
                 real_video = self._clean_and_resolve_media_path(video_file, self.temp_ass, script_file=script_file)
+                if not real_video:
+                    real_video = self._get_aegisub_mru_media()
 
             real_audio = None
             if not is_dummy_audio:
                 real_audio = self._clean_and_resolve_media_path(audio_file, self.temp_ass, script_file=script_file)
+                if not real_audio and real_video:
+                    real_audio = real_video
 
             if not real_audio and real_video:
                 real_audio = real_video
@@ -2526,13 +2868,14 @@ class PyxisAPI:
                 "video_file": real_video,
                 "real_video_file": real_video,
                 "real_audio_file": real_audio,
+                "has_real_video": bool(real_video and os.path.isfile(real_video)),
+                "has_real_audio": bool(real_audio and os.path.isfile(real_audio)),
                 "dummy_info": dummy_info,
                 "font_name": primary_font_name,
                 "font_size": primary_font_size,
             }
 
-            clip_path = self._ensure_preview_media_clip(info_dict)
-            info_dict["clip_path"] = clip_path
+            info_dict["clip_path"] = real_video or real_audio or None
 
             info_dict["media_meta"] = self._probe_media_metadata(
                 video_file=real_video,
@@ -2542,6 +2885,11 @@ class PyxisAPI:
                 res_x=res_x,
                 res_y=res_y
             )
+            dur_sec = (info_dict.get("media_meta") or {}).get("duration_sec")
+            if dur_sec and float(dur_sec) > info_dict["clip_start_sec"]:
+                info_dict["clip_end_sec"] = min(info_dict["clip_end_sec"], float(dur_sec))
+                info_dict["clip_duration_sec"] = max(0.5, info_dict["clip_end_sec"] - info_dict["clip_start_sec"])
+                info_dict["render_duration_sec"] = info_dict["clip_duration_sec"]
 
             self._cached_aegisub_info = info_dict
             return info_dict
@@ -2556,10 +2904,10 @@ class PyxisAPI:
                 "res_y": 720,
                 "fps": 23.976,
                 "clip_start_sec": 0.0,
-                "clip_duration_sec": 10.0,
+                "clip_duration_sec": 15.0,
                 "real_video_file": None,
                 "real_audio_file": None,
-                "dummy_info": {"color_hex": "303030"}
+                "dummy_info": {"color_hex": "2a2a2a"}
             }
             clip_path = self._ensure_preview_media_clip(fallback_info)
             if clip_path and os.path.exists(clip_path) and self._is_valid_mp4(clip_path):
@@ -2573,14 +2921,22 @@ class PyxisAPI:
     def get_preview_video_data_url(self, source="base", target_output_id=None, payload=None):
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
-            clip_path = info.get("clip_path") or self._ensure_preview_media_clip(info)
-            if clip_path and os.path.exists(clip_path) and self._is_valid_mp4(clip_path):
+            # 1. Direct stream of original video via HTTP 206 Partial Content (no FFmpeg transcode)
+            user_video = info.get("real_video_file")
+            if user_video and os.path.exists(user_video):
                 import urllib.parse
-                quoted_path = urllib.parse.quote(clip_path)
+                quoted_path = urllib.parse.quote(user_video)
+                return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
+
+            # 2. If no video but user audio exists, direct stream original audio
+            user_audio = info.get("real_audio_file")
+            if user_audio and os.path.exists(user_audio):
+                import urllib.parse
+                quoted_path = urllib.parse.quote(user_audio)
                 return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
         except Exception as e:
             print(f"[Pyxis Error getting preview video URL] {e}", flush=True)
-        return self._ensure_fallback_dummy_url()
+        return ""
 
     def get_preview_audio_data_url(self, source="base", target_output_id=None, payload=None):
         try:
@@ -2630,7 +2986,8 @@ class PyxisAPI:
             "bitrate_kbps": None,
             "bitrate_str": "N/A",
             "audio_channels": "N/A",
-            "duration": "00:00"
+            "duration": "00:00",
+            "duration_sec": None
         }
 
         if dummy_info and isinstance(dummy_info, dict):
@@ -2669,6 +3026,7 @@ class PyxisAPI:
                     parts = dur_str.split(':')
                     if len(parts) >= 3:
                         meta["duration"] = f"{int(parts[0])*60 + int(parts[1]):02d}:{int(float(parts[2])):02d}"
+                        meta["duration_sec"] = round(int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2]), 3)
                     else:
                         meta["duration"] = dur_str
 
@@ -2742,6 +3100,14 @@ class PyxisAPI:
                     timeout=5
                 )
                 out_a = res.stderr or ""
+                if not meta.get("duration_sec"):
+                    m_dur_a = re.search(r'Duration:\s*(\d+:\d+:\d+(?:\.\d+)?)', out_a)
+                    if m_dur_a:
+                        dur_str_a = m_dur_a.group(1)
+                        parts_a = dur_str_a.split(':')
+                        if len(parts_a) >= 3:
+                            meta["duration"] = f"{int(parts_a[0])*60 + int(parts_a[1]):02d}:{int(float(parts_a[2])):02d}"
+                            meta["duration_sec"] = round(int(parts_a[0]) * 3600 + int(parts_a[1]) * 60 + float(parts_a[2]), 3)
                 m_aud = re.search(r'Stream\s+#\d+:\d+.*?Audio:\s*([a-zA-Z0-9_-]+).*?,\s*(\d+)\s*Hz', out_a)
                 if m_aud:
                     meta["audio_codec"] = m_aud.group(1).upper()
@@ -2805,6 +3171,19 @@ class PyxisAPI:
             res_x=res_x,
             res_y=res_y
         )
+        dialogues = info.get("dialogues", [])
+        min_start_ms = info.get("min_start_ms", 0)
+        max_end_ms = info.get("max_end_ms", 15000)
+        clip_start_sec = info.get("clip_start_sec", 0.0)
+        clip_end_sec = info.get("clip_end_sec", 15.0)
+        clip_duration_sec = info.get("clip_duration_sec", 15.0)
+        clip_start_ms = info.get("clip_start_ms", 0)
+
+        dur_sec = (meta or {}).get("duration_sec")
+        if dur_sec and float(dur_sec) > clip_start_sec:
+            clip_end_sec = min(clip_end_sec, float(dur_sec))
+            clip_duration_sec = max(0.5, clip_end_sec - clip_start_sec)
+
         return {
             "source": info.get("source", "base"),
             "has_aegisub": has_aegisub,
@@ -2813,13 +3192,17 @@ class PyxisAPI:
             "aspect_ratio": aspect,
             "fps": info.get("fps", 23.976),
             "frame_dur": info.get("frame_dur", 41.708),
-            "clip_start_sec": info.get("clip_start_sec", 0.0),
-            "clip_end_sec": info.get("clip_end_sec", 15.0),
-            "clip_duration_sec": info.get("clip_duration_sec", 15.0),
-            "clip_start_ms": info.get("clip_start_ms", 0),
-            "render_start_sec": info.get("render_start_sec", 0.0),
+            "min_start_ms": min_start_ms,
+            "max_end_ms": max_end_ms,
+            "clip_start_sec": clip_start_sec,
+            "clip_end_sec": clip_end_sec,
+            "clip_duration_sec": clip_duration_sec,
+            "clip_start_ms": clip_start_ms,
+            "render_start_sec": clip_start_sec,
             "has_custom_video": bool(info.get("real_video_file")),
             "has_custom_audio": bool(info.get("real_audio_file")),
+            "has_real_video": bool(info.get("real_video_file")),
+            "has_real_audio": bool(info.get("real_audio_file")),
             "audio_file": info.get("real_audio_file"),
             "video_file": info.get("real_video_file"),
             "real_video_file": info.get("real_video_file"),
@@ -2830,7 +3213,7 @@ class PyxisAPI:
             "clip_path": info.get("clip_path"),
             "path": info.get("path"),
             "styles": info.get("styles", {}),
-            "dialogues": info.get("dialogues", []),
+            "dialogues": dialogues,
             "media_meta": meta
         }
 
@@ -3079,6 +3462,13 @@ class PyxisAPI:
     def invalidate_preview_base_cache(self):
         self._cached_preview_base_info = None
         self._preview_base_hash = None
+        self._last_preview_ass_content = None
+        self._last_preview_ass_info = None
+        try:
+            from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
+            GLOBAL_TELEMETRY_MANAGER.clear_last_result()
+        except Exception:
+            pass
 
     def ensure_preview_base_ass(self):
         """Ensures presence of preview_base.ass in %APPDATA%/PyxisNodes/preview_base.ass.
@@ -3226,13 +3616,14 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                 "video_file": real_video,
                 "real_video_file": real_video,
                 "real_audio_file": real_audio,
+                "has_real_video": bool(real_video and os.path.isfile(real_video)),
+                "has_real_audio": bool(real_audio and os.path.isfile(real_audio)),
                 "dummy_info": dummy_info,
                 "font_name": primary_font_name,
                 "font_size": primary_font_size,
             }
 
-            clip_path = self._ensure_preview_media_clip(info_dict)
-            info_dict["clip_path"] = clip_path
+            info_dict["clip_path"] = real_video or real_audio or None
 
             info_dict["media_meta"] = self._probe_media_metadata(
                 video_file=real_video,
@@ -3242,9 +3633,14 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                 res_x=res_x,
                 res_y=res_y
             )
+            dur_sec = (info_dict.get("media_meta") or {}).get("duration_sec")
+            if dur_sec and float(dur_sec) > info_dict["clip_start_sec"]:
+                info_dict["clip_end_sec"] = min(info_dict["clip_end_sec"], float(dur_sec))
+                info_dict["clip_duration_sec"] = max(0.5, info_dict["clip_end_sec"] - info_dict["clip_start_sec"])
+                info_dict["render_duration_sec"] = info_dict["clip_duration_sec"]
 
             self._cached_preview_base_info = info_dict
-            print(f"[Pyxis Scan] preview_base.ass loaded: Res={res_x}x{res_y} ({res_x/res_y:.3f}), Dialogues={len(dialogues)}, Clip={clip_start_sec:.2f}s to {clip_end_sec:.2f}s ({clip_duration_sec:.2f}s)", flush=True)
+            print(f"[Pyxis Scan] preview_base.ass loaded: Res={res_x}x{res_y} ({res_x/res_y:.3f}), Dialogues={len(dialogues)}, Clip={info_dict['clip_start_sec']:.2f}s to {info_dict['clip_end_sec']:.2f}s ({info_dict['clip_duration_sec']:.2f}s)", flush=True)
             return self._cached_preview_base_info
         except Exception as e:
             print(f"[Pyxis Error in _load_and_cache_preview_base] {e}", flush=True)
@@ -3298,7 +3694,7 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                         in_events = True
                         output.append(line)
                     elif in_events and (line_clean.startswith("Dialogue:") or line_clean.startswith("Comment:")):
-                        output.append(self._shift_ass_line(line, clip_start_ms))
+                        output.append(line)
                     else:
                         output.append(line)
                 return "".join(output)
@@ -3306,7 +3702,7 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             print(f"[Pyxis Error reading initial ASS source={source}] {e}", flush=True)
         return ""
 
-    def generate_preview_ass(self, payload, target_output_id=None, out_filename="preview_dummy.ass", preview_res_x=None, preview_res_y=None, source="base"):
+    def generate_preview_ass(self, payload, target_output_id=None, out_filename="preview_dummy.ass", preview_res_x=None, preview_res_y=None, source="base", for_hardsub=False):
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
             res_x = preview_res_x if preview_res_x is not None else info.get("res_x", 1280)
@@ -3314,10 +3710,14 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             styles = info.get("styles", {})
             dialogues = info.get("dialogues", [])
             frame_dur = info.get("frame_dur", 41.708)
+            clip_start_sec = info.get("clip_start_sec", 0.0)
+            clip_end_sec = info.get("clip_end_sec", 15.0)
+            clip_duration_sec = info.get("clip_duration_sec", 15.0)
             clip_start_ms = info.get("clip_start_ms", 0)
+            shift_amount = clip_start_ms if for_hardsub else 0
             ass_path = info.get("path") or (self.ensure_preview_base_ass() if source == "base" else None)
 
-            self.log_player_event(f"generate_preview_ass source={source} called with target_output_id: {target_output_id}, res: {res_x}x{res_y}, shift_ms: {clip_start_ms}")
+            self.log_player_event(f"generate_preview_ass source={source} called with target_output_id: {target_output_id}, res: {res_x}x{res_y}, shift_ms: {shift_amount}")
             graph_data = self._normalize_graph(payload)
             from node_engine import GraphEngine
 
@@ -3386,13 +3786,43 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                     elif isinstance(d, str):
                         base_lines.append(d.strip() + "\n")
 
+            self._preview_cancelled = False
             if len(base_lines) > 0:
                 generated_lines = []
                 if len(output_id_list) > 0:
                     engine = GraphEngine(graph_data, res_x, res_y, frame_dur, default_audio_source=default_audio)
                     engine.target_output_id = output_id_list
-                    generated_lines = engine.process(dialogues, styles)
+                    self._active_preview_engine = engine
+
+                    def report_preview_progress(data):
+                        try:
+                            if webview.windows:
+                                if isinstance(data, dict):
+                                    import json
+                                    js_str = json.dumps(data)
+                                    webview.windows[0].evaluate_js(
+                                        f"if (typeof window.__pyxis_on_preview_progress === 'function') window.__pyxis_on_preview_progress({js_str});"
+                                    )
+                                else:
+                                    pct_val = int(float(data))
+                                    webview.windows[0].evaluate_js(
+                                        f"if (typeof window.__pyxis_on_preview_progress === 'function') window.__pyxis_on_preview_progress({pct_val});"
+                                    )
+                        except Exception:
+                            pass
+
+                    generated_lines = engine.process(
+                        dialogues,
+                        styles,
+                        progress_callback=report_preview_progress,
+                        check_cancel_callback=lambda: getattr(self, '_preview_cancelled', False) or getattr(engine, 'is_cancelled', False)
+                    )
                     self.log_player_event(f"GraphEngine targets={output_id_list} (Res {res_x}x{res_y}) produced {len(generated_lines)} lines")
+
+                    if getattr(self, '_preview_cancelled', False) or getattr(engine, 'is_cancelled', False):
+                        self.log_player_event("generate_preview_ass aborted due to user cancellation.")
+                        self._active_preview_engine = None
+                        return {"success": False, "cancelled": True}
 
                 output_ass_lines = []
                 in_events = False
@@ -3405,7 +3835,7 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                 if isinstance(nodes_dict, list):
                     nodes_dict = {n.get("id"): n for n in nodes_dict if isinstance(n, dict)}
                 
-                all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower() or 'salida' in str(n.get('type', '')).lower()]
+                all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower()]
                 matching_outputs = [n for n in all_output_nodes if self._matches_output_node(n, output_id_list, all_output_nodes)]
                 
                 use_all_lines = False
@@ -3483,7 +3913,7 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                         is_diag = line_clean.strip().startswith("Dialogue:")
                         if is_comm and "PyxisMetrics" in line_clean:
                             last_was_selected_metric = ("sel=1" in line_clean)
-                            output_ass_lines.append(self._shift_ass_line(line, clip_start_ms))
+                            output_ass_lines.append(self._shift_ass_line(line, shift_amount))
                         elif is_diag:
                             fields = line_clean.split(',', 9)
                             style_name = fields[3].strip() if len(fields) >= 4 else ""
@@ -3496,28 +3926,159 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                             )
                             if should_comment and len(output_id_list) > 0 and len(generated_lines) > 0:
                                 comment_line = "Comment: " + line_clean[9:]
-                                output_ass_lines.append(self._shift_ass_line(comment_line, clip_start_ms))
+                                output_ass_lines.append(self._shift_ass_line(comment_line, shift_amount))
                             else:
-                                output_ass_lines.append(self._shift_ass_line(line, clip_start_ms))
+                                output_ass_lines.append(self._shift_ass_line(line, shift_amount))
                             last_was_selected_metric = False
                         elif is_comm:
-                            output_ass_lines.append(self._shift_ass_line(line, clip_start_ms))
+                            output_ass_lines.append(self._shift_ass_line(line, shift_amount))
                         else:
                             output_ass_lines.append(line)
 
                 if len(generated_lines) > 0:
                     for g_line in generated_lines:
-                        output_ass_lines.append(self._shift_ass_line(g_line, clip_start_ms))
+                        output_ass_lines.append(self._shift_ass_line(g_line, shift_amount))
 
                 full_ass_content = "".join(output_ass_lines)
             else:
                 self.log_player_event("ass_path missing and no in-memory dialogues/styles!")
                 full_ass_content = ""
 
-            self.log_player_event(f"generate_preview_ass finished, total ASS length: {len(full_ass_content)}")
-            return {"success": True, "content": full_ass_content}
+            clip_end_ms = int(round(clip_end_sec * 1000)) if clip_end_sec > 0 else (clip_start_ms + int(round(clip_duration_sec * 1000)))
+            if not for_hardsub and full_ass_content:
+                self._last_preview_ass_content = full_ass_content
+                self._last_preview_ass_info = {
+                    "res_x": res_x,
+                    "res_y": res_y,
+                    "fps": info.get("fps", 23.976),
+                    "frame_dur": frame_dur,
+                    "clip_start_ms": clip_start_ms,
+                    "clip_end_ms": clip_end_ms,
+                    "clip_start_sec": clip_start_sec,
+                    "clip_end_sec": clip_end_sec,
+                    "clip_duration_sec": clip_duration_sec,
+                    "source": source,
+                    "target_output_id": output_id_list,
+                }
+
+            self.log_player_event(f"generate_preview_ass finished, total ASS length: {len(full_ass_content)}, window: {clip_start_sec:.2f}s..{clip_end_sec:.2f}s")
+            return {
+                "success": True,
+                "content": full_ass_content,
+                "clip_start_sec": clip_start_sec,
+                "clip_end_sec": clip_end_sec,
+                "clip_duration_sec": clip_duration_sec,
+                "clip_start_ms": clip_start_ms,
+                "clip_end_ms": clip_end_ms,
+            }
         except Exception as err:
             self.log_player_event(f"[Pyxis Error in generate_preview_ass] {err}")
+            return {"success": False, "error": str(err)}
+        finally:
+            self._active_preview_engine = None
+
+    def run_ass_telemetry(self, payload=None, target_output_id=None, source="base", force_regenerate=False, clip_start_ms=None, clip_end_ms=None):
+        """Runs multi-worker libass_profiler telemetry on the generated or cached preview ASS."""
+        try:
+            from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
+
+            ass_content = getattr(self, "_last_preview_ass_content", None)
+            cached_info = getattr(self, "_last_preview_ass_info", None) or {}
+            if cached_info.get("source") and str(cached_info.get("source")).lower() != str(source).lower():
+                ass_content = None
+
+            if force_regenerate or not ass_content:
+                effective_outputs = target_output_id
+                if effective_outputs is None and payload is not None:
+                    graph_data = self._normalize_graph(payload)
+                    nodes_dict = graph_data.get("nodes", {}) if isinstance(graph_data, dict) else {}
+                    if isinstance(nodes_dict, list):
+                        nodes_dict = {n.get("id"): n for n in nodes_dict if isinstance(n, dict)}
+                    all_output_nodes = [
+                        n for n in nodes_dict.values()
+                        if "output" in str(n.get("type", "")).lower()
+                    ]
+                    effective_outputs = [str(n.get("id")) for n in all_output_nodes if n.get("id") is not None]
+
+                gen_res = self.generate_preview_ass(
+                    payload=payload or {},
+                    target_output_id=effective_outputs,
+                    out_filename="telemetry_preview.ass",
+                    source=source,
+                    for_hardsub=False,
+                )
+                if isinstance(gen_res, dict) and gen_res.get("success") and gen_res.get("content"):
+                    ass_content = gen_res["content"]
+                    cached_info = getattr(self, "_last_preview_ass_info", None) or {}
+
+            if not ass_content:
+                ass_content = self.get_initial_base_ass(source=source, target_output_id=target_output_id, payload=payload)
+                info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
+                c_start_ms = info.get("clip_start_ms", 0)
+                clip_end_sec = info.get("clip_end_sec", 0.0)
+                clip_dur_sec = info.get("clip_duration_sec", 0.0)
+                c_end_ms = int(round(clip_end_sec * 1000)) if clip_end_sec > 0 else (c_start_ms + int(round(clip_dur_sec * 1000)))
+                cached_info = {
+                    "res_x": info.get("res_x", 1280),
+                    "res_y": info.get("res_y", 720),
+                    "fps": info.get("fps", 23.976),
+                    "frame_dur": info.get("frame_dur", 41.708),
+                    "clip_start_ms": c_start_ms,
+                    "clip_end_ms": c_end_ms,
+                }
+
+            if not ass_content:
+                return {"success": False, "error": "No ASS subtitle content available for telemetry."}
+
+            res_x = cached_info.get("res_x", 1280)
+            res_y = cached_info.get("res_y", 720)
+            fps = cached_info.get("fps", 23.976)
+            eff_start_ms = int(clip_start_ms) if clip_start_ms is not None else cached_info.get("clip_start_ms", 0)
+            eff_end_ms = int(clip_end_ms) if clip_end_ms is not None else cached_info.get("clip_end_ms", 0)
+
+            return GLOBAL_TELEMETRY_MANAGER.run_telemetry(
+                ass_content=ass_content,
+                res_x=res_x,
+                res_y=res_y,
+                fps=fps,
+                clip_start_ms=eff_start_ms,
+                clip_end_ms=eff_end_ms,
+                source=source,
+            )
+        except Exception as err:
+            self.log_player_event(f"[Pyxis Error in run_ass_telemetry] {err}")
+            return {"success": False, "error": str(err)}
+
+
+    def get_last_telemetry(self):
+        """Returns the last completed telemetry payload from memory, if any."""
+        try:
+            from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
+            last_res = GLOBAL_TELEMETRY_MANAGER.get_last_result()
+            if last_res:
+                return last_res
+            return {"success": False, "empty": True}
+        except Exception as err:
+            return {"success": False, "error": str(err)}
+
+    def cancel_ass_telemetry(self):
+        """Cancels any active libass_profiler worker processes immediately."""
+        try:
+            from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
+            GLOBAL_TELEMETRY_MANAGER.cancel_active()
+            return {"success": True}
+        except Exception as err:
+            return {"success": False, "error": str(err)}
+
+    def clear_ass_telemetry(self):
+        """Clears cached preview ASS and in-memory telemetry results."""
+        try:
+            self._last_preview_ass_content = None
+            self._last_preview_ass_info = None
+            from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
+            GLOBAL_TELEMETRY_MANAGER.clear_last_result()
+            return {"success": True}
+        except Exception as err:
             return {"success": False, "error": str(err)}
 
     def _select_save_video_path(self, default_filename="hardsub_clip.mp4"):
@@ -3569,7 +4130,7 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
                 return {"success": False, "cancelled": True, "message": "Rendering cancelled by user"}
 
             ass_filename = f"preview_dummy_{output_tag}.ass"
-            gen_res = self.generate_preview_ass(payload, target_output_id=target_output_id, out_filename=ass_filename, source=source)
+            gen_res = self.generate_preview_ass(payload, target_output_id=target_output_id, out_filename=ass_filename, source=source, for_hardsub=True)
             appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
             pyxis_dir = os.path.join(appdata_dir, "PyxisNodes")
             temp_dir = os.path.join(pyxis_dir, "temp")
@@ -3721,6 +4282,239 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
         except Exception as err:
             print(f"[Pyxis Error in render_preview_hardsub] {err}", flush=True)
             return {"success": False, "error": str(err)}
+
+    def _get_docs_dir(self, lang=None):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        root_docs = os.path.join(base_dir, "docs")
+        
+        target_lang = str(lang or "es").lower().strip()
+        lang_sub = "en" if target_lang.startswith("en") else "es"
+        candidate_dir = os.path.join(root_docs, lang_sub)
+
+        if os.path.isdir(candidate_dir):
+            return candidate_dir
+        if os.path.isdir(root_docs):
+            return root_docs
+        return base_dir
+
+    def _build_docs_index(self, lang=None, force=False):
+        target_lang = str(lang or "es").lower().strip()
+        lang_key = "en" if target_lang.startswith("en") else "es"
+
+        if not hasattr(self, "_cached_docs_tocs") or self._cached_docs_tocs is None:
+            self._cached_docs_tocs = {}
+            self._cached_node_maps = {}
+
+        if not force and lang_key in self._cached_docs_tocs and lang_key in self._cached_node_maps:
+            return self._cached_docs_tocs[lang_key], self._cached_node_maps[lang_key]
+
+        docs_dir = self._get_docs_dir(lang_key)
+        toc = []
+        node_map = {}
+
+        if not os.path.isdir(docs_dir):
+            self._cached_docs_tocs[lang_key] = []
+            self._cached_node_maps[lang_key] = {}
+            return [], {}
+
+        files = sorted(os.listdir(docs_dir))
+        node_pattern = re.compile(r"^##\s+(\d+)\.\s+(?:Nodo|Node)\s+[`\"']?([^`\"'\(\)\n]+)[`\"']?\s*(?:\((.*?)\))?", re.MULTILINE)
+        title_pattern = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+
+        for fname in files:
+            if not fname.lower().endswith(".md"):
+                continue
+            fpath = os.path.join(docs_dir, fname)
+            if not os.path.isfile(fpath):
+                continue
+
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except Exception:
+                continue
+
+            m_title = title_pattern.search(content)
+            chapter_title = m_title.group(1).strip() if m_title else os.path.splitext(fname)[0]
+
+            chapter_nodes = []
+            for match in node_pattern.finditer(content):
+                num_idx = int(match.group(1))
+                canonical_type = match.group(2).strip()
+                label = match.group(3).strip() if match.group(3) else ""
+                anchor = f"node-{canonical_type.lower().replace('/', '-').replace(' ', '-')}"
+
+                node_entry = {
+                    "type": canonical_type,
+                    "name": canonical_type.split("/")[-1].strip() if "/" in canonical_type else canonical_type,
+                    "index": num_idx,
+                    "label": label,
+                    "anchor": anchor,
+                    "title": f"{num_idx}. {canonical_type}" + (f" ({label})" if label else ""),
+                    "file": fname
+                }
+                chapter_nodes.append(node_entry)
+                node_map[canonical_type.lower()] = {
+                    **node_entry,
+                    "chapter_file": fname,
+                    "chapter_title": chapter_title
+                }
+
+            # Extracción del número o prefijo de capítulo para ordenación
+            m_num = re.match(r"^(\d+)", fname)
+            chapter_num = int(m_num.group(1)) if m_num else 999
+
+            toc.append({
+                "file": fname,
+                "chapter_num": chapter_num,
+                "title": chapter_title,
+                "node_count": len(chapter_nodes),
+                "nodes": chapter_nodes
+            })
+
+        toc.sort(key=lambda x: (x["chapter_num"], x["file"]))
+        self._cached_docs_tocs[lang_key] = toc
+        self._cached_node_maps[lang_key] = node_map
+        return toc, node_map
+
+    def get_docs_toc(self, lang=None):
+        try:
+            toc, _ = self._build_docs_index(lang)
+            return {"success": True, "toc": toc}
+        except Exception as e:
+            return {"success": False, "error": str(e), "toc": []}
+
+    def get_doc_chapter(self, filename, lang=None):
+        try:
+            safe_name = os.path.basename(str(filename).strip())
+            docs_dir = self._get_docs_dir(lang)
+            target_path = os.path.join(docs_dir, safe_name)
+
+            if not os.path.isfile(target_path) and os.path.isdir(docs_dir):
+                m_num = re.match(r"^(\d+)", safe_name)
+                if m_num:
+                    ch_prefix = int(m_num.group(1))
+                    for candidate in os.listdir(docs_dir):
+                        if candidate.lower().endswith(".md") and re.match(r"^0*" + str(ch_prefix) + r"\b", candidate):
+                            target_path = os.path.join(docs_dir, candidate)
+                            safe_name = candidate
+                            break
+
+            if not os.path.isfile(target_path):
+                # Fallback to Spanish directory if not found in requested language
+                es_dir = self._get_docs_dir("es")
+                target_path = os.path.join(es_dir, safe_name)
+                if not os.path.isfile(target_path) and os.path.isdir(es_dir):
+                    m_num = re.match(r"^(\d+)", safe_name)
+                    if m_num:
+                        ch_prefix = int(m_num.group(1))
+                        for candidate in os.listdir(es_dir):
+                            if candidate.lower().endswith(".md") and re.match(r"^0*" + str(ch_prefix) + r"\b", candidate):
+                                target_path = os.path.join(es_dir, candidate)
+                                safe_name = candidate
+                                break
+
+            if not os.path.isfile(target_path):
+                return {"success": False, "error": f"Chapter file '{safe_name}' not found"}
+
+            with open(target_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            return {
+                "success": True,
+                "filename": safe_name,
+                "content": content
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_node_doc(self, node_type, lang=None):
+        try:
+            if not node_type or not isinstance(node_type, str):
+                return {"success": False, "found": False, "error": "Invalid node_type"}
+
+            canonical_key = node_type.strip().lower()
+            _, node_map = self._build_docs_index(lang)
+
+            info = node_map.get(canonical_key)
+            if not info:
+                # Fallback to Spanish index if not found in requested language
+                _, node_map_es = self._build_docs_index("es")
+                info = node_map_es.get(canonical_key)
+
+            if not info:
+                # Intentar buscar por coincidencia parcial si tiene prefijo
+                for k, v in node_map.items():
+                    if k.endswith("/" + canonical_key) or canonical_key.endswith("/" + k):
+                        info = v
+                        break
+
+            if not info:
+                return {
+                    "success": True,
+                    "found": False,
+                    "node_type": node_type,
+                    "message": f"Documentation for node '{node_type}' not found."
+                }
+
+            chapter_file = info["chapter_file"]
+            docs_dir = self._get_docs_dir(lang)
+            target_path = os.path.join(docs_dir, chapter_file)
+            if not os.path.isfile(target_path):
+                target_path = os.path.join(self._get_docs_dir("es"), chapter_file)
+
+            with open(target_path, "r", encoding="utf-8") as f:
+                full_content = f.read()
+
+            # Extraer la sección del nodo desde su encabezado ## hasta el siguiente ## o fin de archivo
+            pattern = re.compile(
+                r"(^##\s+\d+\.\s+(?:Nodo|Node)\s+[`\"']?" + re.escape(info["type"]) + r"[`\"']?.*?)(?=\n---\s*\n##\s+|\n##\s+|\Z)",
+                re.MULTILINE | re.DOTALL
+            )
+            match = pattern.search(full_content)
+            section_content = match.group(1).strip() if match else ""
+
+            return {
+                "success": True,
+                "found": True,
+                "node_type": info["type"],
+                "chapter_file": chapter_file,
+                "chapter_title": info.get("chapter_title", ""),
+                "section_title": info.get("title", ""),
+                "anchor": info.get("anchor", ""),
+                "content": section_content
+            }
+        except Exception as e:
+            return {"success": False, "found": False, "error": str(e)}
+
+    def get_doc_image(self, name):
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            root_docs = os.path.join(base_dir, "docs")
+            safe_name = os.path.basename(str(name).strip())
+            
+            candidates = [
+                os.path.join(root_docs, "img", safe_name),
+                os.path.join(root_docs, "es", "img", safe_name),
+                os.path.join(root_docs, "en", "img", safe_name),
+                os.path.join(root_docs, safe_name)
+            ]
+            img_path = None
+            for c in candidates:
+                if os.path.isfile(c):
+                    img_path = c
+                    break
+
+            if img_path and os.path.isfile(img_path):
+                import base64
+                with open(img_path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                ext = os.path.splitext(img_path)[1].lower().replace(".", "")
+                mime = "image/png" if ext == "png" else f"image/{ext}"
+                return {"success": True, "data_url": f"data:{mime};base64,{b64}"}
+            return {"success": False, "error": f"Image '{safe_name}' not found"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def shutdown_daemon(self):
         try:

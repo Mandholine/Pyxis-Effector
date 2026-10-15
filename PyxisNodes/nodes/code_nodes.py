@@ -18,9 +18,15 @@
 
 import math
 import sys
+from collections import OrderedDict
 from decorators import system_node
 
-_COMPILED_SCRIPT_CACHE = {}
+_COMPILED_SCRIPT_CACHE = OrderedDict()
+_MAX_COMPILED_SCRIPT_CACHE = 512
+
+def clear_compiled_script_cache():
+    """Clears cached compiled script code and AST structures."""
+    _COMPILED_SCRIPT_CACHE.clear()
 _STATIC_BASE_SCOPE = None
 
 def _get_static_base_scope():
@@ -440,9 +446,9 @@ def _pyxis_kana(text):
 def _build_unit_lua_table(lua, unit_obj, line_tbl=None):
     if not unit_obj:
         return None
-    st = getattr(unit_obj, "start_time", getattr(unit_obj, "start", getattr(unit_obj, "st", 0)))
-    et = getattr(unit_obj, "end_time", getattr(unit_obj, "end", getattr(unit_obj, "et", 0)))
-    dur = getattr(unit_obj, "duration", getattr(unit_obj, "dur", et - st))
+    st = getattr(unit_obj, "start_time", 0)
+    et = getattr(unit_obj, "end_time", 0)
+    dur = getattr(unit_obj, "duration", getattr(unit_obj, "dur", max(0, et - st)))
     mid = getattr(unit_obj, "mid_time", st + dur / 2.0)
 
     d = {
@@ -452,11 +458,16 @@ def _build_unit_lua_table(lua, unit_obj, line_tbl=None):
         "duration": dur,
         "start_time": st,
         "end_time": et,
-        "start": st,
-        "end": et,
-        "st": st,
-        "et": et,
         "mid_time": mid,
+        "syl_start": getattr(unit_obj, "syl_start", 0),
+        "syl_end": getattr(unit_obj, "syl_end", 0),
+        "syl_mid": getattr(unit_obj, "syl_mid", 0),
+        "char_start": getattr(unit_obj, "char_start", 0),
+        "char_end": getattr(unit_obj, "char_end", 0),
+        "char_mid": getattr(unit_obj, "char_mid", 0),
+        "word_start": getattr(unit_obj, "word_start", 0),
+        "word_end": getattr(unit_obj, "word_end", 0),
+        "word_mid": getattr(unit_obj, "word_mid", 0),
         "prespace": getattr(unit_obj, "prespace", ""),
         "postspace": getattr(unit_obj, "postspace", ""),
         "syl_i": getattr(unit_obj, "syl_i", getattr(unit_obj, "i", 1)),
@@ -470,9 +481,27 @@ def _build_unit_lua_table(lua, unit_obj, line_tbl=None):
         "top": getattr(unit_obj, "top", 0.0),
         "middle": getattr(unit_obj, "middle", 0.0),
         "bottom": getattr(unit_obj, "bottom", 0.0),
+        "width": getattr(unit_obj, "width", 0.0),
+        "height": getattr(unit_obj, "height", 0.0),
+        "descent": getattr(unit_obj, "descent", 0.0),
+        "extlead": getattr(unit_obj, "extlead", 0.0),
         "text": getattr(unit_obj, "text", ""),
         "text_stripped": getattr(unit_obj, "text_stripped", getattr(unit_obj, "text", ""))
     }
+    ink_obj = getattr(unit_obj, "ink", None)
+    if ink_obj is not None:
+        d["ink"] = lua.table_from({
+            "left": ink_obj.left,
+            "right": ink_obj.right,
+            "top": ink_obj.top,
+            "bottom": ink_obj.bottom,
+            "width": ink_obj.width,
+            "height": ink_obj.height,
+            "center": ink_obj.center,
+            "middle": ink_obj.middle,
+            "x": ink_obj.x,
+            "y": ink_obj.y
+        })
     if line_tbl is not None:
         d["line"] = line_tbl
     return lua.table_from(d)
@@ -491,27 +520,21 @@ VAR_ALIAS_GROUPS = {
     "fx_pos_y": ["y", "pos_y", "fx_pos_y", "val_y"],
     "val_y": ["y", "pos_y", "fx_pos_y", "val_y"],
 
-    # Start time group
-    "start_time": ["start_time", "st", "val_start", "start", "fx_start_time", "fx_st", "time_start"],
-    "st": ["start_time", "st", "val_start", "start", "fx_start_time", "fx_st", "time_start"],
-    "val_start": ["start_time", "st", "val_start", "start", "fx_start_time", "fx_st", "time_start"],
-    "start": ["start_time", "st", "val_start", "start", "fx_start_time", "fx_st", "time_start"],
-    "fx_start_time": ["start_time", "st", "val_start", "start", "fx_start_time", "fx_st", "time_start"],
-    "fx_st": ["start_time", "st", "val_start", "start", "fx_start_time", "fx_st", "time_start"],
+    # Start time group (Unit relative)
+    "start_time": ["start_time", "st", "val_start"],
+    "st": ["start_time", "st", "val_start"],
+    "val_start": ["start_time", "st", "val_start"],
 
-    # End time group
-    "end_time": ["end_time", "et", "val_end", "end", "fx_end_time", "fx_et", "time_end"],
-    "et": ["end_time", "et", "val_end", "end", "fx_end_time", "fx_et", "time_end"],
-    "val_end": ["end_time", "et", "val_end", "end", "fx_end_time", "fx_et", "time_end"],
-    "end": ["end_time", "et", "val_end", "end", "fx_end_time", "fx_et", "time_end"],
-    "fx_end_time": ["end_time", "et", "val_end", "end", "fx_end_time", "fx_et", "time_end"],
-    "fx_et": ["end_time", "et", "val_end", "end", "fx_end_time", "fx_et", "time_end"],
+    # End time group (Unit relative)
+    "end_time": ["end_time", "et", "val_end"],
+    "et": ["end_time", "et", "val_end"],
+    "val_end": ["end_time", "et", "val_end"],
 
     # Duration group
-    "dur": ["dur", "duration", "val_dur", "fx_dur", "time_dur"],
-    "duration": ["dur", "duration", "val_dur", "fx_dur", "time_dur"],
-    "val_dur": ["dur", "duration", "val_dur", "fx_dur", "time_dur"],
-    "fx_dur": ["dur", "duration", "val_dur", "fx_dur", "time_dur"],
+    "dur": ["dur", "duration", "val_dur", "time_dur"],
+    "duration": ["dur", "duration", "val_dur", "time_dur"],
+    "val_dur": ["dur", "duration", "val_dur", "time_dur"],
+    "time_dur": ["dur", "duration", "val_dur", "time_dur"],
 
     # Origin group
     "org_x": ["org_x", "fx_org_x"],
@@ -585,18 +608,21 @@ def _sync_python_scope_to_context(eval_scope, context, initial_vals=None):
         return
     base_scope = _get_static_base_scope()
     excluded_keys = set(base_scope.keys()) | {
-        "__builtins__", "inputs", "active_unit", "syl", "sili", "char", "word", "line", "l", "fx",
+        "__builtins__", "inputs", "outputs", "out", "active_unit", "syl", "char", "word", "line", "l", "fx", "ink",
+        "prev", "next", "is_first", "is_last", "has_prev", "has_next",
         "frame_dur", "ratio", "R", "Rs", "Rc", "Rd", "Rm", "Re", "Rfake", "Rcolor", "Rds", "Rcs",
         "Rms", "R2d", "Rbool", "Rstep", "Rr", "clamp", "lerp", "tag_only", "time_lead_in",
         "time_lead_out", "time_middle_1", "time_middle_2", "time_loop_1", "time_loop_2",
         "li", "lo", "m1", "m2", "l1", "l2", "audio_rms", "audio_peak", "audio_band", "audio_fft", "result"
     }
+    for i in range(1, 17):
+        excluded_keys.update({f"in{i}", f"in_{i}", f"In{i}", f"out{i}", f"out_{i}", f"Out{i}"})
 
     user_modified_keys = set()
     for k, v in eval_scope.items():
         if isinstance(k, str) and not k.startswith("_") and k not in excluded_keys:
+            context[k] = v
             if not callable(v):
-                context[k] = v
                 if initial_vals is None or k not in initial_vals or initial_vals[k] != v:
                     user_modified_keys.add(k)
     for unit_key in ("syl", "char", "word"):
@@ -643,8 +669,11 @@ def _sync_python_scope_to_context(eval_scope, context, initial_vals=None):
                     val = getattr(unit_obj, attr)
                     context[f"{unit_key}_{attr}"] = val
                     if is_active:
-                        context[f"val_{attr}"] = val
-                        context[attr] = val
+                        if attr in ("x", "y", "center", "middle") and context.get("pos_overridden"):
+                            pass
+                        else:
+                            context[f"val_{attr}"] = val
+                            context[attr] = val
 
     if line_obj:
         for attr in ("text", "raw_text", "style_name", "style", "layer", "start_time", "end_time", "duration", "dur", "margin_l", "margin_r", "margin_v", "actor", "effect"):
@@ -694,6 +723,33 @@ def _is_lua_callable_or_fn(val):
     return callable(val)
 
 
+def _lua_val_to_python(val, seen=None):
+    if val is None:
+        return None
+    if isinstance(val, (int, float, str, bool)):
+        return val
+    type_name = type(val).__name__
+    if type_name == "_LuaTable":
+        if seen is None:
+            seen = set()
+        ptr = id(val)
+        if ptr in seen:
+            return None
+        seen.add(ptr)
+        try:
+            keys = list(val.keys())
+            is_seq = len(keys) > 0 and all(isinstance(k, int) and 1 <= k <= len(keys) for k in keys)
+            if is_seq:
+                return [_lua_val_to_python(val[k], seen) for k in sorted(keys)]
+            else:
+                return {str(k): _lua_val_to_python(val[k], seen) for k in keys}
+        except Exception:
+            return str(val)
+    if type_name == "_LuaFunction" or callable(val):
+        return val
+    return val
+
+
 def _sync_lua_globals_to_context(g, context, ctx_dict, initial_vals=None):
     if not isinstance(context, dict):
         return
@@ -712,8 +768,11 @@ def _sync_lua_globals_to_context(g, context, ctx_dict, initial_vals=None):
         "math", "os", "package", "string", "table", "utf8", "bit32"
     }
     injected_keys = {
-        "inputs", "result", "_pyxis_main", "g", "syl", "char", "word", "line", "l", "fx",
+        "inputs", "outputs", "out", "result", "_pyxis_main", "g", "syl", "char", "word", "line", "l", "fx", "ink",
+        "prev", "next", "is_first", "is_last", "has_prev", "has_next",
+        "order", "style", "actor", "effect", "layer",
         "context", "frame_dur", "ratio", "active_unit", "all_lines", "selected_lines", "engine", "processor",
+        "format", "floor", "ceil", "deg", "rad", "round",
         "R", "Rs", "Rc", "Rd", "Rm", "Re", "Rfake", "Rcolor",
         "Rds", "Rcs", "Rms", "R2d", "Rbool", "Rstep", "Rr", "clamp", "lerp", "tag_only",
         "pos", "move", "org", "fad", "fade", "clip", "iclip", "c1", "c2", "c3", "c4",
@@ -730,14 +789,14 @@ def _sync_lua_globals_to_context(g, context, ctx_dict, initial_vals=None):
         "l1", "l2", "remember", "recall", "audio_rms", "audio_peak", "audio_band", "audio_fft"
     }
     for i in range(1, 17):
-        injected_keys.update({f"in{i}", f"in_{i}", f"In{i}"})
+        injected_keys.update({f"in{i}", f"in_{i}", f"In{i}", f"out{i}", f"out_{i}", f"Out{i}"})
 
     user_modified_keys = set()
     for k in g:
         if isinstance(k, str) and not k.startswith("_") and k not in lua_builtins and k not in injected_keys:
             try:
                 val = g[k]
-                if val is not None and not _is_lua_callable_or_fn(val):
+                if val is not None:
                     should_sync = False
                     if k not in initial_vals:
                         should_sync = True
@@ -749,8 +808,11 @@ def _sync_lua_globals_to_context(g, context, ctx_dict, initial_vals=None):
                         except Exception:
                             should_sync = True
                     if should_sync:
-                        context[k] = val
-                        user_modified_keys.add(k)
+                        py_val = _lua_val_to_python(val)
+                        if py_val is not None:
+                            context[k] = py_val
+                            if not _is_lua_callable_or_fn(val):
+                                user_modified_keys.add(k)
             except Exception:
                 pass
 
@@ -1001,21 +1063,33 @@ def execute_python_script(context, script, inputs_map):
     active_unit = eval_scope.get("active_unit")
     if active_unit:
         eval_scope.setdefault("syl", getattr(active_unit, "syl", active_unit))
-        eval_scope.setdefault("sili", eval_scope.get("syl"))
         eval_scope.setdefault("char", getattr(active_unit, "char", None))
         eval_scope.setdefault("word", getattr(active_unit, "word", None))
         eval_scope.setdefault("line", getattr(active_unit, "line", None))
 
     eval_scope["l"] = eval_scope.get("line")
-    eval_scope["L"] = eval_scope.get("line")
-    eval_scope["Syl"] = eval_scope.get("syl")
-    eval_scope["S"] = eval_scope.get("syl")
-    eval_scope["Char"] = eval_scope.get("char")
-    eval_scope["C"] = eval_scope.get("char")
-    eval_scope["Word"] = eval_scope.get("word")
-    eval_scope["W"] = eval_scope.get("word")
     from node_engine import FxContext
     eval_scope["fx"] = FxContext(eval_scope)
+    from models import InkNamespace
+    eval_scope["ink"] = InkNamespace(eval_scope)
+
+    prev_obj = getattr(active_unit, "prev", None) if active_unit else eval_scope.get("prev")
+    next_obj = getattr(active_unit, "next", None) if active_unit else eval_scope.get("next")
+    eval_scope["prev"] = prev_obj
+    eval_scope["next"] = next_obj
+    i_val = int(eval_scope.get("i", getattr(active_unit, "i", 1)))
+    n_val = int(eval_scope.get("n", getattr(active_unit, "n", 1)))
+    eval_scope["is_first"] = (i_val == 1) or (prev_obj is None)
+    eval_scope["is_last"] = (i_val == n_val) or (next_obj is None)
+    eval_scope["has_prev"] = (prev_obj is not None)
+    eval_scope["has_next"] = (next_obj is not None)
+
+    eval_scope["outputs"] = {}
+    eval_scope["out"] = eval_scope["outputs"]
+    for i in range(1, 17):
+        eval_scope[f"out{i}"] = None
+        eval_scope[f"out_{i}"] = None
+        eval_scope[f"Out{i}"] = None
 
     if inputs_map and isinstance(inputs_map, dict):
         eval_scope["inputs"] = inputs_map
@@ -1024,22 +1098,49 @@ def execute_python_script(context, script, inputs_map):
                 eval_scope[k] = v
                 eval_scope[k.lower()] = v
 
-    from nodes.math_nodes import math_random_master
-    eval_scope["R"] = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="R", min_val=min_v, max_val=max_v, step=step_v)
-    eval_scope["Rs"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rs", min_val=min_v, max_val=max_v)
-    eval_scope["Rc"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rc", min_val=min_v, max_val=max_v)
-    eval_scope["Rd"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rd", min_val=min_v, max_val=max_v)
-    eval_scope["Rm"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rm", min_val=min_v, max_val=max_v)
-    eval_scope["Re"] = lambda options="": math_random_master(context, modo="Re", options=options)
-    eval_scope["Rfake"] = lambda: math_random_master(context, modo="Rfake")
-    eval_scope["Rcolor"] = lambda c1="#FFFFFF", c2="#000000": math_random_master(context, modo="Rcolor", min_val=c1, max_val=c2)
-    eval_scope["Rds"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rds", min_val=min_v, max_val=max_v)
-    eval_scope["Rcs"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rcs", min_val=min_v, max_val=max_v)
-    eval_scope["Rms"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rms", min_val=min_v, max_val=max_v)
-    eval_scope["R2d"] = lambda min_v=0, max_v=100: math_random_master(context, modo="R2d", min_val=min_v, max_val=max_v)
-    eval_scope["Rbool"] = lambda min_v=0.5: math_random_master(context, modo="Rbool", min_val=min_v)
-    eval_scope["Rstep"] = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="Rstep", min_val=min_v, max_val=max_v, step=step_v)
-    eval_scope["Rr"] = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="Rr", min_val=min_v, max_val=max_v, step=step_v)
+    from nodes.math_nodes import math_random_master, PyxisByDispatcher
+
+    eval_scope["by"] = PyxisByDispatcher(context)
+
+    def _make_rnd_caller(mode_name, default_step=None):
+        def _caller(*args, **kwargs):
+            by_val = kwargs.get("by", kwargs.get("iter", kwargs.get("iterator", None)))
+            if len(args) == 0:
+                mn = kwargs.get("min_val", kwargs.get("min", None))
+                mx = kwargs.get("max_val", kwargs.get("max", None))
+                st = kwargs.get("step", default_step)
+            elif len(args) == 1:
+                mn = args[0]
+                mx = None
+                st = kwargs.get("step", default_step)
+            elif len(args) == 2:
+                mn = args[0]
+                mx = args[1]
+                st = kwargs.get("step", default_step)
+            else:
+                mn = args[0]
+                mx = args[1]
+                st = args[2]
+            clean_kwargs = {k: v for k, v in kwargs.items() if k not in ("min_val", "min", "max_val", "max", "step", "by", "iter", "iterator")}
+            return math_random_master(context, mode=mode_name, min_val=mn, max_val=mx, step=st, by=by_val, **clean_kwargs)
+        return _caller
+
+    eval_scope["R"] = _make_rnd_caller("R", 1.0)
+    eval_scope["Rs"] = _make_rnd_caller("Rs", 1.0)
+    eval_scope["Rc"] = _make_rnd_caller("Rc", 0.01)
+    eval_scope["Rd"] = _make_rnd_caller("Rd", 0.1)
+    eval_scope["Rm"] = _make_rnd_caller("Rm", 0.001)
+    eval_scope["Rds"] = _make_rnd_caller("Rds", 0.1)
+    eval_scope["Rcs"] = _make_rnd_caller("Rcs", 0.01)
+    eval_scope["Rms"] = _make_rnd_caller("Rms", 0.001)
+    eval_scope["Rr"] = _make_rnd_caller("Rr", 1.0)
+    eval_scope["Rstep"] = _make_rnd_caller("Rstep", 45.0)
+    eval_scope["R2d"] = _make_rnd_caller("R2d", 1.0)
+    eval_scope["Rbool"] = lambda prob=50.0, **kwargs: math_random_master(context, mode="Rbool", min_val=prob, **kwargs)
+    eval_scope["Rcolor"] = lambda c1="#FFFFFF", c2="#000000", **kwargs: math_random_master(context, mode="Rcolor", min_val=c1, max_val=c2, **kwargs)
+    eval_scope["Re"] = lambda options="", **kwargs: math_random_master(context, mode="Re", options=options, **kwargs)
+    eval_scope["Rfake"] = lambda *args, **kwargs: math_random_master(context, mode="Rfake", *args, **kwargs)
+    eval_scope["rand"] = eval_scope["R"]
 
     eval_scope["clamp"] = _pyxis_clamp
     eval_scope["lerp"] = _pyxis_lerp
@@ -1060,6 +1161,15 @@ def execute_python_script(context, script, inputs_map):
     eval_scope["l1"] = PyxisTimeModifier(time_loop_1, context, default_delay=30.0, mode="leadin")
     eval_scope["l2"] = PyxisTimeModifier(time_loop_2, context, default_delay=30.0, mode="leadin")
 
+    from nodes.time_nodes import PyxisSyncHelper, calculate_sync_gap
+    from models import AdjacentUnitProxy
+    eval_scope["sync"] = PyxisSyncHelper(context)
+    eval_scope["calculate_sync_gap"] = lambda *a, **kw: calculate_sync_gap(context, *a, **kw)
+    eval_scope["prev"] = AdjacentUnitProxy("prev", eval_scope.get("prev"))
+    eval_scope["next"] = AdjacentUnitProxy("next", eval_scope.get("next"))
+    for k_alias in ("order", "style", "actor", "effect", "layer"):
+        eval_scope[k_alias] = k_alias
+
     from nodes.audio_nodes import audio_rms, audio_peak, audio_band, audio_fft
     eval_scope["audio_rms"] = lambda *args, **kwargs: audio_rms(*args, context=context, **kwargs)
     eval_scope["audio_peak"] = lambda *args, **kwargs: audio_peak(*args, context=context, **kwargs)
@@ -1077,8 +1187,10 @@ def execute_python_script(context, script, inputs_map):
                 if val is not None:
                     initial_vals[f"{unit_key}_{attr}"] = val
 
-    compiled_entry = _COMPILED_SCRIPT_CACHE.get(script_str)
-    if compiled_entry is None:
+    if script_str in _COMPILED_SCRIPT_CACHE:
+        compiled_entry = _COMPILED_SCRIPT_CACHE[script_str]
+        _COMPILED_SCRIPT_CACHE.move_to_end(script_str)
+    else:
         import builtins
         import ast
         try:
@@ -1102,17 +1214,23 @@ def execute_python_script(context, script, inputs_map):
                     compiled_entry = ("exec", code_exec)
                 except Exception as comp_err:
                     compiled_entry = ("err", str(comp_err))
+        if len(_COMPILED_SCRIPT_CACHE) >= _MAX_COMPILED_SCRIPT_CACHE:
+            _COMPILED_SCRIPT_CACHE.popitem(last=False)
         _COMPILED_SCRIPT_CACHE[script_str] = compiled_entry
 
     kind, code_obj = compiled_entry
     import builtins
+    eval_scope["__builtins__"] = builtins
     res_str = ""
+    res = None
+    res_eval = None
+    explicit_res = None
     if kind == "ast_split":
         code_exec, code_eval = code_obj
         try:
             if code_exec:
-                exec(code_exec, {"__builtins__": builtins}, eval_scope)
-            res_eval = eval(code_eval, {"__builtins__": builtins}, eval_scope)
+                exec(code_exec, eval_scope)
+            res_eval = eval(code_eval, eval_scope)
             explicit_res = eval_scope.get("result", "")
             if explicit_res != "":
                 res_str = str(explicit_res)
@@ -1124,13 +1242,13 @@ def execute_python_script(context, script, inputs_map):
             res_str = f"[Err Python Script: {e}]"
     elif kind == "eval":
         try:
-            res = eval(code_obj, {"__builtins__": builtins}, eval_scope)
+            res = eval(code_obj, eval_scope)
             res_str = str(res) if res is not None else str(eval_scope.get("result", ""))
         except Exception as e:
             res_str = f"[Err Python Script: {e}]"
     elif kind == "exec":
         try:
-            exec(code_obj, {"__builtins__": builtins}, eval_scope)
+            exec(code_obj, eval_scope)
             res = eval_scope.get("result", "")
             res_str = str(res) if res is not None else ""
         except Exception as e:
@@ -1140,16 +1258,52 @@ def execute_python_script(context, script, inputs_map):
 
     _sync_python_scope_to_context(eval_scope, context, initial_vals=initial_vals)
 
-    if isinstance(context, dict) and res_str and not res_str.startswith("[Err"):
-        context["script_result"] = res_str
-        existing = str(context.get("loop_tags") or context.get("tags") or "")
-        try:
-            from node_engine import merge_ass_tags
-            context["loop_tags"] = merge_ass_tags(existing, res_str)
-            context["tags"] = context["loop_tags"]
-        except Exception:
-            context["loop_tags"] = (existing + res_str).strip()
-            context["tags"] = context["loop_tags"]
+    script_outputs = {}
+    py_outputs = eval_scope.get("outputs")
+    if isinstance(py_outputs, dict):
+        for k, v in py_outputs.items():
+            script_outputs[k] = v
+            if isinstance(k, int):
+                script_outputs[f"out{k}"] = v
+    py_out = eval_scope.get("out")
+    if isinstance(py_out, dict) and py_out is not py_outputs:
+        for k, v in py_out.items():
+            script_outputs[k] = v
+    for i in range(1, 17):
+        for prefix in (f"out{i}", f"out_{i}", f"Out{i}"):
+            v = eval_scope.get(prefix)
+            if v is not None:
+                script_outputs[f"out{i}"] = v
+                script_outputs[i] = v
+                break
+
+    if kind == "ast_split":
+        if isinstance(eval_scope.get("result"), dict):
+            for k, v in eval_scope["result"].items():
+                script_outputs[k] = v
+        elif isinstance(res_eval, dict):
+            for k, v in res_eval.items():
+                script_outputs[k] = v
+    elif kind in ("eval", "exec"):
+        res_raw = eval_scope.get("result") if kind == "exec" else res
+        if isinstance(res_raw, dict):
+            for k, v in res_raw.items():
+                script_outputs[k] = v
+
+    if isinstance(context, dict):
+        context["_script_outputs"] = script_outputs
+        context["outputs"] = script_outputs
+        if res_str and not res_str.startswith("[Err"):
+            context["script_result"] = res_str
+            if '\\' in res_str or '{' in res_str:
+                existing = str(context.get("loop_tags") or context.get("tags") or "")
+                try:
+                    from node_engine import merge_ass_tags
+                    context["loop_tags"] = merge_ass_tags(existing, res_str)
+                    context["tags"] = context["loop_tags"]
+                except Exception:
+                    context["loop_tags"] = (existing + res_str).strip()
+                    context["tags"] = context["loop_tags"]
 
     return res_str
 
@@ -1175,6 +1329,17 @@ def execute_lua_script(context, script, inputs_map):
         lua = lupa.LuaRuntime(unpack_returned_tuples=True)
         g = lua.globals()
 
+        lua.execute("format = string.format")
+        lua.execute("floor = math.floor; ceil = math.ceil; deg = math.deg; rad = math.rad")
+        lua.execute("""
+        math.round = function(num, idp)
+            if not num then return 0 end
+            local mult = 10^(idp or 0)
+            return math.floor(num * mult + 0.5) / mult
+        end
+        round = math.round
+        """)
+
         g.frame_dur = frame_dur
         g.ratio = ratio
 
@@ -1191,25 +1356,65 @@ def execute_lua_script(context, script, inputs_map):
 
         ctx_dict = dict(context or {})
         for k, v in ctx_dict.items():
-            if isinstance(k, (int, float, str, bool)):
-                g[k] = v
+            if isinstance(k, str) and not k.startswith("_"):
+                if hasattr(v, '__class__') and ('lupa' in str(type(v)) or type(v).__name__.startswith('_Lua')):
+                    continue
+                if isinstance(v, (int, float, str, bool)):
+                    g[k] = v
+                elif isinstance(v, (list, tuple)):
+                    try:
+                        g[k] = lua.table_from(v)
+                    except Exception:
+                        pass
+                elif isinstance(v, dict):
+                    try:
+                        g[k] = lua.table_from(v)
+                    except Exception:
+                        pass
 
-        from nodes.math_nodes import math_random_master
-        g.R = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="R", min_val=min_v, max_val=max_v, step=step_v)
-        g.Rs = lambda min_v=0, max_v=100: math_random_master(context, modo="Rs", min_val=min_v, max_val=max_v)
-        g.Rc = lambda min_v=0, max_v=100: math_random_master(context, modo="Rc", min_val=min_v, max_val=max_v)
-        g.Rd = lambda min_v=0, max_v=100: math_random_master(context, modo="Rd", min_val=min_v, max_val=max_v)
-        g.Rm = lambda min_v=0, max_v=100: math_random_master(context, modo="Rm", min_val=min_v, max_val=max_v)
-        g.Re = lambda options="": math_random_master(context, modo="Re", options=options)
-        g.Rfake = lambda: math_random_master(context, modo="Rfake")
-        g.Rcolor = lambda c1="#FFFFFF", c2="#000000": math_random_master(context, modo="Rcolor", min_val=c1, max_val=c2)
-        g.Rds = lambda min_v=0, max_v=100: math_random_master(context, modo="Rds", min_val=min_v, max_val=max_v)
-        g.Rcs = lambda min_v=0, max_v=100: math_random_master(context, modo="Rcs", min_val=min_v, max_val=max_v)
-        g.Rms = lambda min_v=0, max_v=100: math_random_master(context, modo="Rms", min_val=min_v, max_val=max_v)
-        g.R2d = lambda min_v=0, max_v=100: math_random_master(context, modo="R2d", min_val=min_v, max_val=max_v)
-        g.Rbool = lambda min_v=0.5: math_random_master(context, modo="Rbool", min_val=min_v)
-        g.Rstep = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="Rstep", min_val=min_v, max_val=max_v, step=step_v)
-        g.Rr = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="Rr", min_val=min_v, max_val=max_v, step=step_v)
+        from nodes.math_nodes import math_random_master, PyxisByDispatcher
+
+        g.by = PyxisByDispatcher(context)
+
+        def _make_lua_rnd_caller(mode_name, default_step=None):
+            def _caller(*args, **kwargs):
+                by_val = kwargs.get("by", kwargs.get("iter", kwargs.get("iterator", None)))
+                if len(args) == 0:
+                    mn = kwargs.get("min_val", kwargs.get("min", None))
+                    mx = kwargs.get("max_val", kwargs.get("max", None))
+                    st = kwargs.get("step", default_step)
+                elif len(args) == 1:
+                    mn = args[0]
+                    mx = None
+                    st = kwargs.get("step", default_step)
+                elif len(args) == 2:
+                    mn = args[0]
+                    mx = args[1]
+                    st = kwargs.get("step", default_step)
+                else:
+                    mn = args[0]
+                    mx = args[1]
+                    st = args[2]
+                clean_kwargs = {k: v for k, v in kwargs.items() if k not in ("min_val", "min", "max_val", "max", "step", "by", "iter", "iterator")}
+                return math_random_master(context, mode=mode_name, min_val=mn, max_val=mx, step=st, by=by_val, **clean_kwargs)
+            return _caller
+
+        g.R = _make_lua_rnd_caller("R", 1.0)
+        g.Rs = _make_lua_rnd_caller("Rs", 1.0)
+        g.Rc = _make_lua_rnd_caller("Rc", 0.01)
+        g.Rd = _make_lua_rnd_caller("Rd", 0.1)
+        g.Rm = _make_lua_rnd_caller("Rm", 0.001)
+        g.Rds = _make_lua_rnd_caller("Rds", 0.1)
+        g.Rcs = _make_lua_rnd_caller("Rcs", 0.01)
+        g.Rms = _make_lua_rnd_caller("Rms", 0.001)
+        g.Rr = _make_lua_rnd_caller("Rr", 1.0)
+        g.Rstep = _make_lua_rnd_caller("Rstep", 45.0)
+        g.R2d = _make_lua_rnd_caller("R2d", 1.0)
+        g.Rbool = lambda prob=50.0, **kwargs: math_random_master(context, mode="Rbool", min_val=prob, **kwargs)
+        g.Rcolor = lambda c1="#FFFFFF", c2="#000000", **kwargs: math_random_master(context, mode="Rcolor", min_val=c1, max_val=c2, **kwargs)
+        g.Re = lambda options="", **kwargs: math_random_master(context, mode="Re", options=options, **kwargs)
+        g.Rfake = lambda *args, **kwargs: math_random_master(context, mode="Rfake", *args, **kwargs)
+        g.rand = g.R
 
         g.clamp = _pyxis_clamp
         g.lerp = _pyxis_lerp
@@ -1342,6 +1547,35 @@ def execute_lua_script(context, script, inputs_map):
         l2 = _make_mod(time_loop_2, 30)
         """)
 
+        from nodes.time_nodes import calculate_sync_gap
+        g._py_calculate_sync_gap = lambda d="next", m="order", mg=None: calculate_sync_gap(context, direction=d, mode=m, max_gap=mg)
+        for k_alias in ("prev", "next", "order", "style", "actor", "effect", "layer"):
+            setattr(g, k_alias, k_alias)
+
+        lua.execute("""
+        local _sync_obj = {}
+        setmetatable(_sync_obj, {
+            __call = function(t, d, m, mg)
+                return _py_calculate_sync_gap(d or "next", m or "order", mg)
+            end,
+            __index = function(t, k)
+                local name = string.lower(tostring(k))
+                local d = "next"
+                local m = "order"
+                if string.find(name, "prev") or name == "p" then d = "prev" end
+                if string.find(name, "next") or name == "n" then d = "next" end
+                for _, mode_name in ipairs({"style", "actor", "effect", "layer", "order"}) do
+                    if string.find(name, mode_name) then
+                        m = mode_name
+                        break
+                    end
+                end
+                return _py_calculate_sync_gap(d, m, nil)
+            end
+        })
+        sync = _sync_obj
+        """)
+
         remember_fn = ctx_dict.get("remember")
         recall_fn = ctx_dict.get("recall")
         g.remember = lambda k, v: remember_fn(k, v) if callable(remember_fn) else v
@@ -1354,9 +1588,24 @@ def execute_lua_script(context, script, inputs_map):
         g.audio_fft = lambda start_ms=None, end_ms=None, num_bands=16, min_hz=20, max_hz=16000, path=None: lua.table_from(audio_fft(start_ms, end_ms, num_bands, min_hz, max_hz, path, context=context))
 
         line_tbl = None
+        line_ink_tbl = None
         line_obj = ctx_dict.get("line") or ctx_dict.get("l") or ctx_dict.get("L")
         if line_obj:
-            line_tbl = lua.table_from({
+            line_ink = getattr(line_obj, "ink", None)
+            if line_ink is not None:
+                line_ink_tbl = lua.table_from({
+                    "left": line_ink.left,
+                    "right": line_ink.right,
+                    "top": line_ink.top,
+                    "bottom": line_ink.bottom,
+                    "width": line_ink.width,
+                    "height": line_ink.height,
+                    "center": line_ink.center,
+                    "middle": line_ink.middle,
+                    "x": line_ink.x,
+                    "y": line_ink.y
+                })
+            line_dict = {
                 "layer": getattr(line_obj, "layer", 0),
                 "style_name": getattr(line_obj, "style_name", getattr(line_obj, "style", "Default")),
                 "style": getattr(line_obj, "style", getattr(line_obj, "style_name", "Default")),
@@ -1387,31 +1636,82 @@ def execute_lua_script(context, script, inputs_map):
                 "effect": getattr(line_obj, "effect", ""),
                 "i": getattr(line_obj, "i", 1),
                 "n": getattr(line_obj, "n", 1)
-            })
+            }
+            if line_ink_tbl is not None:
+                line_dict["ink"] = line_ink_tbl
+            line_tbl = lua.table_from(line_dict)
             g.line = line_tbl
             g.l = line_tbl
-            g.L = line_tbl
 
         active_unit_obj = ctx_dict.get("active_unit")
+        syl_tbl = None
         syl_unit = ctx_dict.get("syl") or active_unit_obj
         if syl_unit:
             syl_tbl = _build_unit_lua_table(lua, syl_unit, line_tbl)
             g.syl = syl_tbl
-            g.sili = syl_tbl
-            g.Syl = syl_tbl
-            g.S = syl_tbl
+        word_tbl = None
         word_unit = ctx_dict.get("word") or getattr(active_unit_obj, "word", None)
         if word_unit:
             word_tbl = _build_unit_lua_table(lua, word_unit, line_tbl)
             g.word = word_tbl
-            g.Word = word_tbl
-            g.W = word_tbl
+        char_tbl = None
         char_unit = ctx_dict.get("char") or getattr(active_unit_obj, "char", None)
         if char_unit:
             char_tbl = _build_unit_lua_table(lua, char_unit, line_tbl)
             g.char = char_tbl
-            g.Char = char_tbl
-            g.C = char_tbl
+
+        prev_tbl = None
+        prev_obj = getattr(active_unit_obj, "prev", None) if active_unit_obj else ctx_dict.get("prev")
+        if prev_obj:
+            prev_tbl = _build_unit_lua_table(lua, prev_obj, line_tbl)
+            g.prev = prev_tbl
+        else:
+            g.prev = None
+
+        next_tbl = None
+        next_obj = getattr(active_unit_obj, "next", None) if active_unit_obj else ctx_dict.get("next")
+        if next_obj:
+            next_tbl = _build_unit_lua_table(lua, next_obj, line_tbl)
+            g.next = next_tbl
+        else:
+            g.next = None
+
+        i_val = int(ctx_dict.get("i", getattr(active_unit_obj, "i", 1)))
+        n_val = int(ctx_dict.get("n", getattr(active_unit_obj, "n", 1)))
+        g.is_first = (i_val == 1) or (prev_obj is None)
+        g.is_last = (i_val == n_val) or (next_obj is None)
+        g.has_prev = (prev_obj is not None)
+        g.has_next = (next_obj is not None)
+
+        g.outputs = lua.table_from({})
+        g.out = g.outputs
+        for i in range(1, 17):
+            g[f"out{i}"] = None
+            g[f"out_{i}"] = None
+            g[f"Out{i}"] = None
+
+        ink_tbl_dict = {
+            "l": line_ink_tbl,
+            "line": line_ink_tbl,
+            "syl": syl_tbl["ink"] if (syl_tbl and "ink" in syl_tbl) else None,
+            "char": char_tbl["ink"] if (char_tbl and "ink" in char_tbl) else None,
+            "word": word_tbl["ink"] if (word_tbl and "ink" in word_tbl) else None,
+        }
+        active_ink = getattr(active_unit_obj or syl_unit or line_obj, "ink", None)
+        if active_ink is not None:
+            ink_tbl_dict.update({
+                "left": active_ink.left,
+                "right": active_ink.right,
+                "top": active_ink.top,
+                "bottom": active_ink.bottom,
+                "width": active_ink.width,
+                "height": active_ink.height,
+                "center": active_ink.center,
+                "middle": active_ink.middle,
+                "x": active_ink.x,
+                "y": active_ink.y
+            })
+        g.ink = lua.table_from(ink_tbl_dict)
 
         fx_pos_x = ctx_dict.get("fx_pos_x", ctx_dict.get("x", 0.0))
         fx_pos_y = ctx_dict.get("fx_pos_y", ctx_dict.get("y", 0.0))
@@ -1524,28 +1824,67 @@ def execute_lua_script(context, script, inputs_map):
 
         _sync_lua_globals_to_context(g, context, ctx_dict, initial_vals=initial_vals)
 
-        if isinstance(context, dict) and res_str and not res_str.startswith("[Err"):
-            context["script_result"] = res_str
-            existing = str(context.get("loop_tags") or context.get("tags") or "")
+        script_outputs = {}
+        lua_outputs = getattr(g, "outputs", getattr(g, "out", None))
+        if lua_outputs is not None:
             try:
-                from node_engine import merge_ass_tags
-                context["loop_tags"] = merge_ass_tags(existing, res_str)
-                context["tags"] = context["loop_tags"]
+                for k, v in lua_outputs.items():
+                    script_outputs[k] = v
+                    if isinstance(k, int):
+                        script_outputs[f"out{k}"] = v
             except Exception:
-                context["loop_tags"] = (existing + res_str).strip()
-                context["tags"] = context["loop_tags"]
+                pass
+        for i in range(1, 17):
+            for prefix in (f"out{i}", f"out_{i}", f"Out{i}"):
+                v = getattr(g, prefix, None)
+                if v is not None:
+                    script_outputs[f"out{i}"] = v
+                    script_outputs[i] = v
+                    break
+
+        if type(res).__name__ == "_LuaTable":
+            try:
+                for k, v in res.items():
+                    script_outputs[k] = v
+            except Exception:
+                pass
+        elif isinstance(res, dict):
+            for k, v in res.items():
+                script_outputs[k] = v
+
+        if isinstance(context, dict):
+            context["_script_outputs"] = script_outputs
+            context["outputs"] = script_outputs
+            if res_str and not res_str.startswith("[Err"):
+                context["script_result"] = res_str
+                if '\\' in res_str or '{' in res_str:
+                    existing = str(context.get("loop_tags") or context.get("tags") or "")
+                    try:
+                        from node_engine import merge_ass_tags
+                        context["loop_tags"] = merge_ass_tags(existing, res_str)
+                        context["tags"] = context["loop_tags"]
+                    except Exception:
+                        context["loop_tags"] = (existing + res_str).strip()
+                        context["tags"] = context["loop_tags"]
 
         return res_str
     except Exception as e:
-        return f"[Err Lua Script: {e}]"
+        err_msg = str(e)
+        import re
+        m = re.search(r':(\d+):', err_msg)
+        if m:
+            raw_ln = int(m.group(1))
+            adj_ln = max(1, raw_ln - 1)
+            err_msg = err_msg.replace(f":{raw_ln}:", f":{adj_ln}:", 1)
+        return f"[Err Lua Script: {err_msg}]"
 
-def code_script_master(context, script="", language="Python", lenguaje=None, **inputs_map):
+def code_script_master(context, script="", language="Python", **inputs_map):
     """Dispatch function for the Script Code master node."""
     script_str = str(script or "").strip()
     if not script_str:
         return ""
 
-    chosen_lang = language if language is not None else (lenguaje or "Python")
+    chosen_lang = language or "Python"
     lang = str(chosen_lang).strip().lower()
     if lang == "lua":
         return execute_lua_script(context, script_str, inputs_map)

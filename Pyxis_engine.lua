@@ -17,7 +17,19 @@
 script_name        = "Pyxis Node Engine"
 script_description = "Visual Node-Based Karaoke Automation"
 script_author      = "Pyxis Dev Team"
-script_version     = "1.1.1"
+script_version     = "1.1.4"
+script_namespace   = "pyxis.NodeEngine"
+
+local depctrl_ok, DependencyControl = pcall(require, "l0.DependencyControl")
+local version_record = nil
+
+if depctrl_ok and (type(DependencyControl) == "table" or type(DependencyControl) == "function") then
+    pcall(function()
+        version_record = DependencyControl{
+            feed = "https://raw.githubusercontent.com/Mandholine/Pyxis-Effector/master/DependencyControl.json"
+        }
+    end)
+end
 
 local ffi = require("ffi")
 local unicode = require("aegisub.unicode")
@@ -260,12 +272,21 @@ local function serialize_metrics(line)
 end
 
 local function build_style_line(line)
+    local function fmt_num(v)
+        if v == nil then return "0" end
+        local n = tonumber(v)
+        if not n then return tostring(v) end
+        if n % 1 == 0 then return string.format("%d", n) end
+        return string.format("%.3f", n):gsub("%.?0+$", "")
+    end
     return string.format(
-        "Style: %s,%s,%d,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
-        line.name, line.fontname, line.fontsize, line.color1, line.color2, line.color3, line.color4,
+        "Style: %s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%s,%s,%s,%s,%d,%s,%s,%d,%d,%d,%d,%d",
+        line.name, line.fontname, fmt_num(line.fontsize), line.color1, line.color2, line.color3, line.color4,
         line.bold and 1 or 0, line.italic and 1 or 0, line.underline and 1 or 0, line.strikeout and 1 or 0,
-        line.scale_x, line.scale_y, line.spacing, line.angle, line.borderstyle, line.outline, line.shadow, line.align,
-        line.margin_l, line.margin_r, line.margin_t, line.encoding
+        fmt_num(line.scale_x), fmt_num(line.scale_y), fmt_num(line.spacing), fmt_num(line.angle),
+        tonumber(line.borderstyle) or 1, fmt_num(line.outline), fmt_num(line.shadow),
+        tonumber(line.align) or 2, tonumber(line.margin_l) or 0, tonumber(line.margin_r) or 0, tonumber(line.margin_t) or 0,
+        tonumber(line.encoding) or 1
     )
 end
 
@@ -326,9 +347,84 @@ function launch_Pyxis(subs, sel, act)
         return
     end
 
-    -- Adapted paths for Portable and Installed Aegisub
-    local base_dir = aegisub.decode_path("?data/automation/autoload")
-    local Pyxis_dir = join_path(base_dir, "PyxisNodes")
+    local function download_and_extract_runtime(target_dir)
+        local btn, _ = aegisub.dialog.display({
+            {class="label", label="Pyxis Effector requiere el motor de ejecución (~370 MB).", x=0, y=0, width=2, height=1},
+            {class="label", label="Repositorio: https://github.com/Mandholine/Pyxis-Effector", x=0, y=1, width=2, height=1},
+            {class="label", label="¿Desea iniciar la descarga ahora?", x=0, y=2, width=2, height=1}
+        }, {"Descargar", "Cancelar"})
+
+        if btn ~= "Descargar" then
+            return nil
+        end
+
+        local temp_dir = os.getenv("TEMP") or target_dir
+        local zip_name = "PyxisEffector-v" .. script_version .. "-win64.zip"
+        local zip_path = join_path(temp_dir, zip_name)
+        local download_url = "https://github.com/Mandholine/Pyxis-Effector/releases/download/v" .. script_version .. "/" .. zip_name
+        local bat_file = join_path(temp_dir, "pyxis_installer.bat")
+
+        local f = io.open(bat_file, "w")
+        if f then
+            f:write(string.format([[@echo off
+title Descargando Pyxis Effector
+echo Descargando motor de Pyxis (~370 MB)...
+curl.exe -# -L -f -o "%s" "%s"
+if errorlevel 1 goto fallback
+echo Descomprimiendo archivos...
+tar.exe -xf "%s" -C "%s"
+if errorlevel 1 goto fallback
+del /f /q "%s" >nul 2>&1
+exit /b 0
+
+:fallback
+echo Reintentando con PowerShell...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'Continue'; (New-Object Net.WebClient).DownloadFile('%s', '%s'); Expand-Archive -Path '%s' -DestinationPath '%s' -Force; Remove-Item '%s' -Force"
+exit /b 0
+]], zip_path, download_url, zip_path, target_dir, zip_path, download_url, zip_path, zip_path, target_dir, zip_path))
+            f:close()
+            os.execute('cmd.exe /c "' .. bat_file .. '"')
+            pcall(os.remove, bat_file)
+        end
+
+        local extracted_pyxis = join_path(target_dir, "PyxisNodes")
+        local verify_file = io.open(join_path(extracted_pyxis, "main.py"), "r")
+        if verify_file then
+            verify_file:close()
+            return extracted_pyxis
+        end
+
+        aegisub.dialog.display({
+            {class="label", label="Error: No se pudo descargar o extraer el motor de Pyxis.", x=0, y=0, width=2, height=1},
+            {class="label", label="Verifique su conexión a internet o instálelo manualmente desde GitHub Releases.", x=0, y=1, width=2, height=1}
+        }, {"Cerrar"})
+        return nil
+    end
+
+    local function find_pyxis_nodes_dir()
+        local user_autoload = aegisub.decode_path("?user/automation/autoload")
+        local p_user = join_path(user_autoload, "PyxisNodes")
+        local f_test = io.open(join_path(p_user, "main.py"), "r")
+        if f_test then
+            f_test:close()
+            return p_user
+        end
+
+        local data_autoload = aegisub.decode_path("?data/automation/autoload")
+        local p_data = join_path(data_autoload, "PyxisNodes")
+        local f_test2 = io.open(join_path(p_data, "main.py"), "r")
+        if f_test2 then
+            f_test2:close()
+            return p_data
+        end
+
+        return download_and_extract_runtime(user_autoload)
+    end
+
+    local Pyxis_dir = find_pyxis_nodes_dir()
+    if not Pyxis_dir then
+        return
+    end
 
     -- Dynamic temporary directory in %APPDATA%\PyxisNodes\temp_cache
     local appdata = os.getenv("APPDATA") or (os.getenv("USERPROFILE") and (os.getenv("USERPROFILE") .. "\\AppData\\Roaming")) or base_dir
@@ -626,4 +722,8 @@ function launch_Pyxis(subs, sel, act)
     return sel, act
 end
 
-aegisub.register_macro(script_name, script_description, launch_Pyxis)
+if version_record and version_record.registerMacro then
+    version_record:registerMacro(launch_Pyxis)
+else
+    aegisub.register_macro(script_name, script_description, launch_Pyxis)
+end

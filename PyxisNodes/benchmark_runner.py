@@ -53,8 +53,8 @@ def run_performance_diagnostic(ass_path=None, custom_graph=None, use_mp=False, n
     if custom_graph is None:
         custom_graph = {
             'nodes': [
-                {'id': 1, 'type': 'Loops/Main Loop', 'properties': {'iterador': 'syl'}, 'inputs': []},
-                {'id': 2, 'type': 'Loops/MaxLoop', 'properties': {'veces': '30', 'var_name': 'j'}, 'inputs': [{'name': 'Loop In', 'link': 1}]},
+                {'id': 1, 'type': 'Loops/Main Loop', 'properties': {'iterator': 'syl'}, 'inputs': []},
+                {'id': 2, 'type': 'Loops/MaxLoop', 'properties': {'iterations': '30', 'var_name': 'j'}, 'inputs': [{'name': 'Loop In', 'link': 1}]},
                 {'id': 3, 'type': 'Math/Calc', 'properties': {'expr': 'j * 2.5 + sin(j * 0.1) * 10'}, 'inputs': []},
                 {'id': 4, 'type': 'Tags/Pos', 'properties': {'x': 'syl.center', 'y': 'syl.middle'}, 'inputs': [{'name': 'x', 'link': 3}, {'name': 'y'}]},
                 {'id': 5, 'type': 'System/Output', 'properties': {'apply_to': 'Sel. Lines'}, 'inputs': [

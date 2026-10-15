@@ -327,7 +327,7 @@ def eval_text_node(context=None, **kwargs):
         return "1" if search in raw_text else "0"
 
     elif op_clean in ("kana", "transliteratekana"):
-        mode = get_str("Mode", get_str("mode", "Romaji to Hiragana"))
+        mode = get_str("Kana Mode", get_str("kana_mode", get_str("Mode", get_str("mode", "Romaji to Hiragana"))))
         return text_transliterate_kana(ctx, text=raw_text, mode=mode)
 
     elif op_clean in ("romajitokaraoke", "tokara", "karaoke"):

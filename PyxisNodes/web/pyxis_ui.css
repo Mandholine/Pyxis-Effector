@@ -51,11 +51,12 @@
      * Redimensionadores táctiles/esquinas (.pyxis-floating-resizer): 150,050 !important
 
    - TIER 4 (2,000,000 - 2,000,500):
-     TODOS LOS MENÚS DE PANTALLA COMPLETA, MODALES Y SELECTORES:
+     TODOS LOS MENÚS DE PANTALLA COMPLETA, MODALES, SELECTORES Y EDITORES INLINE:
      (Deben estar SIEMPRE por encima de cualquier elemento del canvas o reproductor)
      * Biblioteca de Plantillas (.pyxis-template-overlay): 2,000,000 !important
      * Modales del Sistema (.pyxis-modal-overlay): 2,000,000 !important
        (Ajustes de Temas, Editor de Temas, Editor ACE de Scripts, Benchmark)
+     * Editores inline de texto/área en canvas (#pyxis-inline-*): 2,000,100 !important
      * Selectores de Tags, SysVars, Mesh y Formas: 2,000,000 !important
      * Subdiálogos dentro de modales (Guardar, conflictos, etc.): 2,000,100 - 2,000,200
      * Selector flotante avanzado de color HSV/RGB (.pyxis-color-picker-dialog): 2,000,500 !important
@@ -96,6 +97,11 @@
     --text-main: #ffffff;
     --text-muted: #c7d8e2;
     --text-inverse: #081116;
+
+    --doc-accent-bright: color-mix(in srgb, var(--accent-primary, #22858c) 60%, #ffffff 40%);
+    --doc-text-amber: #f5edd6;
+    --doc-text-amber-bright: #fff9ed;
+    --doc-text-amber-muted: #ded3be;
     
     --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
     --font-mono: 'Fira Code', monospace;
@@ -625,7 +631,7 @@ body {
     color: var(--text-main) !important;
     border: none !important;
     font-weight: 700 !important;
-    box-shadow: 0 4px 14px var(--accent-glow);
+    box-shadow: 0 0 14px var(--accent-glow);
 }
 
 .pyxis-btn-primary:hover {
@@ -867,24 +873,34 @@ body {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    width: 260px;
-    background: #0f172a;
-    border: 1px solid rgba(59, 130, 246, 0.4);
+    width: 300px;
+    background: var(--bg-panel, #161b22);
+    border: 1px solid var(--border-highlight, var(--accent-primary, #3b82f6));
     border-radius: 10px;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.75), 0 0 20px rgba(59, 130, 246, 0.25);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.78), 0 0 20px var(--accent-glow, rgba(59, 130, 246, 0.25));
     padding: 12px 14px;
     z-index: 9999;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
-    pointer-events: none;
+    pointer-events: auto;
     transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
     backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.pyxis-estimation-card::before {
+    content: '';
+    position: absolute;
+    top: -10px;
+    left: 0;
+    right: 0;
+    height: 10px;
 }
 
 .pyxis-estimation-card .est-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
     padding-bottom: 8px;
     margin-bottom: 10px;
 }
@@ -892,7 +908,7 @@ body {
 .pyxis-estimation-card .est-title {
     font-size: 11.5px;
     font-weight: 700;
-    color: #e2e8f0;
+    color: var(--text-main, #e2e8f0);
     letter-spacing: 0.5px;
 }
 
@@ -901,9 +917,9 @@ body {
     font-weight: 700;
     padding: 2px 7px;
     border-radius: 4px;
-    background: rgba(96, 165, 250, 0.15);
-    color: #60a5fa;
-    border: 1px solid rgba(96, 165, 250, 0.35);
+    background: var(--bg-card, rgba(255, 255, 255, 0.1));
+    color: var(--accent-primary, #60a5fa);
+    border: 1px solid var(--border-highlight, var(--accent-primary, #60a5fa));
 }
 
 .pyxis-estimation-card .est-grid {
@@ -919,26 +935,58 @@ body {
 
 .pyxis-estimation-card .est-item-main {
     grid-column: 1 / -1;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
     padding-bottom: 6px;
     margin-bottom: 2px;
 }
 
 .pyxis-estimation-card .est-lbl {
     font-size: 9.5px;
-    color: #94a3b8;
+    color: var(--text-muted, #94a3b8);
     margin-bottom: 2px;
 }
 
 .pyxis-estimation-card .est-val {
     font-size: 12.5px;
     font-weight: 700;
-    color: #f8fafc;
+    color: var(--text-main, #f8fafc);
     font-family: monospace;
 }
 
+.pyxis-estimation-card .est-pills-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 9px;
+    padding-top: 7px;
+    border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+}
+
+.pyxis-estimation-card .est-profile-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-weight: 700;
+    font-family: var(--font-sans, sans-serif);
+    letter-spacing: 0.3px;
+    background: var(--bg-card, rgba(255, 255, 255, 0.08));
+    border: 1px solid var(--border-highlight, var(--accent-primary, #22858c));
+    color: var(--doc-accent-bright, var(--accent-primary, #22858c));
+}
+
+.pyxis-estimation-card .est-profile-pill svg {
+    width: 10px;
+    height: 10px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2.2;
+}
+
 .pyxis-estimation-card .est-alert {
-    margin-top: 10px;
+    margin-top: 9px;
     padding: 5px 8px;
     background: rgba(239, 68, 68, 0.15);
     border: 1px solid rgba(239, 68, 68, 0.4);
@@ -948,21 +996,64 @@ body {
     line-height: 1.35;
 }
 
+.pyxis-estimation-card .est-footer-actions {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    display: flex;
+    justify-content: stretch;
+}
+
+.pyxis-estimation-card .est-telemetry-btn {
+    width: 100%;
+    height: 27px;
+    border-radius: 6px;
+    border: 1px solid var(--border-highlight, var(--accent-primary, #22858c));
+    background: var(--accent-gradient, linear-gradient(135deg, #22858c 0%, #548c87 100%));
+    color: var(--text-main, #ffffff);
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font-sans, sans-serif);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    box-shadow: 0 2px 10px var(--accent-glow, rgba(34, 133, 140, 0.35));
+    transition: all 0.16s ease;
+}
+
+.pyxis-estimation-card .est-telemetry-btn:hover {
+    background: var(--accent-gradient, linear-gradient(135deg, #22858c 0%, #548c87 100%));
+    filter: brightness(1.18);
+    border-color: var(--doc-accent-bright, var(--accent-primary, #22858c));
+    color: var(--text-main, #ffffff);
+    box-shadow: 0 0 16px var(--accent-glow, rgba(34, 133, 140, 0.55));
+}
+
+.pyxis-estimation-card .est-telemetry-btn svg {
+    width: 13px;
+    height: 13px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2.2;
+}
+
 /* --- Floating Retime Node Mode Tooltip --- */
 .pyxis-retime-tooltip-card {
     position: fixed;
     z-index: 100005;
     pointer-events: none;
     max-width: 290px;
-    background: rgba(15, 23, 42, 0.96);
+    background: var(--bg-panel, rgba(15, 23, 42, 0.96));
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(139, 92, 246, 0.45);
+    border: 1px solid var(--border-highlight, var(--accent-secondary, #8b5cf6));
     border-radius: 9px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(139, 92, 246, 0.25);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.8), 0 0 20px var(--accent-glow, rgba(139, 92, 246, 0.25));
     padding: 10px 12px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    color: #e2e8f0;
+    color: var(--text-main, #e2e8f0);
     opacity: 0;
     transform: translateY(4px);
     transition: opacity 0.16s ease-out, transform 0.16s ease-out;
@@ -978,7 +1069,7 @@ body {
     justify-content: space-between;
     align-items: center;
     gap: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
     padding-bottom: 6px;
     margin-bottom: 6px;
 }
@@ -986,7 +1077,7 @@ body {
 .pyxis-retime-tooltip-card .rt-title {
     font-size: 11.5px;
     font-weight: 700;
-    color: #c084fc;
+    color: var(--accent-secondary-glow, var(--accent-secondary, #c084fc));
     letter-spacing: 0.3px;
 }
 
@@ -996,20 +1087,20 @@ body {
     font-weight: 700;
     padding: 1.5px 6px;
     border-radius: 4px;
-    background: rgba(56, 189, 248, 0.15);
-    color: #38bdf8;
-    border: 1px solid rgba(56, 189, 248, 0.35);
+    background: var(--bg-card, rgba(255, 255, 255, 0.1));
+    color: var(--accent-primary, #38bdf8);
+    border: 1px solid var(--border-highlight, var(--accent-primary, #38bdf8));
     white-space: nowrap;
 }
 
 .pyxis-retime-tooltip-card .rt-formula {
-    background: rgba(0, 0, 0, 0.45);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-input, rgba(0, 0, 0, 0.45));
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
     border-radius: 5px;
     padding: 4px 7px;
     font-family: "Cascadia Code", Consolas, monospace;
     font-size: 10.5px;
-    color: #a7f3d0;
+    color: var(--accent-secondary-glow, #a7f3d0);
     margin-bottom: 6px;
     word-break: break-all;
     line-height: 1.35;
@@ -1018,7 +1109,7 @@ body {
 .pyxis-retime-tooltip-card .rt-desc {
     font-size: 11px;
     line-height: 1.42;
-    color: #cbd5e1;
+    color: var(--text-muted, #cbd5e1);
 }
 
 /* =============================================================================
@@ -1122,21 +1213,22 @@ body {
     bottom: auto;
     left: 50%;
     transform: translateX(-50%) translateY(-3px);
-    background: rgba(10, 14, 23, 0.96);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    color: var(--text-main);
+    background: var(--bg-panel, #0b111e);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--text-main, #f1f5f9);
     padding: 5px 10px;
     border-radius: 6px;
     font-size: 11px;
     font-weight: 500;
+    letter-spacing: 0.2px;
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.15s ease, transform 0.15s ease;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-    z-index: 100001;
+    border: 1px solid var(--border-highlight, var(--accent-primary, #38bdf8));
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.75), 0 0 10px var(--accent-glow, rgba(34, 133, 140, 0.25));
+    z-index: 160000;
 }
 
 [data-tooltip]:hover::after {
@@ -1144,15 +1236,29 @@ body {
     transform: translateX(-50%) translateY(0);
 }
 
-/* Tooltip alineado a la derecha para botones en el extremo derecho */
-.top-bar-right [data-tooltip]::after {
+/* Tooltip alineado a la derecha para botones en el extremo derecho (evita cortes en pantalla) */
+.top-bar-right [data-tooltip]::after,
+.pyxis-floating-header-actions [data-tooltip]::after,
+.pyxis-help-topbar-actions [data-tooltip]::after {
     left: auto;
     right: 0;
     transform: translateY(-3px);
 }
 
-.top-bar-right [data-tooltip]:hover::after {
+.top-bar-right [data-tooltip]:hover::after,
+.pyxis-floating-header-actions [data-tooltip]:hover::after,
+.pyxis-help-topbar-actions [data-tooltip]:hover::after {
     transform: translateY(0);
+}
+
+/* Tooltips de ventana de ayuda en primer plano absoluto */
+.pyxis-help-window [data-tooltip]::after {
+    background: var(--bg-panel, #0b111e) !important;
+    color: var(--text-main, #ffffff) !important;
+    border: 1px solid var(--border-highlight, var(--accent-primary, #38bdf8)) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.95), 0 0 14px var(--accent-glow, rgba(34, 133, 140, 0.4)) !important;
+    z-index: 999999 !important;
+    pointer-events: none !important;
 }
 
 /* Tooltip mostrado hacia ARRIBA para la barra flotante inferior del canvas */
@@ -1552,7 +1658,7 @@ body {
 }
 
 .cp-hue-bar {
-    background: linear-gradient(to bottom, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+    background: linear-gradient(to bottom, #f00 0%, #ff0 16.666%, #0f0 33.333%, #0ff 50%, #00f 66.666%, #f0f 83.333%, #f00 100%);
 }
 
 .cp-slider-handle {
@@ -2414,6 +2520,142 @@ body {
     text-shadow: 0 2px 5px rgba(0, 0, 0, 0.8);
 }
 
+/* --- PROGRESS BAR & CANCEL BUTTON DENTRO DEL LOADING BACKDROP --- */
+.pyxis-player-loading-progress-box {
+    width: 260px;
+    max-width: 82%;
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pyxis-player-loading-progress-track {
+    width: 100%;
+    height: 7px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 10px rgba(56, 189, 248, 0.15);
+}
+
+.pyxis-player-loading-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #0284c7 0%, #38bdf8 50%, #34d399 100%);
+    border-radius: 999px;
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.85);
+}
+
+.pyxis-player-loading-progress-track.is-indeterminate .pyxis-player-loading-progress-bar {
+    width: 40% !important;
+    animation: pyxisProgressIndeterminate 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes pyxisProgressIndeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(280%); }
+}
+
+.pyxis-player-loading-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    font-family: var(--font-mono, "Fira Code", monospace);
+    color: #94a3b8;
+    padding: 0 2px;
+}
+
+.pyxis-player-loading-progress-pct {
+    font-weight: 700;
+    color: #38bdf8;
+    text-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
+.pyxis-player-loading-progress-info {
+    font-size: 10.5px;
+    color: #cbd5e1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 190px;
+}
+
+/* Botón Cancelar en el Backdrop */
+.pyxis-player-loading-cancel-btn {
+    margin-top: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font-sans, sans-serif);
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 6px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.pyxis-player-loading-cancel-btn svg {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+}
+
+.pyxis-player-loading-cancel-btn:hover {
+    color: #ffffff;
+    background: rgba(239, 68, 68, 0.4);
+    border-color: rgba(239, 68, 68, 0.8);
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.6);
+    transform: translateY(-1px);
+}
+
+.pyxis-player-loading-cancel-btn:active {
+    transform: translateY(0) scale(0.97);
+}
+
+/* Barra de progreso superior en el reproductor (Top Progress Line) */
+.pyxis-player-top-progress-track {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2.5px;
+    background: transparent;
+    z-index: 210;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.pyxis-player-top-progress-track.is-active {
+    opacity: 1;
+}
+
+.pyxis-player-top-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #38bdf8, #818cf8, #34d399);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.9);
+    transition: width 0.2s ease;
+}
+
+.pyxis-player-top-progress-track.is-indeterminate .pyxis-player-top-progress-bar {
+    width: 35% !important;
+    animation: pyxisProgressIndeterminate 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
 .pyxis-node-player-toolbar {
     height: 28px;
     background: rgba(15, 23, 42, 0.95);
@@ -2515,9 +2757,9 @@ body {
 .pyxis-header-icon-btn {
     width: 28px;
     height: 26px;
-    background: rgba(15, 23, 42, 0.88);
-    border: 1px solid rgba(139, 92, 246, 0.45);
-    color: #a7f3d0;
+    background: var(--bg-card, rgba(15, 23, 42, 0.88));
+    border: 1px solid var(--border-highlight, rgba(139, 92, 246, 0.45));
+    color: var(--text-main, #ffffff);
     border-radius: 6px;
     display: inline-flex;
     align-items: center;
@@ -2532,7 +2774,7 @@ body {
 .pyxis-header-icon-btn svg {
     width: 17px;
     height: 17px;
-    stroke: #a7f3d0;
+    stroke: currentColor;
     fill: none;
     transition: stroke 0.18s ease, transform 0.18s ease;
 }
@@ -2547,9 +2789,10 @@ body {
 }
 
 .pyxis-header-icon-btn:hover {
-    background: linear-gradient(135deg, rgba(139, 92, 246, 0.65) 0%, rgba(59, 130, 246, 0.65) 100%);
-    border-color: rgba(167, 243, 208, 0.9);
-    box-shadow: 0 0 14px rgba(139, 92, 246, 0.7);
+    background: var(--accent-gradient, linear-gradient(135deg, rgba(139, 92, 246, 0.65) 0%, rgba(59, 130, 246, 0.65) 100%));
+    border-color: var(--accent-primary, #ffffff);
+    color: #ffffff;
+    box-shadow: 0 0 14px var(--accent-glow, rgba(139, 92, 246, 0.7));
     transform: translateY(-1px);
 }
 
@@ -2561,7 +2804,7 @@ body {
 
 .pyxis-header-icon-btn:active {
     transform: translateY(0) scale(0.95);
-    box-shadow: 0 0 4px rgba(139, 92, 246, 0.4);
+    box-shadow: 0 0 4px var(--accent-glow, rgba(139, 92, 246, 0.4));
 }
 
 .pyxis-header-icon-btn.disabled,
@@ -2586,16 +2829,26 @@ body {
     z-index: 2;
 }
 
-/* --- ANIMACIÓN ELEGANTE DE BORDE: REFRESH PREVIEW (CYAN / EMERALD / VIOLET) --- */
+/* --- ANIMACIÓN ELEGANTE DE BORDE: REFRESH PREVIEW (CYAN / EMERALD / VIOLET CON CANCEL EN HOVER) --- */
 .pyxis-header-icon-btn.is-refreshing,
 .pyxis-pbtn.is-refreshing {
     position: relative !important;
     border-color: transparent !important;
     background: #0f172a !important;
-    pointer-events: none !important;
+    pointer-events: auto !important;
+    cursor: pointer !important;
     box-shadow: 0 0 14px rgba(56, 189, 248, 0.5), 0 0 24px rgba(139, 92, 246, 0.3) !important;
     overflow: hidden !important;
     z-index: 1 !important;
+    transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.pyxis-icon-cancel {
+    display: none !important;
+}
+
+.pyxis-icon-refresh {
+    display: block !important;
 }
 
 .pyxis-header-icon-btn.is-refreshing::before,
@@ -2615,6 +2868,7 @@ body {
     );
     animation: pyxisSpinBeam 1.2s linear infinite;
     z-index: -2;
+    transition: background 0.25s ease;
 }
 
 .pyxis-header-icon-btn.is-refreshing::after,
@@ -2625,15 +2879,73 @@ body {
     background: #0d1527;
     border-radius: calc(6px - 1.5px);
     z-index: -1;
+    transition: background 0.2s ease;
 }
 
-.pyxis-header-icon-btn.is-refreshing svg,
-.pyxis-pbtn.is-refreshing svg {
+.pyxis-header-icon-btn.is-refreshing .pyxis-icon-refresh,
+.pyxis-pbtn.is-refreshing .pyxis-icon-refresh {
+    display: block !important;
     stroke: #38bdf8 !important;
     animation: pyxisSpinSlow 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
     filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.8));
     position: relative;
     z-index: 3;
+}
+
+.pyxis-header-icon-btn.is-refreshing .pyxis-icon-cancel,
+.pyxis-pbtn.is-refreshing .pyxis-icon-cancel {
+    display: none !important;
+}
+
+/* Estado HOVER cuando está refrescando: Transforma el botón en CANCELAR con halo rojo/coral */
+.pyxis-header-icon-btn.is-refreshing:hover,
+.pyxis-pbtn.is-refreshing:hover {
+    background: #240a12 !important;
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.75), 0 0 28px rgba(244, 63, 94, 0.5) !important;
+    transform: scale(1.06) !important;
+}
+
+.pyxis-header-icon-btn.is-refreshing:hover::before,
+.pyxis-pbtn.is-refreshing:hover::before {
+    background: conic-gradient(
+        transparent 0deg,
+        transparent 140deg,
+        rgba(239, 68, 68, 0.95) 230deg,
+        rgba(244, 63, 94, 0.95) 280deg,
+        rgba(251, 146, 60, 0.9) 360deg
+    ) !important;
+    animation: pyxisSpinBeam 1.1s linear infinite !important;
+}
+
+.pyxis-header-icon-btn.is-refreshing:hover::after,
+.pyxis-pbtn.is-refreshing:hover::after {
+    background: #18070d !important;
+}
+
+.pyxis-header-icon-btn.is-refreshing:hover .pyxis-icon-refresh,
+.pyxis-pbtn.is-refreshing:hover .pyxis-icon-refresh {
+    display: none !important;
+}
+
+.pyxis-header-icon-btn.is-refreshing:hover .pyxis-icon-cancel,
+.pyxis-pbtn.is-refreshing:hover .pyxis-icon-cancel {
+    display: block !important;
+    stroke: #f43f5e !important;
+    filter: drop-shadow(0 0 6px rgba(244, 63, 94, 0.95)) !important;
+    animation: pyxisCancelPulse 0.75s ease-in-out infinite alternate !important;
+    position: relative;
+    z-index: 3;
+}
+
+.pyxis-header-icon-btn.is-refreshing:active,
+.pyxis-pbtn.is-refreshing:active {
+    transform: scale(0.94) !important;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.9) !important;
+}
+
+@keyframes pyxisCancelPulse {
+    0% { transform: scale(0.94); opacity: 0.85; }
+    100% { transform: scale(1.1); opacity: 1; }
 }
 
 /* --- ANIMACIÓN ELEGANTE DE BORDE: HARDSUB EXPORT (AMBER / CORAL / ROSE GOLD) --- */
@@ -2715,9 +3027,9 @@ body {
 .pyxis-btn-tooltip {
     position: fixed;
     z-index: 2000010;
-    background: rgba(13, 17, 24, 0.95);
-    border: 1px solid rgba(139, 92, 246, 0.6);
-    color: #f1f5f9;
+    background: var(--bg-panel, rgba(13, 17, 24, 0.95));
+    border: 1px solid var(--border-highlight, var(--accent-primary, #10b981));
+    color: var(--text-main, #f1f5f9);
     padding: 4px 9px;
     border-radius: 5px;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -2725,8 +3037,9 @@ body {
     font-weight: 500;
     white-space: nowrap;
     pointer-events: none;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6), 0 0 10px rgba(139, 92, 246, 0.3);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6), 0 0 10px var(--accent-glow, rgba(16, 185, 129, 0.3));
     backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     opacity: 0;
     transition: opacity 0.2s ease, transform 0.2s ease;
     transform: translateX(-50%) translateY(4px);
@@ -2757,7 +3070,7 @@ body {
     min-height: 100% !important;
     max-height: 100% !important;
     overflow: hidden !important;
-    background: #000 !important;
+    background: #000000 !important;
 }
 
 /* Área del marco exterior de vídeo: recorta con overflow:hidden y reserva los 68px inferiores para los controles */
@@ -2771,7 +3084,7 @@ body {
     height: calc(100% - 68px) !important;
     max-height: calc(100% - 68px) !important;
     overflow: hidden !important;
-    background: #000 !important;
+    background: #000000 !important;
     z-index: 1 !important;
 }
 
@@ -2782,7 +3095,8 @@ body {
     top: 50% !important;
     left: 50% !important;
     overflow: visible !important;
-    background: transparent !important;
+    background: #2a2a2a;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 4px 20px rgba(0, 0, 0, 0.7) !important;
     transform-origin: center center !important;
     will-change: transform !important;
 }
@@ -2829,10 +3143,14 @@ div.JASSUB,
 
 div.JASSUB canvas,
 .JASSUB canvas,
-.pyxis-artplayer-box canvas, 
+.pyxis-artplayer-box canvas:not(.pyxis-pbar-heatmap), 
 .pyxis-artplayer-box .jassub-canvas,
 .jassub-canvas {
     position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
     pointer-events: none !important;
     z-index: 25 !important;
 }
@@ -2859,8 +3177,12 @@ div.JASSUB canvas,
     left: 0 !important;
     right: 0 !important;
     height: 68px !important;
-    background: linear-gradient(180deg, rgba(13, 19, 31, 0.92) 0%, rgba(9, 13, 22, 0.98) 100%) !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--bg-panel, #101d24) 94%, transparent) 0%,
+        color-mix(in srgb, var(--bg-input, #0a1318) 98%, transparent) 100%
+    ) !important;
+    border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08)) !important;
     backdrop-filter: blur(12px) !important;
     -webkit-backdrop-filter: blur(12px) !important;
     display: flex !important;
@@ -2891,6 +3213,57 @@ div.JASSUB canvas,
     overflow: visible !important;
 }
 
+/* YouTube-Style Smooth Thermal Heatmap Overlay above Seekbar */
+.pyxis-artplayer-box .pyxis-pbar-container canvas.pyxis-pbar-heatmap,
+canvas.pyxis-pbar-heatmap {
+    position: absolute !important;
+    top: auto !important;
+    left: 4px !important;
+    right: 4px !important;
+    bottom: 13px !important;
+    width: calc(100% - 8px) !important;
+    height: 24px !important;
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    opacity: 0.88;
+    border-radius: 6px 6px 0 0;
+    border-top: 1px solid transparent;
+    border-left: 1px solid transparent;
+    border-right: 1px solid transparent;
+    background: transparent;
+    transition: height 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    z-index: 4 !important;
+}
+
+canvas.pyxis-pbar-heatmap:hover {
+    opacity: 1;
+}
+
+.pyxis-pbar-container.is-heatmap-expanded canvas.pyxis-pbar-heatmap {
+    opacity: 1;
+    height: 64px !important;
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--bg-panel, #101d24) 94%, transparent) 0%,
+        color-mix(in srgb, var(--bg-input, #0a1318) 82%, transparent) 72%,
+        color-mix(in srgb, var(--bg-input, #0a1318) 25%, transparent) 100%
+    );
+    border-top: 1px solid var(--border-highlight, var(--accent-primary, #22858c));
+    border-left: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    border-right: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.55);
+    filter: drop-shadow(0 0 8px var(--accent-glow, rgba(34, 133, 140, 0.35)));
+}
+
+#pyxis-telemetry-overlay canvas.pyxis-pbar-heatmap,
+.pyxis-player-fullscreen canvas.pyxis-pbar-heatmap,
+.pyxis-player-fullscreen .pyxis-artplayer-box .pyxis-pbar-container canvas.pyxis-pbar-heatmap,
+:fullscreen canvas.pyxis-pbar-heatmap,
+:fullscreen .pyxis-artplayer-box .pyxis-pbar-container canvas.pyxis-pbar-heatmap {
+    display: none !important;
+    pointer-events: none !important;
+}
+
 .pyxis-pbar-track {
     position: relative;
     width: 100%;
@@ -2899,6 +3272,7 @@ div.JASSUB canvas,
     border-radius: 2px;
     transition: height 0.15s ease, background 0.15s ease;
     overflow: visible;
+    z-index: 6;
 }
 
 .pyxis-pbar-container:hover .pyxis-pbar-track,
@@ -2923,10 +3297,10 @@ div.JASSUB canvas,
     top: 0;
     left: 0;
     height: 100%;
-    background: linear-gradient(90deg, #3b82f6 0%, #38bdf8 100%);
+    background: var(--accent-gradient, linear-gradient(90deg, #22858c 0%, #548c87 100%));
     border-radius: inherit;
     pointer-events: none;
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+    box-shadow: 0 0 8px var(--accent-glow, rgba(34, 133, 140, 0.6));
 }
 
 .pyxis-pbar-thumb {
@@ -2936,9 +3310,9 @@ div.JASSUB canvas,
     width: 13px;
     height: 13px;
     border-radius: 50%;
-    background: #38bdf8;
+    background: var(--doc-accent-bright, var(--accent-primary, #38bdf8));
     border: 2px solid #ffffff;
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.9), 0 2px 4px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 10px var(--accent-glow, rgba(34, 133, 140, 0.9)), 0 2px 4px rgba(0, 0, 0, 0.5);
     transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
     pointer-events: none;
 }
@@ -2953,9 +3327,9 @@ div.JASSUB canvas,
     position: absolute;
     bottom: 24px;
     transform: translateX(-50%);
-    background: rgba(13, 17, 24, 0.95);
-    border: 1px solid rgba(56, 189, 248, 0.6);
-    color: #f8fafc;
+    background: var(--bg-panel, rgba(13, 17, 24, 0.96));
+    border: 1px solid var(--border-highlight, var(--accent-primary, #22858c));
+    color: var(--text-main, #f8fafc);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-size: 11px;
     font-weight: 600;
@@ -2965,8 +3339,8 @@ div.JASSUB canvas,
     pointer-events: none;
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.15s ease, visibility 0.15s ease;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.8), 0 0 10px rgba(56, 189, 248, 0.4);
+    transition: opacity 0.15s ease, visibility 0.15s ease, bottom 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.8), 0 0 10px var(--accent-glow, rgba(34, 133, 140, 0.4));
     white-space: nowrap;
     z-index: 99999 !important;
 }
@@ -2979,13 +3353,28 @@ div.JASSUB canvas,
     transform: translateX(-50%);
     border-width: 4.5px 4.5px 0 4.5px;
     border-style: solid;
-    border-color: rgba(56, 189, 248, 0.7) transparent transparent transparent;
+    border-color: var(--border-highlight, var(--accent-primary, #22858c)) transparent transparent transparent;
 }
 
 .pyxis-pbar-container:hover .pyxis-pbar-tip,
 .pyxis-pbar-container.is-dragging .pyxis-pbar-tip {
     opacity: 1;
     visibility: visible;
+    bottom: 39px;
+}
+
+.pyxis-pbar-container.is-heatmap-expanded:hover .pyxis-pbar-tip,
+.pyxis-pbar-container.is-heatmap-expanded.is-dragging .pyxis-pbar-tip {
+    bottom: 79px;
+}
+
+#pyxis-telemetry-overlay .pyxis-pbar-container:hover .pyxis-pbar-tip,
+#pyxis-telemetry-overlay .pyxis-pbar-container.is-dragging .pyxis-pbar-tip,
+.pyxis-player-fullscreen .pyxis-pbar-container:hover .pyxis-pbar-tip,
+.pyxis-player-fullscreen .pyxis-pbar-container.is-dragging .pyxis-pbar-tip,
+:fullscreen .pyxis-pbar-container:hover .pyxis-pbar-tip,
+:fullscreen .pyxis-pbar-container.is-dragging .pyxis-pbar-tip {
+    bottom: 24px;
 }
 
 /* 2. Subcabecera de Tiempos debajo de la barra de búsqueda */
@@ -3002,19 +3391,19 @@ div.JASSUB canvas,
     font-size: 9.5px;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-    color: #94a3b8;
+    color: var(--text-muted, #94a3b8);
     pointer-events: none;
     user-select: none;
     line-height: 1;
 }
 
 .pyxis-ptime-current {
-    color: #e2e8f0;
+    color: var(--text-main, #e2e8f0);
     font-weight: 600;
 }
 
 .pyxis-ptime-duration {
-    color: #94a3b8;
+    color: var(--text-muted, #94a3b8);
 }
 
 /* 3. Controls Row (Left, Center, Right) */
@@ -3066,7 +3455,7 @@ div.JASSUB canvas,
     height: 28px;
     border: none;
     background: transparent;
-    color: #cbd5e1;
+    color: var(--text-muted, #cbd5e1);
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
@@ -3088,13 +3477,13 @@ div.JASSUB canvas,
 
 .pyxis-pbtn:hover {
     background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    color: var(--text-main, #ffffff);
 }
 
 .pyxis-pbtn:active {
     transform: scale(0.92);
-    background: rgba(56, 189, 248, 0.2);
-    color: #38bdf8;
+    background: color-mix(in srgb, var(--accent-primary, #22858c) 24%, transparent);
+    color: var(--doc-accent-bright, #38bdf8);
 }
 
 /* Prominent Hero Play/Pause Center Button */
@@ -3102,10 +3491,10 @@ div.JASSUB canvas,
     width: 34px;
     height: 34px;
     border-radius: 50%;
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.22) 0%, rgba(59, 130, 246, 0.32) 100%);
-    border: 1px solid rgba(56, 189, 248, 0.55);
-    color: #38bdf8;
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+    background: color-mix(in srgb, var(--accent-primary, #22858c) 26%, var(--bg-card, #14262e));
+    border: 1px solid var(--border-highlight, var(--accent-primary, #22858c));
+    color: var(--doc-accent-bright, #38bdf8);
+    box-shadow: 0 0 12px var(--accent-glow, rgba(34, 133, 140, 0.28));
 }
 
 .pyxis-pbtn-hero svg {
@@ -3115,16 +3504,16 @@ div.JASSUB canvas,
 }
 
 .pyxis-pbtn-hero:hover {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.4) 0%, rgba(59, 130, 246, 0.5) 100%);
-    border-color: rgba(56, 189, 248, 0.95);
+    background: var(--accent-gradient, linear-gradient(135deg, #22858c 0%, #548c87 100%));
+    border-color: var(--doc-accent-bright, var(--accent-primary, #548c87));
     color: #ffffff;
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.6);
+    box-shadow: 0 0 16px var(--accent-glow, rgba(34, 133, 140, 0.6));
     transform: scale(1.08);
 }
 
 .pyxis-pbtn-hero:active {
     transform: scale(0.96);
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.35);
+    box-shadow: 0 0 8px var(--accent-glow, rgba(34, 133, 140, 0.35));
 }
 
 /* Horizontal Volume Slider */
@@ -3159,10 +3548,10 @@ div.JASSUB canvas,
     width: 11px;
     height: 11px;
     border-radius: 50%;
-    background: #38bdf8;
+    background: var(--doc-accent-bright, var(--accent-primary, #38bdf8));
     border: 1.5px solid #ffffff;
     cursor: pointer;
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.85);
+    box-shadow: 0 0 8px var(--accent-glow, rgba(34, 133, 140, 0.85));
     transition: transform 0.15s ease;
 }
 
@@ -3174,10 +3563,10 @@ div.JASSUB canvas,
     width: 11px;
     height: 11px;
     border-radius: 50%;
-    background: #38bdf8;
+    background: var(--doc-accent-bright, var(--accent-primary, #38bdf8));
     border: 1.5px solid #ffffff;
     cursor: pointer;
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.85);
+    box-shadow: 0 0 8px var(--accent-glow, rgba(34, 133, 140, 0.85));
 }
 
 /* Artplayer Settings Overlay Styling */
@@ -3193,13 +3582,13 @@ div.JASSUB canvas,
     max-width: 240px !important;
     max-height: calc(100% - 80px) !important;
     z-index: 9999999 !important;
-    background: rgba(15, 23, 42, 0.96) !important;
-    border: 1px solid rgba(56, 189, 248, 0.45) !important;
+    background: var(--bg-panel, rgba(16, 29, 36, 0.96)) !important;
+    border: 1px solid var(--border-highlight, var(--accent-primary, #22858c)) !important;
     border-radius: 8px !important;
     backdrop-filter: blur(16px) !important;
     -webkit-backdrop-filter: blur(16px) !important;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85), 0 0 16px rgba(56, 189, 248, 0.25) !important;
-    color: #e2e8f0 !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85), 0 0 16px var(--accent-glow, rgba(34, 133, 140, 0.25)) !important;
+    color: var(--text-main, #e2e8f0) !important;
     font-family: inherit !important;
     pointer-events: auto !important;
     overflow-y: auto !important;
@@ -3216,14 +3605,14 @@ div.JASSUB canvas,
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
-    color: #e2e8f0 !important;
+    color: var(--text-main, #e2e8f0) !important;
     width: 100% !important;
 }
 
 .art-video-player .art-setting-item,
 .pyxis-artplayer-box .art-setting-item {
     transition: background 0.15s ease, color 0.15s ease !important;
-    color: #e2e8f0 !important;
+    color: var(--text-main, #e2e8f0) !important;
     padding: 0 12px !important;
     height: 34px !important;
     font-size: 12px !important;
@@ -3235,25 +3624,25 @@ div.JASSUB canvas,
 
 .art-video-player .art-setting-item:hover,
 .pyxis-artplayer-box .art-setting-item:hover {
-    background: rgba(56, 189, 248, 0.18) !important;
-    color: #38bdf8 !important;
+    background: color-mix(in srgb, var(--accent-primary, #22858c) 22%, transparent) !important;
+    color: var(--doc-accent-bright, #38bdf8) !important;
 }
 
 .art-video-player .art-setting-item.art-current,
 .pyxis-artplayer-box .art-setting-item.art-current {
-    color: #38bdf8 !important;
+    color: var(--doc-accent-bright, #38bdf8) !important;
     font-weight: 600 !important;
 }
 
 .art-video-player .art-setting-item .art-setting-item-right-tooltip,
 .pyxis-artplayer-box .art-setting-item .art-setting-item-right-tooltip {
-    color: #94a3b8 !important;
+    color: var(--text-muted, #94a3b8) !important;
     font-size: 11px !important;
 }
 
 .art-video-player .art-setting-item-back,
 .pyxis-artplayer-box .art-setting-item-back {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12)) !important;
     font-weight: 600 !important;
 }
 
@@ -3308,9 +3697,7 @@ div.JASSUB canvas,
 }
 
 .pyxis-node-player-wrapper.pyxis-player-fullscreen .pyxis-video-frame,
-.pyxis-floating-player-wrapper.pyxis-player-fullscreen .pyxis-video-frame,
-.pyxis-node-player-wrapper.pyxis-player-fullscreen .art-video,
-.pyxis-floating-player-wrapper.pyxis-player-fullscreen .art-video {
+.pyxis-floating-player-wrapper.pyxis-player-fullscreen .pyxis-video-frame {
     position: absolute !important;
     top: 0 !important;
     left: 0 !important;
@@ -3320,6 +3707,18 @@ div.JASSUB canvas,
     height: calc(100% - 68px) !important;
     max-height: calc(100% - 68px) !important;
     z-index: 1 !important;
+}
+
+.pyxis-player-fullscreen .pyxis-video-viewport video,
+.pyxis-player-fullscreen .pyxis-video-viewport video.art-video {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
 }
 
 .pyxis-node-player-wrapper.pyxis-player-fullscreen .pyxis-node-header-actions,
@@ -3414,11 +3813,11 @@ div.JASSUB canvas,
     pointer-events: auto !important;
     z-index: 150010 !important;
     border-radius: 10px !important;
-    border: 1px solid rgba(139, 92, 246, 0.45) !important;
-    background: rgba(15, 20, 32, 0.95) !important;
+    border: 1px solid var(--border-highlight, var(--accent-secondary, rgba(139, 92, 246, 0.45))) !important;
+    background: var(--bg-panel, rgba(15, 20, 32, 0.95)) !important;
     backdrop-filter: blur(16px) !important;
     -webkit-backdrop-filter: blur(16px) !important;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 24px rgba(139, 92, 246, 0.3) !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 24px var(--accent-glow, rgba(139, 92, 246, 0.3)) !important;
     transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), top 0.35s cubic-bezier(0.16, 1, 0.3, 1), left 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease !important;
     overflow: hidden !important;
     display: flex !important;
@@ -3481,21 +3880,66 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
 .pyxis-floating-resizer.se {
     width: 22px !important;
     height: 22px !important;
+    z-index: 150055 !important;
 }
 
 .pyxis-floating-resizer.nw:hover,
 .pyxis-floating-resizer.ne:hover,
 .pyxis-floating-resizer.sw:hover,
 .pyxis-floating-resizer.se:hover {
-    background: rgba(167, 139, 250, 0.3) !important;
+    background: var(--accent-glow, rgba(167, 139, 250, 0.3)) !important;
+}
+
+/* Bordes (arriba, abajo, izquierda, derecha) */
+.pyxis-floating-resizer.n {
+    top: 0 !important;
+    left: 22px !important;
+    right: 22px !important;
+    height: 8px !important;
+    width: auto !important;
+    cursor: ns-resize !important;
+}
+
+.pyxis-floating-resizer.s {
+    bottom: 0 !important;
+    left: 22px !important;
+    right: 22px !important;
+    height: 8px !important;
+    width: auto !important;
+    cursor: ns-resize !important;
+}
+
+.pyxis-floating-resizer.w {
+    top: 22px !important;
+    bottom: 22px !important;
+    left: 0 !important;
+    width: 8px !important;
+    height: auto !important;
+    cursor: ew-resize !important;
+}
+
+.pyxis-floating-resizer.e {
+    top: 22px !important;
+    bottom: 22px !important;
+    right: 0 !important;
+    width: 8px !important;
+    height: auto !important;
+    cursor: ew-resize !important;
+}
+
+.pyxis-floating-resizer.n:hover,
+.pyxis-floating-resizer.s:hover,
+.pyxis-floating-resizer.w:hover,
+.pyxis-floating-resizer.e:hover {
+    background: var(--accent-glow, rgba(167, 139, 250, 0.25)) !important;
 }
 
 .pyxis-floating-resizer.nw {
     top: 0 !important;
     left: 0 !important;
     cursor: nwse-resize !important;
-    border-top: 3px solid rgba(167, 139, 250, 0.85) !important;
-    border-left: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-top: 3px solid var(--accent-secondary-glow, var(--accent-primary, rgba(167, 139, 250, 0.85))) !important;
+    border-left: 3px solid var(--accent-secondary-glow, var(--accent-primary, rgba(167, 139, 250, 0.85))) !important;
     border-top-left-radius: 9px !important;
 }
 
@@ -3503,8 +3947,8 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     top: 0 !important;
     right: 0 !important;
     cursor: nesw-resize !important;
-    border-top: 3px solid rgba(167, 139, 250, 0.85) !important;
-    border-right: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-top: 3px solid var(--accent-secondary-glow, var(--accent-primary, rgba(167, 139, 250, 0.85))) !important;
+    border-right: 3px solid var(--accent-secondary-glow, var(--accent-primary, rgba(167, 139, 250, 0.85))) !important;
     border-top-right-radius: 9px !important;
 }
 
@@ -3512,8 +3956,8 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     bottom: 0 !important;
     left: 0 !important;
     cursor: nesw-resize !important;
-    border-bottom: 3px solid rgba(167, 139, 250, 0.85) !important;
-    border-left: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-bottom: 3px solid var(--accent-secondary-glow, var(--accent-primary, rgba(167, 139, 250, 0.85))) !important;
+    border-left: 3px solid var(--accent-secondary-glow, var(--accent-primary, rgba(167, 139, 250, 0.85))) !important;
     border-bottom-left-radius: 9px !important;
 }
 
@@ -3521,8 +3965,8 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     bottom: 0 !important;
     right: 0 !important;
     cursor: nwse-resize !important;
-    border-bottom: 3px solid rgba(167, 139, 250, 0.85) !important;
-    border-right: 3px solid rgba(167, 139, 250, 0.85) !important;
+    border-bottom: 3px solid var(--accent-secondary-glow, var(--accent-primary, rgba(167, 139, 250, 0.85))) !important;
+    border-right: 3px solid var(--accent-secondary-glow, var(--accent-primary, rgba(167, 139, 250, 0.85))) !important;
     border-bottom-right-radius: 9px !important;
 }
 
@@ -3531,8 +3975,8 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     min-height: 30px !important;
     max-height: 30px !important;
     box-sizing: border-box !important;
-    background: linear-gradient(90deg, rgba(30, 27, 75, 0.95), rgba(15, 23, 42, 0.95)) !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: var(--bg-topbar, var(--bg-panel, rgba(15, 23, 42, 0.95))) !important;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1)) !important;
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
@@ -3570,30 +4014,45 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     height: 22px !important;
     padding: 2px !important;
     border-radius: 4px !important;
+    background: var(--bg-card, rgba(255, 255, 255, 0.05)) !important;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12)) !important;
+    color: var(--text-muted, #cbd5e1) !important;
 }
 
 .pyxis-floating-header-actions .pyxis-header-icon-btn svg,
 .pyxis-floating-header-actions .pyxis-header-icon-btn img {
     width: 13px !important;
     height: 13px !important;
+    stroke: currentColor !important;
+}
+
+.pyxis-floating-header-actions .pyxis-header-icon-btn:hover {
+    background: var(--accent-glow, rgba(34, 133, 140, 0.35)) !important;
+    border-color: var(--accent-primary, #38bdf8) !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 10px var(--accent-glow, rgba(34, 133, 140, 0.4)) !important;
+}
+
+.pyxis-floating-header-actions .pyxis-header-icon-btn:hover svg {
+    stroke: #ffffff !important;
 }
 
 .pyxis-header-icon-btn.active {
-    color: #a78bfa !important;
-    background: rgba(139, 92, 246, 0.3) !important;
-    border-color: rgba(167, 139, 250, 0.6) !important;
-    box-shadow: 0 0 12px rgba(167, 139, 250, 0.5) !important;
+    color: #ffffff !important;
+    background: var(--accent-glow, rgba(139, 92, 246, 0.3)) !important;
+    border-color: var(--accent-primary, rgba(167, 139, 250, 0.6)) !important;
+    box-shadow: 0 0 12px var(--accent-glow, rgba(167, 139, 250, 0.5)) !important;
 }
 
 @keyframes pyxisMagneticPulse {
     0% {
-        box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.8), 0 16px 40px rgba(0, 0, 0, 0.75);
+        box-shadow: 0 0 0 0 var(--accent-glow, rgba(167, 139, 250, 0.8)), 0 16px 40px rgba(0, 0, 0, 0.75);
     }
     50% {
-        box-shadow: 0 0 0 14px rgba(167, 139, 250, 0), 0 16px 40px rgba(0, 0, 0, 0.75);
+        box-shadow: 0 0 0 14px rgba(0, 0, 0, 0), 0 16px 40px rgba(0, 0, 0, 0.75);
     }
     100% {
-        box-shadow: 0 0 0 0 rgba(167, 139, 250, 0), 0 16px 40px rgba(0, 0, 0, 0.75);
+        box-shadow: 0 0 0 0 rgba(0, 0, 0, 0), 0 16px 40px rgba(0, 0, 0, 0.75);
     }
 }
 
@@ -4568,6 +5027,2835 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     font-size: 13px;
     user-select: none;
 }
+
+/* =============================================================================
+   PYXIS HELP & DOCUMENTATION VIEWER (Tier 3 Floating Window)
+   ============================================================================= */
+
+.pyxis-help-window {
+    position: fixed;
+    z-index: 150000;
+    background: var(--bg-panel, rgba(15, 23, 42, 0.96));
+    border: 1.5px solid var(--border-highlight, var(--accent-primary, #38bdf8));
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75), 0 0 30px var(--accent-glow, rgba(34, 133, 140, 0.15));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    min-width: 480px;
+    min-height: 340px;
+    box-sizing: border-box;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.pyxis-help-window.is-maximized {
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.15)) !important;
+    box-shadow: none !important;
+}
+
+.pyxis-help-window.is-maximized .pyxis-floating-resizer {
+    display: none !important;
+}
+
+.pyxis-help-window.is-maximized .pyxis-help-header {
+    border-radius: 0 !important;
+}
+
+.pyxis-help-window.is-minimized {
+    width: 270px !important;
+    min-width: 0 !important;
+    max-width: 270px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    max-height: 34px !important;
+    border-radius: 17px !important;
+    border: 1.5px solid var(--border-highlight, var(--accent-primary, #38bdf8)) !important;
+    background: var(--bg-panel, rgba(15, 23, 42, 0.98)) !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.75), 0 0 14px var(--accent-glow, rgba(34, 133, 140, 0.35)) !important;
+    overflow: visible !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+}
+
+.pyxis-help-window.is-minimized .pyxis-help-header {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 17px !important;
+    padding: 0 8px 0 12px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    box-sizing: border-box !important;
+    position: relative !important;
+    z-index: 200 !important;
+}
+
+.pyxis-help-window.is-minimized .pyxis-floating-header-title {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    color: var(--text-main, #e2e8f0) !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    line-height: 1 !important;
+}
+
+.pyxis-help-window.is-minimized .pyxis-floating-header-title svg {
+    width: 14px !important;
+    height: 14px !important;
+    flex-shrink: 0 !important;
+    display: block !important;
+    margin: 0 !important;
+}
+
+.pyxis-help-window.is-minimized .pyxis-floating-header-title span {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    display: block !important;
+    line-height: 1 !important;
+    padding-top: 1px !important;
+}
+
+.pyxis-help-window.is-minimized .pyxis-floating-header-actions {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    flex-shrink: 0 !important;
+}
+
+.pyxis-help-window.is-minimized .pyxis-floating-header-actions .pyxis-header-icon-btn {
+    width: 22px !important;
+    height: 22px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.pyxis-help-window.is-minimized .pyxis-help-body,
+.pyxis-help-window.is-minimized .pyxis-floating-resizer {
+    display: none !important;
+}
+
+.pyxis-help-header {
+    position: relative !important;
+    z-index: 200 !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    max-height: 38px !important;
+    background: var(--bg-topbar, var(--bg-panel, rgba(10, 16, 26, 0.95))) !important;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1)) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0 10px 0 12px !important;
+    user-select: none !important;
+    cursor: grab !important;
+    flex-shrink: 0 !important;
+    box-sizing: border-box !important;
+}
+
+.pyxis-help-header .pyxis-floating-header-title {
+    margin-left: 0 !important;
+    color: var(--text-main, #ffffff) !important;
+}
+
+.pyxis-help-header .pyxis-floating-header-title svg {
+    stroke: var(--doc-accent-bright, color-mix(in srgb, var(--accent-primary, #38bdf8) 60%, #ffffff 40%)) !important;
+}
+
+.pyxis-help-header .pyxis-floating-header-actions {
+    margin-right: 20px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+}
+
+.pyxis-help-window.is-maximized .pyxis-help-header .pyxis-floating-header-actions {
+    margin-right: 4px !important;
+}
+
+.pyxis-help-header .pyxis-header-icon-btn {
+    width: 24px !important;
+    height: 24px !important;
+    background: var(--bg-card, rgba(255, 255, 255, 0.06)) !important;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14)) !important;
+    color: var(--text-muted, #cbd5e1) !important;
+    border-radius: 5px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+}
+
+.pyxis-help-header .pyxis-header-icon-btn svg {
+    width: 14px !important;
+    height: 14px !important;
+    stroke: currentColor !important;
+    transition: stroke 0.15s ease, transform 0.15s ease !important;
+}
+
+.pyxis-help-header .pyxis-header-icon-btn:hover {
+    background: var(--accent-glow, rgba(34, 133, 140, 0.35)) !important;
+    border-color: var(--accent-primary, #38bdf8) !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 10px var(--accent-glow, rgba(34, 133, 140, 0.4)) !important;
+    transform: translateY(-1px) !important;
+}
+
+.pyxis-help-header .pyxis-header-icon-btn:hover svg {
+    stroke: #ffffff !important;
+    transform: scale(1.08) !important;
+}
+
+.pyxis-help-header .pyxis-header-icon-btn.pyxis-btn-close:hover {
+    background: rgba(239, 68, 68, 0.25) !important;
+    border-color: #ef4444 !important;
+    color: #fca5a5 !important;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.4) !important;
+}
+
+.pyxis-help-header .pyxis-header-icon-btn.pyxis-btn-close:hover svg {
+    stroke: #fca5a5 !important;
+}
+
+.pyxis-help-window.is-dragging .pyxis-help-header {
+    cursor: grabbing;
+}
+
+.pyxis-help-body {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+    position: relative !important;
+    z-index: 1 !important;
+}
+
+.pyxis-help-window:not(.is-maximized) .pyxis-help-body {
+    margin-bottom: 9px;
+    margin-right: 6px;
+    margin-left: 2px;
+}
+
+/* Sidebar */
+.pyxis-help-sidebar {
+    width: 280px;
+    min-width: 180px;
+    max-width: 480px;
+    background: rgba(0, 0, 0, 0.2);
+    border-right: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.07));
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.pyxis-help-search-box {
+    position: relative;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.05));
+    display: flex;
+    align-items: center;
+}
+
+.pyxis-help-search-icon {
+    position: absolute;
+    left: 18px;
+    width: 14px;
+    height: 14px;
+    color: var(--text-muted, #94a3b8);
+    pointer-events: none;
+}
+
+.pyxis-help-search-input {
+    width: 100%;
+    background: var(--bg-input, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 6px;
+    color: var(--text-main, #e2e8f0);
+    font-size: 12px;
+    padding: 6px 26px 6px 28px;
+    outline: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.pyxis-help-search-input:focus {
+    border-color: var(--accent-primary, #22858c);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.pyxis-help-search-clear {
+    position: absolute;
+    right: 18px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+}
+
+.pyxis-help-search-clear:hover {
+    color: #fff;
+}
+
+.pyxis-help-toc {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+
+.pyxis-help-toc::-webkit-scrollbar {
+    width: 6px;
+}
+
+.pyxis-help-toc::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+}
+
+.pyxis-toc-chapter-group {
+    margin-bottom: 2px;
+}
+
+.pyxis-toc-chapter-header {
+    display: flex;
+    align-items: center;
+    padding: 7px 12px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-main, #e2e8f0);
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.pyxis-toc-chapter-header:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--doc-text-amber-bright, #fff9ed);
+}
+
+.pyxis-toc-chapter-header.is-active {
+    color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-primary, #38bdf8) 60%, #ffffff 40%));
+    background: var(--accent-glow, rgba(34, 133, 140, 0.15));
+}
+
+.pyxis-toc-chevron {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease;
+}
+
+.pyxis-toc-chevron svg {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2.2;
+}
+
+.pyxis-toc-chapter-group.is-expanded .pyxis-toc-chevron {
+    transform: rotate(90deg);
+}
+
+.pyxis-toc-chevron.is-empty {
+    visibility: hidden;
+}
+
+.pyxis-toc-chapter-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pyxis-toc-badge {
+    background: var(--bg-card, rgba(255, 255, 255, 0.08));
+    color: var(--text-muted, #94a3b8);
+    border-radius: 10px;
+    padding: 1px 6px;
+    font-size: 10px;
+    margin-left: 6px;
+}
+
+.pyxis-toc-node-list {
+    display: none;
+    padding-left: 18px;
+    margin-bottom: 4px;
+}
+
+.pyxis-toc-chapter-group.is-expanded .pyxis-toc-node-list {
+    display: block;
+}
+
+.pyxis-toc-node-item {
+    display: flex;
+    align-items: center;
+    padding: 5px 12px 5px 8px;
+    font-size: 12px;
+    color: var(--text-muted, #cbd5e1);
+    cursor: pointer;
+    user-select: none;
+    border-left: 2px solid transparent;
+    transition: all 0.12s ease;
+}
+
+.pyxis-toc-node-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--doc-text-amber-bright, #fff9ed);
+}
+
+.pyxis-toc-node-item.is-active {
+    color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-primary, #a7f3d0) 60%, #ffffff 40%));
+    border-left-color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-primary, #10b981) 60%, #ffffff 40%));
+    background: rgba(255, 255, 255, 0.06);
+    font-weight: 600;
+}
+
+.pyxis-toc-node-bullet {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    margin-right: 8px;
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.pyxis-toc-node-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pyxis-toc-node-sub {
+    font-size: 10.5px;
+    color: var(--text-muted, #94a3b8);
+    margin-left: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 110px;
+}
+
+/* Splitter */
+.pyxis-help-splitter {
+    width: 5px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+    z-index: 10;
+}
+
+.pyxis-help-splitter:hover,
+.pyxis-help-window.is-resizing-splitter .pyxis-help-splitter {
+    background: var(--accent-primary, #22858c);
+}
+
+/* Main Content */
+.pyxis-help-main {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-canvas, rgba(13, 17, 23, 0.9));
+}
+
+.pyxis-help-topbar {
+    position: relative !important;
+    z-index: 50 !important;
+    height: 36px;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    background: var(--bg-topbar, rgba(15, 23, 42, 0.4));
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.pyxis-help-topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+#pyxis-help-scroll-top,
+.pyxis-help-btn-scroll-top {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 6px;
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    outline: none;
+    padding: 0;
+    backdrop-filter: blur(8px);
+}
+
+#pyxis-help-scroll-top:hover,
+.pyxis-help-btn-scroll-top:hover {
+    background: var(--accent-glow, rgba(34, 133, 140, 0.3));
+    border-color: var(--accent-primary, #38bdf8);
+    color: var(--accent-primary, #38bdf8);
+    box-shadow: 0 0 10px var(--accent-glow, rgba(56, 189, 248, 0.25));
+    transform: translateY(-1px);
+}
+
+#pyxis-help-scroll-top:active,
+.pyxis-help-btn-scroll-top:active {
+    transform: translateY(0);
+    background: var(--accent-glow, rgba(34, 133, 140, 0.5));
+    box-shadow: 0 0 4px var(--accent-glow, rgba(56, 189, 248, 0.2));
+}
+
+#pyxis-help-scroll-top svg,
+.pyxis-help-btn-scroll-top svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2.2;
+    transition: transform 0.15s ease;
+}
+
+#pyxis-help-scroll-top:hover svg,
+.pyxis-help-btn-scroll-top:hover svg {
+    transform: translateY(-1px);
+}
+
+.pyxis-help-breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--doc-text-amber-muted, #ded3be);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.pyxis-help-breadcrumbs .crumb-root {
+    color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-primary, #38bdf8) 60%, #ffffff 40%));
+    font-weight: 600;
+}
+
+.pyxis-help-breadcrumbs .crumb-sep {
+    opacity: 0.45;
+    color: var(--doc-text-amber-muted, #ded3be);
+}
+
+.pyxis-help-breadcrumbs .crumb-chapter {
+    color: var(--doc-text-amber-muted, #ded3be);
+}
+
+.pyxis-help-breadcrumbs .crumb-node {
+    color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-secondary-glow, var(--accent-primary, #a7f3d0)) 60%, #ffffff 40%));
+    font-weight: 600;
+}
+
+.pyxis-help-content {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: auto;
+    padding: 24px 32px 60px 32px;
+    scroll-behavior: smooth;
+}
+
+.pyxis-help-content::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.pyxis-help-content::-webkit-scrollbar-track {
+    background: rgba(10, 15, 24, 0.45);
+    border-radius: 4px;
+}
+
+.pyxis-help-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 4px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.pyxis-help-content::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-primary, #38bdf8);
+}
+
+.pyxis-markdown-body pre::-webkit-scrollbar,
+.pyxis-ascii-diagram::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.pyxis-markdown-body pre::-webkit-scrollbar-thumb,
+.pyxis-ascii-diagram::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+/* Markdown Styling */
+.pyxis-markdown-body {
+    color: var(--doc-text-amber, #f5edd6);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.65;
+    word-wrap: break-word;
+}
+
+.pyxis-markdown-body h1 {
+    font-size: 22px;
+    color: var(--doc-text-amber-bright, #fff9ed);
+    border-bottom: 1.5px solid var(--border-highlight, var(--accent-primary, rgba(34, 133, 140, 0.4)));
+    padding-bottom: 8px;
+    margin-top: 0;
+    margin-bottom: 16px;
+}
+
+.pyxis-markdown-body h2 {
+    font-size: 17px;
+    color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-primary, #38bdf8) 60%, #ffffff 40%));
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    padding-bottom: 6px;
+    margin-top: 28px;
+    margin-bottom: 12px;
+    scroll-margin-top: 20px;
+}
+
+.pyxis-markdown-body h3 {
+    font-size: 14.5px;
+    color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-secondary-glow, var(--accent-secondary, #a7f3d0)) 60%, #ffffff 40%));
+    margin-top: 20px;
+    margin-bottom: 8px;
+}
+
+.pyxis-markdown-body p {
+    margin-top: 0;
+    margin-bottom: 12px;
+    color: var(--doc-text-amber, #f5edd6);
+}
+
+.pyxis-markdown-body hr {
+    border: none;
+    border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    margin: 24px 0;
+}
+
+.pyxis-markdown-body ul, 
+.pyxis-markdown-body ol {
+    padding-left: 24px;
+    margin-top: 0;
+    margin-bottom: 12px;
+    color: var(--doc-text-amber, #f5edd6);
+}
+
+.pyxis-markdown-body li {
+    margin-bottom: 4px;
+    color: var(--doc-text-amber, #f5edd6);
+}
+
+.pyxis-markdown-body code {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-secondary-glow, var(--accent-primary, #38bdf8)) 60%, #ffffff 40%));
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    font-size: 12.5px;
+}
+
+.pyxis-markdown-body pre {
+    background: var(--bg-input, rgba(10, 15, 24, 0.95));
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 8px;
+    padding: 14px;
+    overflow-x: auto;
+    position: relative;
+    margin: 14px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.pyxis-markdown-body pre code {
+    background: transparent;
+    padding: 0;
+    color: var(--doc-text-amber, #f5edd6);
+    font-size: 12.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.pyxis-ascii-diagram {
+    background: var(--bg-input, #090d16) !important;
+    border: 1px solid var(--border-subtle, rgba(34, 133, 140, 0.45)) !important;
+    border-radius: 8px !important;
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace !important;
+    font-size: 12px !important;
+    color: var(--doc-text-amber, #f5edd6) !important;
+    line-height: 1.3 !important;
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    padding: 14px 16px !important;
+    overflow-x: auto !important;
+    white-space: pre !important;
+    word-break: normal !important;
+    margin: 16px 0 !important;
+}
+
+.pyxis-markdown-body img {
+    max-width: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 8px;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    margin: 16px 0;
+    display: block;
+    box-sizing: border-box;
+}
+
+.pyxis-markdown-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 13px;
+    color: var(--doc-text-amber, #f5edd6);
+}
+
+.pyxis-markdown-body th,
+.pyxis-markdown-body td {
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    padding: 8px 12px;
+    text-align: left;
+    color: var(--doc-text-amber, #f5edd6);
+}
+
+.pyxis-markdown-body th {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-primary, #38bdf8) 60%, #ffffff 40%));
+    font-weight: 600;
+}
+
+.pyxis-markdown-body tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.pyxis-markdown-body blockquote {
+    margin: 16px 0;
+    padding: 12px 16px;
+    border-left: 3.5px solid var(--accent-primary, #38bdf8);
+    background: rgba(255, 255, 255, 0.035);
+    border-radius: 0 8px 8px 0;
+    color: var(--doc-text-amber, #f5edd6);
+}
+
+.pyxis-markdown-body blockquote > *:last-child {
+    margin-bottom: 0;
+}
+
+.pyxis-markdown-body blockquote.pyxis-md-alert {
+    padding: 13px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-left-width: 4px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+}
+
+.pyxis-md-alert-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 12.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 7px;
+    line-height: 1.2;
+}
+
+.pyxis-md-alert-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.pyxis-md-alert-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.pyxis-markdown-body blockquote.pyxis-md-alert-note {
+    border-color: rgba(56, 189, 248, 0.24);
+    border-left-color: #38bdf8;
+    background: linear-gradient(90deg, rgba(56, 189, 248, 0.11) 0%, rgba(56, 189, 248, 0.03) 100%);
+}
+.pyxis-markdown-body blockquote.pyxis-md-alert-note .pyxis-md-alert-header {
+    color: #38bdf8;
+}
+
+.pyxis-markdown-body blockquote.pyxis-md-alert-tip {
+    border-color: rgba(16, 185, 129, 0.24);
+    border-left-color: #10b981;
+    background: linear-gradient(90deg, rgba(16, 185, 129, 0.11) 0%, rgba(16, 185, 129, 0.03) 100%);
+}
+.pyxis-markdown-body blockquote.pyxis-md-alert-tip .pyxis-md-alert-header {
+    color: #34d399;
+}
+
+.pyxis-markdown-body blockquote.pyxis-md-alert-important {
+    border-color: rgba(168, 85, 247, 0.26);
+    border-left-color: #a855f7;
+    background: linear-gradient(90deg, rgba(168, 85, 247, 0.12) 0%, rgba(168, 85, 247, 0.03) 100%);
+}
+.pyxis-markdown-body blockquote.pyxis-md-alert-important .pyxis-md-alert-header {
+    color: #c084fc;
+}
+
+.pyxis-markdown-body blockquote.pyxis-md-alert-warning {
+    border-color: rgba(245, 158, 11, 0.26);
+    border-left-color: #f59e0b;
+    background: linear-gradient(90deg, rgba(245, 158, 11, 0.12) 0%, rgba(245, 158, 11, 0.03) 100%);
+}
+.pyxis-markdown-body blockquote.pyxis-md-alert-warning .pyxis-md-alert-header {
+    color: #fbbf24;
+}
+
+.pyxis-markdown-body blockquote.pyxis-md-alert-caution {
+    border-color: rgba(239, 68, 68, 0.26);
+    border-left-color: #ef4444;
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0.03) 100%);
+}
+.pyxis-markdown-body blockquote.pyxis-md-alert-caution .pyxis-md-alert-header {
+    color: #f87171;
+}
+
+.pyxis-code-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.2));
+    border-radius: 4px;
+    padding: 4px 6px;
+    cursor: pointer;
+    color: var(--text-muted, #94a3b8);
+    display: flex;
+    align-items: center;
+    transition: all 0.15s ease;
+}
+
+.pyxis-code-copy-btn:hover {
+    background: var(--accent-primary, rgba(34, 133, 140, 0.4));
+    color: #fff;
+}
+
+.pyxis-code-copy-btn svg {
+    width: 13px;
+    height: 13px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+}
+
+.pyxis-code-copy-btn.copied {
+    color: var(--accent-primary, #10b981);
+    border-color: var(--accent-primary, #10b981);
+}
+
+.pyxis-section-highlight {
+    animation: pyxisPulseHighlight 2.4s ease-out;
+}
+
+@keyframes pyxisPulseHighlight {
+    0% {
+        background: var(--accent-glow, rgba(34, 133, 140, 0.35));
+        border-radius: 4px;
+    }
+    100% {
+        background: transparent;
+    }
+}
+
+/* KaTeX Math Styling */
+.pyxis-markdown-body .katex {
+    color: var(--doc-text-amber, #f5edd6);
+    font-size: 1.08em;
+}
+
+.pyxis-markdown-body .katex-display {
+    margin: 18px 0;
+    padding: 12px 18px;
+    background: var(--bg-input, rgba(10, 15, 24, 0.65));
+    border: 1px solid var(--border-subtle, rgba(34, 133, 140, 0.3));
+    border-radius: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.pyxis-markdown-body .katex-display::-webkit-scrollbar {
+    height: 6px;
+}
+
+.pyxis-markdown-body .katex-display::-webkit-scrollbar-thumb {
+    background: var(--accent-glow, rgba(34, 133, 140, 0.4));
+    border-radius: 3px;
+}
+
+.pyxis-markdown-body .katex-display > .katex {
+    color: var(--doc-accent-bright, color-mix(in srgb, var(--accent-primary, #38bdf8) 60%, #ffffff 40%));
+}
+
+.pyxis-markdown-body .katex-error {
+    color: #f87171;
+    font-family: monospace;
+    background: rgba(239, 68, 68, 0.1);
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+/* =============================================================================
+   Tier 4: Inline Text Editors on Canvas
+   ============================================================================= */
+#pyxis-inline-text-editor,
+#pyxis-inline-textarea-overlay,
+.pyxis-inline-editor {
+    z-index: 2000100 !important;
+}
+
+/* =============================================================================
+   Pre-Generation Graph Diagnostics & Linter Side Panel
+   ============================================================================= */
+#pyxis-diagnostics-panel {
+    position: fixed;
+    top: 52px;
+    right: 0;
+    bottom: 0;
+    width: 450px;
+    max-width: 90vw;
+    background: var(--bg-panel, #121820);
+    border-left: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.65);
+    z-index: 95000;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    box-sizing: border-box;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: auto;
+}
+
+#pyxis-diagnostics-panel.is-active {
+    transform: translateX(0);
+}
+
+.pyxis-diagnostics-header {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.pyxis-diagnostics-header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.pyxis-diagnostics-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-diagnostics-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pyxis-diagnostics-close-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-diagnostics-subtitle {
+    font-size: 12px;
+    color: var(--text-muted, #94a3b8);
+    line-height: 1.4;
+}
+
+.pyxis-diagnostics-counters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pyxis-badge-critical {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(239, 68, 68, 0.16);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #f87171;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.pyxis-badge-warning {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(245, 158, 11, 0.16);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #fbbf24;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.pyxis-diagnostics-list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    margin: 14px 0;
+    padding-right: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pyxis-diagnostics-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.pyxis-diagnostics-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+}
+
+.pyxis-diagnostic-card {
+    background: var(--bg-card, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: all 0.18s ease;
+    cursor: pointer;
+}
+
+.pyxis-diagnostic-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.16);
+    transform: translateY(-1px);
+}
+
+.pyxis-diagnostic-card.critical {
+    border-left: 4px solid #ef4444;
+}
+
+.pyxis-diagnostic-card.warning {
+    border-left: 4px solid #f59e0b;
+}
+
+.pyxis-diagnostic-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.pyxis-diagnostic-card-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.pyxis-diagnostic-node-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-diagnostic-tag-badge {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-muted, #cbd5e1);
+}
+
+.pyxis-diagnostic-locate-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--accent-primary, #38bdf8);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+    transition: background 0.15s ease;
+}
+
+.pyxis-diagnostic-locate-btn:hover {
+    background: rgba(56, 189, 248, 0.15);
+}
+
+.pyxis-diagnostic-msg {
+    font-size: 12px;
+    color: #e2e8f0;
+    line-height: 1.4;
+}
+
+.pyxis-diagnostic-snippet {
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 5px;
+    padding: 6px 10px;
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: #f1f5f9;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.pyxis-diagnostic-suggestion {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11px;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 5px 8px;
+    border-radius: 5px;
+}
+
+.pyxis-diagnostic-suggestion svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+    stroke: #38bdf8;
+}
+
+.pyxis-diagnostics-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.pyxis-diagnostics-footer .pyxis-btn {
+    min-width: 140px;
+    justify-content: center;
+}
+
+/* =============================================================================
+   PYXIS TELEMETRY COCKPIT (16:9 ORBITAL DIAGNOSTICS MENU)
+   ============================================================================= */
+#pyxis-telemetry-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1500000;
+    background: var(--bg-canvas, #081116);
+    background: color-mix(in srgb, var(--bg-canvas, #081116) 95%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    display: none;
+    flex-direction: column;
+    color: var(--text-main, #ffffff);
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    user-select: none;
+    overflow: hidden;
+    opacity: 0;
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#pyxis-telemetry-overlay.is-open {
+    display: flex;
+    opacity: 1;
+}
+
+.pyxis-tel-header {
+    height: 52px;
+    min-height: 52px;
+    padding: 0 20px;
+    background: var(--bg-topbar, #0c171d);
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.pyxis-tel-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pyxis-tel-logo-box {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--accent-gradient, linear-gradient(135deg, #22858c 0%, #548c87 100%));
+    border: 1px solid var(--border-highlight, var(--accent-primary, #22858c));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-main, #ffffff);
+    box-shadow: 0 0 14px var(--accent-glow, rgba(34, 133, 140, 0.4));
+}
+
+.pyxis-tel-logo-box svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2.2;
+}
+
+.pyxis-tel-title-group {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+}
+
+.pyxis-tel-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    line-height: 1;
+}
+
+.pyxis-tel-title {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 1.4px;
+    line-height: 1;
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-tel-subtitle {
+    font-size: 10.5px;
+    line-height: 1.15;
+    color: var(--text-muted, #c7d8e2);
+    opacity: 0.85;
+    letter-spacing: 0.2px;
+}
+
+.pyxis-tel-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 16px;
+    padding: 0 7px;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: 0.6px;
+    background: rgba(16, 185, 129, 0.16);
+    border: 1px solid rgba(16, 185, 129, 0.45);
+    color: #34d399;
+    transform: translateY(-1.5px);
+}
+
+.pyxis-tel-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pyxis-tel-meta-pill {
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: var(--text-muted, #c7d8e2);
+}
+
+.pyxis-tel-btn {
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 7px;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    background: var(--bg-card, #152630);
+    color: var(--text-main, #ffffff);
+    font-size: 11.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.16s ease;
+}
+
+.pyxis-tel-btn.pyxis-tel-btn-icon {
+    width: 32px;
+    padding: 0;
+}
+
+.pyxis-tel-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--accent-primary, #22858c);
+    box-shadow: 0 0 10px var(--accent-glow, rgba(34, 133, 140, 0.4));
+    color: var(--text-main, #ffffff);
+}
+
+#btn-telemetry-close:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: #ef4444;
+    color: #fca5a5;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+.pyxis-tel-btn svg {
+    width: 15px;
+    height: 15px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2.1;
+}
+
+.pyxis-tel-btn-primary {
+    background: var(--accent-gradient, linear-gradient(135deg, #22858c 0%, #548c87 100%)) !important;
+    border-color: var(--border-highlight, var(--accent-primary, #22858c)) !important;
+    color: var(--text-main, #ffffff) !important;
+    box-shadow: 0 4px 14px var(--accent-glow, rgba(34, 133, 140, 0.4));
+}
+
+.pyxis-tel-btn-primary:hover {
+    background: var(--accent-gradient, linear-gradient(135deg, #22858c 0%, #548c87 100%)) !important;
+    filter: brightness(1.18);
+    border-color: var(--doc-accent-bright, var(--accent-primary, #22858c)) !important;
+    box-shadow: 0 0 18px var(--accent-glow, rgba(34, 133, 140, 0.55)) !important;
+}
+
+.pyxis-tel-btn-primary.is-scanning svg {
+    animation: pyxisSpinSlow 1.1s linear infinite;
+    stroke: var(--text-main, #ffffff);
+}
+
+.pyxis-tel-body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: auto minmax(410px, 1fr);
+    grid-template-rows: minmax(185px, 41%) 1fr;
+    gap: 12px;
+    padding: 12px 16px 14px 16px;
+    box-sizing: border-box;
+}
+
+/* Top-Left: Video Viewport Dock */
+.pyxis-tel-video-pane {
+    position: relative;
+    width: 534px;
+    min-width: 260px;
+    max-width: 72vw;
+    height: 100%;
+    background: var(--bg-input, #0a1318);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pyxis-tel-video-pane.is-resizing {
+    border-color: var(--accent-primary, #22858c);
+    box-shadow: 0 0 0 1px var(--accent-glow, rgba(34, 133, 140, 0.4)), 0 10px 30px rgba(0, 0, 0, 0.75);
+}
+
+.pyxis-tel-video-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 9px;
+}
+
+.pyxis-tel-resizer {
+    position: absolute;
+    z-index: 95;
+    user-select: none;
+    touch-action: none;
+}
+
+.pyxis-tel-resizer-e {
+    top: 6px;
+    bottom: 12px;
+    right: -7px;
+    width: 12px;
+    cursor: ew-resize;
+}
+
+.pyxis-tel-resizer-e::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 5px;
+    transform: translateY(-50%);
+    width: 2px;
+    height: 36px;
+    border-radius: 2px;
+    background: transparent;
+    transition: background 0.15s ease, height 0.15s ease;
+}
+
+.pyxis-tel-resizer-e:hover::after,
+.pyxis-tel-video-pane.is-resizing .pyxis-tel-resizer-e::after {
+    background: var(--doc-accent-bright, var(--accent-primary, #22858c));
+    height: 54px;
+}
+
+.pyxis-tel-resizer-s {
+    left: 6px;
+    right: 12px;
+    bottom: -7px;
+    height: 12px;
+    cursor: ns-resize;
+}
+
+.pyxis-tel-resizer-s::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 5px;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 2px;
+    border-radius: 2px;
+    background: transparent;
+    transition: background 0.15s ease, width 0.15s ease;
+}
+
+.pyxis-tel-resizer-s:hover::after,
+.pyxis-tel-video-pane.is-resizing .pyxis-tel-resizer-s::after {
+    background: var(--doc-accent-bright, var(--accent-primary, #22858c));
+    width: 54px;
+}
+
+.pyxis-tel-resizer-se {
+    right: -7px;
+    bottom: -7px;
+    width: 20px;
+    height: 20px;
+    cursor: nwse-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pyxis-tel-resizer-se::after {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-right: 2px solid var(--border-highlight, rgba(255, 255, 255, 0.35));
+    border-bottom: 2px solid var(--border-highlight, rgba(255, 255, 255, 0.35));
+    border-bottom-right-radius: 3px;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.pyxis-tel-resizer-se:hover::after,
+.pyxis-tel-video-pane.is-resizing .pyxis-tel-resizer-se::after {
+    border-color: var(--doc-accent-bright, var(--accent-primary, #22858c));
+    transform: scale(1.12);
+}
+
+.pyxis-tel-video-hud {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 14px;
+    padding: 4px 11px;
+    border-radius: 6px;
+    background: var(--bg-input, #0a1318);
+    border: 1px solid var(--border-highlight, var(--border-subtle, rgba(255, 255, 255, 0.14)));
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: var(--text-main, #ffffff);
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+.pyxis-tel-hud-sep {
+    opacity: 0.35;
+}
+
+/* Top-Right: Diagnostics & Hotspots Pane */
+.pyxis-tel-diagnostics-pane {
+    background: var(--bg-panel, #101d24);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: minmax(110px, 16%) minmax(185px, 34%) minmax(180px, 1fr);
+    gap: 10px;
+    min-height: 0;
+    min-width: 0;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+
+/* Arc Gauge Column */
+.pyxis-tel-gauge-col {
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    padding: 6px 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.pyxis-tel-gauge-svg {
+    width: 100%;
+    max-width: 132px;
+    max-height: 108px;
+    height: auto;
+    flex-shrink: 1;
+    overflow: visible;
+}
+
+.pyxis-tel-gauge-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted, #c7d8e2);
+    margin-top: 1px;
+    text-align: center;
+}
+
+.pyxis-tel-gauge-sub {
+    font-size: 9.5px;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-muted, #c7d8e2);
+    opacity: 0.72;
+    margin-top: 2px;
+    text-align: center;
+}
+
+/* KPI Grid Column (Compact, zero dead space) */
+.pyxis-tel-kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    min-height: 0;
+}
+
+.pyxis-tel-kpi-card {
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 7px;
+    padding: 5px 9px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1.5px;
+    min-width: 0;
+}
+
+.pyxis-tel-kpi-lbl {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--text-muted, #c7d8e2);
+    text-transform: uppercase;
+    letter-spacing: 0.35px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pyxis-tel-kpi-val {
+    font-size: 13.5px;
+    font-weight: 800;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-main, #ffffff);
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pyxis-tel-kpi-sub {
+    font-size: 9.5px;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-muted, #c7d8e2);
+    opacity: 0.72;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Hotspots Column */
+.pyxis-tel-hotspots-col {
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+}
+
+.pyxis-tel-hotspots-hdr {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    color: var(--text-main, #ffffff);
+    padding-bottom: 6px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.pyxis-tel-hotspots-hdr span {
+    white-space: pre-line;
+    line-height: 1.25;
+}
+
+.pyxis-tel-hotspots-hdr svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    stroke: #f43f5e;
+    fill: none;
+    stroke-width: 2.2;
+}
+
+.pyxis-tel-hotspots-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-right: 3px;
+}
+
+.pyxis-tel-hotspots-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.pyxis-tel-hotspots-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 2px;
+}
+
+.pyxis-tel-hotspot-item {
+    background: var(--bg-input, #0a1318);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-left: 3px solid #f43f5e;
+    border-radius: 6px;
+    padding: 5px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.14s ease;
+}
+
+.pyxis-tel-hotspot-item:hover {
+    background: rgba(244, 63, 94, 0.14);
+    border-color: rgba(244, 63, 94, 0.45);
+    transform: translateX(2px);
+}
+
+.pyxis-tel-hs-time {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-main, #ffffff);
+    white-space: nowrap;
+}
+
+.pyxis-tel-hs-metrics {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.pyxis-tel-hotspots-empty {
+    font-size: 11px;
+    color: var(--text-muted, #c7d8e2);
+    opacity: 0.72;
+    text-align: center;
+    padding: 22px 8px;
+    line-height: 1.4;
+}
+
+/* Bottom Full-Width: Unified Multi-Metric Interactive Graph */
+.pyxis-tel-chart-pane {
+    grid-column: 1 / -1;
+    background: var(--bg-panel, #101d24);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 10px;
+    padding: 9px 14px 11px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-height: 0;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+.pyxis-tel-chart-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.pyxis-tel-filters-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pyxis-tel-metric-group {
+    display: inline-flex;
+    align-items: center;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    background: var(--bg-input, #0a1318);
+    overflow: hidden;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.pyxis-tel-metric-group:has(.pyxis-tel-filter-pill.is-active) {
+    border-color: var(--border-highlight, var(--accent-primary, #22858c));
+    background: var(--bg-card, #152630);
+}
+
+.pyxis-tel-filter-pill {
+    height: 100%;
+    padding: 0 9px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted, #c7d8e2);
+    font-size: 11px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.pyxis-tel-filter-pill:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.pyxis-tel-filter-pill .pill-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    opacity: 0.45;
+    transition: opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pyxis-tel-filter-pill.is-active {
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-tel-filter-pill.is-active .pill-dot {
+    opacity: 1;
+}
+
+.pyxis-tel-scale-select {
+    height: 100%;
+    padding: 0 5px;
+    border: none;
+    border-left: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    background: var(--bg-input, #0a1318);
+    color: var(--text-muted, #c7d8e2);
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pyxis-tel-scale-select:hover,
+.pyxis-tel-scale-select:focus {
+    background: var(--accent-glow, rgba(34, 133, 140, 0.35));
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-tel-scale-select option {
+    background: var(--bg-panel, #101d24);
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-tel-chart-controls-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pyxis-tel-zoom-hint {
+    font-size: 10.5px;
+    color: var(--text-muted, #c7d8e2);
+    opacity: 0.75;
+    font-family: var(--font-mono, monospace);
+}
+
+.pyxis-tel-zoom-badge {
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-highlight, var(--accent-primary, #22858c));
+    font-family: var(--font-mono, monospace);
+    font-size: 10.5px;
+    color: var(--doc-accent-bright, var(--accent-primary, #22858c));
+}
+
+.pyxis-tel-chart-stage {
+    position: relative;
+    flex: 1;
+    min-height: 120px;
+    background: var(--bg-input, #0a1318);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: crosshair;
+}
+
+.pyxis-tel-chart-stage.is-panning {
+    cursor: grabbing !important;
+}
+
+#pyxis-telemetry-main-chart {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.pyxis-tel-chart-tooltip {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    pointer-events: none;
+    background: var(--bg-panel, #101d24);
+    border: 1px solid var(--border-highlight, var(--accent-primary, #22858c));
+    border-radius: 7px;
+    padding: 7px 10px;
+    font-family: var(--font-mono, monospace);
+    font-size: 10.5px;
+    color: var(--text-main, #ffffff);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.75);
+    display: none;
+    z-index: 20;
+    min-width: 175px;
+}
+
+.pyxis-tel-minimap-wrap {
+    height: 22px;
+    min-height: 22px;
+    position: relative;
+    background: var(--bg-input, #0a1318);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 5px;
+    overflow: hidden;
+    cursor: ew-resize;
+}
+
+#pyxis-telemetry-minimap {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* =============================================================================
+   PYXIS BUG REPORT MODAL (BETA 1.1.4) - NATIVE PYXIS UI DESIGN SYSTEM
+   ============================================================================= */
+.pyxis-bug-card {
+    width: 630px;
+    max-width: 92vw;
+    max-height: 88vh;
+    background: var(--bg-panel, rgba(16, 29, 36, 0.95));
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 14px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 1px 1px rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: var(--text-main, #ffffff);
+    font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+    animation: scaleUp 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pyxis-bug-header {
+    padding: 16px 22px;
+    background: rgba(0, 0, 0, 0.22);
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.pyxis-bug-header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pyxis-bug-title-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pyxis-bug-icon-badge {
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #f59e0b;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+    flex-shrink: 0;
+}
+
+.pyxis-bug-icon-badge svg {
+    width: 18px;
+    height: 18px;
+}
+
+.pyxis-bug-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-main, #ffffff);
+    letter-spacing: 0.2px;
+    line-height: 1.2;
+}
+
+.pyxis-bug-subtitle {
+    font-size: 11px;
+    color: var(--text-muted, #c7d8e2);
+    font-family: var(--font-mono, monospace);
+    margin-top: 3px;
+    opacity: 0.85;
+}
+
+.pyxis-bug-badge {
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    font-family: var(--font-mono, monospace);
+    font-size: 10.5px;
+    color: var(--doc-accent-bright, var(--accent-primary, #22858c));
+    letter-spacing: 0.3px;
+}
+
+.pyxis-bug-close-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted, #c7d8e2);
+    cursor: pointer;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pyxis-bug-close-btn:hover {
+    color: var(--text-main, #ffffff);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--border-subtle, rgba(255, 255, 255, 0.12));
+}
+
+.pyxis-bug-close-btn:active {
+    transform: scale(0.92);
+}
+
+.pyxis-bug-body {
+    padding: 22px 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    flex: 1;
+}
+
+.pyxis-bug-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pyxis-bug-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted, #c7d8e2);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    letter-spacing: 0.2px;
+}
+
+.pyxis-bug-label-sub {
+    font-size: 10.5px;
+    font-weight: normal;
+    color: var(--text-muted, #c7d8e2);
+    opacity: 0.75;
+    font-family: var(--font-mono, monospace);
+}
+
+.pyxis-bug-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-input, #0a1318);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 8px;
+    color: var(--text-main, #ffffff);
+    font-size: 12.5px;
+    line-height: 1.5;
+    padding: 10px 14px;
+    resize: vertical;
+    outline: none;
+    font-family: var(--font-sans, inherit);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.pyxis-bug-textarea::placeholder {
+    color: rgba(255, 255, 255, 0.28);
+    font-size: 12px;
+}
+
+.pyxis-bug-textarea:focus {
+    border-color: var(--border-highlight, var(--accent-primary, #22858c));
+    box-shadow: 0 0 12px var(--accent-glow, rgba(34, 133, 140, 0.35));
+    background: rgba(10, 19, 24, 0.95);
+}
+
+.pyxis-bug-dropzone {
+    border: 1.5px dashed var(--border-subtle, rgba(255, 255, 255, 0.18));
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 16px 14px;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    text-align: center;
+}
+
+.pyxis-bug-dropzone:hover,
+.pyxis-bug-dropzone.dragover,
+.pyxis-bug-dropzone:focus {
+    border-color: var(--accent-primary, #22858c);
+    background: color-mix(in srgb, var(--accent-primary, #22858c) 8%, rgba(0, 0, 0, 0.22));
+    box-shadow: 0 0 16px var(--accent-glow, rgba(34, 133, 140, 0.25));
+}
+
+.pyxis-bug-drop-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.pyxis-bug-drop-icon {
+    width: 28px;
+    height: 28px;
+    stroke: var(--doc-accent-bright, var(--accent-primary, #22858c));
+    fill: none;
+    stroke-width: 1.8;
+    filter: drop-shadow(0 0 8px var(--accent-glow, rgba(34, 133, 140, 0.3)));
+    transition: transform 0.2s ease;
+}
+
+.pyxis-bug-dropzone:hover .pyxis-bug-drop-icon {
+    transform: translateY(-2px);
+}
+
+.pyxis-bug-drop-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-main, #ffffff);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pyxis-bug-drop-sub {
+    font-size: 11px;
+    color: var(--text-muted, #c7d8e2);
+    opacity: 0.8;
+}
+
+.pyxis-bug-kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--doc-accent-bright, var(--text-main, #ffffff));
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.15));
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.pyxis-bug-preview-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--bg-card, #152630);
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.pyxis-bug-preview-img {
+    max-width: 120px;
+    max-height: 72px;
+    object-fit: contain;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+}
+
+.pyxis-bug-preview-info {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.pyxis-bug-preview-name {
+    font-family: var(--font-mono, monospace);
+    font-size: 11.5px;
+    color: var(--text-main, #ffffff);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pyxis-bug-preview-del {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+    border-radius: 6px;
+    padding: 5px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    transition: all 0.15s ease;
+}
+
+.pyxis-bug-preview-del:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
+
+.pyxis-bug-diagnostics-box {
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pyxis-bug-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-main, #ffffff);
+    cursor: pointer;
+    user-select: none;
+}
+
+.pyxis-bug-checkbox-row input[type="checkbox"] {
+    accent-color: var(--accent-primary, #22858c);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+
+.pyxis-bug-logs-toggle {
+    background: transparent;
+    border: none;
+    color: var(--doc-accent-bright, var(--accent-primary, #38bdf8));
+    font-size: 11.5px;
+    font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    padding: 2px 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+    align-self: flex-start;
+    opacity: 0.88;
+    transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.pyxis-bug-logs-toggle:hover {
+    opacity: 1;
+    color: var(--text-main, #ffffff);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.pyxis-bug-logs-preview {
+    max-height: 140px;
+    overflow-y: auto;
+    background: var(--bg-input, #0a1318);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.pyxis-bug-logs-preview pre {
+    margin: 0;
+    font-family: var(--font-mono, monospace);
+    font-size: 10.5px;
+    color: var(--text-muted, #c7d8e2);
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.45;
+}
+
+.pyxis-bug-feedback {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: pyxisModalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pyxis-bug-feedback.success {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.45);
+    color: #a7f3d0;
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+}
+
+.pyxis-bug-feedback.error {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+}
+
+.pyxis-bug-footer {
+    padding: 16px 24px;
+    background: rgba(0, 0, 0, 0.22);
+    border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.pyxis-bug-footer .pyxis-btn-primary {
+    box-shadow: 0 0 16px var(--accent-glow) !important;
+}
+
+.pyxis-bug-footer .pyxis-btn-primary:hover {
+    box-shadow: 0 0 24px var(--accent-glow) !important;
+}
+
+/* =============================================================================
+   PYXIS COMMUNITY & SOCIAL LINKS MODAL (CYBERPUNK HUB - THEME REACTIVE)
+   ============================================================================= */
+
+#btn-community-open {
+    color: var(--text-main, #ffffff);
+}
+
+#btn-community-open:hover {
+    color: var(--text-main, #ffffff);
+    border-color: rgba(88, 101, 242, 0.65);
+    box-shadow: 0 0 14px rgba(88, 101, 242, 0.45);
+}
+
+#pyxis-community-modal.pyxis-modal-overlay {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 2000000 !important;
+    background: rgba(6, 11, 16, 0.8) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    animation: pyxisBackdropFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pyxisBackdropFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.pyxis-community-card {
+    width: 660px;
+    max-width: 92vw;
+    background: var(--bg-panel, rgba(16, 29, 36, 0.95));
+    border: 1px solid var(--border-highlight, rgba(34, 133, 140, 0.45));
+    border-radius: 14px;
+    box-shadow: 0 30px 75px rgba(0, 0, 0, 0.85), 0 0 35px var(--accent-glow, rgba(34, 133, 140, 0.25));
+    padding: 0;
+    overflow: hidden;
+    position: relative;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    animation: pyxisCommunityEntrance 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pyxisCommunityEntrance {
+    0% {
+        opacity: 0;
+        transform: translateY(22px) scale(0.96);
+        filter: blur(6px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        filter: blur(0px);
+    }
+}
+
+.pyxis-community-top-glow {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2.5px;
+    background: linear-gradient(90deg, transparent, var(--accent-primary, #22858c) 25%, var(--accent-secondary, #3a628c) 50%, var(--accent-primary, #22858c) 75%, transparent);
+    background-size: 200% 100%;
+    box-shadow: 0 0 16px var(--accent-glow, rgba(34, 133, 140, 0.7));
+    animation: pyxisLaserSweep 4s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes pyxisLaserSweep {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.pyxis-community-close-btn {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 7px;
+    color: var(--text-muted, #c7d8e2);
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 20;
+    padding: 0;
+}
+
+.pyxis-community-close-btn svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    fill: none;
+    stroke-linecap: round;
+}
+
+.pyxis-community-close-btn:hover {
+    color: #ffffff;
+    background: rgba(239, 68, 68, 0.22);
+    border-color: rgba(239, 68, 68, 0.55);
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.45);
+}
+
+.pyxis-community-close-btn:active {
+    transform: scale(0.92);
+}
+
+.pyxis-community-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 34px 28px 16px;
+    position: relative;
+}
+
+.pyxis-community-logo-wrapper {
+    position: relative;
+    width: 82px;
+    height: 82px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+}
+
+.pyxis-community-logo-glow {
+    position: absolute;
+    inset: -14px;
+    background: radial-gradient(circle, var(--accent-glow, rgba(34, 133, 140, 0.45)) 0%, color-mix(in srgb, var(--accent-secondary, #3a628c) 30%, transparent) 50%, transparent 72%);
+    filter: blur(14px);
+    border-radius: 50%;
+    pointer-events: none;
+    animation: pyxisPulseGlow 3.5s ease-in-out infinite alternate;
+}
+
+@keyframes pyxisPulseGlow {
+    from {
+        opacity: 0.65;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1.08);
+    }
+}
+
+.pyxis-community-logo {
+    position: relative;
+    width: 74px;
+    height: 74px;
+    object-fit: contain;
+    filter: drop-shadow(0 0 16px var(--accent-glow, rgba(34, 133, 140, 0.6)));
+    user-select: none;
+    pointer-events: none;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pyxis-community-logo-wrapper:hover .pyxis-community-logo {
+    transform: scale(1.06) rotate(2deg);
+}
+
+.pyxis-community-title {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text-main, #ffffff);
+    margin: 0 0 5px;
+    letter-spacing: 0.8px;
+    text-shadow: 0 0 20px var(--accent-glow, rgba(34, 133, 140, 0.4));
+}
+
+.pyxis-community-subtitle {
+    font-size: 11.5px;
+    color: var(--text-muted, #c7d8e2);
+    margin: 0 0 16px;
+    letter-spacing: 0.4px;
+    max-width: 440px;
+    line-height: 1.45;
+}
+
+.pyxis-community-badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.pyxis-com-badge {
+    font-family: var(--font-mono, "JetBrains Mono", Consolas, monospace);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    color: var(--text-muted, #c7d8e2);
+    letter-spacing: 0.6px;
+    transition: all 0.2s ease;
+}
+
+.pyxis-com-badge:hover {
+    border-color: var(--border-highlight, rgba(255, 255, 255, 0.25));
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-com-badge-accent {
+    background: color-mix(in srgb, var(--accent-primary, #22858c) 18%, transparent);
+    border-color: var(--accent-primary, #22858c);
+    color: var(--doc-accent-bright, var(--text-main, #ffffff));
+    box-shadow: 0 0 12px var(--accent-glow, rgba(34, 133, 140, 0.3));
+}
+
+.pyxis-community-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    padding: 10px 24px 20px;
+}
+
+@media (max-width: 580px) {
+    .pyxis-community-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Staggered entrance choreo for cards */
+@keyframes pyxisCardStaggerIn {
+    0% {
+        opacity: 0;
+        transform: translateY(14px) scale(0.97);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+#pyxis-community-modal.is-open .pyxis-com-card:nth-child(1) { animation: pyxisCardStaggerIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both; }
+#pyxis-community-modal.is-open .pyxis-com-card:nth-child(2) { animation: pyxisCardStaggerIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) 0.10s both; }
+#pyxis-community-modal.is-open .pyxis-com-card:nth-child(3) { animation: pyxisCardStaggerIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both; }
+#pyxis-community-modal.is-open .pyxis-com-card:nth-child(4) { animation: pyxisCardStaggerIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) 0.20s both; }
+
+.pyxis-com-card {
+    display: flex;
+    flex-direction: column;
+    padding: 15px 16px;
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 10px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+    transform-style: preserve-3d;
+}
+
+/* Dynamic cursor spotlight following pointer */
+.pyxis-com-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(circle 140px at var(--card-x, 50%) var(--card-y, 50%), rgba(255, 255, 255, 0.09), transparent 80%);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
+}
+
+.pyxis-com-card:hover::before {
+    opacity: 1;
+}
+
+.pyxis-com-card:focus-visible {
+    outline: none;
+    border-color: var(--accent-primary, #22858c);
+}
+
+.pyxis-com-card:active {
+    transform: scale(0.97) !important;
+    transition: transform 0.08s ease;
+}
+
+.pyxis-com-card-icon {
+    width: 26px;
+    height: 26px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.25s ease;
+}
+
+.pyxis-com-card-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.pyxis-com-card:hover .pyxis-com-card-icon {
+    transform: scale(1.12);
+}
+
+/* Discord theme */
+.pyxis-com-icon-discord {
+    color: #5865F2;
+}
+
+.pyxis-com-card-discord:hover {
+    border-color: rgba(88, 101, 242, 0.7);
+    box-shadow: 0 0 24px rgba(88, 101, 242, 0.36);
+    background: color-mix(in srgb, #5865F2 10%, var(--bg-card, #152630));
+}
+
+.pyxis-com-card-discord:hover .pyxis-com-icon-discord {
+    filter: drop-shadow(0 0 12px rgba(88, 101, 242, 0.85));
+}
+
+/* X theme */
+.pyxis-com-icon-x {
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-com-card-x:hover {
+    border-color: rgba(255, 255, 255, 0.65);
+    box-shadow: 0 0 22px rgba(255, 255, 255, 0.22);
+    background: color-mix(in srgb, #ffffff 7%, var(--bg-card, #152630));
+}
+
+.pyxis-com-card-x:hover .pyxis-com-icon-x {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.8));
+}
+
+/* GitHub theme */
+.pyxis-com-icon-github {
+    color: #34d399;
+}
+
+.pyxis-com-card-github:hover {
+    border-color: rgba(52, 211, 153, 0.7);
+    box-shadow: 0 0 24px rgba(52, 211, 153, 0.32);
+    background: color-mix(in srgb, #10b981 10%, var(--bg-card, #152630));
+}
+
+.pyxis-com-card-github:hover .pyxis-com-icon-github {
+    filter: drop-shadow(0 0 12px rgba(52, 211, 153, 0.85));
+}
+
+/* Email theme */
+.pyxis-com-icon-email {
+    color: #fbbf24;
+}
+
+.pyxis-com-card-email:hover {
+    border-color: rgba(251, 191, 36, 0.7);
+    box-shadow: 0 0 24px rgba(251, 191, 36, 0.32);
+    background: color-mix(in srgb, #f59e0b 10%, var(--bg-card, #152630));
+}
+
+.pyxis-com-card-email:hover .pyxis-com-icon-email {
+    filter: drop-shadow(0 0 12px rgba(251, 191, 36, 0.85));
+}
+
+.pyxis-com-card-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.pyxis-com-card-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.pyxis-com-card-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main, #ffffff);
+}
+
+.pyxis-com-card-tag {
+    font-family: var(--font-mono, monospace);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.35);
+    color: var(--text-muted, #c7d8e2);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    letter-spacing: 0.6px;
+}
+
+.pyxis-com-card-desc {
+    font-size: 11px;
+    color: var(--text-muted, #c7d8e2);
+    line-height: 1.35;
+    margin: 0 0 12px;
+}
+
+.pyxis-com-card-action {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-main, #ffffff);
+    margin-top: auto;
+}
+
+.pyxis-com-card-action svg {
+    width: 13px;
+    height: 13px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pyxis-com-card:hover .pyxis-com-card-action svg {
+    transform: translateX(5px) scale(1.15);
+}
+
+.pyxis-com-toast {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 0 24px 14px;
+    padding: 8px 14px;
+    background: var(--bg-card, #152630);
+    border: 1px solid var(--accent-primary, #22858c);
+    border-radius: 6px;
+    color: var(--doc-accent-bright, #ffffff);
+    font-size: 11.5px;
+    font-weight: 600;
+    box-shadow: 0 0 18px var(--accent-glow, rgba(34, 133, 140, 0.3));
+    animation: pyxisModalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pyxis-community-footer {
+    padding: 10px 24px;
+    background: rgba(0, 0, 0, 0.35);
+    border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    text-align: center;
+}
+
+.pyxis-community-protocol {
+    font-family: var(--font-mono, monospace);
+    font-size: 9.5px;
+    color: var(--text-muted, #c7d8e2);
+    opacity: 0.6;
+    letter-spacing: 1px;
+}
+
 
 
 

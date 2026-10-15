@@ -256,8 +256,8 @@ def audio_rms(start_ms=None, end_ms=None, gain=1.0, audio_path=None, context=Non
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
 
-    st = float(start_ms if start_ms is not None else ctx.get("start_time", getattr(unit, "start_time", 0)))
-    et = float(end_ms if end_ms is not None else ctx.get("end_time", getattr(unit, "end_time", 0)))
+    st = float(start_ms if start_ms is not None else ctx.get("unit_abs_start_time", ctx.get("fx_start_time", getattr(unit, "start_time", 0))))
+    et = float(end_ms if end_ms is not None else ctx.get("unit_abs_end_time", ctx.get("fx_end_time", getattr(unit, "end_time", 0))))
     g = float(kwargs.get("gain", gain))
 
     audio_obj = resolve_audio_data(audio_path, ctx)
@@ -271,8 +271,8 @@ def audio_peak(start_ms=None, end_ms=None, gain=1.0, audio_path=None, context=No
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
 
-    st = float(start_ms if start_ms is not None else ctx.get("start_time", getattr(unit, "start_time", 0)))
-    et = float(end_ms if end_ms is not None else ctx.get("end_time", getattr(unit, "end_time", 0)))
+    st = float(start_ms if start_ms is not None else ctx.get("unit_abs_start_time", ctx.get("fx_start_time", getattr(unit, "start_time", 0))))
+    et = float(end_ms if end_ms is not None else ctx.get("unit_abs_end_time", ctx.get("fx_end_time", getattr(unit, "end_time", 0))))
     g = float(kwargs.get("gain", gain))
 
     audio_obj = resolve_audio_data(audio_path, ctx)
@@ -286,8 +286,8 @@ def audio_band(start_ms=None, end_ms=None, min_hz=20.0, max_hz=250.0, gain=1.0, 
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
 
-    st = float(start_ms if start_ms is not None else ctx.get("start_time", getattr(unit, "start_time", 0)))
-    et = float(end_ms if end_ms is not None else ctx.get("end_time", getattr(unit, "end_time", 0)))
+    st = float(start_ms if start_ms is not None else ctx.get("unit_abs_start_time", ctx.get("fx_start_time", getattr(unit, "start_time", 0))))
+    et = float(end_ms if end_ms is not None else ctx.get("unit_abs_end_time", ctx.get("fx_end_time", getattr(unit, "end_time", 0))))
     f_min = float(kwargs.get("min_hz", min_hz))
     f_max = float(kwargs.get("max_hz", max_hz))
     g = float(kwargs.get("gain", gain))
@@ -303,8 +303,8 @@ def audio_fft(start_ms=None, end_ms=None, num_bands=16, min_hz=20.0, max_hz=1600
     ctx = context if isinstance(context, dict) else {}
     unit = ctx.get("active_unit")
 
-    st = float(start_ms if start_ms is not None else ctx.get("start_time", getattr(unit, "start_time", 0)))
-    et = float(end_ms if end_ms is not None else ctx.get("end_time", getattr(unit, "end_time", 0)))
+    st = float(start_ms if start_ms is not None else ctx.get("unit_abs_start_time", ctx.get("fx_start_time", getattr(unit, "start_time", 0))))
+    et = float(end_ms if end_ms is not None else ctx.get("unit_abs_end_time", ctx.get("fx_end_time", getattr(unit, "end_time", 0))))
     n_bands = int(kwargs.get("num_bands", num_bands))
     f_min = float(kwargs.get("min_hz", min_hz))
     f_max = float(kwargs.get("max_hz", max_hz))

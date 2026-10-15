@@ -4,12 +4,11 @@ Modular evaluator for strings, expressions, and composite tags.
 
 Supports:
 1. Direct evaluation inside ASS tag parentheses: \pos(syl.center + 10, syl.middle), \frz(j * 15), \t(0, 10f, \fscxy(150))
-2. Dollar-prefixed variable substitution: $center, $middle, $syl.center, $line.color1, $start, $dur, $j, $maxj, etc.
-3. Optional inline expressions: !expression! (e.g., !char.text.upper()!, !syl.duration / 2!)
-4. Unit shortcuts: 10f (frames to ms), 1.5r (resolution ratio scaling)
-5. Composite tag expansion (Dark Tags): \fscxy, \faxy, \frxyz, \xybord, \xyshad, \bs, \134c, \13c, \14c, \34c, \134a, \13a, \14a, \34a
-6. Style restoration tags: \fscxy~, \1c~, \134c~, \bs~, etc.
-7. Stochastic tags: \1cR(), \frzR(-30, 30), \fscxyR(120, 150), etc.
+2. Isolated parenthesized expressions and ternaries: (\blur3 if i == 1 else \blur0), (Colores())
+3. Unit shortcuts: 10f (frames to ms), 1.5r (resolution ratio scaling)
+4. Composite tag expansion (Dark Tags): \fscxy, \faxy, \frxyz, \xybord, \xyshad, \bs, \134c, \13c, \14c, \34c, \134a, \13a, \14a, \34a
+5. Style restoration tags: \fscxy~, \1c~, \134c~, \bs~, etc.
+6. Stochastic tags: \1cR(), \frzR(-30, 30), \fscxyR(120, 150), etc.
 """
 
 from __future__ import annotations
@@ -17,9 +16,15 @@ from __future__ import annotations
 import re
 import math
 import random
+from collections import OrderedDict
 from typing import Any, Dict, Optional
 
-_AST_EXPR_CACHE: Dict[str, Any] = {}
+_AST_EXPR_CACHE: OrderedDict[str, Any] = OrderedDict()
+_MAX_AST_EXPR_CACHE = 2048
+
+def clear_string_eval_cache():
+    """Clears cached compiled string evaluation expressions."""
+    _AST_EXPR_CACHE.clear()
 _STATIC_STRING_GLOBALS: Optional[Dict[str, Any]] = None
 
 
@@ -33,7 +38,8 @@ def _get_eval_globals() -> Dict[str, Any]:
         "min": min, "max": max, "abs": abs, "round": round,
         "int": int, "float": float, "pow": pow, "sum": sum,
         "len": len, "str": str, "bool": bool, "range": range,
-        "list": list, "dict": dict, "tuple": tuple, "set": set
+        "list": list, "dict": dict, "tuple": tuple, "set": set,
+        "true": True, "false": False, "null": None, "nil": None
     }
     g: Dict[str, Any] = {"math": math, "__builtins__": safe_builtins}
     for k, v in safe_builtins.items():
@@ -77,10 +83,24 @@ def _get_eval_globals() -> Dict[str, Any]:
         pass
 
     try:
-        from nodes.math_nodes import math_random_master
+        from nodes.math_nodes import math_random_master, PyxisByDispatcher
+        g["math_random_master"] = math_random_master
+        g["PyxisByDispatcher"] = PyxisByDispatcher
         g["R"] = math_random_master
         g["Rs"] = math_random_master
         g["Rc"] = math_random_master
+        g["Rd"] = math_random_master
+        g["Rm"] = math_random_master
+        g["Rds"] = math_random_master
+        g["Rcs"] = math_random_master
+        g["Rms"] = math_random_master
+        g["Rr"] = math_random_master
+        g["Rstep"] = math_random_master
+        g["R2d"] = math_random_master
+        g["Rbool"] = math_random_master
+        g["Rcolor"] = math_random_master
+        g["Re"] = math_random_master
+        g["Rfake"] = math_random_master
         g["rand"] = math_random_master
     except ImportError:
         def simple_r(min_v=0, max_v=100, step=1):
@@ -129,6 +149,51 @@ def _get_eval_globals() -> Dict[str, Any]:
     except ImportError:
         pass
 
+    try:
+        from nodes.audio_nodes import audio_rms, audio_peak, audio_band, audio_fft
+        g["audio_rms"] = audio_rms
+        g["audio_peak"] = audio_peak
+        g["audio_band"] = audio_band
+        g["audio_fft"] = audio_fft
+    except ImportError:
+        pass
+
+    try:
+        from node_engine import ShapePresetsNamespace
+        g["shape"] = ShapePresetsNamespace()
+    except ImportError:
+        pass
+
+    try:
+        from nodes.shape_nodes import (
+            shape_circle, shape_square, shape_rectangle, shape_triangle, shape_rhombus,
+            shape_rounded_corners, shape_pentagon, shape_hexagon, shape_octagon,
+            shape_star, shape_heart, resolve_shape_value
+        )
+        g.update({
+            "shape_circle": lambda ctx=None: shape_circle(ctx),
+            "shape_square": lambda ctx=None: shape_square(ctx),
+            "shape_rectangle": lambda ctx=None: shape_rectangle(ctx),
+            "shape_triangle": lambda ctx=None: shape_triangle(ctx),
+            "shape_rhombus": lambda ctx=None: shape_rhombus(ctx),
+            "shape_rounded_corners": lambda ctx=None: shape_rounded_corners(ctx),
+            "shape_pentagon": lambda ctx=None: shape_pentagon(ctx),
+            "shape_hexagon": lambda ctx=None: shape_hexagon(ctx),
+            "shape_octagon": lambda ctx=None: shape_octagon(ctx),
+            "shape_star": lambda ctx=None: shape_star(ctx),
+            "shape_heart": lambda ctx=None: shape_heart(ctx),
+            "resolve_shape": lambda name, ctx=None: resolve_shape_value(name, ctx),
+        })
+    except ImportError:
+        pass
+
+    try:
+        from registry import NODE_REGISTRY
+        for fn_name, fn in NODE_REGISTRY.items():
+            g.setdefault(fn_name, fn)
+    except ImportError:
+        pass
+
     _STATIC_STRING_GLOBALS = g
     return _STATIC_STRING_GLOBALS
 
@@ -170,9 +235,30 @@ def _clean_ass_color(col: Any) -> str:
     """Formats a color value into canonical ASS color hex &HBBGGRR&."""
     if col is None:
         return "&H00FFFFFF&"
+    if isinstance(col, (int, float)):
+        return f"&H{int(col) & 0xFFFFFF:06X}&"
+    if isinstance(col, (tuple, list)) and len(col) >= 3:
+        try:
+            from utils import rgb_to_ass_color
+            return rgb_to_ass_color(col[0], col[1], col[2])
+        except Exception:
+            pass
     s = str(col).strip()
     if not s:
         return "&H00FFFFFF&"
+    if s.startswith("#"):
+        try:
+            from utils import parse_color_to_rgb, rgb_to_ass_color
+            return rgb_to_ass_color(*parse_color_to_rgb(s))
+        except ImportError:
+            h = s[1:]
+            if len(h) == 3 and re.match(r'^[0-9a-fA-F]{3}$', h):
+                h = "".join(c * 2 for c in h)
+            if len(h) >= 6 and re.match(r'^[0-9a-fA-F]{6}', h):
+                r, g, b = h[0:2], h[2:4], h[4:6]
+                return f"&H{b.upper()}{g.upper()}{r.upper()}&"
+    if s.isdigit():
+        return f"&H{int(s) & 0xFFFFFF:06X}&"
     m = re.findall(r'[0-9a-fA-F]{2}', s)
     if len(m) >= 4:
         return f"&H{''.join(m[-3:]).upper()}&"
@@ -223,58 +309,182 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if isinstance(v, dict) and not isinstance(v, AttrDict):
             eval_locals[k] = AttrDict(v)
 
-    eval_locals["audio_rms"] = lambda *args, **kwargs: eval_globals.get("audio_rms", lambda **kw: 0.0)(*args, context=context, **kwargs)
-    eval_locals["audio_peak"] = lambda *args, **kwargs: eval_globals.get("audio_peak", lambda **kw: 0.0)(*args, context=context, **kwargs)
-    eval_locals["audio_band"] = lambda *args, **kwargs: eval_globals.get("audio_band", lambda **kw: 0.0)(*args, context=context, **kwargs)
-    eval_locals["audio_fft"] = lambda *args, **kwargs: eval_globals.get("audio_fft", lambda **kw: 0.0)(*args, context=context, **kwargs)
+    eval_locals["audio_rms"] = lambda *args, **kwargs: eval_globals.get("audio_rms", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
+    eval_locals["audio_peak"] = lambda *args, **kwargs: eval_globals.get("audio_peak", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
+    eval_locals["audio_band"] = lambda *args, **kwargs: eval_globals.get("audio_band", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
+    eval_locals["audio_fft"] = lambda *args, **kwargs: eval_globals.get("audio_fft", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
 
-    if "R" in eval_globals:
-        eval_locals["R"] = lambda min_v=0, max_v=100, step_v=1: eval_globals["R"](context, modo="R", min_val=min_v, max_val=max_v, step=step_v) if callable(eval_globals["R"]) and "modo" in eval_globals["R"].__code__.co_varnames else eval_globals["R"](min_v, max_v, step_v)
-        eval_locals["Rs"] = lambda min_v=0, max_v=100: eval_globals["Rs"](context, modo="Rs", min_val=min_v, max_val=max_v) if callable(eval_globals["Rs"]) and "modo" in eval_globals["Rs"].__code__.co_varnames else eval_globals["Rs"](min_v, max_v)
-        eval_locals["Rc"] = lambda min_v=0, max_v=100: eval_globals["Rc"](context, modo="Rc", min_val=min_v, max_val=max_v) if callable(eval_globals["Rc"]) and "modo" in eval_globals["Rc"].__code__.co_varnames else eval_globals["Rc"](min_v, max_v)
-        eval_locals["rand"] = eval_locals["R"]
+    by_cls = eval_globals.get("PyxisByDispatcher")
+    if by_cls:
+        eval_locals["by"] = by_cls(context)
+
+    def _make_eval_rnd_caller(mode_name, default_step=None):
+        def _caller(*args, **kwargs):
+            by_val = kwargs.get("by", kwargs.get("iter", kwargs.get("iterator", None)))
+            if len(args) == 0:
+                mn = kwargs.get("min_val", kwargs.get("min", None))
+                mx = kwargs.get("max_val", kwargs.get("max", None))
+                st = kwargs.get("step", default_step)
+            elif len(args) == 1:
+                mn = args[0]
+                mx = None
+                st = kwargs.get("step", default_step)
+            elif len(args) == 2:
+                mn = args[0]
+                mx = args[1]
+                st = kwargs.get("step", default_step)
+            else:
+                mn = args[0]
+                mx = args[1]
+                st = args[2]
+            fn = eval_globals.get("math_random_master", eval_globals.get(mode_name, eval_globals.get("R")))
+            if callable(fn):
+                clean_kwargs = {k: v for k, v in kwargs.items() if k not in ("min_val", "min", "max_val", "max", "step", "by", "iter", "iterator")}
+                return fn(context, mode=mode_name, min_val=mn, max_val=mx, step=st, by=by_val, **clean_kwargs)
+            return 0
+        return _caller
+
+    eval_locals["R"] = _make_eval_rnd_caller("R", 1.0)
+    eval_locals["Rs"] = _make_eval_rnd_caller("Rs", 1.0)
+    eval_locals["Rc"] = _make_eval_rnd_caller("Rc", 0.01)
+    eval_locals["Rd"] = _make_eval_rnd_caller("Rd", 0.1)
+    eval_locals["Rm"] = _make_eval_rnd_caller("Rm", 0.001)
+    eval_locals["Rds"] = _make_eval_rnd_caller("Rds", 0.1)
+    eval_locals["Rcs"] = _make_eval_rnd_caller("Rcs", 0.01)
+    eval_locals["Rms"] = _make_eval_rnd_caller("Rms", 0.001)
+    eval_locals["Rr"] = _make_eval_rnd_caller("Rr", 1.0)
+    eval_locals["Rstep"] = _make_eval_rnd_caller("Rstep", 45.0)
+    eval_locals["R2d"] = _make_eval_rnd_caller("R2d", 1.0)
+    eval_locals["Rbool"] = lambda prob=50.0, **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: True)(context, mode="Rbool", min_val=prob, **kwargs)
+    eval_locals["Rcolor"] = lambda c1="#FFFFFF", c2="#000000", **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: "#FFFFFF")(context, mode="Rcolor", min_val=c1, max_val=c2, **kwargs)
+    eval_locals["Re"] = lambda options="", **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: "")(context, mode="Re", options=options, **kwargs)
+    eval_locals["Rfake"] = lambda *args, **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: 0)(context, mode="Rfake", *args, **kwargs)
+    eval_locals["rand"] = eval_locals["R"]
 
     if "active_unit" in eval_locals and eval_locals["active_unit"]:
         unit_obj = eval_locals["active_unit"]
-        if "syl" not in eval_locals or eval_locals["syl"] is None:
-            eval_locals["syl"] = unit_obj
+        if "syl" not in eval_locals or eval_locals["syl"] is None or isinstance(eval_locals["syl"], int):
+            syl_candidate = getattr(unit_obj, "_syl_obj", None)
+            if syl_candidate is not None and not isinstance(syl_candidate, int):
+                eval_locals["syl"] = syl_candidate
+            else:
+                eval_locals["syl"] = unit_obj
+        if "char" not in eval_locals and getattr(unit_obj, "char", None) is not None:
+            eval_locals["char"] = getattr(unit_obj, "char")
+        if "word" not in eval_locals and getattr(unit_obj, "word", None) is not None:
+            eval_locals["word"] = getattr(unit_obj, "word")
         if "line" not in eval_locals and hasattr(unit_obj, "line") and unit_obj.line:
             eval_locals["line"] = unit_obj.line
+
+    if "line" in eval_locals and eval_locals["line"] is not None:
+        eval_locals.setdefault("l", eval_locals["line"])
+    elif "l" in eval_locals and eval_locals["l"] is not None:
+        eval_locals.setdefault("line", eval_locals["l"])
 
     val_max_j = eval_locals.get("maxj", eval_locals.get("fx_n", 1))
     eval_locals["maxj"] = val_max_j
     if "maxloop" not in eval_locals:
-        eval_locals["maxloop"] = eval_locals.get("max_loop", val_max_j)
-    if "max_loop" not in eval_locals:
-        eval_locals["max_loop"] = eval_locals["maxloop"]
+        eval_locals["maxloop"] = val_max_j
     if "j" not in eval_locals and "fx_i" in eval_locals:
         eval_locals["j"] = eval_locals["fx_i"]
-    if "d_i" not in eval_locals and "fx_i" in eval_locals:
-        eval_locals["d_i"] = eval_locals["fx_i"]
-    if "d_n" not in eval_locals and "fx_n" in eval_locals:
-        eval_locals["d_n"] = eval_locals["fx_n"]
-    if "d_max" not in eval_locals:
-        eval_locals["d_max"] = eval_locals.get("d_n", eval_locals.get("maxloop", 1))
+    eval_locals.setdefault("j", 1)
+
+    _fx_i_def = eval_locals.get("fx_i", 1)
+    _fx_n_def = eval_locals.get("fx_n", eval_locals.get("maxloop", 1))
+    _subloop_pairs = (
+        ("s", "slice"),
+        ("d", "divide"),
+        ("b", "ring"),
+        ("a", "array"),
+        ("m", "multi"),
+        ("p", "particle"),
+        ("tp", "text_p"),
+        ("ip", "img_p"),
+        ("c", "clip"),
+        ("an", "anim"),
+    )
+    for short_p, long_p in _subloop_pairs:
+        si_k, sn_k, sm_k = f"{short_p}_i", f"{short_p}_n", f"{short_p}_max"
+        li_k, ln_k, lm_k = f"{long_p}_i", f"{long_p}_n", f"{long_p}_max"
+        i_val_p = eval_locals.get(si_k, eval_locals.get(li_k, _fx_i_def if short_p in ("s", "d") and "fx_i" in eval_locals else 1))
+        n_val_p = eval_locals.get(sn_k, eval_locals.get(ln_k, _fx_n_def if short_p in ("s", "d") and "fx_n" in eval_locals else 1))
+        m_val_p = eval_locals.get(sm_k, eval_locals.get(lm_k, n_val_p))
+        eval_locals.setdefault(si_k, i_val_p)
+        eval_locals.setdefault(li_k, i_val_p)
+        eval_locals.setdefault(sn_k, n_val_p)
+        eval_locals.setdefault(ln_k, n_val_p)
+        eval_locals.setdefault(sm_k, m_val_p)
+        eval_locals.setdefault(lm_k, m_val_p)
+    eval_locals.setdefault("total_pixels", eval_locals.get("ip_n", 1))
+    eval_locals.setdefault("c_col", 1)
+    eval_locals.setdefault("c_row", 1)
+    eval_locals.setdefault("an_j", eval_locals.get("an_i", 1))
+
+    active_unit = eval_locals.get("active_unit") or eval_locals.get("syl") or eval_locals.get("char") or eval_locals.get("word")
+    raw_prev = getattr(active_unit, "prev", None) if active_unit and hasattr(active_unit, "prev") else eval_locals.get("prev")
+    raw_next = getattr(active_unit, "next", None) if active_unit and hasattr(active_unit, "next") else eval_locals.get("next")
+    try:
+        from models import AdjacentUnitProxy
+        prev_proxy = AdjacentUnitProxy("prev", raw_prev)
+        next_proxy = AdjacentUnitProxy("next", raw_next)
+        prev_exists = bool(prev_proxy)
+        next_exists = bool(next_proxy)
+        eval_locals["prev"] = prev_proxy
+        eval_locals["next"] = next_proxy
+    except Exception:
+        prev_exists = (raw_prev is not None)
+        next_exists = (raw_next is not None)
+        eval_locals["prev"] = raw_prev
+        eval_locals["next"] = raw_next
+
+    i_val = int(eval_locals.get("i", getattr(active_unit, "i", 1) if active_unit else 1))
+    n_val = int(eval_locals.get("n", getattr(active_unit, "n", 1) if active_unit else 1))
+    eval_locals["is_first"] = (i_val == 1) or (not prev_exists)
+    eval_locals["is_last"] = (i_val == n_val) or (not next_exists)
+    eval_locals["has_prev"] = prev_exists
+    eval_locals["has_next"] = next_exists
+
+    try:
+        from models import InkNamespace
+        eval_locals["ink"] = InkNamespace(eval_locals)
+    except Exception:
+        pass
 
     if "fx" not in eval_locals or eval_locals["fx"] is None or not isinstance(eval_locals["fx"], FxContext):
         eval_locals["fx"] = FxContext(eval_locals)
 
-    def _remember(key, val, cond=True):
-        if cond:
-            mem = eval_locals.setdefault("memory", {})
-            mem[str(key)] = val
-        return val
+    if isinstance(context, dict) and callable(context.get("remember")) and callable(context.get("recall")):
+        eval_locals["remember"] = context["remember"]
+        eval_locals["recall"] = context["recall"]
+    else:
+        target_ctx = context if isinstance(context, dict) else eval_locals
+        mem_store = target_ctx.get("_memory")
+        if not isinstance(mem_store, dict):
+            mem_store = target_ctx.get("memory")
+        if not isinstance(mem_store, dict):
+            mem_store = {}
+        target_ctx["_memory"] = mem_store
+        target_ctx["memory"] = mem_store
+        eval_locals["_memory"] = mem_store
+        eval_locals["memory"] = mem_store
 
-    def _recall(key, default=""):
-        mem = eval_locals.get("memory", {})
-        return mem.get(str(key), default)
+        def _remember(key, val, cond=True):
+            if cond:
+                mem_store[str(key)] = val
+            return val
 
-    eval_locals["remember"] = _remember
-    eval_locals["recall"] = _recall
+        def _recall(key, default=""):
+            return mem_store.get(str(key), default)
+
+        eval_locals["remember"] = _remember
+        eval_locals["recall"] = _recall
 
     try:
         from nodes.code_nodes import PyxisTimeModifier
-        from nodes.time_nodes import time_lead_in, time_lead_out, time_middle_1, time_middle_2, time_loop_1, time_loop_2
+        from nodes.time_nodes import (
+            time_lead_in, time_lead_out, time_middle_1, time_middle_2,
+            time_loop_1, time_loop_2, PyxisSyncHelper, calculate_sync_gap
+        )
         eval_locals["time_lead_in"] = lambda delay=40, base=None: time_lead_in(context, delay=delay, base=base)
         eval_locals["time_lead_out"] = lambda delay=40, base=None: time_lead_out(context, delay=delay, base=base)
         eval_locals["time_middle_1"] = lambda delay=30, base=None: time_middle_1(context, delay=delay, base=base)
@@ -288,10 +498,55 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         eval_locals["m2"] = PyxisTimeModifier(time_middle_2, context, default_delay=30.0)
         eval_locals["l1"] = PyxisTimeModifier(time_loop_1, context, default_delay=30.0, mode="leadin")
         eval_locals["l2"] = PyxisTimeModifier(time_loop_2, context, default_delay=30.0, mode="leadin")
+
+        sync_helper = PyxisSyncHelper(eval_locals)
+        eval_locals["sync"] = sync_helper
+        eval_locals["calculate_sync_gap"] = lambda *a, **kw: calculate_sync_gap(eval_locals, *a, **kw)
+        eval_locals.setdefault("order", "order")
+        eval_locals.setdefault("style", "style")
+        eval_locals.setdefault("actor", "actor")
+        eval_locals.setdefault("effect", "effect")
+        eval_locals.setdefault("layer", "layer")
     except Exception:
         pass
 
     return eval_locals
+
+
+def _transform_outside_quotes(expr_str: str, transform_fn) -> str:
+    """Applies transform_fn only to segments of expr_str outside single or double quotes."""
+    if not expr_str or ('"' not in expr_str and "'" not in expr_str):
+        return transform_fn(expr_str)
+    out = []
+    n = len(expr_str)
+    i = 0
+    seg_start = 0
+    in_quote = None
+    while i < n:
+        ch = expr_str[i]
+        if in_quote:
+            if ch == '\\' and i + 1 < n:
+                i += 2
+                continue
+            elif ch == in_quote:
+                out.append(expr_str[seg_start : i + 1])
+                in_quote = None
+                seg_start = i + 1
+        elif ch in ('"', "'"):
+            if i > seg_start:
+                out.append(transform_fn(expr_str[seg_start:i]))
+            in_quote = ch
+            seg_start = i
+        i += 1
+    if seg_start < n:
+        if in_quote:
+            out.append(expr_str[seg_start:])
+        else:
+            out.append(transform_fn(expr_str[seg_start:]))
+    return "".join(out)
+
+
+_AST_EXPR_SENTINEL = object()
 
 
 def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, default: Any = "") -> Any:
@@ -302,29 +557,50 @@ def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, de
     if not expr_clean:
         return default
 
-    expr_clean = re.sub(r'&[hH]([0-9a-fA-F]+)&?', r'0x\1', expr_clean)
+    # Handle top-level Lua ternary ('COND and A or B') safely so falsy A (e.g. 0) does not fall through to B
+    if " and " in expr_clean and " or " in expr_clean:
+        parsed_lua = _split_top_level_ternary(expr_clean)
+        if parsed_lua and parsed_lua[0] == "lua":
+            _, val_true, cond, val_false = parsed_lua
+            cond_val = eval_python_expr(cond, context, default=False)
+            chosen = val_true if bool(cond_val) else val_false
+            if re.match(r'^&[hH][0-9a-fA-F]+&?$', chosen):
+                return chosen
+            return eval_python_expr(chosen, context, default=chosen)
 
     frame_dur = 41.708
     ratio = 1.0
     if isinstance(context, dict):
-        frame_dur = float(context.get("frame_dur", 41.708))
+        frame_dur = float(context.get("frame_dur", context.get("fd", 41.708)))
         ratio = float(context.get("ratio", context.get("module", 1.0)))
 
-    expr_clean = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*f\b', rf'(\1 * {frame_dur})', expr_clean)
-    expr_clean = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*r\b', rf'(\1 * {ratio})', expr_clean)
-    expr_clean = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*(li|lo|m1|m2|l1|l2)\b', r'\1 * \2', expr_clean)
+    def _preprocess_code_segment(seg: str) -> str:
+        seg = seg.replace("~=", "!=")
+        seg = re.sub(r'&[hH]([0-9a-fA-F]+)&?', r'0x\1', seg)
+        seg = re.sub(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*f\b', rf'(\1 * {frame_dur})', seg)
+        seg = re.sub(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*r\b', rf'(\1 * {ratio})', seg)
+        seg = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*(li|lo|m1|m2|l1|l2)\b', r'\1 * \2', seg)
+        return seg
+
+    expr_clean = _transform_outside_quotes(expr_clean, _preprocess_code_segment)
 
     try:
-        code_obj = _AST_EXPR_CACHE.get(expr_clean)
-        if code_obj is None:
+        if expr_clean in _AST_EXPR_CACHE:
+            code_obj = _AST_EXPR_CACHE[expr_clean]
+            _AST_EXPR_CACHE.move_to_end(expr_clean)
+        else:
             code_obj = compile(expr_clean, "<pyxis_string_eval>", "eval")
+            if len(_AST_EXPR_CACHE) >= _MAX_AST_EXPR_CACHE:
+                _AST_EXPR_CACHE.popitem(last=False)
             _AST_EXPR_CACHE[expr_clean] = code_obj
 
         eval_globals = _get_eval_globals()
         eval_locals = _prepare_eval_locals(context)
         res = eval(code_obj, eval_globals, eval_locals)
-        return res if res is not None else default
-    except Exception as e:
+        if res is None:
+            return default if default is not _AST_EXPR_SENTINEL else ""
+        return res
+    except Exception:
         return default
 
 
@@ -339,7 +615,7 @@ def expand_unit_shortcuts(text: str, context: Optional[Dict[str, Any]] = None) -
     frame_dur = 41.708
     ratio = 1.0
     if isinstance(context, dict):
-        frame_dur = float(context.get("frame_dur", 41.708))
+        frame_dur = float(context.get("frame_dur", context.get("fd", 41.708)))
         ratio = float(context.get("ratio", context.get("module", 1.0)))
 
     def _replace_unit(match: re.Match) -> str:
@@ -357,132 +633,381 @@ def expand_unit_shortcuts(text: str, context: Optional[Dict[str, Any]] = None) -
         except ValueError:
             return match.group(0)
 
-    pattern = r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)([fr])(?![a-zA-Z0-9_])'
+    pattern = r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)([fr])(?![a-zA-Z0-9_])'
     return re.sub(pattern, _replace_unit, text)
 
 
-def substitute_dollar_vars(text: str, context: Optional[Dict[str, Any]] = None) -> str:
+def _split_top_level_commas(s: str) -> list[str]:
+    """Splits a string by top-level commas, ignoring commas inside parentheses, brackets, braces, or quotes."""
+    if not s:
+        return []
+    parts: list[str] = []
+    depth_paren = 0
+    depth_bracket = 0
+    depth_brace = 0
+    in_quote = None
+    start = 0
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if in_quote:
+            if ch == '\\' and i + 1 < n:
+                i += 2
+                continue
+            elif ch == in_quote:
+                in_quote = None
+        elif ch in ('"', "'"):
+            in_quote = ch
+        elif ch == '(':
+            depth_paren += 1
+        elif ch == ')':
+            depth_paren = max(0, depth_paren - 1)
+        elif ch == '[':
+            depth_bracket += 1
+        elif ch == ']':
+            depth_bracket = max(0, depth_bracket - 1)
+        elif ch == '{':
+            depth_brace += 1
+        elif ch == '}':
+            depth_brace = max(0, depth_brace - 1)
+        elif ch == ',' and depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+            part = s[start:i].strip()
+            if part != "":
+                parts.append(part)
+            start = i + 1
+        i += 1
+    last_part = s[start:].strip()
+    if last_part != "":
+        parts.append(last_part)
+    return parts
+
+
+def _split_top_level_ternary(s: str) -> Optional[tuple[str, str, str, str]]:
     """
-    Sustituye variables con sintaxis $var o ${var}.
-    Soporta aliases de auto4, propiedades con punto ($syl.center, $line.color1)
-    y escape con \\$ o $$.
+    Checks if string 's' is a top-level ternary expression in Python ('A if COND else B')
+    or Lua ('COND and A or B') format.
+    Returns (format_type, val_true, cond, val_false) or None.
     """
-    if not text or "$" not in text:
-        return text
+    s_clean = s.strip()
+    if not s_clean:
+        return None
 
-    escaped_text = text.replace(r"\$", "\x01ESC_DOLLAR\x01").replace("$$", "\x01ESC_DOLLAR\x01")
+    # Check for Python ' if ' ... ' else '
+    depth_paren = 0
+    depth_bracket = 0
+    depth_brace = 0
+    in_quote = None
+    i = 0
+    n = len(s_clean)
+    if_idx = -1
+    else_idx = -1
 
-    if not isinstance(context, dict):
-        context = {}
+    while i < n:
+        ch = s_clean[i]
+        if in_quote:
+            if ch == '\\' and i + 1 < n:
+                i += 2
+                continue
+            elif ch == in_quote:
+                in_quote = None
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_quote = ch
+            i += 1
+            continue
+        if ch == '(':
+            depth_paren += 1
+        elif ch == ')':
+            depth_paren = max(0, depth_paren - 1)
+        elif ch == '[':
+            depth_bracket += 1
+        elif ch == ']':
+            depth_bracket = max(0, depth_bracket - 1)
+        elif ch == '{':
+            depth_brace += 1
+        elif ch == '}':
+            depth_brace = max(0, depth_brace - 1)
+        elif depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+            if s_clean[i:i+4] == " if " or (i > 0 and s_clean[i:i+3] == "if " and (s_clean[i-1].isspace() or s_clean[i-1] in ')]}')):
+                if if_idx == -1:
+                    kw_len = 4 if s_clean[i:i+4] == " if " else 3
+                    if_idx = i
+                    i += kw_len
+                    continue
+            elif s_clean[i:i+6] == " else " or (i > 0 and s_clean[i:i+5] == "else " and (s_clean[i-1].isspace() or s_clean[i-1] in ')]}')):
+                if if_idx != -1 and else_idx == -1:
+                    kw_len = 6 if s_clean[i:i+6] == " else " else 5
+                    else_idx = i
+                    i += kw_len
+                    continue
+        i += 1
 
-    active_unit = context.get("active_unit") or context.get("syl") or context.get("char") or context.get("word")
-    active_line = context.get("active_line", context.get("line"))
-    if not active_line and hasattr(active_unit, "line") and getattr(active_unit, "line", None):
-        active_line = getattr(active_unit, "line")
-    if not active_line and active_unit and hasattr(active_unit, "style_name"):
-        active_line = active_unit
+    if if_idx != -1 and else_idx != -1 and if_idx < else_idx:
+        val_true = s_clean[:if_idx].strip()
+        cond = s_clean[if_idx + (4 if s_clean[if_idx:if_idx+4] == " if " else 3):else_idx].strip()
+        val_false = s_clean[else_idx + (6 if s_clean[else_idx:else_idx+6] == " else " else 5):].strip()
+        if val_true and cond and val_false:
+            return ("python", val_true, cond, val_false)
 
-    def _clean_color_str(col: Any) -> str:
-        s_col = str(col).strip()
-        m = re.findall(r'[0-9a-fA-F]{2}', s_col)
-        if len(m) >= 4:
-            return f"&H{''.join(m[-3:])}&"
-        return s_col
+    # Check for Lua 'COND and A or B'
+    depth_paren = 0
+    depth_bracket = 0
+    depth_brace = 0
+    in_quote = None
+    i = 0
+    and_matches: list[tuple[int, int]] = []
+    or_idx = -1
+    or_len = 0
 
-    def _get_var_value(var_name: str) -> str:
-        v = var_name.strip()
-        v_lower = v.lower()
+    while i < n:
+        ch = s_clean[i]
+        if in_quote:
+            if ch == '\\' and i + 1 < n:
+                i += 2
+                continue
+            elif ch == in_quote:
+                in_quote = None
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_quote = ch
+            i += 1
+            continue
+        if ch == '(':
+            depth_paren += 1
+        elif ch == ')':
+            depth_paren = max(0, depth_paren - 1)
+        elif ch == '[':
+            depth_bracket += 1
+        elif ch == ']':
+            depth_bracket = max(0, depth_bracket - 1)
+        elif ch == '{':
+            depth_brace += 1
+        elif ch == '}':
+            depth_brace = max(0, depth_brace - 1)
+        elif depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
+            if s_clean[i:i+5] == " and " or (i > 0 and s_clean[i:i+4] == "and " and (s_clean[i-1].isspace() or s_clean[i-1] in ')]}')):
+                kw_len = 5 if s_clean[i:i+5] == " and " else 4
+                and_matches.append((i, kw_len))
+                i += kw_len
+                continue
+            elif s_clean[i:i+4] == " or " or (i > 0 and s_clean[i:i+3] == "or " and (s_clean[i-1].isspace() or s_clean[i-1] in ')]}')):
+                if and_matches and or_idx == -1:
+                    or_len = 4 if s_clean[i:i+4] == " or " else 3
+                    or_idx = i
+                    i += or_len
+                    continue
+        i += 1
 
-        if v in context:
-            val = context[v]
-            if isinstance(val, (int, float)):
-                if "alpha" in v_lower or v_lower in ("a1", "a2", "a3", "a4"):
-                    return _format_ass_alpha(val)
-                return _fmt_num(val)
-            if "color" in v_lower:
-                return _clean_ass_color(val)
-            if "alpha" in v_lower or v_lower in ("a1", "a2", "a3", "a4"):
-                return _format_ass_alpha(val)
-            return str(val)
+    if and_matches and or_idx != -1:
+        # Choose the last 'and' before 'or' so compound conditions (e.g. c1 and c2 and A or B) separate properly
+        last_and = None
+        for a_pos, a_len in and_matches:
+            if a_pos < or_idx:
+                last_and = (a_pos, a_len)
+        if last_and is not None:
+            and_idx, and_len = last_and
+            cond = s_clean[:and_idx].strip()
+            val_true = s_clean[and_idx + and_len:or_idx].strip()
+            val_false = s_clean[or_idx + or_len:].strip()
+            if cond and val_true and val_false:
+                return ("lua", val_true, cond, val_false)
 
-        if v_lower in ("start", "st"):
-            st = getattr(active_unit, "start_time", context.get("start_time", context.get("st", 0.0))) if active_unit else context.get("start_time", context.get("st", 0.0))
-            return _fmt_num(st)
-        if v_lower in ("end", "et"):
-            et = getattr(active_unit, "end_time", context.get("end_time", context.get("et", 0.0))) if active_unit else context.get("end_time", context.get("et", 0.0))
-            return _fmt_num(et)
-        if v_lower == "dur":
-            dur = getattr(active_unit, "dur", getattr(active_unit, "duration", context.get("dur", context.get("duration", 0.0)))) if active_unit else context.get("dur", context.get("duration", 0.0))
-            return _fmt_num(dur)
-        if v_lower == "kdur":
-            dur = getattr(active_unit, "dur", getattr(active_unit, "duration", context.get("dur", context.get("duration", 0.0)))) if active_unit else context.get("dur", context.get("duration", 0.0))
-            return _fmt_num(dur / 10.0)
-        if v_lower == "mid":
-            st = getattr(active_unit, "start_time", context.get("start_time", 0.0)) if active_unit else context.get("start_time", 0.0)
-            dur = getattr(active_unit, "dur", getattr(active_unit, "duration", context.get("dur", 0.0))) if active_unit else context.get("dur", 0.0)
-            return _fmt_num(st + dur / 2.0)
-        if v_lower in ("left", "right", "center", "top", "middle", "bottom", "width", "height", "x", "y"):
-            val = getattr(active_unit, v_lower, context.get(v_lower, context.get(f"val_{v_lower}", 0.0))) if active_unit else context.get(v_lower, context.get(f"val_{v_lower}", 0.0))
-            return _fmt_num(val)
-        if v_lower == "si":
-            syl_obj = context.get("syl", active_unit)
-            return str(getattr(syl_obj, "i", 1) if syl_obj else 1)
-        if v_lower == "ci":
-            char_obj = context.get("char", active_unit)
-            return str(getattr(char_obj, "i", 1) if char_obj else 1)
-        if v_lower == "wi":
-            word_obj = context.get("word", active_unit)
-            return str(getattr(word_obj, "i", 1) if word_obj else 1)
-        if v_lower == "li":
-            line_obj = active_line if active_line else active_unit
-            return str(getattr(line_obj, "i", 1) if line_obj else 1)
+    return None
 
+
+def _resolve_ternary_branch(branch_str: str, context: Optional[Dict[str, Any]] = None) -> str:
+    """Resolves the selected branch of a ternary: evaluates nested ternaries or expressions, or strips quotes."""
+    b = branch_str.strip()
+    if not b:
+        return ""
+    if (b.startswith('"') and b.endswith('"')) or (b.startswith("'") and b.endswith("'")):
+        return b[1:-1]
+    if re.match(r'^&[hH][0-9a-fA-F]+&?$', b):
+        return b
+
+    # Check for chained/nested ternary without parentheses (e.g. \blur2 if i == 2 else \blur0)
+    parsed = _split_top_level_ternary(b)
+    if parsed:
+        _, val_true, cond, val_false = parsed
         try:
-            from node_engine import _eval_sys_var
-            res = _eval_sys_var(v, context)
-            if res != "":
-                if isinstance(res, (int, float)):
-                    if "alpha" in v_lower or v_lower in ("a1", "a2", "a3", "a4"):
-                        return _format_ass_alpha(res)
-                    return _fmt_num(res)
-                if "color" in v_lower:
-                    return _clean_ass_color(res)
-                if "alpha" in v_lower or v_lower in ("a1", "a2", "a3", "a4"):
-                    return _format_ass_alpha(res)
-                return str(res)
-        except ImportError:
+            cond_clean = cond.strip()
+            cond_res = eval_python_expr(cond_clean, context, default=None)
+            if cond_res is None:
+                eval_globals = _get_eval_globals()
+                eval_locals = _prepare_eval_locals(context)
+                cond_res = eval(compile(cond_clean, "<ternary_cond>", "eval"), eval_globals, eval_locals)
+            is_true = bool(cond_res)
+        except Exception:
+            is_true = False
+        chosen = val_true if is_true else val_false
+        return _resolve_ternary_branch(chosen, context)
+
+    # Evaluate nested isolated ternaries if present
+    nested = evaluate_isolated_ternaries(b, context)
+    if nested != b:
+        b = nested
+
+    # If it's a numeric expression, math function or simple variable, evaluate it
+    if "\\" not in b:
+        try:
+            res = eval_python_expr(b, context, default=None)
+            if res is not None:
+                return _fmt_num(res) if isinstance(res, (int, float)) else str(res)
+        except Exception:
             pass
 
-        return f"${var_name}"
-
-    def _replace_var(match: re.Match) -> str:
-        var_name = match.group(1) or match.group(2)
-        return _get_var_value(var_name)
-
-    pattern = r'\$(?:\{([a-zA-Z0-9_\.]+)\}|([a-zA-Z0-9_\.]+))'
-    result = re.sub(pattern, _replace_var, escaped_text)
-
-    return result.replace("\x01ESC_DOLLAR\x01", "$")
+    return b
 
 
-def evaluate_inline_bang_expressions(text: str, context: Optional[Dict[str, Any]] = None) -> str:
+def _evaluate_single_ternary_expr(content: str, context: Optional[Dict[str, Any]]) -> Optional[str]:
     """
-    Evalúa expresiones inline delimitadas por signos de exclamación !expresion!.
-    Soporta escape con \\! o !!.
+    Evalúa una expresión aislada entre paréntesis (...) que no está precedida por un tag ASS:
+    1. Expresiones ternarias: ( A if COND else B ) / ( COND and A or B )
+    2. Llamadas a función y métodos: ( Func() )
+    3. Variables y atributos: (syl.text), (syl.dur), (fx.dur), (line.text), (j)
+    4. Expresiones matemáticas / lógicas: (syl.dur / 2), (j * 15), (10 + 20)
+    Preserva intacto el texto plano que no sea una expresión evaluable válida.
     """
-    if not text or "!" not in text:
+    c_clean = content.strip()
+    if not c_clean:
+        return None
+
+    # 1. Comprobar ternarios de nivel superior
+    parsed = _split_top_level_ternary(c_clean)
+    if parsed:
+        _, val_true, cond, val_false = parsed
+        try:
+            cond_clean = cond.strip()
+            cond_res = eval_python_expr(cond_clean, context, default=None)
+            if cond_res is None:
+                eval_globals = _get_eval_globals()
+                eval_locals = _prepare_eval_locals(context)
+                cond_res = eval(compile(cond_clean, "<ternary_cond>", "eval"), eval_globals, eval_locals)
+            is_true = bool(cond_res)
+        except Exception:
+            is_true = False
+        chosen = val_true if is_true else val_false
+        return _resolve_ternary_branch(chosen, context)
+
+    # 2. Ignorar números puros y cadenas literales atómicas para preservar subtítulos literales como '(1999)' o '("palabra")'
+    if re.match(r'^[+-]?\d+(?:\.\d+)?$', c_clean):
+        return None
+    try:
+        import ast
+        node = ast.parse(c_clean, mode='eval')
+        if isinstance(node.body, ast.Constant) and isinstance(node.body.value, str):
+            return None
+    except Exception:
+        pass
+
+    # 3. Evaluar como expresión de Python con contexto
+    res = eval_python_expr(c_clean, context, default=_AST_EXPR_SENTINEL)
+    if res is _AST_EXPR_SENTINEL:
+        return None
+
+    # No serializar funciones, tipos o módulos que hayan quedado sin invocar (ej. '(min)' o '(math)')
+    if callable(res) or isinstance(res, type) or hasattr(res, "__file__"):
+        return None
+
+    # Si es una unidad con texto (ej. PyxisUnit)
+    if hasattr(res, "text_stripped") and not isinstance(res, (int, float, str, bool)):
+        return str(getattr(res, "text_stripped", getattr(res, "text", "")))
+
+    if res is None:
+        return ""
+    if isinstance(res, bool):
+        return "1" if res else "0"
+    if isinstance(res, (int, float)):
+        return _fmt_num(res)
+    if isinstance(res, str):
+        return res
+    if isinstance(res, (list, tuple, dict, set)):
+        return None
+
+    return str(res)
+
+
+def evaluate_isolated_ternaries(text: str, context: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Evaluates strictly isolated parenthesized ternary expressions and tag-returning calls:
+    - ( valor if cond else valor2 ) / ( cond and valor or valor2 )
+    - ( FuncReturningTags() )
+    Supports arbitrary nesting. Bare/un-delimited text is never modified.
+    """
+    if not text or not isinstance(text, str) or "(" not in text:
         return text
 
-    escaped_text = text.replace(r"\!", "\x01ESC_BANG\x01").replace("!!", "\x01ESC_BANG\x01")
+    curr = text
+    # Iterative reduction from innermost to outermost parenthesized expressions
+    for _ in range(25):  # Max nesting depth safeguard
+        found_any = False
+        n = len(curr)
+        i = 0
+        in_quote = None
+        new_chars = []
+        replaced = False
 
-    def _replace_bang(match: re.Match) -> str:
-        expr = match.group(1)
-        res = eval_python_expr(expr, context, default="")
-        return _fmt_num(res) if isinstance(res, (int, float)) else str(res)
+        while i < n:
+            ch = curr[i]
+            if in_quote:
+                if ch == '\\' and i + 1 < n:
+                    new_chars.append(curr[i:i+2])
+                    i += 2
+                    continue
+                elif ch == in_quote:
+                    in_quote = None
+                new_chars.append(ch)
+                i += 1
+                continue
+            if ch in ('"', "'"):
+                in_quote = ch
+                new_chars.append(ch)
+                i += 1
+                continue
 
-    pattern = r'!(.*?)!'
-    result = re.sub(pattern, _replace_bang, escaped_text)
-    return result.replace("\x01ESC_BANG\x01", "!")
+            # Check for parenthesis delimiters: ( ... ) not preceded by a tag name \tag
+            if ch == '(' and not (i > 0 and re.search(r'\\[a-zA-Z0-9]+$', curr[:i])):
+                d = 1
+                j = i + 1
+                in_q = None
+                while j < n:
+                    ch_j = curr[j]
+                    if in_q:
+                        if ch_j == '\\' and j + 1 < n:
+                            j += 2
+                            continue
+                        elif ch_j == in_q:
+                            in_q = None
+                    elif ch_j in ('"', "'"):
+                        in_q = ch_j
+                    elif ch_j == '(':
+                        d += 1
+                    elif ch_j == ')':
+                        d -= 1
+                        if d == 0:
+                            break
+                    j += 1
+                if j < n and d == 0:
+                    inner = curr[i+1:j]
+                    tern_res = _evaluate_single_ternary_expr(inner, context)
+                    if tern_res is not None:
+                        new_chars.append(tern_res)
+                        i = j + 1
+                        replaced = True
+                        found_any = True
+                        continue
+
+            new_chars.append(ch)
+            i += 1
+
+        curr = "".join(new_chars)
+        if not found_any or not replaced:
+            break
+
+    return curr
 
 
 def _get_context_origin(context: Optional[Dict[str, Any]]) -> tuple[str, str]:
@@ -564,6 +1089,20 @@ def _get_context_style_props(context: Optional[Dict[str, Any]]) -> Dict[str, Any
     except (ValueError, TypeError):
         fontsize = 25.0
 
+    angle_val = _get_prop("angle", None)
+    if angle_val is None or angle_val == "":
+        angle_val = _get_prop("frz", 0)
+
+    bold_val = _get_prop("bold", False)
+    italic_val = _get_prop("italic", False)
+    underline_val = _get_prop("underline", False)
+    strikeout_val = _get_prop("strikeout", False)
+
+    def _to_flag_str(v: Any) -> str:
+        if isinstance(v, bool):
+            return "1" if v else "0"
+        return "1" if str(v).strip() in ("1", "-1", "true", "True") else "0"
+
     return {
         "scale_x": scale_x,
         "scale_y": scale_y,
@@ -582,8 +1121,64 @@ def _get_context_style_props(context: Optional[Dict[str, Any]]) -> Dict[str, Any
         "spacing": _fmt_num(_get_prop("spacing", 0)),
         "outline": _fmt_num(_get_prop("outline", 2)),
         "shadow": _fmt_num(_get_prop("shadow", 2)),
-        "angle": _fmt_num(_get_prop("angle", 0)),
+        "angle": _fmt_num(angle_val),
+        "fontname": str(_get_prop("fontname", "Arial")),
+        "align": _fmt_num(_get_prop("align", 2)),
+        "bold": _to_flag_str(bold_val),
+        "italic": _to_flag_str(italic_val),
+        "underline": _to_flag_str(underline_val),
+        "strikeout": _to_flag_str(strikeout_val),
     }
+
+
+def _replace_balanced_parens_tags(text: str, tag_start_re: re.Pattern, handler_fn) -> str:
+    """
+    Localiza y sustituye de forma robusta etiquetas ASS con argumentos entre paréntesis,
+    soportando paréntesis anidados arbitrarios (llamadas de función, ternarias de Python y sub-expresiones).
+    """
+    out = []
+    pos = 0
+    text_len = len(text)
+    while pos < text_len:
+        m = tag_start_re.search(text, pos)
+        if not m:
+            out.append(text[pos:])
+            break
+
+        tag_name = m.group(1)
+        start_idx = m.start()
+        open_paren_idx = m.end() - 1
+
+        depth = 1
+        i = open_paren_idx + 1
+        in_quote = None
+        while i < text_len and depth > 0:
+            ch = text[i]
+            if in_quote:
+                if ch == '\\' and i + 1 < text_len:
+                    i += 2
+                    continue
+                elif ch == in_quote:
+                    in_quote = None
+            elif ch in ('"', "'"):
+                in_quote = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            i += 1
+
+        if depth == 0:
+            body = text[open_paren_idx + 1 : i - 1]
+            out.append(text[pos:start_idx])
+            repl = handler_fn(tag_name, body)
+            out.append(repl)
+            pos = i
+        else:
+            out.append(text[pos : open_paren_idx + 1])
+            pos = open_paren_idx + 1
+
+    return "".join(out)
 
 
 def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None) -> str:
@@ -615,6 +1210,12 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
     style_outline = style_props["outline"]
     style_shadow = style_props["shadow"]
     style_angle = style_props["angle"]
+    style_fontname = style_props["fontname"]
+    style_align = style_props["align"]
+    style_bold = style_props["bold"]
+    style_italic = style_props["italic"]
+    style_underline = style_props["underline"]
+    style_strikeout = style_props["strikeout"]
 
     style_scale_x_num = style_props["scale_x"]
     style_scale_y_num = style_props["scale_y"]
@@ -627,17 +1228,24 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 
     s = text
 
-    def _replace_stochastic_tag(match: re.Match) -> str:
-        tag_name = match.group(1)
-        args_str = match.group(2).strip()
-        args = [a.strip() for a in args_str.split(",") if a.strip()] if args_str else []
+    def _replace_stochastic_tag(tag_name: str, body: str) -> str:
+        args_str = body.strip()
+        args = _split_top_level_commas(args_str) if args_str else []
 
         eval_globals = _get_eval_globals()
         eval_locals = _prepare_eval_locals(context)
 
         m_multi_c = re.match(r'^([1-4]+)c$', tag_name)
         if m_multi_c or tag_name == "c":
-            col = eval_globals["random_color"]()
+            if len(args) >= 2:
+                v1 = eval_python_expr(args[0], context, args[0])
+                v2 = eval_python_expr(args[1], context, args[1])
+                c1_arg = f"&H{int(v1):06X}&" if isinstance(v1, (int, float)) else str(v1)
+                c2_arg = f"&H{int(v2):06X}&" if isinstance(v2, (int, float)) else str(v2)
+                rcol_fn = eval_locals.get("Rcolor")
+                col = _clean_ass_color(rcol_fn(c1_arg, c2_arg)) if callable(rcol_fn) else eval_globals["random_color"]()
+            else:
+                col = eval_globals["random_color"]()
             if tag_name == "c":
                 return f"\\c{col}"
             return "".join(f"\\{digit}c{col}" for digit in m_multi_c.group(1))
@@ -700,7 +1308,7 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 
         return f"\\{tag_name}{rand_val}"
 
-    s = re.sub(r'\\([a-zA-Z0-9]+)R\((.*?)\)', _replace_stochastic_tag, s)
+    s = _replace_balanced_parens_tags(s, re.compile(r'\\([a-zA-Z0-9]+)R\('), _replace_stochastic_tag)
 
     tag_restorations = [
         (r'\c~', f"\\c{style_color1_clean}"),
@@ -710,6 +1318,8 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
         (r'\fscy~', f"\\fscy{style_scale_y}"),
         (r'\fs~', f"\\fs{style_fontsize}"),
         (r'\fsp~', f"\\fsp{style_spacing}"),
+        (r'\fn~', f"\\fn{style_fontname}"),
+        (r'\an~', f"\\an{style_align}"),
         (r'\xybord~', f"\\xbord{style_outline}\\ybord{style_outline}"),
         (r'\xbord~', f"\\xbord{style_outline}"),
         (r'\ybord~', f"\\ybord{style_outline}"),
@@ -720,7 +1330,7 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
         (r'\shad~', f"\\shad{style_shadow}"),
         (r'\bs~', f"\\bord{style_outline}\\shad{style_shadow}"),
         (r'\frxyz~', f"\\frx0\\fry0\\frz{style_angle}"),
-        (r'\frxy~', r"\frx0\\fry0"),
+        (r'\frxy~', r"\frx0\fry0"),
         (r'\frxz~', f"\\frx0\\frz{style_angle}"),
         (r'\fryz~', f"\\fry0\\frz{style_angle}"),
         (r'\frz~', f"\\frz{style_angle}"),
@@ -732,6 +1342,10 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
         (r'\faxy~', r"\fax0\fay0"),
         (r'\fax~', r"\fax0"),
         (r'\fay~', r"\fay0"),
+        (r'\b~', f"\\b{style_bold}"),
+        (r'\i~', f"\\i{style_italic}"),
+        (r'\u~', f"\\u{style_underline}"),
+        (r'\s~', f"\\s{style_strikeout}"),
     ]
 
     for literal_pat, repl in tag_restorations:
@@ -771,7 +1385,10 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
     s = re.sub(r'\\bs([+-]?\d+(?:\.\d+)?)', lambda m: f"\\bord{m.group(1)}\\shad{m.group(1)}", s)
 
     color_val_pat = r'(&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{6})(?=[\\\}\s]|$)'
-    s = re.sub(rf'\\([1-4]+)c{color_val_pat}', lambda m: "".join(f"\\{d}c{_clean_ass_color(m.group(2))}" for d in m.group(1)), s)
+    s = re.sub(rf'\\([1-4])c{color_val_pat}', lambda m: f"\\{m.group(1)}c{_clean_ass_color(m.group(2))}", s)
+
+    dark_color_val_pat = r'(#[0-9a-fA-F]{3,8}|&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{6})(?=[\\\}\s]|$)'
+    s = re.sub(rf'\\([1-4]{{2,}})c{dark_color_val_pat}', lambda m: "".join(f"\\{d}c{_clean_ass_color(m.group(2))}" for d in m.group(1)), s)
 
     alpha_val_pat = r'(&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{2}|\d+)(?=[\\\}\s]|$)'
     s = re.sub(rf'\\([1-4]+)a{alpha_val_pat}', lambda m: "".join(f"\\{d}a{_format_ass_alpha(m.group(2))}" for d in m.group(1)), s)
@@ -786,6 +1403,7 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
     """
     Evalúa automáticamente cualquier expresión matemática, función o variable
     dentro de paréntesis de tags ASS: \\pos(...), \\move(...), \\frz(...), \\fscxy(...), \\t(...), \\te(...), etc.
+    Soporta llamadas de función y expresiones con paréntesis anidados.
     """
     if not text or "\\" not in text or "(" not in text:
         return text
@@ -818,7 +1436,7 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
             if not times_part:
                 return f"\\t({eval_tags})"
 
-            time_args = [a.strip() for a in times_part.split(",") if a.strip()]
+            time_args = _split_top_level_commas(times_part)
             eval_nums = [float(eval_python_expr(arg, context, default=0)) for arg in time_args]
 
             if tag_prefix == "te":
@@ -826,6 +1444,8 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
                     t1, t2 = eval_nums[0], eval_nums[1]
                     st = max(0.0, float(total_dur) - t2)
                     et = max(0.0, float(total_dur) - t1)
+                    if len(eval_nums) >= 3:
+                        return f"\\t({_fmt_num(st)}, {_fmt_num(et)}, {_fmt_num(eval_nums[2])}, {eval_tags})"
                     return f"\\t({_fmt_num(st)}, {_fmt_num(et)}, {eval_tags})"
                 elif len(eval_nums) == 1:
                     t = eval_nums[0]
@@ -833,10 +1453,17 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
                     return f"\\t({_fmt_num(st)}, {_fmt_num(total_dur)}, {eval_tags})"
             elif tag_prefix in ("ts", "tc", "tw"):
                 target_obj = context.get("syl" if tag_prefix == "ts" else ("char" if tag_prefix == "tc" else "word"), active_unit)
-                base_st = float(getattr(target_obj, "start_time", 0.0) if target_obj else 0.0)
+                if tag_prefix == "ts":
+                    base_st = float(getattr(target_obj, "syl_start", getattr(target_obj, "start_time", 0.0)) if target_obj else 0.0)
+                elif tag_prefix == "tc":
+                    base_st = float(getattr(target_obj, "char_start", getattr(target_obj, "start_time", 0.0)) if target_obj else 0.0)
+                else:
+                    base_st = float(getattr(target_obj, "word_start", getattr(target_obj, "start_time", 0.0)) if target_obj else 0.0)
                 if len(eval_nums) >= 2:
                     st = base_st + eval_nums[0]
                     et = base_st + eval_nums[1]
+                    if len(eval_nums) >= 3:
+                        return f"\\t({_fmt_num(st)}, {_fmt_num(et)}, {_fmt_num(eval_nums[2])}, {eval_tags})"
                     return f"\\t({_fmt_num(st)}, {_fmt_num(et)}, {eval_tags})"
                 elif len(eval_nums) == 1:
                     st = base_st
@@ -846,18 +1473,18 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
             eval_times = [_fmt_num(n) for n in eval_nums]
             return f"\\t({', '.join(eval_times)}, {eval_tags})"
         else:
-            args = [a.strip() for a in body.split(",") if a.strip()]
+            args = _split_top_level_commas(body)
             eval_args = [_fmt_num(eval_python_expr(a, context, default=a)) for a in args]
             return f"\\t({', '.join(eval_args)})"
 
-    s = re.sub(r'\\(te|ts|tc|tw)\((.*?)\)(?=[\\\}\s]|$)', lambda m: _eval_context_time_transform(m.group(1), m.group(2)), s)
+    s = _replace_balanced_parens_tags(s, re.compile(r'\\(te|ts|tc|tw)\('), _eval_context_time_transform)
 
-    def _eval_t_tag(match: re.Match) -> str:
-        body = match.group(1).strip()
-        tag_start_idx = body.find("\\")
+    def _eval_t_tag(tag_name: str, body: str) -> str:
+        body_clean = body.strip()
+        tag_start_idx = body_clean.find("\\")
         if tag_start_idx != -1:
-            times_part = body[:tag_start_idx].strip().rstrip(",")
-            tags_part = body[tag_start_idx:].strip()
+            times_part = body_clean[:tag_start_idx].strip().rstrip(",")
+            tags_part = body_clean[tag_start_idx:].strip()
 
             eval_tags = expand_custom_dark_tags(tags_part, context)
             eval_tags = evaluate_tag_parentheses(eval_tags, context)
@@ -865,7 +1492,7 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
             if not times_part:
                 return f"\\t({eval_tags})"
 
-            time_args = [a.strip() for a in times_part.split(",") if a.strip()]
+            time_args = _split_top_level_commas(times_part)
             eval_times = []
             for arg in time_args:
                 res = eval_python_expr(arg, context, default=arg)
@@ -873,57 +1500,95 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
 
             return f"\\t({', '.join(eval_times)}, {eval_tags})"
         else:
-            args = [a.strip() for a in body.split(",") if a.strip()]
+            args = _split_top_level_commas(body_clean)
             eval_args = []
             for arg in args:
                 res = eval_python_expr(arg, context, default=arg)
                 eval_args.append(_fmt_num(res))
             return f"\\t({', '.join(eval_args)})"
 
-    s = re.sub(r'\\t\((.*?)\)(?=[\\\}\s]|$)', _eval_t_tag, s)
+    s = _replace_balanced_parens_tags(s, re.compile(r'\\(t)\('), _eval_t_tag)
 
-    def _eval_clip_tag(match: re.Match) -> str:
-        tag_name = match.group(1)
-        args_str = match.group(2).strip()
+    def _eval_clip_tag(tag_name: str, body: str) -> str:
+        args_str = body.strip()
+        if "center" in args_str.lower() and ("m " in args_str or "," not in args_str):
+            center_x = getattr(active_unit, "center", context.get("x", 0.0))
+            middle_y = getattr(active_unit, "middle", context.get("y", 0.0))
+            args_clean = re.sub(r'\bcenter\b', f"{center_x}, {middle_y}", args_str, flags=re.IGNORECASE)
+            return f"\\{tag_name}({args_clean})"
 
-        if "m " in args_str or "center" in args_str.lower():
-            if "center" in args_str.lower():
-                center_x = getattr(active_unit, "center", context.get("x", 0.0))
-                middle_y = getattr(active_unit, "middle", context.get("y", 0.0))
-                args_clean = re.sub(r'\bcenter\b', f"{center_x}, {middle_y}", args_str, flags=re.IGNORECASE)
-                return f"\\{tag_name}({args_clean})"
-            return f"\\{tag_name}({args_str})"
-
+        args = _split_top_level_commas(args_str)
         has_space = ", " in args_str
         sep = ", " if has_space else ","
-        args = [a.strip() for a in args_str.split(",") if a.strip()]
-        if len(args) in (2, 4):
+
+        if len(args) == 4:
             eval_args = [_fmt_num(eval_python_expr(a, context, a)) for a in args]
             return f"\\{tag_name}({sep.join(eval_args)})"
+        elif len(args) == 2:
+            eval_args = []
+            for a in args:
+                if "m " in a:
+                    eval_args.append(a)
+                else:
+                    eval_args.append(_fmt_num(eval_python_expr(a, context, a)))
+            return f"\\{tag_name}({sep.join(eval_args)})"
+        elif len(args) == 1:
+            if "m " in args[0]:
+                return f"\\{tag_name}({args[0]})"
+            res_0 = eval_python_expr(args[0], context, args[0])
+            return f"\\{tag_name}({_fmt_num(res_0)})"
 
         return f"\\{tag_name}({args_str})"
 
-    s = re.sub(r'\\(i?clip)\((.*?)\)', _eval_clip_tag, s)
+    s = _replace_balanced_parens_tags(s, re.compile(r'\\(i?clip)\('), _eval_clip_tag)
 
-    def _eval_multi_arg_tag(match: re.Match) -> str:
-        tag_name = match.group(1)
-        args_str = match.group(2)
+    def _eval_multi_arg_tag(tag_name: str, body: str) -> str:
+        args_str = body.strip()
         has_space = ", " in args_str
         sep = ", " if has_space else ","
-        args = [a.strip() for a in args_str.split(",") if a.strip()]
+        args = _split_top_level_commas(args_str)
         eval_args = [_fmt_num(eval_python_expr(a, context, a)) for a in args]
         return f"\\{tag_name}({sep.join(eval_args)})"
 
-    s = re.sub(r'\\(pos|move|org|fad|fade)\((.*?)\)', _eval_multi_arg_tag, s)
+    s = _replace_balanced_parens_tags(s, re.compile(r'\\(pos|move|org|fad|fade)\('), _eval_multi_arg_tag)
 
-    def _eval_single_tag(match: re.Match) -> str:
-        tag_name = match.group(1)
-        expr = match.group(2).strip()
+    def _eval_single_tag(tag_name: str, body: str) -> str:
+        expr = body.strip()
+        top_args = _split_top_level_commas(expr)
+
+        if len(top_args) > 1:
+            eval_vals = [eval_python_expr(a, context, default=a) for a in top_args]
+            fmt_vals = [_fmt_num(v) if isinstance(v, (int, float)) else str(v) for v in eval_vals]
+            v0 = fmt_vals[0]
+            v1 = fmt_vals[1] if len(fmt_vals) > 1 else v0
+            v2 = fmt_vals[2] if len(fmt_vals) > 2 else v1
+
+            if tag_name == "fscxy": return f"\\fscx{v0}\\fscy{v1}"
+            if tag_name == "faxy": return f"\\fax{v0}\\fay{v1}"
+            if tag_name == "xybord": return f"\\xbord{v0}\\ybord{v1}"
+            if tag_name == "xyshad": return f"\\xshad{v0}\\yshad{v1}"
+            if tag_name == "bs": return f"\\bord{v0}\\shad{v1}"
+            if tag_name == "frxy": return f"\\frx{v0}\\fry{v1}"
+            if tag_name == "frxz": return f"\\frx{v0}\\frz{v1}"
+            if tag_name == "fryz": return f"\\fry{v0}\\frz{v1}"
+            if tag_name == "frxyz": return f"\\frx{v0}\\fry{v1}\\frz{v2}"
+            if tag_name == "frxyo": return f"\\org({ox},{oy})\\frx{v0}\\fry{v1}"
+            if tag_name == "frxzo": return f"\\org({ox},{oy})\\frx{v0}\\frz{v1}"
+            if tag_name == "fryzo": return f"\\org({ox},{oy})\\fry{v0}\\frz{v1}"
+            if tag_name == "frxyzo": return f"\\org({ox},{oy})\\frx{v0}\\fry{v1}\\frz{v2}"
+            if tag_name == "fscxyr":
+                try:
+                    rx = float(eval_vals[0])
+                    ry = float(eval_vals[1])
+                    return f"\\fscx{_fmt_num(style_scale_x_num * rx)}\\fscy{_fmt_num(style_scale_y_num * ry)}"
+                except (ValueError, TypeError):
+                    pass
+
         res = eval_python_expr(expr, context, default=expr)
 
         m_multi_c = re.match(r'^([1-4]+)c$', tag_name)
         if m_multi_c or tag_name == "c":
-            c_val = _clean_ass_color(str(res)) if not isinstance(res, (int, float)) else _clean_ass_color(f"&H{int(res):06X}&")
+            c_val = _clean_ass_color(res)
             if tag_name == "c":
                 return f"\\c{c_val}"
             return "".join(f"\\{digit}c{c_val}" for digit in m_multi_c.group(1))
@@ -969,8 +1634,8 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
 
         return f"\\{tag_name}{fmt_res}"
 
-    single_tag_pat = r'\\(?!(?:pos|move|org|fad|fade|clip|iclip|t|te|ts|tc|tw)\b)([a-zA-Z0-9]+)\(([^()]*?)\)'
-    s = re.sub(single_tag_pat, _eval_single_tag, s)
+    single_tag_re = re.compile(r'\\(?!(?:pos|move|org|fad|fade|clip|iclip|t|te|ts|tc|tw)\b)([a-zA-Z0-9]+)\(')
+    s = _replace_balanced_parens_tags(s, single_tag_re, _eval_single_tag)
 
     return s
 
@@ -988,26 +1653,48 @@ def clean_tag_block_whitespace(block_str: str) -> str:
 
     s = block_str
 
-    has_outer_braces = s.startswith("{") and s.endswith("}")
+    # Determine if 's' is a single contiguous block enclosed in {...}
+    has_outer_braces = False
+    if s.startswith("{") and s.endswith("}"):
+        d = 0
+        in_q = None
+        match_idx = -1
+        for idx, ch in enumerate(s):
+            if in_q:
+                if ch == '\\' and idx + 1 < len(s):
+                    continue
+                elif ch == in_q:
+                    in_q = None
+            elif ch in ('"', "'"):
+                in_q = ch
+            elif ch == '{':
+                d += 1
+            elif ch == '}':
+                d -= 1
+                if d == 0:
+                    match_idx = idx
+                    break
+        if match_idx == len(s) - 1:
+            has_outer_braces = True
+
     if has_outer_braces:
         inner = s[1:-1].strip()
     else:
         inner = s.strip()
 
-    def _clean_parens(match: re.Match) -> str:
-        tag_name = match.group(1)
-        args_str = match.group(2).strip()
-        if tag_name in ("clip", "iclip") and re.search(r'\bm\s+-?\d+', args_str):
-            args_clean = re.sub(r'[ \t]+', ' ', args_str)
+    def _clean_parens(tag_name: str, args_str: str) -> str:
+        args_clean_body = args_str.strip()
+        if tag_name in ("clip", "iclip") and re.search(r'\bm\s+-?\d+', args_clean_body):
+            args_clean = re.sub(r'[ \t]+', ' ', args_clean_body)
             return f"\\{tag_name}({args_clean})"
-        
-        args_clean = re.sub(r'\s*,\s*', ',', args_str)
-        args_clean = re.sub(r'\s*\\\s*', r'\\', args_clean)
-        args_clean = re.sub(r'\s*([a-zA-Z0-9&]+)\s*\\', r'\1\\', args_clean)
+
+        args_clean = _replace_balanced_parens_tags(args_clean_body, re.compile(r'\\([a-zA-Z0-9]+)\('), _clean_parens)
+        # Protect quoted function arguments from comma/space stripping
+        args_clean = _transform_outside_quotes(args_clean, lambda txt: re.sub(r'\s*,\s*', ',', re.sub(r'\s*\\\s*', r'\\', txt)))
         return f"\\{tag_name}({args_clean})"
 
-    inner = re.sub(r'\\([a-zA-Z0-9]+)\((.*?)\)', _clean_parens, inner)
-    inner = re.sub(r'\s*\\\s*', r'\\', inner)
+    inner = _replace_balanced_parens_tags(inner, re.compile(r'\\([a-zA-Z0-9]+)\('), _clean_parens)
+    inner = _transform_outside_quotes(inner, lambda txt: re.sub(r'\s*\\\s*', r'\\', txt))
     inner = inner.strip()
 
     if has_outer_braces:
@@ -1020,11 +1707,10 @@ def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = 
     Función maestra de evaluación de plantillas y cadenas para Pyxis Nodes.
     Ejecuta el pipeline completo:
     1. Preprocesamiento de atajos de unidad (10f, 2r).
-    2. Sustitución de variables ($center, $line.color1, etc.).
-    3. Evaluación de expresiones inline (!expresion!).
-    4. Expansión de Dark Tags, Restauración (~) y Estocásticos (\\tagR).
-    5. Evaluación de expresiones directas en paréntesis ASS (\\pos(syl.center + 10, ...)).
-    6. Limpieza final de espacios en blanco entre tags y dentro de paréntesis.
+    2. Evaluación de ternarios y llamadas aisladas en paréntesis ((...)).
+    3. Expansión de Dark Tags, Restauración (~) y Estocásticos (\\tagR).
+    4. Evaluación de expresiones directas en paréntesis ASS (\\pos(syl.center + 10, ...)).
+    5. Limpieza final de espacios en blanco entre tags y dentro de paréntesis.
     """
     if template_str is None:
         return ""
@@ -1037,9 +1723,7 @@ def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = 
 
     res = expand_unit_shortcuts(raw, context)
 
-    res = substitute_dollar_vars(res, context)
-
-    res = evaluate_inline_bang_expressions(res, context)
+    res = evaluate_isolated_ternaries(res, context)
 
     res = expand_custom_dark_tags(res, context)
 
@@ -1048,9 +1732,6 @@ def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = 
     res = clean_tag_block_whitespace(res)
 
     return res
-
-
-_TAG_BLOCK_BRACKETS_RE = re.compile(r'\{[^{}]*\}')
 
 
 def evaluate_ass_line_tag_blocks(ass_text: Any, context: Optional[Dict[str, Any]] = None) -> str:
@@ -1069,9 +1750,52 @@ def evaluate_ass_line_tag_blocks(ass_text: Any, context: Optional[Dict[str, Any]
     if not isinstance(context, dict):
         context = {}
 
-    def _eval_block(match: re.Match) -> str:
-        block = match.group(0)
-        return eval_string_template(block, context)
+    out = []
+    n = len(raw)
+    i = 0
+    while i < n:
+        if raw[i] == '{':
+            start = i
+            d_paren = 0
+            d_bracket = 0
+            d_brace = 1
+            in_q = None
+            j = i + 1
+            while j < n:
+                ch = raw[j]
+                if in_q:
+                    if ch == '\\' and j + 1 < n:
+                        j += 2
+                        continue
+                    elif ch == in_q:
+                        in_q = None
+                elif ch in ('"', "'"):
+                    in_q = ch
+                elif ch == '(':
+                    d_paren += 1
+                elif ch == ')':
+                    d_paren = max(0, d_paren - 1)
+                elif ch == '[':
+                    d_bracket += 1
+                elif ch == ']':
+                    d_bracket = max(0, d_bracket - 1)
+                elif ch == '{':
+                    d_brace += 1
+                elif ch == '}':
+                    if d_paren == 0 and d_bracket == 0 and d_brace == 1:
+                        d_brace = 0
+                        j += 1
+                        break
+                    else:
+                        d_brace = max(0, d_brace - 1)
+                j += 1
 
-    return _TAG_BLOCK_BRACKETS_RE.sub(_eval_block, raw)
+            block = raw[start:j]
+            out.append(eval_string_template(block, context))
+            i = j
+        else:
+            out.append(raw[i])
+            i += 1
+
+    return "".join(out)
 

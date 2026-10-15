@@ -36,12 +36,19 @@ from typing import Dict, List, Tuple, Any
 from PIL import Image, ImageOps, ImageFilter
 import numpy as np
 
+from collections import OrderedDict
+
 try:
     import pyclipper
 except ImportError:
     pyclipper = None
 
-_TRACER_CACHE: Dict[str, Dict[str, Any]] = {}
+_TRACER_CACHE: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+_MAX_TRACER_CACHE = 512
+
+def clear_tracer_cache():
+    """Clears the raster image vector tracing cache."""
+    _TRACER_CACHE.clear()
 
 
 def _get_potrace_exe_path() -> str:
@@ -639,6 +646,7 @@ def _trace_single_image_file(
     cache_key = hashlib.md5(cache_key_str.encode('utf-8')).hexdigest()
 
     if cache_key in _TRACER_CACHE:
+        _TRACER_CACHE.move_to_end(cache_key)
         return _TRACER_CACHE[cache_key]
 
     try:
@@ -749,6 +757,8 @@ def _trace_single_image_file(
             "points": pts_count,
             "error": ""
         }
+        if len(_TRACER_CACHE) >= _MAX_TRACER_CACHE:
+            _TRACER_CACHE.popitem(last=False)
         _TRACER_CACHE[cache_key] = res
         return res
 

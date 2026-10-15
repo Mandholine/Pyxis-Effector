@@ -151,9 +151,9 @@ class ASSParser:
                     elif line.startswith('ScriptFile:'):
                         script_file = line.split(':', 1)[1].strip()
                 elif in_garbage:
-                    if line.startswith('Audio File:'):
+                    if line.startswith('Audio File:') and not audio_file:
                         audio_file = line.split(':', 1)[1].strip()
-                    elif line.startswith('Video File:'):
+                    elif line.startswith('Video File:') and not video_file:
                         video_file = line.split(':', 1)[1].strip()
                     elif line.startswith('Video AR Value:'):
                         try:
@@ -309,6 +309,22 @@ class KaraokeProcessor:
         line.x = k_line.x
         line.y = k_line.y
         line.mid_time = line.start_time + line.duration / 2.0
+        line.has_style_override = k_line.has_style_override
+        line.style_override = k_line.style_override
+        line.has_pos = k_line.has_pos
+        line.pos_x = k_line.pos_x
+        line.pos_y = k_line.pos_y
+        line.has_org = k_line.has_org
+        line.org_x = k_line.org_x
+        line.org_y = k_line.org_y
+        line.has_move = k_line.has_move
+        line.move_x1 = k_line.move_x1
+        line.move_y1 = k_line.move_y1
+        line.move_x2 = k_line.move_x2
+        line.move_y2 = k_line.move_y2
+        line.move_t1 = k_line.move_t1
+        line.move_t2 = k_line.move_t2
+        line.align_override = k_line.align_override
 
         if metrics and isinstance(metrics, dict):
             line.is_selected = bool(metrics.get('sel', False))
@@ -324,6 +340,7 @@ class KaraokeProcessor:
             for k_syl in k_line.kara:
                 syl = _make_unit()
                 syl.line = line
+                syl.style_override = k_syl.style_override
                 if not k_syl.text_spacestripped:
                     syl.i = 0
                 else:
@@ -351,6 +368,10 @@ class KaraokeProcessor:
                 syl.y = k_syl.y
                 syl.prespace = k_syl.prespace
                 syl.postspace = k_syl.postspace
+                syl.prespacewidth = k_syl.prespacewidth
+                syl.postspacewidth = k_syl.postspacewidth
+                syl.prespace_left = k_syl.prespace_left
+                syl.postspace_left = k_syl.postspace_left
                 syl.tag = k_syl.tag
                 syl.inline_fx = k_syl.inline_fx
                 syl.kdur = k_syl.kdur
@@ -358,25 +379,38 @@ class KaraokeProcessor:
                 line.syls.append(syl)
 
                 txt_strip = k_syl.text_stripped or ""
-                cw_list = FontEngine.get_char_widths(style, txt_strip)
+                syl_eff_style = syl.style_override if syl.style_override is not None else style
+                cw_list = FontEngine.get_char_widths(syl_eff_style, txt_strip)
                 syl_cw_sum = sum(cw_list) if cw_list else 1.0
 
-                current_x = syl.left - k_syl.prespacewidth
-                current_t = syl.start_time
+                eff_sp = KaraskelEngine.get_effective_spacing(syl_eff_style, meta)
+                n_pre = len(k_syl.prespace or "")
+                n_text = len(k_syl.text_spacestripped or "")
+                n_post = len(k_syl.postspace or "")
+
+                current_x = k_syl.prespace_left if n_pre > 0 else k_syl.left
+                current_t = 0
 
                 for i_c, c in enumerate(txt_strip):
+                    if i_c == n_pre and n_text > 0:
+                        current_x = k_syl.left
+                    elif i_c == (n_pre + n_text) and n_post > 0:
+                        current_x = k_syl.postspace_left
+
                     cw = cw_list[i_c] if i_c < len(cw_list) else (syl.width / len(txt_strip) if txt_strip else 10.0)
                     char_dur = int(syl.duration * (cw / syl_cw_sum)) if syl_cw_sum > 0 else 0
                     if i_c == len(txt_strip) - 1:
-                        char_dur = max(0, syl.end_time - current_t)
+                        char_dur = max(0, syl.duration - current_t)
 
                     char = _make_unit()
                     char.syl = syl
                     char.line = line
+                    char.style_override = syl.style_override
                     char.i = char_idx
                     char.text = c
                     char.text_stripped = c
                     char.duration = int(char_dur)
+                    char.dur = int(char_dur)
                     char.start_time = int(current_t)
                     char.end_time = int(current_t + char_dur)
                     char.mid_time = char.start_time + (char.duration / 2.0)
@@ -396,18 +430,21 @@ class KaraokeProcessor:
                     syl.chars.append(char)
                     line.chars.append(char)
 
-                    current_x += cw
+                    current_x += (cw + eff_sp)
                     current_t += char_dur
                     char_idx += 1
         else:
             txt_strip = k_line.text_stripped or ""
-            cw_list = FontEngine.get_char_widths(style, txt_strip)
+            line_eff_style = line.style_override if line.style_override is not None else style
+            cw_list = FontEngine.get_char_widths(line_eff_style, txt_strip)
+            eff_sp = KaraskelEngine.get_effective_spacing(line_eff_style, meta)
             all_chars = []
             cur_x = k_line.left
             for i_c, c in enumerate(txt_strip):
                 cw = cw_list[i_c] if i_c < len(cw_list) else 10.0
                 ch = _make_unit()
                 ch.line = line
+                ch.style_override = line.style_override
                 ch.i = i_c + 1
                 ch.text = c
                 ch.text_stripped = c
@@ -424,7 +461,7 @@ class KaraokeProcessor:
                 ch.x = ch.center
                 ch.y = ch.middle
                 all_chars.append(ch)
-                cur_x += cw
+                cur_x += (cw + eff_sp)
 
             word_char_groups = []
             curr_g = []
@@ -444,12 +481,13 @@ class KaraokeProcessor:
             word_dur = (line.duration / N) if N > 0 else line.duration
 
             for i, w_chars in enumerate(word_char_groups, 1):
-                w_st = int(line.start_time + (i - 1) * word_dur)
-                w_et = int(line.end_time) if i == N else int(line.start_time + i * word_dur)
+                w_st = int((i - 1) * word_dur)
+                w_et = int(line.duration) if i == N else int(i * word_dur)
                 w_d = max(0, w_et - w_st)
 
                 syl = _make_unit()
                 syl.line = line
+                syl.style_override = line.style_override
                 syl.i = i
                 syl.n = N
                 syl.ci = i
@@ -463,12 +501,12 @@ class KaraokeProcessor:
                 syl.text = "".join(c.text for c in w_chars)
                 syl.text_stripped = "".join(c.text_stripped for c in w_chars)
                 syl.text_spacestripped = syl.text_stripped.strip()
-                syl.width = sum(c.width for c in w_chars)
                 syl.height = line.height
                 syl.descent = line.descent
                 syl.extlead = line.extlead
                 syl.left = w_chars[0].left if w_chars else k_line.left
                 syl.right = w_chars[-1].right if w_chars else k_line.right
+                syl.width = max(0.0, syl.right - syl.left) if w_chars else 0.0
                 syl.center = syl.left + (syl.width / 2.0)
                 syl.top = line.top
                 syl.middle = line.middle
@@ -477,17 +515,21 @@ class KaraokeProcessor:
                 syl.y = syl.middle
                 syl.prespace = ""
                 syl.postspace = " " if i < N else ""
+                syl.prespacewidth = 0.0
+                syl.prespace_left = syl.left
+                syl.postspacewidth = FontEngine.get_text_extents(line_eff_style, syl.postspace)[0] if syl.postspace else 0.0
+                syl.postspace_left = syl.right
                 syl.tag = "k"
                 syl.inline_fx = ""
                 syl.chars = w_chars
 
                 syl_cw_sum = sum(c.width for c in w_chars) or 1.0
-                curr_c_t = w_st
+                curr_c_t = 0
                 for idx_w, c in enumerate(w_chars):
                     c.syl = syl
                     c_dur = int(w_d * (c.width / syl_cw_sum)) if syl_cw_sum > 0 else 0
                     if idx_w == len(w_chars) - 1:
-                        c_dur = max(0, w_et - curr_c_t)
+                        c_dur = max(0, w_d - curr_c_t)
                     c.start_time = int(curr_c_t)
                     c.duration = int(c_dur)
                     c.dur = int(c_dur)
@@ -509,11 +551,11 @@ class KaraokeProcessor:
                         ch.mid_time = prev_c.end_time
                         ch.syl = getattr(prev_c, 'syl', None)
                     else:
-                        ch.start_time = line.start_time
-                        ch.end_time = line.start_time
+                        ch.start_time = 0
+                        ch.end_time = 0
                         ch.duration = 0
                         ch.dur = 0
-                        ch.mid_time = line.start_time
+                        ch.mid_time = 0
                 line.chars.append(ch)
 
         self._build_words_from_chars(line)
@@ -521,6 +563,7 @@ class KaraokeProcessor:
         for k_furi in k_line.furi:
             furi = _make_unit()
             furi.line = line
+            furi.style_override = k_furi.style_override
             furi.i = k_furi.i
             furi.text = k_furi.text
             furi.text_stripped = k_furi.text_stripped
@@ -560,6 +603,7 @@ class KaraokeProcessor:
     def _create_word(self, line: PyxisLine, chars: List[PyxisUnit], index: int) -> PyxisUnit:
         word = _make_unit()
         word.line, word.chars, word.i = line, chars, index
+        word.style_override = getattr(chars[0], 'style_override', None) if chars else getattr(line, 'style_override', None)
         for c in chars:
             c.word = word
             syl_obj = getattr(c, 'syl', None)
@@ -569,13 +613,21 @@ class KaraokeProcessor:
         word.text = "".join(c.text for c in chars)
         word.text_stripped = "".join(c.text_stripped for c in chars)
         word.duration = sum(c.duration for c in chars)
-        word.start_time = chars[0].start_time if chars else line.start_time
-        word.end_time = chars[-1].end_time if chars else line.end_time
+        word.dur = word.duration
+        if chars:
+            c0 = chars[0]
+            syl0 = getattr(c0, 'syl', None)
+            syl0_st = getattr(syl0, 'start_time', 0) if isinstance(syl0, PyxisUnit) else 0
+            word.start_time = syl0_st + c0.start_time
+        else:
+            word.start_time = 0
+        word.end_time = word.start_time + word.duration
         word.mid_time = word.start_time + (word.duration / 2.0)
         word.left = chars[0].left if chars else line.left
         word.right = chars[-1].right if chars else line.right
         word.width = max(0.0, word.right - word.left)
         word.center = word.left + (word.width / 2.0)
+        word.height = line.height
         word.top = chars[0].top if chars else line.top
         word.bottom = chars[0].bottom if chars else line.bottom
         word.middle = line.middle
@@ -604,8 +656,6 @@ class KaraokeProcessor:
             u.n = total_syls
             u.dur = u.duration
             u.x, u.y = u.center, u.middle
-            u.syl_start = max(0, u.start_time - line.start_time)
-            u.syl_end = max(0, u.end_time - line.start_time)
 
         vis_words = [w for w in line.words if str(getattr(w, 'text_stripped', '')).strip()]
         total_words = len(vis_words) if vis_words else len(line.words)
@@ -622,8 +672,6 @@ class KaraokeProcessor:
             u.n = total_words
             u.dur = u.duration
             u.x, u.y = u.center, u.middle
-            u.word_start = max(0, u.start_time - line.start_time)
-            u.word_end = max(0, u.end_time - line.start_time)
 
         vis_chars = [c for c in line.chars if str(getattr(c, 'text_stripped', '')).strip()]
         total_chars = len(vis_chars) if vis_chars else len(line.chars)
@@ -640,23 +688,20 @@ class KaraokeProcessor:
             u.n = total_chars
             u.dur = u.duration
             u.x, u.y = u.center, u.middle
-            u.char_start = max(0, u.start_time - line.start_time)
-            u.char_end = max(0, u.end_time - line.start_time)
             
-            if u.syl and hasattr(u.syl, 'start_time'):
-                u.syl_start = max(0, u.syl.start_time - line.start_time)
-                u.syl_end = max(0, u.syl.end_time - line.start_time)
-                if hasattr(u.syl, 'chars') and u in u.syl.chars:
-                    u.syl_i = u.syl.chars.index(u) + 1
-            else:
-                u.syl_start = u.char_start
-                u.syl_end = u.char_end
+            if u.syl and hasattr(u.syl, 'chars') and u in u.syl.chars:
+                u.syl_i = u.syl.chars.index(u) + 1
+            if u.word and hasattr(u.word, 'chars') and u in u.word.chars:
+                u.word_i = u.word.chars.index(u) + 1
 
-            if u.word and hasattr(u.word, 'start_time'):
-                u.word_start = max(0, u.word.start_time - line.start_time)
-                u.word_end = max(0, u.word.end_time - line.start_time)
-                if hasattr(u.word, 'chars') and u in u.word.chars:
-                    u.word_i = u.word.chars.index(u) + 1
-            else:
-                u.word_start = u.char_start
-                u.word_end = u.char_end
+        for i, u in enumerate(line.syls):
+            u.prev = line.syls[i - 1] if i > 0 else None
+            u.next = line.syls[i + 1] if i + 1 < len(line.syls) else None
+
+        for i, u in enumerate(line.words):
+            u.prev = line.words[i - 1] if i > 0 else None
+            u.next = line.words[i + 1] if i + 1 < len(line.words) else None
+
+        for i, u in enumerate(line.chars):
+            u.prev = line.chars[i - 1] if i > 0 else None
+            u.next = line.chars[i + 1] if i + 1 < len(line.chars) else None

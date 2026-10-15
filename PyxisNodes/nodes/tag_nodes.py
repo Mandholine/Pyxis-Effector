@@ -224,9 +224,6 @@ def eval_condition_bool(condition, context=None) -> bool:
         return (float(condition) != 0.0)
     if isinstance(condition, str):
         v = str(condition).strip()
-        if v.startswith("!") and v.endswith("!"):
-            v = v[1:-1].strip()
-        
         v_lower = v.lower()
         if v_lower in ("true", "1", "yes", "t"):
             return True
@@ -234,63 +231,12 @@ def eval_condition_bool(condition, context=None) -> bool:
             return False
         else:
             try:
-                import math
-                eval_scope = dict(context or {})
-                try:
-                    from node_engine import AttrDict
-                except ImportError:
-                    class AttrDict(dict):
-                        def __getattr__(self, item):
-                            return self.get(item)
-                        def __setattr__(self, key, value):
-                            self[key] = value
-
-                for k, v_item in list(eval_scope.items()):
-                    if isinstance(v_item, dict) and not isinstance(v_item, AttrDict):
-                        eval_scope[k] = AttrDict(v_item)
-
-                if "line" in eval_scope and "l" not in eval_scope:
-                    eval_scope["l"] = eval_scope["line"]
-                if "active_unit" in eval_scope and eval_scope["active_unit"]:
-                    u = eval_scope["active_unit"]
-                    eval_scope.setdefault("syl", getattr(u, "syl", u))
-                    eval_scope.setdefault("char", getattr(u, "char", None))
-                    eval_scope.setdefault("word", getattr(u, "word", None))
-                    eval_scope.setdefault("line", getattr(u, "line", None))
-                    if "l" not in eval_scope:
-                        eval_scope["l"] = eval_scope.get("line")
-                if "syl" in eval_scope and "sili" not in eval_scope:
-                    eval_scope["sili"] = eval_scope["syl"]
-                if "fx" not in eval_scope:
-                    from node_engine import FxContext
-                    eval_scope["fx"] = FxContext(eval_scope)
-
-                math_fns = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
-                eval_globals = {"math": math, "__builtins__": {
-                    "abs": abs, "min": min, "max": max, "round": round, "int": int, "float": float, "bool": bool, "len": len, "str": str
-                }}
-                eval_globals.update(math_fns)
-
-                try:
-                    from nodes.math_nodes import math_random_master
-                except (ImportError, ModuleNotFoundError):
-                    try:
-                        import importlib
-                        _mn = importlib.import_module("nodes.math_nodes")
-                        math_random_master = getattr(_mn, "math_random_master", None)
-                    except Exception:
-                        math_random_master = None
-                if math_random_master:
-                    eval_scope["R"] = lambda min_v=0, max_v=100, step_v=1: math_random_master(context, modo="R", min_val=min_v, max_val=max_v, step=step_v)
-                    eval_scope["Rs"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rs", min_val=min_v, max_val=max_v)
-                    eval_scope["Rc"] = lambda min_v=0, max_v=100: math_random_master(context, modo="Rc", min_val=min_v, max_val=max_v)
-
-                import re
-                v_eval = v.replace("^", "**")
-                v_eval = re.sub(r'&[hH]([0-9a-fA-F]+)&?', r'0x\1', v_eval)
-                v_eval = re.sub(r'\$([a-zA-Z_][a-zA-Z0-9_]*)', r'\1', v_eval)
-                res = eval(v_eval, eval_globals, eval_scope)
-                return bool(res)
+                from string_evaluator import eval_python_expr, _transform_outside_quotes
+                v_eval = _transform_outside_quotes(v, lambda seg: seg.replace("^", "**"))
+                res = eval_python_expr(v_eval, context, default=None)
+                if res is not None:
+                    return bool(res)
+                return len(v) > 0
             except Exception:
                 return len(v) > 0
     return bool(condition)
@@ -1306,7 +1252,7 @@ def _format_single_line_scale_trajectory(pts, t1, t2, accel=1.0, tags="", contex
             if context.get("_return_node_is_shape"):
                 is_shape = True
             elif context.get("_return_port_connected"):
-                ret_raw = str(context.get("return_raw", "") or context.get("retorno_str", "") or "")
+                ret_raw = str(context.get("return_raw", "") or "")
                 if ret_raw.startswith("m ") or re.search(r'\bm\s+-?\d+', ret_raw):
                     is_shape = True
 
@@ -1314,7 +1260,7 @@ def _format_single_line_scale_trajectory(pts, t1, t2, accel=1.0, tags="", contex
         # Shape trajectory: vector drawings are anchored at their center (0, 0)
         ret_raw = ""
         if context and isinstance(context, dict):
-            ret_raw = str(context.get("return_raw", "") or context.get("retorno_str", "") or "")
+            ret_raw = str(context.get("return_raw", "") or "")
         shape_comp_y = _get_shape_add_y(ret_raw)
 
         min_x = min(p[0] for p in pts)
@@ -1857,7 +1803,7 @@ def node_animation(
             if not txt:
                 line = ctx.get('active_line') or ctx.get('line')
                 txt = getattr(line, 'text_stripped', getattr(line, 'text', '')) if line else ""
-            s = txt if txt else "Circle"
+            s = txt if txt else "circle"
 
         if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
             try:
@@ -1910,7 +1856,7 @@ def node_animation(
                 processed_shapes.append(shp if shp else item_str)
 
     if not processed_shapes:
-        processed_shapes = [resolve_shape_value("Circle", ctx) or "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0 "]
+        processed_shapes = [resolve_shape_value("circle", ctx) or "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0 "]
 
     num_frames = len(processed_shapes)
 
@@ -1984,10 +1930,13 @@ def node_animation(
         context["anim_base_et"] = et_val
         context["an_total_cycles"] = total_frames
         if not is_alpha_mode:
+            context["an_loop_count"] = total_frames
             context["maxloop"] = total_frames
             context["anim_step_ms"] = f_dur
         else:
+            context["an_loop_count"] = num_frames
             context["maxloop"] = num_frames
+            context.pop("anim_step_ms", None)
 
     # 3. Resolve current iterator / index (cycles 1..num_frames continuously like a GIF)
     iter_val = ctx.get(f"{var_prefix}_i") or ctx.get("an_i") or ctx.get("anim_i") or ctx.get("j") or ctx.get("fx_i") or ctx.get("i") or 1
@@ -2029,7 +1978,7 @@ def node_animation(
         raw_tag = str(alpha_tag or r"\alpha").strip()
         if not raw_tag.startswith("\\"):
             raw_tag = "\\" + raw_tag
-        if not (raw_tag.endswith("a") or raw_tag == r"\alpha"):
+        if not (re.match(r'^\\[1-4]+a$', raw_tag) or raw_tag.lower() == r"\alpha"):
             raw_tag = r"\alpha"
 
         tag_prefix = raw_tag

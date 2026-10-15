@@ -3776,7 +3776,7 @@
             size[1] = this.constructor.min_height;
         }
 
-        size[1] += 6; //margin
+        size[1] += 18; //margin (reserves bottom clearance for help button and resize handle)
 
         return size;
     };
@@ -4892,6 +4892,29 @@
         return out;
     };
 
+    LGraphNode.prototype.getHelpButtonPos = function(size) {
+        size = size || this.size;
+        var title = String(this.title || this.type || "");
+
+        // Custom position for Previewer: top-right header corner in title bar
+        if (title.includes("Previewer") || title.includes("Previsualizador") || (this.type && String(this.type).includes("Previewer"))) {
+            return [size[0] - 14, -15];
+        }
+
+        // Custom position for Script Code: right side above Open Script Editor button (under Result output)
+        if (title.includes("Script Code") || title.includes("Código Script") || (this.type && String(this.type).includes("Script Code"))) {
+            return [size[0] - 14, 57];
+        }
+
+        // Custom position specified on node instance if any
+        if (this.help_button_pos) {
+            return typeof this.help_button_pos === "function" ? this.help_button_pos(size) : this.help_button_pos;
+        }
+
+        // Default bottom-left corner
+        return [12, size[1] - 12];
+    };
+
     /* Force align to grid */
     LGraphNode.prototype.alignToGrid = function() {
         this.pos[0] =
@@ -5494,6 +5517,7 @@ LGraphNode.prototype.executeAction = function(action)
         this.allow_dragcanvas = true;
         this.allow_dragnodes = true;
         this.allow_interaction = true; //allow to control widgets, buttons, collapse, etc
+        this.zoom_factor = 1.05; // smoother mouse wheel zoom rate (5% per notch instead of 10%)
         this.multi_select = false; //allow selecting multi nodes without pressing extra keys
         this.allow_searchbox = true;
         this.allow_reconnect_links = true; //allows to change a connection with having to redo it again
@@ -5842,6 +5866,7 @@ LGraphNode.prototype.executeAction = function(action)
         //this._touch_callback = this.touchHandler.bind(this);
 
 		LiteGraph.pointerListenerAdd(canvas,"down", this._mousedown_callback, true); //down do not need to store the binded
+        canvas.addEventListener("wheel", this._mousewheel_callback, { passive: false });
         canvas.addEventListener("mousewheel", this._mousewheel_callback, false);
 
         LiteGraph.pointerListenerAdd(canvas,"up", this._mouseup_callback, true); // CHECK: ??? binded or not
@@ -5898,6 +5923,11 @@ LGraphNode.prototype.executeAction = function(action)
 		LiteGraph.pointerListenerRemove(this.canvas,"move", this._mousedown_callback);
         LiteGraph.pointerListenerRemove(this.canvas,"up", this._mousedown_callback);
         LiteGraph.pointerListenerRemove(this.canvas,"down", this._mousedown_callback);
+        this.canvas.removeEventListener(
+            "wheel",
+            this._mousewheel_callback,
+            false
+        );
         this.canvas.removeEventListener(
             "mousewheel",
             this._mousewheel_callback
@@ -6196,6 +6226,30 @@ LGraphNode.prototype.executeAction = function(action)
 
                 //not dragging mouse to connect two slots
                 if ( this.allow_interaction && !this.connecting_node && !node.flags.collapsed && !this.live_mode ) {
+                    //Search for bottom-left help button '?'
+                    var hPos = typeof node.getHelpButtonPos === "function" ? node.getHelpButtonPos(node.size) : [12, node.size[1] - 12];
+                    if ( !skip_action &&
+                        !node.flags?.collapsed &&
+                        !node.hide_help_button &&
+                        node.type !== "Basics/Only" &&
+                        node.type !== "Basics/Once" &&
+                        node.title !== "Only" &&
+                        node.title !== "Once" &&
+                        isInsideRectangle( e.canvasX,
+                            e.canvasY,
+                            node.pos[0] + hPos[0] - 9,
+                            node.pos[1] + hPos[1] - 9,
+                            18,
+                            18
+                        )
+                    ) {
+                        if (window.PyxisHelpViewer && typeof window.PyxisHelpViewer.jumpToNode === "function") {
+                            window.PyxisHelpViewer.jumpToNode(node.type);
+                        }
+                        skip_action = true;
+                        return true;
+                    }
+
                     //Search for corner for resize
                     if ( !skip_action &&
                         node.resizable !== false &&
@@ -6754,9 +6808,28 @@ LGraphNode.prototype.executeAction = function(action)
                     }
                 }
 
-                //Search for corner
+                //Search for corner / help button
                 if (this.canvas) {
+                    var hPos = typeof node.getHelpButtonPos === "function" ? node.getHelpButtonPos(node.size) : [12, node.size[1] - 12];
                     if (
+                        !node.flags?.collapsed &&
+                        !node.hide_help_button &&
+                        node.type !== "Basics/Only" &&
+                        node.type !== "Basics/Once" &&
+                        node.title !== "Only" &&
+                        node.title !== "Once" &&
+                        isInsideRectangle(
+                            e.canvasX,
+                            e.canvasY,
+                            node.pos[0] + hPos[0] - 9,
+                            node.pos[1] + hPos[1] - 9,
+                            18,
+                            18
+                        )
+                    ) {
+                        this.canvas.style.cursor = "pointer";
+                        this._hover_node_help = node;
+                    } else if (
                         node.resizable !== false &&
                         (!node.flags || node.flags.resizable !== false) &&
                         !node.flags?.collapsed &&
@@ -6770,8 +6843,10 @@ LGraphNode.prototype.executeAction = function(action)
                         )
                     ) {
                         this.canvas.style.cursor = "se-resize";
+                        this._hover_node_help = null;
                     } else {
                         this.canvas.style.cursor = "default";
+                        this._hover_node_help = null;
                     }
                 }
             } else { //not over a node
@@ -7190,7 +7265,20 @@ LGraphNode.prototype.executeAction = function(action)
             return;
         }
 
-        var delta = e.wheelDeltaY != null ? e.wheelDeltaY : e.detail * -60;
+        var delta = 0;
+        if (e.deltaY != null && e.deltaY !== 0) {
+            delta = -e.deltaY;
+        } else if (e.wheelDeltaY != null && e.wheelDeltaY !== 0) {
+            delta = e.wheelDeltaY;
+        } else if (e.wheelDelta != null && e.wheelDelta !== 0) {
+            delta = e.wheelDelta;
+        } else if (e.detail != null && e.detail !== 0) {
+            delta = e.detail * -60;
+        }
+
+        if (delta === 0) {
+            return;
+        }
 
         this.adjustMouseEvent(e);
 
@@ -7201,19 +7289,22 @@ LGraphNode.prototype.executeAction = function(action)
 			return;
 
         var scale = this.ds.scale;
+        var factor = this.zoom_factor || 1.05;
 
         if (delta > 0) {
-            scale *= 1.1;
+            scale *= factor;
         } else if (delta < 0) {
-            scale *= 1 / 1.1;
+            scale *= 1 / factor;
         }
 
-        //this.setZoom( scale, [ e.clientX, e.clientY ] );
         this.ds.changeScale(scale, [e.clientX, e.clientY]);
 
         this.graph.change();
 
         e.preventDefault();
+        if (typeof e.stopPropagation === "function") {
+            e.stopPropagation();
+        }
         return false; // prevent default
     };
 
@@ -7550,8 +7641,6 @@ LGraphNode.prototype.executeAction = function(action)
             var target_node = nodes[link_info[2]];
 			if( origin_node && target_node )
 	            origin_node.connect(link_info[1], target_node, link_info[3]);
-			else
-				console.warn("Warning, nodes missing on pasting");
         }
 
         this.selectNodes(nodes);
@@ -8762,7 +8851,8 @@ LGraphNode.prototype.executeAction = function(action)
             glow = true;
         }
 
-        var low_quality = this.ds.scale < 0.6; //zoomed out
+        var scale = this.ds.scale;
+        var low_quality = scale < 0.6;
 
         //only render if it forces it to do it
         if (this.live_mode) {
@@ -8779,11 +8869,11 @@ LGraphNode.prototype.executeAction = function(action)
         var editor_alpha = 1.0;
         ctx.globalAlpha = 1.0;
 
-        if (this.render_shadows && !low_quality) {
+        if (this.render_shadows) {
             ctx.shadowColor = LiteGraph.DEFAULT_SHADOW_COLOR;
-            ctx.shadowOffsetX = 2 * this.ds.scale;
-            ctx.shadowOffsetY = 2 * this.ds.scale;
-            ctx.shadowBlur = 3 * this.ds.scale;
+            ctx.shadowOffsetX = 2 * scale;
+            ctx.shadowOffsetY = 2 * scale;
+            ctx.shadowBlur = 3 * scale;
         } else {
             ctx.shadowColor = "transparent";
         }
@@ -8861,7 +8951,7 @@ LGraphNode.prototype.executeAction = function(action)
         ctx.textAlign = horizontal ? "center" : "left";
         ctx.font = this.inner_text_font;
 
-        var render_text = !low_quality;
+        var render_text = this.ds.scale > 0.6;
 
         var out_slot = this.connecting_output;
         var in_slot = this.connecting_input;
@@ -9273,7 +9363,7 @@ LGraphNode.prototype.executeAction = function(action)
         ctx.strokeStyle = fgcolor;
 
         var title_height = LiteGraph.NODE_TITLE_HEIGHT;
-        var low_quality = this.ds.scale < 0.5;
+        var low_quality = this.ds.scale < 0.6;
 
         //render node area depending on shape
         var shape =
@@ -9298,7 +9388,7 @@ LGraphNode.prototype.executeAction = function(action)
 
         // Node background gradient or fallback flat color
         var themeDarkGrad = window.PYXIS_THEME && window.PYXIS_THEME.nodeBgGradient;
-        if (!low_quality && themeDarkGrad && themeDarkGrad.start && themeDarkGrad.end) {
+        if (themeDarkGrad && themeDarkGrad.start && themeDarkGrad.end) {
             try {
                 var bodyGrad = ctx.createLinearGradient(0, area[1], 0, area[1] + area[3]);
                 bodyGrad.addColorStop(0, themeDarkGrad.start);
@@ -9483,7 +9573,7 @@ LGraphNode.prototype.executeAction = function(action)
                     selected
                 );
             }
-            if (!low_quality) {
+            if (this.ds.scale > 0.3) {
                 ctx.font = this.title_text_font;
                 var title = String(node.getTitle());
                 if (title) {
@@ -9605,6 +9695,27 @@ LGraphNode.prototype.executeAction = function(action)
             ctx.lineTo(size[0] - 12, size[1] - 2);
             ctx.closePath();
             ctx.fill();
+        }
+
+        // Draw visual help '?' button
+        if (!node.flags || !node.flags.collapsed) {
+            if (!node.hide_help_button && node.type !== "Basics/Only" && node.type !== "Basics/Once" && node.title !== "Only" && node.title !== "Once") {
+                ctx.save();
+                var hPos = typeof node.getHelpButtonPos === "function" ? node.getHelpButtonPos(size) : [12, size[1] - 12];
+                var qX = hPos[0];
+                var qY = hPos[1];
+                var isHoverHelp = this._hover_node_help === node;
+                ctx.fillStyle = isHoverHelp ? "rgba(34, 133, 140, 0.9)" : "rgba(255, 255, 255, 0.22)";
+                ctx.beginPath();
+                ctx.arc(qX, qY, 7, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = isHoverHelp ? "#ffffff" : "rgba(255, 255, 255, 0.85)";
+                ctx.font = "bold 9px monospace";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText("?", qX, qY + 0.5);
+                ctx.restore();
+            }
         }
 
         if (node.execute_triggered>0) node.execute_triggered--;
@@ -9806,12 +9917,15 @@ LGraphNode.prototype.executeAction = function(action)
             color = "#FFF";
         }
 
+        var scale = this.ds.scale;
+        var use_spline = this.links_render_mode == LiteGraph.SPLINE_LINK;
+
         start_dir = start_dir || LiteGraph.RIGHT;
         end_dir = end_dir || LiteGraph.LEFT;
 
         var dist = distance(a, b);
 
-        if (this.render_connections_border && this.ds.scale > 0.6) {
+        if (this.render_connections_border && scale > 0.6) {
             ctx.lineWidth = this.connections_width + 4;
         }
         ctx.lineJoin = "round";
@@ -9825,7 +9939,7 @@ LGraphNode.prototype.executeAction = function(action)
         for (var i = 0; i < num_sublines; i += 1) {
             var offsety = (i - (num_sublines - 1) * 0.5) * 5;
 
-            if (this.links_render_mode == LiteGraph.SPLINE_LINK) {
+            if (use_spline) {
                 ctx.moveTo(a[0], a[1] + offsety);
                 var start_offset_x = 0;
                 var start_offset_y = 0;
@@ -9867,8 +9981,9 @@ LGraphNode.prototype.executeAction = function(action)
                     b[0],
                     b[1] + offsety
                 );
-            } else if (this.links_render_mode == LiteGraph.LINEAR_LINK) {
+            } else if (this.links_render_mode == LiteGraph.LINEAR_LINK || !use_spline) {
                 ctx.moveTo(a[0], a[1] + offsety);
+                ctx.lineTo(b[0], b[1] + offsety);
                 var start_offset_x = 0;
                 var start_offset_y = 0;
                 var end_offset_x = 0;
@@ -11124,6 +11239,19 @@ LGraphNode.prototype.executeAction = function(action)
             });
 
             var entries = cat_entries.concat(node_entries);
+            if (base_category === '') {
+                var helpLabel = (window.PyxisI18n && window.PyxisI18n.t("menu.help", null, "Help")) || "Help";
+                entries.push({
+                    value: "Help",
+                    content: helpLabel,
+                    has_submenu: false,
+                    callback: function() {
+                        if (window.PyxisHelpViewer && typeof window.PyxisHelpViewer.open === "function") {
+                            window.PyxisHelpViewer.open();
+                        }
+                    }
+                });
+            }
     
             new LiteGraph.ContextMenu( entries, { event: e, parentMenu: prev_menu, parentItem: (this && this.getBoundingClientRect ? this : null) }, ref_window );
     

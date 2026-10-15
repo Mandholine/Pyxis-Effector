@@ -34,26 +34,32 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
         pass
 
     def _send_json(self, data, code=200):
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode("utf-8"))
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+        except (ConnectionError, BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
-        self.end_headers()
+        try:
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.end_headers()
+        except (ConnectionError, BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     def do_GET(self):
         if self.path == "/status":
             self._send_json({
                 "status": "ok",
-                "version": "1.1.1",
+                "version": "1.1.4",
                 "pid": os.getpid(),
                 "daemon_mode": getattr(self.daemon_context, "daemon_mode", True)
             })
@@ -133,8 +139,12 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
                                     break
                                 self.wfile.write(chunk_data)
                     return
-            except (BrokenPipeError, ConnectionResetError):
+            except (ConnectionError, BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 return
+            except OSError as e:
+                if getattr(e, "winerror", None) in (10053, 10054, 10058) or getattr(e, "errno", None) in (10053, 10054, 32, 104, 108):
+                    return
+                print(f"[Pyxis Daemon Media Stream Error] {e}", flush=True)
             except Exception as e:
                 print(f"[Pyxis Daemon Media Stream Error] {e}", flush=True)
             try:

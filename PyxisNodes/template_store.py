@@ -14,7 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-"""Persistent storage for Pyxis Engine 1.1.1 templates."""
+"""Persistent storage for Pyxis Engine 1.1.4 templates."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 
-PYXIS_ENGINE_VERSION = "1.1.1"
+PYXIS_ENGINE_VERSION = "1.1.4"
 SCHEMA_VERSION = 1
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]+")
 

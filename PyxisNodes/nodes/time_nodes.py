@@ -52,6 +52,264 @@ def _get_base_time(context, is_end_time=False, base=None):
     return 0.0
 
 
+SYNC_MODE_MAP = {
+    1: "order", "1": "order", "order": "order",
+    2: "style", "2": "style", "style": "style",
+    3: "actor", "3": "actor", "actor": "actor",
+    4: "effect", "4": "effect", "effect": "effect",
+    5: "layer", "5": "layer", "layer": "layer",
+}
+
+
+def calculate_sync_gap(context=None, direction="next", mode="order", max_gap=None):
+    """Calculates the temporal gap (in ms) to the adjacent line based on direction, mode, and max_gap.
+
+    - direction: 'next' (default) or 'prev' (or 1 / -1, 'n', 'p')
+    - mode: 'order' (1, default), 'style' (2), 'actor' (3), 'effect' (4), 'layer' (5)
+    - max_gap: upper limit in ms (default context['maxgap'] or 2000.0)
+
+    Returns:
+    - If no matching adjacent line: max_gap
+    - If lines overlap (gap < 0): raw negative gap (delta_t < 0)
+    - If lines do not overlap (gap >= 0): min(gap, max_gap)
+    """
+    if not isinstance(context, dict):
+        context = {}
+
+    if max_gap is None or max_gap == "":
+        max_gap = context.get("maxgap", context.get("max_gap", 2000.0))
+    try:
+        max_gap_val = float(max_gap)
+    except (ValueError, TypeError):
+        max_gap_val = 2000.0
+
+    dir_str = "next"
+    if direction is not None:
+        if hasattr(direction, "direction"):
+            d_lower = str(getattr(direction, "direction")).strip().lower()
+            if "prev" in d_lower or d_lower in ("p", "-1"):
+                dir_str = "prev"
+            else:
+                dir_str = "next"
+        elif isinstance(direction, str):
+            d_lower = direction.strip().lower()
+            if d_lower in ("prev", "p", "-1", "previous"):
+                dir_str = "prev"
+            elif d_lower in ("next", "n", "1"):
+                dir_str = "next"
+        elif isinstance(direction, (int, float)):
+            if direction < 0:
+                dir_str = "prev"
+            else:
+                dir_str = "next"
+        elif direction is context.get("prev") or (hasattr(context.get("active_unit"), "prev") and direction is getattr(context.get("active_unit"), "prev")):
+            dir_str = "prev"
+        elif direction is context.get("next") or (hasattr(context.get("active_unit"), "next") and direction is getattr(context.get("active_unit"), "next")):
+            dir_str = "next"
+
+    if mode is None or mode == "":
+        mode = "order"
+    if isinstance(mode, (int, float)):
+        mode_val = int(mode)
+    else:
+        m_str = str(mode).strip().lower()
+        if m_str.isdigit():
+            mode_val = int(m_str)
+        else:
+            mode_val = m_str
+
+    canonical_mode = SYNC_MODE_MAP.get(mode_val, "order")
+
+    line = context.get('line') or context.get('active_line')
+    if not line and context.get('active_unit'):
+        line = getattr(context['active_unit'], 'line', None)
+    if not line:
+        print(f"[Pyxis Synced Warning] calculate_sync_gap: No active line found in context. Using fallback max_gap = {max_gap_val} ms.", flush=True)
+        return max_gap_val
+
+    lines_list = context.get('all_lines') or context.get('target_lines') or context.get('selected_lines') or []
+    valid_lines = [l for l in lines_list if not getattr(l, 'is_comment', False)]
+    if not valid_lines:
+        print(f"[Pyxis Synced Warning] calculate_sync_gap: No valid dialogue lines in context. Using fallback max_gap = {max_gap_val} ms.", flush=True)
+        return max_gap_val
+
+    curr_idx = -1
+    for idx, l in enumerate(valid_lines):
+        if l is line:
+            curr_idx = idx
+            break
+    if curr_idx == -1:
+        for idx, l in enumerate(valid_lines):
+            if hasattr(line, 'i') and hasattr(l, 'i') and l.i == line.i:
+                curr_idx = idx
+                break
+    if curr_idx == -1:
+        for idx, l in enumerate(valid_lines):
+            if getattr(l, 'start_time', None) == getattr(line, 'start_time', None) and getattr(l, 'end_time', None) == getattr(line, 'end_time', None) and getattr(l, 'text', None) == getattr(line, 'text', None):
+                curr_idx = idx
+                break
+
+    if curr_idx == -1:
+        line_desc = getattr(line, 'text', getattr(line, 'raw_text', str(line)))
+        print(f"[Pyxis Synced Warning] calculate_sync_gap: Line '{line_desc}' could not be indexed in {len(valid_lines)} valid lines. Using fallback max_gap = {max_gap_val} ms.", flush=True)
+        return max_gap_val
+
+    target_line = None
+    if dir_str == "next":
+        remaining = valid_lines[curr_idx + 1:]
+        if canonical_mode == "style":
+            cur_style = getattr(line, 'style_name', getattr(line, 'style', ''))
+            target_line = next((l for l in remaining if getattr(l, 'style_name', getattr(l, 'style', '')) == cur_style), None)
+        elif canonical_mode == "actor":
+            cur_actor = getattr(line, 'actor', '')
+            target_line = next((l for l in remaining if getattr(l, 'actor', '') == cur_actor), None)
+        elif canonical_mode == "layer":
+            cur_layer = getattr(line, 'layer', 0)
+            target_line = next((l for l in remaining if getattr(l, 'layer', 0) == cur_layer), None)
+        elif canonical_mode == "effect":
+            cur_effect = getattr(line, 'effect', '')
+            target_line = next((l for l in remaining if getattr(l, 'effect', '') == cur_effect), None)
+        else:  # "order"
+            if curr_idx + 1 < len(valid_lines):
+                target_line = valid_lines[curr_idx + 1]
+    else:  # "prev"
+        preceding = list(reversed(valid_lines[:curr_idx]))
+        if canonical_mode == "style":
+            cur_style = getattr(line, 'style_name', getattr(line, 'style', ''))
+            target_line = next((l for l in preceding if getattr(l, 'style_name', getattr(l, 'style', '')) == cur_style), None)
+        elif canonical_mode == "actor":
+            cur_actor = getattr(line, 'actor', '')
+            target_line = next((l for l in preceding if getattr(l, 'actor', '') == cur_actor), None)
+        elif canonical_mode == "layer":
+            cur_layer = getattr(line, 'layer', 0)
+            target_line = next((l for l in preceding if getattr(l, 'layer', 0) == cur_layer), None)
+        elif canonical_mode == "effect":
+            cur_effect = getattr(line, 'effect', '')
+            target_line = next((l for l in preceding if getattr(l, 'effect', '') == cur_effect), None)
+        else:  # "order"
+            if curr_idx - 1 >= 0:
+                target_line = valid_lines[curr_idx - 1]
+
+    if not target_line:
+        return max_gap_val
+
+    curr_start = float(getattr(line, 'start_time', getattr(line, 'start', 0)))
+    curr_end = float(getattr(line, 'end_time', getattr(line, 'end', 0)))
+    target_start = float(getattr(target_line, 'start_time', getattr(target_line, 'start', 0)))
+    target_end = float(getattr(target_line, 'end_time', getattr(target_line, 'end', 0)))
+
+    if dir_str == "next":
+        raw_gap = target_start - curr_end
+    else:
+        raw_gap = curr_start - target_end
+
+    raw_gap = round(raw_gap, 3)
+    if raw_gap < 0:
+        return raw_gap
+    return min(raw_gap, max_gap_val)
+
+
+class PyxisSyncHelper:
+    """Hybrid callable and namespace object for Inter-Line Synchronization (sync)."""
+
+    def __init__(self, context=None):
+        self._context = context if isinstance(context, dict) else {}
+
+    def __call__(self, direction="next", mode="order", max_gap=None):
+        return calculate_sync_gap(self._context, direction=direction, mode=mode, max_gap=max_gap)
+
+    def _eval_named(self, attr_name):
+        name = str(attr_name).strip().lower()
+        dir_val = "next"
+        mode_val = "order"
+
+        if "prev" in name or name == "p":
+            dir_val = "prev"
+        elif "next" in name or name == "n":
+            dir_val = "next"
+
+        for m in ("style", "actor", "effect", "layer", "order"):
+            if m in name:
+                mode_val = m
+                break
+
+        return calculate_sync_gap(self._context, direction=dir_val, mode=mode_val, max_gap=None)
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self._eval_named(name)
+
+    def _get_default_val(self):
+        return self._eval_named("next")
+
+    def __float__(self):
+        return float(self._get_default_val())
+
+    def __int__(self):
+        return int(self._get_default_val())
+
+    def __add__(self, other):
+        return float(self._get_default_val()) + float(other)
+
+    def __radd__(self, other):
+        return float(other) + float(self._get_default_val())
+
+    def __sub__(self, other):
+        return float(self._get_default_val()) - float(other)
+
+    def __rsub__(self, other):
+        return float(other) - float(self._get_default_val())
+
+    def __mul__(self, other):
+        return float(self._get_default_val()) * float(other)
+
+    def __rmul__(self, other):
+        return float(other) * float(self._get_default_val())
+
+    def __truediv__(self, other):
+        return float(self._get_default_val()) / float(other)
+
+    def __rtruediv__(self, other):
+        return float(other) / float(self._get_default_val())
+
+    def __neg__(self):
+        return -float(self._get_default_val())
+
+    def __pos__(self):
+        return float(self._get_default_val())
+
+    def __abs__(self):
+        return abs(float(self._get_default_val()))
+
+    def __round__(self, n=None):
+        return round(float(self._get_default_val()), n)
+
+    def __repr__(self):
+        return str(self._get_default_val())
+
+    def __str__(self):
+        return str(self._get_default_val())
+
+
+def _get_active_unit_indices(context):
+    """Detects active unit index (i) and count (n) from active unit in main loop or context."""
+    if not isinstance(context, dict):
+        return 1.0, 1.0
+    unit = context.get('active_unit') or context.get('unit')
+    if unit is not None:
+        i = getattr(unit, 'i', None)
+        if i is None or i == 0:
+            i = getattr(unit, 'ci', context.get('i', context.get('fx_i', 1)))
+        n = getattr(unit, 'n', None)
+        if n is None or n == 0:
+            n = getattr(unit, 'cn', context.get('n', context.get('fx_n', 1)))
+        return float(i if i is not None else 1), float(n if n is not None else 1)
+    i = context.get('i', context.get('fx_i', context.get('ci', 1)))
+    n = context.get('n', context.get('fx_n', context.get('cn', 1)))
+    return float(i if i is not None else 1), float(n if n is not None else 1)
+
+
 @pyxis_node("Time", "Lead In", ["Delay (ms)"])
 def time_lead_in(*args, **kwargs):
     if len(args) > 0 and isinstance(args[0], dict):
@@ -64,8 +322,7 @@ def time_lead_in(*args, **kwargs):
         base = args[1] if len(args) > 1 else kwargs.get("base", None)
 
     delay_val = _eval_val(delay, context, 40.0)
-    unit = context.get('active_unit') if isinstance(context, dict) else None
-    i = float(getattr(unit, 'i', 1) if unit else 1)
+    i, _ = _get_active_unit_indices(context)
     base_val = _get_base_time(context, is_end_time=False, base=base)
     return round(base_val + delay_val * (i - 1.0) - 200.0, 3)
 
@@ -82,9 +339,7 @@ def time_lead_out(*args, **kwargs):
         base = args[1] if len(args) > 1 else kwargs.get("base", None)
 
     delay_val = _eval_val(delay, context, 40.0)
-    unit = context.get('active_unit') if isinstance(context, dict) else None
-    i = float(getattr(unit, 'i', 1) if unit else 1)
-    n = float(getattr(unit, 'n', 1) if unit else 1)
+    i, n = _get_active_unit_indices(context)
     base_val = _get_base_time(context, is_end_time=True, base=base)
     return round(base_val + delay_val * (i - n - 1.0) + 200.0, 3)
 
@@ -101,9 +356,7 @@ def time_middle_1(*args, **kwargs):
         base = args[1] if len(args) > 1 else kwargs.get("base", None)
 
     delay_val = _eval_val(delay, context, 30.0)
-    unit = context.get('active_unit') if isinstance(context, dict) else None
-    i = float(getattr(unit, 'i', 1) if unit else 1)
-    n = float(getattr(unit, 'n', 1) if unit else 1)
+    i, n = _get_active_unit_indices(context)
     base_val = _get_base_time(context, is_end_time=False, base=base)
     if i <= (n + 1.0) / 2.0:
         offset = delay_val * (i - 1.0) - 200.0
@@ -124,9 +377,7 @@ def time_middle_2(*args, **kwargs):
         base = args[1] if len(args) > 1 else kwargs.get("base", None)
 
     delay_val = _eval_val(delay, context, 30.0)
-    unit = context.get('active_unit') if isinstance(context, dict) else None
-    i = float(getattr(unit, 'i', 1) if unit else 1)
-    n = float(getattr(unit, 'n', 1) if unit else 1)
+    i, n = _get_active_unit_indices(context)
     base_val = _get_base_time(context, is_end_time=True, base=base)
     if i >= (n + 1.0) / 2.0:
         offset = delay_val * (i - n - 1.0) - 200.0
@@ -351,6 +602,109 @@ def time_format_ass(*args, **kwargs):
     val_num = _eval_val(ms, context, 0.0)
     return format_time(int(round(val_num)))
 
+def _get_line_visual_bounds(line_obj):
+    """Obtains the exact visual 2D boundaries (left, right, top, bottom) of a line.
+    Extracts true vector glyph ink contours, falling back to the typographic box.
+    """
+    if not line_obj:
+        return 0.0, 0.0, 0.0, 0.0
+    try:
+        ink_obj = getattr(line_obj, 'ink', None)
+        if ink_obj is not None:
+            iw = float(getattr(ink_obj, 'width', 0.0))
+            ih = float(getattr(ink_obj, 'height', 0.0))
+            if iw > 0 or ih > 0:
+                ink_l = float(getattr(ink_obj, 'left', getattr(line_obj, 'left', 0.0)))
+                ink_r = float(getattr(ink_obj, 'right', getattr(line_obj, 'right', 0.0)))
+                ink_t = float(getattr(ink_obj, 'top', getattr(line_obj, 'top', 0.0)))
+                ink_b = float(getattr(ink_obj, 'bottom', getattr(line_obj, 'bottom', 0.0)))
+                return ink_l, ink_r, ink_t, ink_b
+    except Exception:
+        pass
+    l = float(getattr(line_obj, 'left', getattr(line_obj, 'x', 0.0) - getattr(line_obj, 'width', 0.0) / 2.0))
+    r = float(getattr(line_obj, 'right', getattr(line_obj, 'x', 0.0) + getattr(line_obj, 'width', 0.0) / 2.0))
+    t = float(getattr(line_obj, 'top', getattr(line_obj, 'y', 0.0) - getattr(line_obj, 'height', 0.0) / 2.0))
+    b = float(getattr(line_obj, 'bottom', getattr(line_obj, 'y', 0.0) + getattr(line_obj, 'height', 0.0) / 2.0))
+    return l, r, t, b
+
+
+def _get_effective_avg_char_width(line_obj, next_line_obj=None, context=None, user_avg_w=None):
+    """Calculates the true average character width using font engine and measured units,
+    avoiding arbitrary hardcoded assumptions like 15.0 px when real data is available.
+    """
+    if user_avg_w is not None and str(user_avg_w).strip() != "":
+        try:
+            val = float(_eval_val(user_avg_w, context, 0.0))
+            if val > 0:
+                return val
+        except Exception:
+            pass
+
+    # 1. Direct sampling of measured character widths from line.chars and next_line.chars
+    measured_widths = []
+    for l_cand in (line_obj, next_line_obj):
+        if l_cand and hasattr(l_cand, 'chars') and l_cand.chars:
+            for ch in l_cand.chars:
+                w = float(getattr(ch, 'width', 0.0))
+                txt = str(getattr(ch, 'text', '')).strip()
+                if w > 0 and txt:
+                    measured_widths.append(w)
+    if measured_widths:
+        return max(1.0, sum(measured_widths) / len(measured_widths))
+
+    # 2. Total width (ink preferred over typographic) divided by non-space character count
+    total_w = 0.0
+    total_chars = 0
+    for l_cand in (line_obj, next_line_obj):
+        if not l_cand:
+            continue
+        txt = str(getattr(l_cand, 'text_stripped', getattr(l_cand, 'text', ''))).replace(" ", "")
+        if not txt:
+            continue
+        lw = 0.0
+        try:
+            ink = getattr(l_cand, 'ink', None)
+            if ink and float(getattr(ink, 'width', 0.0)) > 0:
+                lw = float(ink.width)
+        except Exception:
+            pass
+        if lw <= 0:
+            lw = float(getattr(l_cand, 'width', 0.0))
+        if lw > 0:
+            total_w += lw
+            total_chars += len(txt)
+
+    if total_chars > 0 and total_w > 0:
+        return max(1.0, total_w / total_chars)
+
+    # 3. Fallback using FontEngine with the line's active style reference
+    try:
+        from font_engine import FontEngine
+        style = getattr(line_obj, 'styleref', None) or getattr(line_obj, 'style_override', None)
+        if style:
+            if hasattr(style, '__dict__'):
+                s_dict = style.__dict__
+            elif isinstance(style, dict):
+                s_dict = style
+            else:
+                s_dict = {
+                    "fontname": getattr(style, 'fontname', 'Arial'),
+                    "fontsize": getattr(style, 'fontsize', 40.0),
+                    "scale_x": getattr(style, 'scale_x', 100.0),
+                    "spacing": getattr(style, 'spacing', 0.0),
+                }
+            ext_w = FontEngine.get_text_extents(s_dict, "M")[0]
+            if ext_w > 0:
+                return max(1.0, ext_w)
+    except Exception:
+        pass
+
+    # 4. Canonical safety fallback if no metrics are present
+    line_desc = getattr(line_obj, 'text', getattr(line_obj, 'raw_text', str(line_obj)))
+    print(f"[Pyxis Synced Warning] Could not calculate typographic metrics for line '{line_desc}'. Using fallback avg_char_width = 15.0 px.", flush=True)
+    return 15.0
+
+
 @pyxis_node("Time", "Synced", ["Constant", "Fade (ms)", "Max Extra", "Delay Line", "Threshold"])
 def time_synchronized_extra_node(context=None, *args, **kwargs):
     """Dynamic calculation of synchronized inter-line time extension (calculate.synchronized_extratime_3)."""
@@ -360,12 +714,19 @@ def time_synchronized_extra_node(context=None, *args, **kwargs):
     else:
         arg_offset = 0
 
-    progression_const = args[arg_offset] if len(args) > arg_offset else kwargs.get("progression_const", kwargs.get("constant", kwargs.get("p_const", 0)))
-    fade_dur = args[arg_offset + 1] if len(args) > arg_offset + 1 else kwargs.get("fade_dur", kwargs.get("fade", kwargs.get("fade_ms", 300)))
-    max_added_time = args[arg_offset + 2] if len(args) > arg_offset + 2 else kwargs.get("max_added_time", kwargs.get("max_extra", 2000))
-    delay = args[arg_offset + 3] if len(args) > arg_offset + 3 else kwargs.get("delay_ms", kwargs.get("delay_line", kwargs.get("delay", 250)))
-    max_gap_threshold = args[arg_offset + 4] if len(args) > arg_offset + 4 else kwargs.get("max_gap_threshold", kwargs.get("threshold", 3000))
-    avg_char_width = kwargs.get("avg_char_width", 15.0)
+    def _get_arg(idx, prop_key, default_val):
+        if len(args) > idx and args[idx] is not None and str(args[idx]).strip() != "":
+            return args[idx]
+        if prop_key in kwargs and kwargs[prop_key] is not None and str(kwargs[prop_key]).strip() != "":
+            return kwargs[prop_key]
+        return default_val
+
+    progression_const = _get_arg(arg_offset, "progression_const", 0)
+    fade_dur = _get_arg(arg_offset + 1, "fade_dur", 300)
+    max_added_time = _get_arg(arg_offset + 2, "max_added_time", 2000)
+    delay = _get_arg(arg_offset + 3, "delay_ms", 250)
+    max_gap_threshold = _get_arg(arg_offset + 4, "max_gap_threshold", 3000)
+    avg_char_width = kwargs.get("avg_char_width", None)
     output_slot_index = int(kwargs.get("output_slot_index", 0))
 
     line = None
@@ -374,118 +735,178 @@ def time_synchronized_extra_node(context=None, *args, **kwargs):
         if not line and context.get('active_unit'):
             line = getattr(context['active_unit'], 'line', None)
     if not line:
+        print("[Pyxis Synced Warning] No active line found in context. Returning 0.0", flush=True)
         return 0.0
 
-    p_const = max(0.0, float(_eval_val(progression_const, context, 0.0)))
-    fade_ms = max(0.0, float(_eval_val(fade_dur, context, 300.0)))
-    cap_max = max(0.0, float(_eval_val(max_added_time, context, 2000.0)))
-    delay_val = max(0.0, float(_eval_val(delay, context, 250.0)))
-    gap_thresh = max(0.0, float(_eval_val(max_gap_threshold, context, 3000.0)))
-    avg_w = max(1.0, float(_eval_val(avg_char_width, context, 15.0)))
+    try:
+        p_const = max(0.0, float(_eval_val(progression_const, context, 0.0)))
+        fade_ms = max(0.0, float(_eval_val(fade_dur, context, 300.0)))
+        cap_max = max(0.0, float(_eval_val(max_added_time, context, 2000.0)))
+        delay_val = max(0.0, float(_eval_val(delay, context, 250.0)))
+        gap_thresh = max(0.0, float(_eval_val(max_gap_threshold, context, 3000.0)))
 
-    text_stripped = str(getattr(line, 'text_stripped', getattr(line, 'text', ''))).replace(" ", "")
-    
-    is_syl_loop = isinstance(context, dict) and ('syl' in context or (context.get('active_unit') and getattr(context.get('active_unit'), 'syl', None) is not None)) and ('char' not in context)
-    is_char_loop = isinstance(context, dict) and ('char' in context)
-    is_word_loop = isinstance(context, dict) and ('word' in context) and not is_syl_loop and not is_char_loop
+        text_stripped = str(getattr(line, 'text_stripped', getattr(line, 'text', ''))).replace(" ", "")
+        
+        active_unit = context.get('active_unit') if isinstance(context, dict) else None
+        unit_type = getattr(active_unit, 'unit_type', '') if active_unit else ''
+        is_char_loop = (unit_type in ('char', 'character')) or (isinstance(context, dict) and 'char' in context)
+        is_syl_loop = not is_char_loop and ((unit_type == 'syl') or (isinstance(context, dict) and 'syl' in context))
+        is_word_loop = not is_char_loop and not is_syl_loop and ((unit_type == 'word') or (isinstance(context, dict) and 'word' in context))
 
-    if is_syl_loop:
-        syls_list = getattr(line, 'syls', [])
-        char_count = len(syls_list) if syls_list else len(text_stripped)
-    elif is_word_loop:
-        words_list = getattr(line, 'words', [])
-        char_count = len(words_list) if words_list else 1
-    else:
-        char_count = len(text_stripped) if text_stripped else 1
+        if is_syl_loop:
+            syls_list = getattr(line, 'syls', [])
+            char_count = len(syls_list) if syls_list else len(text_stripped)
+        elif is_word_loop:
+            words_list = getattr(line, 'words', [])
+            char_count = len(words_list) if words_list else 1
+        elif is_char_loop and getattr(line, 'chars', None):
+            char_count = len([c for c in line.chars if not str(getattr(c, 'text', '')).isspace()]) or len(line.chars)
+        else:
+            char_count = len(text_stripped) if text_stripped else 1
 
-    char_count = max(1, char_count)
-    p2_current = p_const * (char_count - 1 if char_count > 1 else 0) + delay_val
+        char_count = max(1, char_count)
+        p2_current = p_const * (char_count - 1 if char_count > 1 else 0) + delay_val
 
-    mode = str(kwargs.get("mode", "order")).strip().lower()
+        mode_raw = kwargs.get("mode", None)
+        if mode_raw is None and len(args) > arg_offset + 5 and args[arg_offset + 5] is not None and str(args[arg_offset + 5]).strip() != "":
+            mode_raw = args[arg_offset + 5]
+        if mode_raw is None:
+            mode_raw = "order"
+        mode = SYNC_MODE_MAP.get(str(mode_raw).strip().lower(), SYNC_MODE_MAP.get(mode_raw, "order"))
 
-    next_line = None
-    if isinstance(context, dict):
-        lines_list = context.get('target_lines') or context.get('selected_lines') or context.get('all_lines') or []
-        valid_lines = [l for l in lines_list if not getattr(l, 'is_comment', False)]
-        if valid_lines:
-            curr_idx = -1
-            for idx, l in enumerate(valid_lines):
-                if l is line:
-                    curr_idx = idx
-                    break
-            if curr_idx == -1:
+        next_line = None
+        if isinstance(context, dict):
+            lines_list = context.get('target_lines') or context.get('selected_lines') or context.get('all_lines') or []
+            valid_lines = [l for l in lines_list if not getattr(l, 'is_comment', False)]
+            if valid_lines:
+                curr_idx = -1
                 for idx, l in enumerate(valid_lines):
-                    if hasattr(line, 'i') and hasattr(l, 'i') and l.i == line.i:
+                    if l is line:
                         curr_idx = idx
                         break
-            if curr_idx != -1:
-                remaining = valid_lines[curr_idx + 1:]
-                if mode == "style":
-                    cur_style = getattr(line, 'style_name', getattr(line, 'style', ''))
-                    next_line = next((l for l in remaining if getattr(l, 'style_name', getattr(l, 'style', '')) == cur_style), None)
-                elif mode == "actor":
-                    cur_actor = getattr(line, 'actor', '')
-                    next_line = next((l for l in remaining if getattr(l, 'actor', '') == cur_actor), None)
-                elif mode == "layer":
-                    cur_layer = getattr(line, 'layer', 0)
-                    next_line = next((l for l in remaining if getattr(l, 'layer', 0) == cur_layer), None)
-                elif mode == "effect":
-                    cur_effect = getattr(line, 'effect', '')
-                    next_line = next((l for l in remaining if getattr(l, 'effect', '') == cur_effect), None)
-                else: # "order"
-                    if curr_idx + 1 < len(valid_lines):
-                        next_line = valid_lines[curr_idx + 1]
-        if not next_line and context.get('next_line'):
-            next_line = context.get('next_line')
+                if curr_idx == -1:
+                    for idx, l in enumerate(valid_lines):
+                        if hasattr(line, 'i') and hasattr(l, 'i') and l.i == line.i:
+                            curr_idx = idx
+                            break
+                if curr_idx != -1:
+                    remaining = valid_lines[curr_idx + 1:]
+                    if mode == "style":
+                        cur_style = getattr(line, 'style_name', getattr(line, 'style', ''))
+                        next_line = next((l for l in remaining if getattr(l, 'style_name', getattr(l, 'style', '')) == cur_style), None)
+                    elif mode == "actor":
+                        cur_actor = getattr(line, 'actor', '')
+                        next_line = next((l for l in remaining if getattr(l, 'actor', '') == cur_actor), None)
+                    elif mode == "layer":
+                        cur_layer = getattr(line, 'layer', 0)
+                        next_line = next((l for l in remaining if getattr(l, 'layer', 0) == cur_layer), None)
+                    elif mode == "effect":
+                        cur_effect = getattr(line, 'effect', '')
+                        next_line = next((l for l in remaining if getattr(l, 'effect', '') == cur_effect), None)
+                    else: # "order"
+                        if curr_idx + 1 < len(valid_lines):
+                            next_line = valid_lines[curr_idx + 1]
+                else:
+                    line_desc = getattr(line, 'text', getattr(line, 'raw_text', str(line)))
+                    print(f"[Pyxis Synced Warning] Current line '{line_desc}' (i={getattr(line, 'i', '?')}) could not be indexed in {len(valid_lines)} valid lines.", flush=True)
+            if not next_line and context.get('next_line'):
+                next_line = context.get('next_line')
 
-    curr_end = float(getattr(line, 'end_time', getattr(line, 'end', 0)))
+        curr_end = float(getattr(line, 'end_time', getattr(line, 'end', 0)))
 
-    if not next_line:
-        final_extra = round(min(cap_max, max(0.0, p2_current)), 2)
+        if not next_line:
+            final_extra = round(min(cap_max, max(0.0, p2_current)), 2)
+            if output_slot_index == 1:
+                return round(curr_end + final_extra, 2)
+            return final_extra
+
+        next_start = float(getattr(next_line, 'start_time', getattr(next_line, 'start', 0)))
+        gap_between_lines = next_start - curr_end
+
+        if gap_between_lines < delay_val:
+            if output_slot_index == 1:
+                return curr_end
+            return 0.0
+
+        if gap_between_lines > gap_thresh:
+            final_extra = round(min(cap_max, max(0.0, p2_current)), 2)
+            print(f"[Pyxis Synced Info] Line gap ({gap_between_lines:.1f} ms) exceeds threshold ({gap_thresh:.1f} ms). Using exit progression P2_current = {final_extra} ms.", flush=True)
+            if output_slot_index == 1:
+                return round(curr_end + final_extra, 2)
+            return final_extra
+
+        next_text = str(getattr(next_line, 'text_stripped', getattr(next_line, 'text', ''))).replace(" ", "")
+        if is_syl_loop:
+            next_syls = getattr(next_line, 'syls', [])
+            next_char_count = len(next_syls) if next_syls else len(next_text)
+        elif is_word_loop:
+            next_words = getattr(next_line, 'words', [])
+            next_char_count = len(next_words) if next_words else 1
+        elif is_char_loop and getattr(next_line, 'chars', None):
+            next_char_count = len([c for c in next_line.chars if not str(getattr(c, 'text', '')).isspace()]) or len(next_line.chars)
+        else:
+            next_char_count = len(next_text) if next_text else 1
+
+        next_char_count = max(1, next_char_count)
+        p2_next = p_const * (next_char_count - 1 if next_char_count > 1 else 0)
+        transition_duration = (p2_current + p2_next) / 2.0
+
+        # Obtain precise character width using font metrics or ink metrics
+        avg_w = _get_effective_avg_char_width(line, next_line, context, avg_char_width)
+
+        # Use exact 2D visual contour ink bounds (falling back to typographic box if ink not computed)
+        curr_left, curr_right, curr_top, curr_bottom = _get_line_visual_bounds(line)
+        next_left, next_right, next_top, next_bottom = _get_line_visual_bounds(next_line)
+
+        curr_h = max(1.0, curr_bottom - curr_top)
+        next_h = max(1.0, next_bottom - next_top)
+        mean_h = (curr_h + next_h) / 2.0
+
+        # 1. Vertical relationship check (overlap tolerance based on line height)
+        v_overlap = min(curr_bottom, next_bottom) - max(curr_top, next_top)
+        is_same_row = (v_overlap > -0.25 * mean_h)
+
+        # Check explicit position / alignment coordinates
+        align_curr = int(getattr(line, 'align', 2))
+        align_next = int(getattr(next_line, 'align', 2))
+        pos_curr_defined = bool(getattr(line, 'has_pos', False) or getattr(line, '_pos_x', None) is not None)
+        pos_next_defined = bool(getattr(next_line, 'has_pos', False) or getattr(next_line, '_pos_x', None) is not None)
+
+        # Detect if positions or vertical anchors are distinctly detached
+        if pos_curr_defined and pos_next_defined:
+            curr_py = float(getattr(line, 'pos_y', getattr(line, 'y', 0.0)))
+            next_py = float(getattr(next_line, 'pos_y', getattr(next_line, 'y', 0.0)))
+            if abs(curr_py - next_py) > 0.5 * mean_h:
+                is_same_row = False
+
+        if not is_same_row:
+            # Escenario 1: Sin relación espacial (ocupan lugares distintos de pantalla).
+            # Se omite la progresión de caracteres (P2 = 0); se extiende la línea hasta el fade-out de entrada.
+            ideal_end_time = next_start - fade_ms
+        else:
+            # Ambas líneas comparten la misma franja vertical.
+            # Escenario 3: Continuación horizontal secuencial (misma fila contigua con brecha espacial positiva).
+            horizontal_gap = next_left - curr_right
+            if horizontal_gap > 0:
+                spatial_compensation_time = (horizontal_gap / avg_w) * p_const
+                ideal_end_time = next_start + transition_duration + spatial_compensation_time - fade_ms
+            else:
+                # Escenario 2: Reemplazo / Mismo espacio o anclaje común (ej. ambas \an4, \an6 o centradas).
+                # Se activa la progresión por caracteres de transición para coordinar el reemplazo, sin salto espacial falso.
+                ideal_end_time = next_start + transition_duration - fade_ms
+
+        extra_time_needed = ideal_end_time - curr_end
+        final_extra_time = min(cap_max, max(0.0, extra_time_needed))
+
         if output_slot_index == 1:
-            return round(curr_end + final_extra, 2)
-        return final_extra
-
-    next_start = float(getattr(next_line, 'start_time', getattr(next_line, 'start', 0)))
-    gap_between_lines = next_start - curr_end
-
-    if gap_between_lines < delay_val:
-        if output_slot_index == 1:
-            return curr_end
+            return round(curr_end + final_extra_time, 2)
+        return round(final_extra_time, 2)
+    except Exception as e:
+        import traceback
+        line_desc = getattr(line, 'text', getattr(line, 'raw_text', str(line)))
+        print(f"[Pyxis Synced Error] Exception evaluating synchronized extra time for line '{line_desc}': {e}", flush=True)
+        traceback.print_exc()
         return 0.0
-
-    if gap_between_lines > gap_thresh:
-        final_extra = round(min(cap_max, max(0.0, p2_current)), 2)
-        if output_slot_index == 1:
-            return round(curr_end + final_extra, 2)
-        return final_extra
-
-    next_text = str(getattr(next_line, 'text_stripped', getattr(next_line, 'text', ''))).replace(" ", "")
-    if is_syl_loop:
-        next_syls = getattr(next_line, 'syls', [])
-        next_char_count = len(next_syls) if next_syls else len(next_text)
-    elif is_word_loop:
-        next_words = getattr(next_line, 'words', [])
-        next_char_count = len(next_words) if next_words else 1
-    else:
-        next_char_count = len(next_text) if next_text else 1
-
-    next_char_count = max(1, next_char_count)
-    p2_next = p_const * (next_char_count - 1 if next_char_count > 1 else 0)
-    transition_duration = (p2_current + p2_next) / 2.0
-
-    curr_right = float(getattr(line, 'right', getattr(line, 'x', 0) + getattr(line, 'width', 0) / 2.0))
-    next_left = float(getattr(next_line, 'left', getattr(next_line, 'x', 0) - getattr(next_line, 'width', 0) / 2.0))
-    spatial_jump = next_left - curr_right
-    spatial_compensation_time = (spatial_jump / avg_w) * p_const if spatial_jump > 0 else 0.0
-
-    ideal_end_time = next_start + transition_duration + spatial_compensation_time - fade_ms
-    extra_time_needed = ideal_end_time - curr_end
-    final_extra_time = min(cap_max, max(0.0, extra_time_needed))
-
-    if output_slot_index == 1:
-        return round(curr_end + final_extra_time, 2)
-    return round(final_extra_time, 2)
 
 
 
@@ -553,7 +974,7 @@ def time_to_frame_node(*args, **kwargs):
     if raw_fd is not None and str(raw_fd).strip() != "":
         fd = float(_eval_val(raw_fd, context, 41.708))
     else:
-        fd = float(context.get("frame_dur", 41.708)) if isinstance(context, dict) else 41.708
+        fd = float(context.get("frame_dur", context.get("fd", 41.708))) if isinstance(context, dict) else 41.708
 
     fd = max(0.001, fd)
 
@@ -602,7 +1023,7 @@ def frame_to_time_node(*args, **kwargs):
     unit = context.get('active_unit') if isinstance(context, dict) else None
 
     resolved_frames = None
-    if source_lower in ("iter", "iterador", "iterator", "loop", "bucle"):
+    if source_lower in ("iter", "iterator", "loop"):
         iter_key = str(kwargs.get("iter_name", "")).strip()
         if not iter_key:
             iter_key = "j"
@@ -612,9 +1033,9 @@ def frame_to_time_node(*args, **kwargs):
             resolved_frames = float(_eval_val(iter_key, context, 1.0))
     elif raw_source == "J" or "(J)" in raw_source:
         resolved_frames = float(context.get('J', 1)) if isinstance(context, dict) else 1.0
-    elif raw_source == "j" or "(j)" in raw_source or source_lower in ("j", "loop (j)", "bucle (j)"):
+    elif raw_source == "j" or "(j)" in raw_source or source_lower in ("j", "loop (j)"):
         resolved_frames = float(context.get('j', context.get('fx_i', 1))) if isinstance(context, dict) else 1.0
-    elif source_lower in ("i", "índice (i)", "indice (i)", "index"):
+    elif source_lower in ("i", "index"):
         resolved_frames = float(getattr(unit, 'i', context.get('i', 1))) if unit else float(context.get('i', 1) if isinstance(context, dict) else 1.0)
 
     if resolved_frames is None:
@@ -625,7 +1046,7 @@ def frame_to_time_node(*args, **kwargs):
     if raw_fd is not None and str(raw_fd).strip() != "":
         fd = float(_eval_val(raw_fd, context, 41.708))
     else:
-        fd = float(context.get("frame_dur", 41.708)) if isinstance(context, dict) else 41.708
+        fd = float(context.get("frame_dur", context.get("fd", 41.708))) if isinstance(context, dict) else 41.708
 
     fd = max(0.001, fd)
     ms = resolved_frames * fd
@@ -657,12 +1078,14 @@ def _format_clean_scalar(val):
         return str(val)
 
 def _resolve_unit_and_line_times(context):
-    """Extracts phonetic timestamps both globally (video timeline) and locally (relative to eff_line_st / line.start_time)."""
+    """Extracts phonetic timestamps both globally (video timeline) and locally (relative to eff_line_st / fx_start_time)."""
     unit = context.get('active_unit') if isinstance(context, dict) else None
     line = context.get('active_line') or (context.get('line') if isinstance(context, dict) else None)
+    if not line and unit and getattr(unit, 'line', None):
+        line = getattr(unit, 'line')
 
-    line_st = float(getattr(line, 'start_time', getattr(line, 'st', 0.0))) if line else 0.0
-    line_et = float(getattr(line, 'end_time', getattr(line, 'et', 0.0))) if line else 0.0
+    line_st = float(getattr(line, 'start_time', 0.0)) if line else 0.0
+    line_et = float(getattr(line, 'end_time', 0.0)) if line else 0.0
     line_dur = float(getattr(line, 'duration', max(0.0, line_et - line_st))) if line else 0.0
 
     eff_line_st = line_st
@@ -691,51 +1114,68 @@ def _resolve_unit_and_line_times(context):
     if line_dur <= 0.0:
         line_dur = eff_line_dur
 
+    # Syllable timestamps
     syl = context.get('syl') if isinstance(context, dict) else None
-    if not syl and unit and getattr(unit, 'unit_type', None) in ('syl', 'syllable'):
-        syl = unit
+    if not syl and unit:
+        if getattr(unit, 'unit_type', None) == 'char':
+            syl = getattr(unit, 'syl', None)
+        elif getattr(unit, 'unit_type', None) != 'word':
+            syl = unit
 
-    raw_syl_st = float(getattr(syl, 'start_time', getattr(syl, 'st', getattr(unit, 'start_time', line_st)))) if (syl or unit) else line_st
-    raw_syl_et = float(getattr(syl, 'end_time', getattr(syl, 'et', getattr(unit, 'end_time', raw_syl_st)))) if (syl or unit) else raw_syl_st
+    raw_syl_st = float(getattr(syl, 'start_time', 0.0)) if syl else 0.0
+    raw_syl_et = float(getattr(syl, 'end_time', 0.0)) if syl else 0.0
+    syl_dur = float(getattr(syl, 'duration', getattr(syl, 'dur', 0.0))) if syl else line_dur
+    if syl_dur <= 0.0 and raw_syl_et > raw_syl_st:
+        syl_dur = raw_syl_et - raw_syl_st
 
-    if line_st > 0 and raw_syl_st >= line_st:
-        syl_st_global = raw_syl_st
-        syl_et_global = raw_syl_et
-    else:
-        syl_st_global = line_st + raw_syl_st
-        syl_et_global = line_st + raw_syl_et
+    syl_st_rel = raw_syl_st
+    syl_st_global = line_st + syl_st_rel
+    syl_et_rel = syl_st_rel + syl_dur
+    syl_et_global = syl_st_global + syl_dur
+    syl_st_local = (line_st - eff_line_st) + syl_st_rel
+    syl_et_local = syl_st_local + syl_dur
 
-    syl_st_local = syl_st_global - eff_line_st
-    syl_et_local = syl_et_global - eff_line_st
-    syl_dur = float(getattr(syl, 'duration', max(0.0, syl_et_global - syl_st_global))) if (syl or unit) else max(0.0, syl_et_global - syl_st_global)
-
-    word = context.get('word') if isinstance(context, dict) else None
-    if not word and unit and getattr(unit, 'unit_type', None) in ('word',):
-        word = unit
-    raw_word_st = float(getattr(word, 'start_time', getattr(word, 'st', raw_syl_st))) if word else raw_syl_st
-    raw_word_et = float(getattr(word, 'end_time', getattr(word, 'et', raw_syl_et))) if word else raw_syl_et
-    if line_st > 0 and raw_word_st >= line_st:
-        word_st_global = raw_word_st
-        word_et_global = raw_word_et
-    else:
-        word_st_global = line_st + raw_word_st
-        word_et_global = line_st + raw_word_et
-    word_st_local = word_st_global - eff_line_st
-    word_et_local = word_et_global - eff_line_st
-
+    # Character timestamps
     char = context.get('char') if isinstance(context, dict) else None
     if not char and unit and getattr(unit, 'unit_type', None) in ('char', 'character'):
         char = unit
-    raw_char_st = float(getattr(char, 'start_time', getattr(char, 'st', raw_syl_st))) if char else raw_syl_st
-    raw_char_et = float(getattr(char, 'end_time', getattr(char, 'et', raw_syl_et))) if char else raw_syl_et
-    if line_st > 0 and raw_char_st >= line_st:
-        char_st_global = raw_char_st
-        char_et_global = raw_char_et
+
+    if char:
+        raw_char_st = float(getattr(char, 'start_time', 0.0))
+        raw_char_et = float(getattr(char, 'end_time', 0.0))
+        char_dur = float(getattr(char, 'duration', getattr(char, 'dur', 0.0)))
+        if char_dur <= 0.0 and raw_char_et > raw_char_st:
+            char_dur = raw_char_et - raw_char_st
+        char_st_global = syl_st_global + raw_char_st
+        char_st_local = syl_st_local + raw_char_st
+        char_et_global = char_st_global + char_dur
+        char_et_local = char_st_local + char_dur
     else:
-        char_st_global = line_st + raw_char_st
-        char_et_global = line_st + raw_char_et
-    char_st_local = char_st_global - eff_line_st
-    char_et_local = char_et_global - eff_line_st
+        char_st_global = syl_st_global
+        char_et_global = syl_et_global
+        char_st_local = syl_st_local
+        char_et_local = syl_et_local
+
+    # Word timestamps
+    word = context.get('word') if isinstance(context, dict) else None
+    if not word and unit and getattr(unit, 'unit_type', None) in ('word',):
+        word = unit
+
+    if word:
+        raw_word_st = float(getattr(word, 'start_time', 0.0))
+        raw_word_et = float(getattr(word, 'end_time', 0.0))
+        word_dur = float(getattr(word, 'duration', getattr(word, 'dur', 0.0)))
+        if word_dur <= 0.0 and raw_word_et > raw_word_st:
+            word_dur = raw_word_et - raw_word_st
+        word_st_global = line_st + raw_word_st
+        word_st_local = (line_st - eff_line_st) + raw_word_st
+        word_et_global = word_st_global + word_dur
+        word_et_local = word_st_local + word_dur
+    else:
+        word_st_global = syl_st_global
+        word_et_global = syl_et_global
+        word_st_local = syl_st_local
+        word_et_local = syl_et_local
 
     return {
         'line_st': line_st,
@@ -773,7 +1213,13 @@ def _resolve_phase_interval(phase_name, times_dict, custom_st=0.0, custom_et=0.0
         l_st = line_st
         l_et = line_et
 
-        if p in ("syl", "sylactive", "syllable", "silaba", "sílaba", "active"):
+        if p in ("syl", "sylactive", "syllable", "silaba", "sílaba"):
+            return round(st_base + off_in, 2), round(et_base + off_out, 2)
+        elif p in ("char", "charactive", "character", "caracter", "carácter"):
+            return round(times_dict['char_st_global'] + off_in, 2), round(times_dict['char_et_global'] + off_out, 2)
+        elif p in ("word", "wordactive", "palabra"):
+            return round(times_dict['word_st_global'] + off_in, 2), round(times_dict['word_et_global'] + off_out, 2)
+        elif p in ("active",):
             return round(st_base + off_in, 2), round(et_base + off_out, 2)
         elif p in ("presyl",):
             return round(st_base + off_in, 2), round(st_base + off_out, 2)
@@ -803,7 +1249,13 @@ def _resolve_phase_interval(phase_name, times_dict, custom_st=0.0, custom_et=0.0
         orig_st_rel = line_st - eff_line_st
         orig_et_rel = line_et - eff_line_st
 
-        if p in ("syl", "sylactive", "syllable", "silaba", "sílaba", "active"):
+        if p in ("syl", "sylactive", "syllable", "silaba", "sílaba"):
+            return round(st_base + off_in, 2), round(et_base + off_out, 2)
+        elif p in ("char", "charactive", "character", "caracter", "carácter"):
+            return round(times_dict['char_st_local'] + off_in, 2), round(times_dict['char_et_local'] + off_out, 2)
+        elif p in ("word", "wordactive", "palabra"):
+            return round(times_dict['word_st_local'] + off_in, 2), round(times_dict['word_et_local'] + off_out, 2)
+        elif p in ("active",):
             return round(st_base + off_in, 2), round(et_base + off_out, 2)
         elif p in ("presyl",):
             return round(st_base + off_in, 2), round(st_base + off_out, 2)

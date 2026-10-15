@@ -27,7 +27,8 @@
     }
 
     function graph_ready() {
-        return window.graph && typeof window.graph.serialize === "function";
+        var g = window.graph || (typeof graph !== "undefined" ? graph : null);
+        return g && typeof g.serialize === "function";
     }
 
     function sync_graph_widgets() {
@@ -35,9 +36,24 @@
             window.syncWidgetsToProperties();
             return;
         }
-        if (!graph_ready() || !graph._nodes) return;
-        graph._nodes.forEach(function (node) {
-            if (!node.widgets || !node.properties) return;
+        var g = window.graph || (typeof graph !== "undefined" ? graph : null);
+        if (!graph_ready() || !g || !g._nodes) return;
+        g._nodes.forEach(function (node) {
+            if (!node.properties) node.properties = {};
+            if (node.type === "System/Previewer" || node.type === "Previewer" || (node.title && node.title.includes("Previewer"))) {
+                var pMgr = window.PyxisNodePlayerManager;
+                var p = (pMgr && pMgr.activePlayers && node.id !== undefined) ? pMgr.activePlayers[String(node.id)] : null;
+                if (p && p.isPinned && p.originalSize) {
+                    node.properties.is_pinned = true;
+                    node.properties.previewer_width = Math.round(p.originalSize[0]);
+                    node.properties.previewer_height = Math.round(p.originalSize[1]);
+                } else if (node.size && Array.isArray(node.size) && node.size[0] > 0 && node.size[1] >= 140) {
+                    node.properties.is_pinned = false;
+                    node.properties.previewer_width = Math.round(node.size[0]);
+                    node.properties.previewer_height = Math.round(node.size[1]);
+                }
+            }
+            if (!node.widgets) return;
             node.widgets.forEach(function (widget) {
                 if (widget.type !== "button" && widget.property !== undefined && widget.value !== undefined) {
                     node.properties[widget.property] = widget.value;
@@ -383,7 +399,24 @@
     }
 
     function save_template_with_id(name, comment, template_id) {
-        var serialized = graph.serialize();
+        if (typeof window.syncWidgetsToProperties === "function") {
+            window.syncWidgetsToProperties();
+        }
+        var activeCanvas = window.canvas || (typeof canvas !== "undefined" ? canvas : null);
+        var activeGraph = window.graph || (typeof graph !== "undefined" ? graph : null);
+        if (activeCanvas && activeCanvas.ds && activeGraph) {
+            activeGraph.extra = activeGraph.extra || {};
+            activeGraph.extra.canvas_zoom = activeCanvas.ds.scale;
+            activeGraph.extra.canvas_offset = [activeCanvas.ds.offset[0], activeCanvas.ds.offset[1]];
+        }
+        var serialized = activeGraph ? activeGraph.serialize() : null;
+        if (serialized) {
+            serialized.extra = serialized.extra || {};
+            if (activeCanvas && activeCanvas.ds) {
+                serialized.extra.canvas_zoom = activeCanvas.ds.scale;
+                serialized.extra.canvas_offset = [activeCanvas.ds.offset[0], activeCanvas.ds.offset[1]];
+            }
+        }
         return window.pywebview.api.save_template(name, comment, serialized, template_id).then(function (meta) {
             window.__pyxis_active_template_id = meta.template_id;
             window.__pyxis_active_template_name = meta.name;
@@ -412,9 +445,9 @@
             <div class="pyxis-template-dialog" style="width: 520px;">
                 <h2>${target_template_id ? (window.t ? window.t("library.overwrite_title") : "Overwrite Template") : (window.t ? window.t("library.save_modal_title") : "Save Template")}</h2>
                 <label style="font-size: 13px; color: var(--text-muted);">${window.t ? window.t("library.tpl_name") : "Name"}</label>
-                <input id="pyxis-save-name" style="width:100%;box-sizing:border-box;margin:6px 0 14px;background:var(--bg-input);color:var(--text-main);border:1px solid var(--border-subtle);padding:10px;border-radius:8px;font-family:inherit;" maxlength="80" value="${default_name || ""}">
+                <input id="pyxis-save-name" name="pyxis-save-name" style="width:100%;box-sizing:border-box;margin:6px 0 14px;background:var(--bg-input);color:var(--text-main);border:1px solid var(--border-subtle);padding:10px;border-radius:8px;font-family:inherit;" maxlength="80" value="${default_name || ""}">
                 <label style="font-size: 13px; color: var(--text-muted);">${window.t ? window.t("library.tpl_desc") : "Comment (optional)"}</label>
-                <textarea id="pyxis-save-comment" style="width:100%;height:90px;box-sizing:border-box;margin-top:6px;background:var(--bg-input);color:var(--text-main);border:1px solid var(--border-subtle);padding:10px;border-radius:8px;resize:vertical;font-family:inherit;">${default_comment || ""}</textarea>
+                <textarea id="pyxis-save-comment" name="pyxis-save-comment" style="width:100%;height:90px;box-sizing:border-box;margin-top:6px;background:var(--bg-input);color:var(--text-main);border:1px solid var(--border-subtle);padding:10px;border-radius:8px;resize:vertical;font-family:inherit;">${default_comment || ""}</textarea>
                 <div class="pyxis-template-error"></div>
                 <div class="pyxis-template-actions" style="justify-content: flex-end;">
                     <button class="pyxis-btn" id="pyxis-save-cancel">${window.t ? window.t("common.cancel") : "Cancel"}</button>
@@ -701,8 +734,8 @@
             <div class="pyxis-template-dialog">
                 <h2>${window.t ? window.t("library.title") : "Template Library"}</h2>
                 <div class="pyxis-template-toolbar">
-                    <input id="pyxis-template-search" placeholder="${window.t ? window.t("library.search_placeholder") : "Search by name or comment..."}">
-                    <select id="pyxis-template-sort">
+                    <input id="pyxis-template-search" name="pyxis-template-search" placeholder="${window.t ? window.t("library.search_placeholder") : "Search by name or comment..."}">
+                    <select id="pyxis-template-sort" name="pyxis-template-sort">
                         <option value="updated_desc">${window.t ? window.t("library.sort_updated_desc") : "Date (newest first)"}</option>
                         <option value="updated_asc">${window.t ? window.t("library.sort_updated_asc") : "Date (oldest first)"}</option>
                         <option value="name_asc">${window.t ? window.t("library.sort_name_asc") : "Name (A-Z)"}</option>
@@ -907,8 +940,28 @@
                         }
                     }
                 }
-                graph.configure(result.graph);
-                if (typeof window.resetView === "function") window.resetView();
+                var activeGraph = window.graph || (typeof graph !== "undefined" ? graph : null);
+                if (activeGraph && typeof activeGraph.configure === "function") {
+                    activeGraph.configure(result.graph);
+                } else if (typeof graph !== "undefined" && typeof graph.configure === "function") {
+                    graph.configure(result.graph);
+                }
+                var extra = (result.graph && result.graph.extra) ? result.graph.extra : (activeGraph && activeGraph.extra ? activeGraph.extra : null);
+                var viewRestored = false;
+                if (typeof window.restoreGraphView === "function") {
+                    viewRestored = window.restoreGraphView(extra);
+                } else if (extra && typeof extra.canvas_zoom === "number" && Array.isArray(extra.canvas_offset)) {
+                    var activeCanvas = window.canvas || (typeof canvas !== "undefined" ? canvas : null);
+                    if (activeCanvas && activeCanvas.ds) {
+                        activeCanvas.ds.scale = extra.canvas_zoom;
+                        activeCanvas.ds.offset = [extra.canvas_offset[0], extra.canvas_offset[1]];
+                        activeCanvas.setDirty(true, true);
+                        viewRestored = true;
+                    }
+                }
+                if (!viewRestored && typeof window.resetView === "function") {
+                    window.resetView();
+                }
                 if (typeof window.syncWidgetsToProperties === "function") window.syncWidgetsToProperties();
                 
                 const meta = result.metadata || {};
@@ -931,6 +984,9 @@
                 
                 setTimeout(function() {
                     if (typeof window.syncWidgetsToProperties === "function") window.syncWidgetsToProperties();
+                    if (viewRestored && typeof window.restoreGraphView === "function") {
+                        window.restoreGraphView(extra);
+                    }
                     update_checkpoint();
                     window.__pyxis_is_loading_template = false;
                     if (window.PyxisUndoManager) {
@@ -986,7 +1042,21 @@
         }
         sync_graph_widgets();
 
-        var serialized = graph.serialize();
+        var activeGraph = window.graph || (typeof graph !== "undefined" ? graph : null);
+        var activeCanvas = window.canvas || (typeof canvas !== "undefined" ? canvas : null);
+        if (activeCanvas && activeCanvas.ds && activeGraph) {
+            activeGraph.extra = activeGraph.extra || {};
+            activeGraph.extra.canvas_zoom = activeCanvas.ds.scale;
+            activeGraph.extra.canvas_offset = [activeCanvas.ds.offset[0], activeCanvas.ds.offset[1]];
+        }
+        var serialized = activeGraph ? activeGraph.serialize() : null;
+        if (serialized) {
+            serialized.extra = serialized.extra || {};
+            if (activeCanvas && activeCanvas.ds) {
+                serialized.extra.canvas_zoom = activeCanvas.ds.scale;
+                serialized.extra.canvas_offset = [activeCanvas.ds.offset[0], activeCanvas.ds.offset[1]];
+            }
+        }
         if (!serialized || !Array.isArray(serialized.nodes) || serialized.nodes.length === 0) {
             alert(window.t ? window.t("library.empty_graph_warning") : "The current graph is empty. Cannot save an empty template.");
             return false;

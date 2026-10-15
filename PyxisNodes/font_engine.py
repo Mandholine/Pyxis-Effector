@@ -69,7 +69,7 @@ class FontEngine:
     """Text and typographic font measurement engine (aegisub.text_extents equivalent)."""
 
     _dc_cache: Optional[int] = None
-    _font_cache: Dict[Tuple[str, bool, bool, bool, bool], Tuple[int, TEXTMETRICW]] = {}
+    _font_cache: Dict[Tuple[str, float, bool, bool, bool, bool], Tuple[int, TEXTMETRICW]] = {}
     _extent_cache: Dict[Tuple[str, float, bool, bool, bool, bool, float, float, str], Tuple[float, float, float, float]] = {}
 
     @staticmethod
@@ -81,6 +81,7 @@ class FontEngine:
     def clear_cache(cls) -> None:
         """Clears text extents cache."""
         cls._extent_cache.clear()
+        cls._font_cache.clear()
 
     @classmethod
     def _get_dc(cls) -> int:
@@ -89,8 +90,9 @@ class FontEngine:
         return cls._dc_cache or 0
 
     @classmethod
-    def _get_scaled_font(cls, font_name: str, bold: bool, italic: bool, underline: bool, strikeout: bool) -> Tuple[int, TEXTMETRICW]:
-        key = (font_name.lower(), bold, italic, underline, strikeout)
+    def _get_scaled_font(cls, font_name: str, font_size: float, bold: bool, italic: bool, underline: bool, strikeout: bool) -> Tuple[int, TEXTMETRICW]:
+        fs_key = round(float(font_size), 2)
+        key = (str(font_name).lower(), fs_key, bool(bold), bool(italic), bool(underline), bool(strikeout))
         if key in cls._font_cache:
             return cls._font_cache[key]
 
@@ -100,8 +102,11 @@ class FontEngine:
         FW_NORMAL = 400
         weight = FW_BOLD if bold else FW_NORMAL
 
+        # Resolución sub-píxel exacta de 64 sub-unidades por píxel (rejilla 26.6 idéntica a FreeType y GDI en font_vector_engine)
+        height = abs(int(round(float(font_size) * 64.0)))
+
         hfont = gdi32.CreateFontW(
-            -1000, 0, 0, 0, weight,
+            height, 0, 0, 0, weight,
             1 if italic else 0, 1 if underline else 0, 1 if strikeout else 0,
             1, 0, 0, 4, 0, str(font_name)
         )
@@ -110,6 +115,9 @@ class FontEngine:
         tm = TEXTMETRICW()
         gdi32.GetTextMetricsW(hdc, ctypes.byref(tm))
         gdi32.SelectObject(hdc, old_font)
+
+        if len(cls._font_cache) >= 512:
+            cls._font_cache.clear()
 
         cls._font_cache[key] = (hfont, tm)
         return hfont, tm
@@ -166,11 +174,10 @@ class FontEngine:
 
         if platform.system() == "Windows":
             try:
-                hfont, tm = cls._get_scaled_font(font_name, bold, italic, underline, strikeout)
-                scale_factor = font_size / float(tm.tmHeight)
+                hfont, tm = cls._get_scaled_font(font_name, font_size, bold, italic, underline, strikeout)
                 h = cls.snap_26_6(font_size)
-                d = cls.snap_26_6(float(tm.tmDescent) * scale_factor)
-                e = cls.snap_26_6(float(tm.tmExternalLeading) * scale_factor)
+                d = cls.snap_26_6(float(tm.tmDescent) / 64.0)
+                e = cls.snap_26_6(float(tm.tmExternalLeading) / 64.0)
                 return h, d, e
             except Exception:
                 pass
@@ -195,22 +202,21 @@ class FontEngine:
         gdi32 = ctypes.windll.gdi32
         hdc = cls._get_dc()
 
-        hfont, tm = cls._get_scaled_font(font_name, bold, italic, underline, strikeout)
+        hfont, tm = cls._get_scaled_font(font_name, font_size, bold, italic, underline, strikeout)
         old_font = gdi32.SelectObject(hdc, hfont)
 
         sz = SIZE()
         gdi32.GetTextExtentPoint32W(hdc, text, len(text), ctypes.byref(sz))
         gdi32.SelectObject(hdc, old_font)
 
-        scale_factor = font_size / float(tm.tmHeight)
-
-        base_w = float(sz.cx) * scale_factor * (scale_x / 100.0)
-        extra_spacing = spacing * max(0, len(text) - 1)
+        # Conversión directa en escala 26.6 subpíxel (64x)
+        base_w = (float(sz.cx) / 64.0) * (scale_x / 100.0)
+        extra_spacing = float(spacing) * max(0, len(text) - 1) * (scale_x / 100.0)
         final_w = base_w + extra_spacing
 
-        height = font_size
-        descent = float(tm.tmDescent) * scale_factor
-        extlead = float(tm.tmExternalLeading) * scale_factor
+        height = float(font_size)
+        descent = float(tm.tmDescent) / 64.0
+        extlead = float(tm.tmExternalLeading) / 64.0
 
         return final_w, height, descent, extlead
 
