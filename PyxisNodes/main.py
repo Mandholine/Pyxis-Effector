@@ -2343,6 +2343,7 @@ class PyxisAPI:
                 fps = float(info.get("fps") or 23.976)
                 clip_start_sec = float(info.get("clip_start_sec", 0.0))
                 clip_dur_sec = float(info.get("clip_duration_sec", 15.0))
+                clip_end_sec = float(info.get("clip_end_sec", clip_start_sec + clip_dur_sec))
                 real_video = info.get("real_video_file")
                 real_audio = info.get("real_audio_file")
                 dummy_info = info.get("dummy_info") or {}
@@ -2369,15 +2370,37 @@ class PyxisAPI:
                 a_mtime = os.path.getmtime(real_audio) if (real_audio and os.path.isfile(real_audio)) else 0
                 a_size = os.path.getsize(real_audio) if (real_audio and os.path.isfile(real_audio)) else 0
 
-                key_src = (
-                    f"v:{real_video}:{v_mtime}:{v_size}|"
-                    f"a:{real_audio}:{a_mtime}:{a_size}|"
-                    f"{clip_start_sec:.3f}:{clip_dur_sec:.3f}:{res_x}x{res_y}:{fps:.2f}:{color_hex}|"
-                    f"mode:{clip_prefix}:{v_preset}:{v_crf}"
-                )
-                hash_16 = hashlib.sha256(key_src.encode("utf-8")).hexdigest()[:16]
-                clip_type = "real" if real_video else ("audio" if real_audio else "dummy")
-                clip_filename = f"{clip_prefix}_{clip_type}_{hash_16}_{res_x}x{res_y}_{clip_start_sec:.2f}s_{clip_dur_sec:.2f}s.mp4"
+                if not real_video and not real_audio:
+                    d_meta_dur = (info.get("media_meta") or {}).get("duration_sec")
+                    if d_meta_dur and float(d_meta_dur) > 0:
+                        raw_dur = float(d_meta_dur)
+                    elif dummy_info.get("frames") and dummy_info.get("fps") and float(dummy_info["fps"]) > 0:
+                        raw_dur = float(dummy_info["frames"]) / float(dummy_info["fps"])
+                    else:
+                        raw_dur = float(info.get("total_duration_sec") or max(clip_end_sec, 15.0))
+
+                    if raw_dur <= 180.0:
+                        dummy_target_dur = max(raw_dur, clip_end_sec)
+                    else:
+                        dummy_target_dur = max(clip_end_sec + 10.0, 60.0)
+
+                    key_src = (
+                        f"dummy:{res_x}x{res_y}:{fps:.3f}:{color_hex}:{dummy_target_dur:.3f}|"
+                        f"mode:{clip_prefix}:{v_preset}:{v_crf}"
+                    )
+                    hash_16 = hashlib.sha256(key_src.encode("utf-8")).hexdigest()[:16]
+                    clip_type = "dummy"
+                    clip_filename = f"{clip_prefix}_dummy_{hash_16}_{res_x}x{res_y}_{dummy_target_dur:.2f}s.mp4"
+                else:
+                    key_src = (
+                        f"v:{real_video}:{v_mtime}:{v_size}|"
+                        f"a:{real_audio}:{a_mtime}:{a_size}|"
+                        f"{clip_start_sec:.3f}:{clip_dur_sec:.3f}:{res_x}x{res_y}:{fps:.2f}:{color_hex}|"
+                        f"mode:{clip_prefix}:{v_preset}:{v_crf}"
+                    )
+                    hash_16 = hashlib.sha256(key_src.encode("utf-8")).hexdigest()[:16]
+                    clip_type = "real" if real_video else "audio"
+                    clip_filename = f"{clip_prefix}_{clip_type}_{hash_16}_{res_x}x{res_y}_{clip_start_sec:.2f}s_{clip_dur_sec:.2f}s.mp4"
                 clip_path = os.path.join(bg_media_dir, clip_filename)
 
                 if os.path.exists(clip_path):
@@ -2458,7 +2481,7 @@ class PyxisAPI:
                 else:
                     cmd = [
                         ffmpeg_exe, "-y",
-                        "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={clip_dur_sec:.3f}",
+                        "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={dummy_target_dur:.3f}",
                         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
                         *v_codec,
                         "-tune", "stillimage",
@@ -2474,7 +2497,8 @@ class PyxisAPI:
                 if proc.returncode == 0 and os.path.exists(temp_clip) and self._is_valid_mp4(temp_clip):
                     try:
                         os.replace(temp_clip, clip_path)
-                        print(f"[Pyxis Smart Cache] Clip {clip_prefix} generado ({clip_type}): {clip_filename} ({clip_dur_sec:.2f}s)", flush=True)
+                        actual_dur = dummy_target_dur if (not real_video and not real_audio) else clip_dur_sec
+                        print(f"[Pyxis Smart Cache] Clip {clip_prefix} generado ({clip_type}): {clip_filename} ({actual_dur:.2f}s)", flush=True)
                         return clip_path
                     except Exception as e_mv:
                         print(f"[Pyxis Smart Cache Error moving clip] {e_mv}", flush=True)
@@ -2934,9 +2958,16 @@ class PyxisAPI:
                 import urllib.parse
                 quoted_path = urllib.parse.quote(user_audio)
                 return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
+
+            # 3. Fallback: Dummy video clip (e.g. preview_base template with ?dummy Aegisub media)
+            clip_path = info.get("clip_path") or self._ensure_preview_media_clip(info)
+            if clip_path and os.path.exists(clip_path) and self._is_valid_mp4(clip_path):
+                import urllib.parse
+                quoted_path = urllib.parse.quote(clip_path)
+                return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
         except Exception as e:
             print(f"[Pyxis Error getting preview video URL] {e}", flush=True)
-        return ""
+        return self._ensure_fallback_dummy_url()
 
     def get_preview_audio_data_url(self, source="base", target_output_id=None, payload=None):
         try:
@@ -3001,6 +3032,12 @@ class PyxisAPI:
             meta["resolution"] = f"{d_w}x{d_h}"
             meta["res_x"] = d_w
             meta["res_y"] = d_h
+            if dummy_info.get("frames") and d_fps and float(d_fps) > 0:
+                d_sec = float(dummy_info["frames"]) / float(d_fps)
+                meta["duration_sec"] = round(d_sec, 3)
+                m = int(d_sec // 60)
+                s = int(d_sec % 60)
+                meta["duration"] = f"{m:02d}:{s:02d}"
 
         ffmpeg_bin = self._find_ffmpeg()
         creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0

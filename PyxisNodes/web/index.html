@@ -25699,8 +25699,8 @@ function setupDynamicInlineNode(node) {
                         let clickDebounceTimer = null;
                         const DOUBLE_CLICK_DELAY = 240;
 
-                        if (p) {
-                            p.clearClickDebounce = () => {
+                        if (activePlayers[nodeIdStr]) {
+                            activePlayers[nodeIdStr].clearClickDebounce = () => {
                                 if (clickDebounceTimer) {
                                     clearTimeout(clickDebounceTimer);
                                     clickDebounceTimer = null;
