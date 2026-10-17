@@ -283,13 +283,14 @@ _GLOBAL_JOB_OBJECT = _setup_windows_job_object()
 
 
 def _setup_posix_child_cleanup():
-    """Linux/macOS: equivalente al Job Object de Windows (KILL_ON_JOB_CLOSE).
+    """Linux: equivalente al Job Object de Windows (KILL_ON_JOB_CLOSE).
 
     Registra PR_SET_PDEATHSIG (SIGKILL) en cada proceso hijo tras fork, de modo que
     los workers de multiprocessing y los procesos de ffmpeg mueran si el proceso
-    principal termina inesperadamente. No-op en Windows y si prctl no existe.
+    principal termina inesperadamente. No-op fuera de Linux (prctl no existe en
+    macOS; los workers usan process_utils.start_parent_watchdog en su lugar).
     """
-    if sys.platform == "win32":
+    if not sys.platform.startswith("linux"):
         return None
     try:
         import signal
@@ -2211,7 +2212,7 @@ class PyxisAPI:
     @classmethod
     def _detect_best_h264_encoder(cls, ffmpeg_exe: str = None) -> tuple[str, list[str]]:
         """
-        Detects hardware H.264 encoders (NVENC, AMF, QSV) and returns optimal encoding arguments.
+        Detects hardware H.264 encoders (NVENC, AMF, QSV, VideoToolbox) and returns optimal encoding arguments.
         Falls back cleanly to CPU libx264 with optimized multithreaded preset.
         """
         if cls._CACHED_H264_ENCODER is not None:
@@ -2223,6 +2224,8 @@ class PyxisAPI:
             ("h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "16", "-qp_p", "16", "-pix_fmt", "yuv420p"]),
             ("h264_qsv", ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "16", "-pix_fmt", "nv12"]),
         ]
+        if sys.platform == "darwin":
+            candidates.insert(0, ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-b:v", "20M", "-pix_fmt", "yuv420p"]))
         import subprocess
         creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
 
@@ -3473,20 +3476,12 @@ class PyxisAPI:
                 os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\Windows\Fonts"),
                 os.path.join(os.environ.get("APPDATA", ""), r"PyxisNodes\fonts"),
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts"),
-                r"E:\Fuentes\FontBase",
-                r"E:\Fuentes",
                 os.path.join(os.environ.get("LOCALAPPDATA", ""), "FontBase"),
                 os.path.join(os.environ.get("APPDATA", ""), "FontBase"),
             ]
         else:
-            search_dirs = [
-                os.path.join(_pyxis_user_data_base(), "PyxisNodes", "fonts"),
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts"),
-                "/usr/share/fonts",
-                "/usr/local/share/fonts",
-                os.path.join(os.path.expanduser("~"), ".local", "share", "fonts"),
-                os.path.join(os.path.expanduser("~"), ".fonts"),
-            ]
+            from font_resolver import font_search_dirs
+            search_dirs = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")] + font_search_dirs()
         print(f"[Pyxis Font] Font search directories: {search_dirs}", flush=True)
 
         for val in candidates_from_reg:
@@ -4708,6 +4703,7 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
 
 
 def main():
+    import paths  # noqa: F401  (al importarlo añade al PATH los directorios de herramientas de macOS)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     appdata_dir = _pyxis_user_data_base()
     user_temp_dir = os.path.join(appdata_dir, "PyxisNodes", "temp")
@@ -4875,62 +4871,64 @@ def main():
                     pass
 
                 found_hwnd = None
-                try:
-                    import ctypes
-                    from ctypes import wintypes
-                    user32 = ctypes.windll.user32
-                    kernel32 = ctypes.windll.kernel32
-                    con_hwnd = kernel32.GetConsoleWindow() if hasattr(kernel32, "GetConsoleWindow") else None
-                    my_pid = os.getpid()
-                    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-                    def enum_cb(h, l):
-                        nonlocal found_hwnd
-                        if con_hwnd and h == con_hwnd:
+                user32 = None
+                if sys.platform == "win32":
+                    try:
+                        import ctypes
+                        from ctypes import wintypes
+                        user32 = ctypes.windll.user32
+                        kernel32 = ctypes.windll.kernel32
+                        con_hwnd = kernel32.GetConsoleWindow() if hasattr(kernel32, "GetConsoleWindow") else None
+                        my_pid = os.getpid()
+                        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+                        def enum_cb(h, l):
+                            nonlocal found_hwnd
+                            if con_hwnd and h == con_hwnd:
+                                return True
+                            cls_buff = ctypes.create_unicode_buffer(64)
+                            user32.GetClassNameW(h, cls_buff, 64)
+                            if cls_buff.value == "ConsoleWindowClass":
+                                return True
+                            lp = ctypes.c_ulong()
+                            user32.GetWindowThreadProcessId(h, ctypes.byref(lp))
+                            if lp.value == my_pid:
+                                length = user32.GetWindowTextLengthW(h)
+                                if length > 0:
+                                    buff = ctypes.create_unicode_buffer(length + 1)
+                                    user32.GetWindowTextW(h, buff, length + 1)
+                                    if buff.value == window.title or (getattr(window, "title", None) and str(window.title) in buff.value) or "Pyxis Node Engine" in buff.value:
+                                        found_hwnd = h
+                                        return False
                             return True
-                        cls_buff = ctypes.create_unicode_buffer(64)
-                        user32.GetClassNameW(h, cls_buff, 64)
-                        if cls_buff.value == "ConsoleWindowClass":
-                            return True
-                        lp = ctypes.c_ulong()
-                        user32.GetWindowThreadProcessId(h, ctypes.byref(lp))
-                        if lp.value == my_pid:
-                            length = user32.GetWindowTextLengthW(h)
-                            if length > 0:
-                                buff = ctypes.create_unicode_buffer(length + 1)
-                                user32.GetWindowTextW(h, buff, length + 1)
-                                if buff.value == window.title or (getattr(window, "title", None) and str(window.title) in buff.value) or "Pyxis Node Engine" in buff.value:
-                                    found_hwnd = h
-                                    return False
-                        return True
-                    user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-                    if not found_hwnd and getattr(window, "title", None):
-                        found_hwnd = user32.FindWindowW(None, str(window.title))
+                        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+                        if not found_hwnd and getattr(window, "title", None):
+                            found_hwnd = user32.FindWindowW(None, str(window.title))
 
-                    if found_hwnd:
-                        is_maximized = bool(user32.IsZoomed(found_hwnd))
-                        rect = wintypes.RECT()
-                        user32.GetWindowRect(found_hwnd, ctypes.byref(rect))
-                        w = rect.right - rect.left
-                        h = rect.bottom - rect.top
-                        win_state = {
-                            "maximized": is_maximized,
-                            "width": w,
-                            "height": h,
-                            "x": rect.left,
-                            "y": rect.top
-                        }
-                        api._saved_window_state = win_state
-                        cfg_path = api._get_config_path()
-                        if os.path.exists(cfg_path):
-                            with open(cfg_path, "r", encoding="utf-8") as f:
-                                saved_cfg = json.load(f)
-                            if isinstance(saved_cfg, dict):
-                                saved_cfg["window_state"] = win_state
-                                with open(cfg_path, "w", encoding="utf-8") as f:
-                                    json.dump(saved_cfg, f, indent=2)
-                except Exception as e:
-                    if sys.platform == "win32":
-                        print(f"[Pyxis Window State Save Error] {e}", flush=True)
+                        if found_hwnd:
+                            is_maximized = bool(user32.IsZoomed(found_hwnd))
+                            rect = wintypes.RECT()
+                            user32.GetWindowRect(found_hwnd, ctypes.byref(rect))
+                            w = rect.right - rect.left
+                            h = rect.bottom - rect.top
+                            win_state = {
+                                "maximized": is_maximized,
+                                "width": w,
+                                "height": h,
+                                "x": rect.left,
+                                "y": rect.top
+                            }
+                            api._saved_window_state = win_state
+                            cfg_path = api._get_config_path()
+                            if os.path.exists(cfg_path):
+                                with open(cfg_path, "r", encoding="utf-8") as f:
+                                    saved_cfg = json.load(f)
+                                if isinstance(saved_cfg, dict):
+                                    saved_cfg["window_state"] = win_state
+                                    with open(cfg_path, "w", encoding="utf-8") as f:
+                                        json.dump(saved_cfg, f, indent=2)
+                    except Exception as e:
+                        if sys.platform == "win32":
+                            print(f"[Pyxis Window State Save Error] {e}", flush=True)
 
                 if sys.platform != "win32":
                     # Linux/macOS: geometría vía API de pywebview (sin Win32)
@@ -5016,6 +5014,9 @@ def main():
         # (undo, temas, plantillas). Equivalente al comportamiento de WebView2.
         _webview_storage = os.path.join(_pyxis_user_data_dir(), "webview_storage")
         os.makedirs(_webview_storage, exist_ok=True)
+        # El backend Qt nombra su carpeta de perfil según sys.argv[0] ("main.py"); se evita
+        # crear ese directorio suelto en ~/.local/share
+        sys.argv[0] = "PyxisNodes"
         webview.start(
             debug=False,
             http_server=True,

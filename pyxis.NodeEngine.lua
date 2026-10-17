@@ -61,6 +61,19 @@ end
 -- Windows: funciones Win32 vía FFI (kernel32/shell32/user32/wininet).
 -- Linux/macOS: equivalencias POSIX (libc vía ffi.C, curl/wget, nohup).
 local IS_WINDOWS = package.config:sub(1, 1) == "\\"
+local IS_MACOS = (not IS_WINDOWS) and ffi.os == "OSX"
+
+-- Artefacto de release que corresponde a esta plataforma (ver tools/build_release.py).
+local function platform_tag()
+    if IS_WINDOWS then return "win64" end
+    local arm = ffi.arch == "arm64"
+    if IS_MACOS then return arm and "macos-arm64" or "macos-x64" end
+    return arm and "linux-arm64" or "linux64"
+end
+
+-- Aegisub lanzado desde el Finder/launcher hereda un PATH mínimo; Homebrew y
+-- /usr/local no están incluidos, así que se añaden para localizar python3, ffmpeg, etc.
+local POSIX_PATH_PREFIX = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:"
 
 local kernel32 = nil
 local shell32 = nil
@@ -113,7 +126,7 @@ local function shell_quote(s)
 end
 
 local function has_bin(name)
-    local p = io.popen("command -v " .. tostring(name) .. " 2>/dev/null")
+    local p = io.popen("PATH=\"" .. POSIX_PATH_PREFIX .. "$PATH\" command -v " .. tostring(name) .. " 2>/dev/null")
     if not p then return false end
     local out = p:read("*l")
     p:close()
@@ -434,7 +447,7 @@ function launch_Pyxis(subs, sel, act)
         end
 
         local temp_dir = (IS_WINDOWS and os.getenv("TEMP")) or os.getenv("TMPDIR") or "/tmp"
-        local arch_tag = IS_WINDOWS and "win64" or "linux64"
+        local arch_tag = platform_tag()
         local zip_name = "PyxisEffector-v" .. script_version .. "-" .. arch_tag .. ".zip"
         local zip_path = join_path(temp_dir, zip_name)
         local download_url = "https://github.com/Mandholine/Pyxis-Effector/releases/download/v" .. script_version .. "/" .. zip_name
@@ -453,7 +466,17 @@ function launch_Pyxis(subs, sel, act)
                 if has_bin("unzip") then
                     os.execute(string.format("unzip -o -q %s -d %s", shell_quote(zip_path), shell_quote(target_dir)))
                 else
+                    -- zipfile no conserva los permisos de ejecución: se restauran a mano
                     os.execute(string.format("python3 -m zipfile -e %s %s", shell_quote(zip_path), shell_quote(target_dir)))
+                    local nodes_dir = join_path(target_dir, "PyxisNodes")
+                    os.execute(string.format("chmod -R u+x %s %s 2>/dev/null",
+                        shell_quote(join_path(join_path(nodes_dir, "python"), "bin")),
+                        shell_quote(join_path(nodes_dir, "bin"))))
+                end
+                if IS_MACOS then
+                    -- Evita el bloqueo de Gatekeeper sobre el Python y los binarios descargados
+                    os.execute(string.format("xattr -dr com.apple.quarantine %s 2>/dev/null",
+                        shell_quote(join_path(target_dir, "PyxisNodes"))))
                 end
                 pcall(os.remove, zip_path)
             end
@@ -674,11 +697,17 @@ exit /b 0
         aegisub.progress.task("Launching Pyxis Node Engine...")
 
         if not IS_WINDOWS then
-            -- Linux/macOS: intérprete de Python (venv empaquetado primero, luego PATH)
+            -- Linux/macOS: intérprete de Python (runtime empaquetado, luego venv, luego PATH)
             local python_cmd = nil
+            local bundled_py = join_path(Pyxis_dir, join_path("python", join_path("bin", "python3")))
             local venv_py = join_path(Pyxis_dir, join_path(".venv", join_path("bin", "python3")))
+            local check_bundled = io.open(bundled_py, "r")
             local check_venv = io.open(venv_py, "r")
-            if check_venv then
+            if check_bundled then
+                check_bundled:close()
+                if check_venv then check_venv:close() end
+                python_cmd = bundled_py
+            elseif check_venv then
                 check_venv:close()
                 python_cmd = venv_py
             elseif has_bin("python3") then
@@ -688,7 +717,7 @@ exit /b 0
             end
 
             if not python_cmd then
-                aegisub.dialog.display({{class="label", label="Error: no se encontró Python 3. Instala python3 (o ejecuta PyxisNodes/install_linux.sh)."}}, {"Cerrar"})
+                aegisub.dialog.display({{class="label", label="Error: no se encontró Python 3. Reinstala el motor de Pyxis desde GitHub Releases o instala python3."}}, {"Cerrar"})
                 pcall(os.remove, lock_file)
                 return
             end
@@ -697,7 +726,7 @@ exit /b 0
             for _, arg in ipairs({ temp_ass, result_file, lock_file, session_file, aegisub_version, tostring(aegisub_pid) }) do
                 cmd_parts[#cmd_parts + 1] = shell_quote(arg)
             end
-            local launch_cmd = table.concat(cmd_parts, " ") .. " >/dev/null 2>&1 &"
+            local launch_cmd = "PATH=\"" .. POSIX_PATH_PREFIX .. "$PATH\" " .. table.concat(cmd_parts, " ") .. " >/dev/null 2>&1 &"
             os.execute(launch_cmd)
         else
             local params = '-B "' .. main_script .. '" "' .. temp_ass .. '" "' .. result_file .. '" "' .. lock_file .. '" "' .. session_file .. '" "' .. aegisub_version .. '" "' .. tostring(aegisub_pid) .. '"'

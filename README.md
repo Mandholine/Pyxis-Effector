@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/badge/license-GPL--3.0-green.svg" alt="Licencia GPL-3.0">
   </a>
   <img src="https://img.shields.io/badge/Aegisub-Automation%204-orange.svg" alt="Aegisub">
-  <img src="https://img.shields.io/badge/Python-3.11-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB.svg?logo=python&logoColor=white" alt="Python 3.12">
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@
 
 ## Filosofía y Origen
 
-**Pyxis Effector** renueva y extiende la arquitectura técnica del proyecto legacy **Kara Effector 3.6**, sustituyendo la ejecución secuencial de scripts monolíticos por un entorno visual estructurado en grafos acíclicos dirigidos (DAG). El sistema combina un núcleo en Python 3.11, aceleración por GPU, renderizado WebAssembly en tiempo real y soporte para manipulación vectorial avanzada de subtítulos Advanced SubStation Alpha (ASS).
+**Pyxis Effector** renueva y extiende la arquitectura técnica del proyecto legacy **Kara Effector 3.6**, sustituyendo la ejecución secuencial de scripts monolíticos por un entorno visual estructurado en grafos acíclicos dirigidos (DAG). El sistema combina un núcleo en Python 3.12, aceleración por GPU, renderizado WebAssembly en tiempo real y soporte para manipulación vectorial avanzada de subtítulos Advanced SubStation Alpha (ASS).
 
 El nombre proviene de la constelación de **Pyxis** (La Brújula náutica), simbolizando la orientación técnica y la convergencia modular entre tipografía cinética, álgebra espacial, cinemática temporal y lógica algorítmica.
 
@@ -55,14 +55,14 @@ El nombre proviene de la constelación de **Pyxis** (La Brújula náutica), simb
 ## Características Principales
 
 * **Entorno visual modular en grafo (DAG):** Composición modular interactiva de efectos conectando puertos de datos y contexto sin requerir programación secuencial obligatoria.
-* **Arquitectura híbrida de ejecución:** Núcleo en Python 3.11 con soporte para evaluación paralela multiproceso y aceleración por GPU mediante OpenCL.
+* **Arquitectura híbrida de ejecución:** Núcleo en Python 3.12 con soporte para evaluación paralela multiproceso y aceleración por GPU mediante OpenCL.
 * **Previsualización en tiempo real:** Reproductor sincronizado integrado en el canvas mediante renderizado WebAssembly (JASSUB/libass) y ArtPlayer.js.
 * **Morfología vectorial y polígonos:** Conversión de glifos a contornos vectoriales, vectorización ráster con Potrace y operaciones booleanas (unión, diferencia, intersección, xor, offsetting) con Clipper2.
 * **Procesamiento acústico espectral:** Extracción de envolventes de amplitud RMS, picos acústicos, filtrado por bandas y Transformada Rápida de Fourier (FFT) vinculada al audio del proyecto.
-* **Entorno dual de scripting:** Nodos imperativos `System/Script Code` con soporte de ejecución para Python 3.11 y Lua 5.1/LuaJIT a través de un puente bidireccional en C (Lupa).
+* **Entorno dual de scripting:** Nodos imperativos `System/Script Code` con soporte de ejecución para Python 3.12 y Lua 5.1/LuaJIT a través de un puente bidireccional en C (Lupa).
 * **Linter y diagnóstico pre-generación:** Validador sintáctico estático (`node_validator.py`) con análisis AST en tiempo real para Dark Tags ASS, variables no declaradas e integridad topológica.
 * **Telemetría y perfilado de renderizado ASS (`libass` + QPC):** Perfilado multi-proceso fotograma a fotograma del coste de renderizado, consumo de Frame Budget y memoria de mapas de bits, con mapa de calor térmico interactivo en el reproductor.
-* **Persistencia y gestión de plantillas:** Exportación e importación de grafos completos, aislamiento de sesiones y almacenamiento de plantillas en `%APPDATA%\PyxisNodes\`.
+* **Persistencia y gestión de plantillas:** Exportación e importación de grafos completos, aislamiento de sesiones y almacenamiento de plantillas en `%APPDATA%\PyxisNodes\` (Windows), `~/.local/share/PyxisNodes` (Linux/macOS).
 
 ---
 
@@ -105,19 +105,27 @@ Pyxis Effector dispone de una documentación técnica exhaustiva organizada en 1
 3. Inicia Aegisub y ejecuta la macro desde la barra superior:
    * **Automatización** $\to$ **Pyxis Node Engine**
 
-### Linux
+### Linux y macOS
 
-Pyxis Effector funciona de forma nativa en Linux (GUI GTK/WebKitGTK o Qt WebEngine,
-motor tipográfico FreeType, ffmpeg del sistema). Consulta
-**[PyxisNodes/README.linux.md](PyxisNodes/README.linux.md)** para los paquetes del
-sistema, el uso de `install_linux.sh`, las ubicaciones de datos XDG y la solución
-de problemas.
+Pyxis Effector funciona de forma nativa en Linux y macOS. Cada release incluye un paquete
+por plataforma con su propio Python ya preparado (no necesitas instalar nada más salvo,
+en su caso, ffmpeg):
 
-Inicio rápido:
-```bash
-cd PyxisNodes && ./install_linux.sh
-# después copia PyxisNodes/ y pyxis.NodeEngine.lua a automation/autoload de Aegisub
-```
+| Plataforma | Paquete | Carpeta `autoload` de Aegisub |
+| :--- | :--- | :--- |
+| Linux x86-64 | `PyxisEffector-v<versión>-linux64.zip` | `~/.config/aegisub/automation/autoload/` |
+| Linux ARM64 | `PyxisEffector-v<versión>-linux-arm64.zip` | `~/.config/aegisub/automation/autoload/` |
+| macOS Apple Silicon | `PyxisEffector-v<versión>-macos-arm64.zip` | `~/Library/Application Support/Aegisub/automation/autoload/` |
+| macOS Intel | `PyxisEffector-v<versión>-macos-x64.zip` | `~/Library/Application Support/Aegisub/automation/autoload/` |
+
+Descomprime el paquete en la carpeta `autoload` (crea `PyxisNodes/`), copia ahí
+`pyxis.NodeEngine.lua` y ejecuta **Automatización → Pyxis Node Engine**. Si falta el
+motor, la macro ofrece descargarlo automáticamente.
+
+* Linux: **[PyxisNodes/README.linux.md](PyxisNodes/README.linux.md)** (dependencias del sistema, datos XDG, instalación desde el código fuente con `install_linux.sh`, solución de problemas).
+* macOS: **[PyxisNodes/README.macos.md](PyxisNodes/README.macos.md)** (Gatekeeper, Homebrew, instalación desde el código fuente con `install_macos.sh`).
+* Para construir los paquetes tú mismo: `python tools/build_release.py` (ver `tools/build_release.py --help`).
+
 ---
 
 ## Equipo y Contribuciones
@@ -147,7 +155,7 @@ Pyxis Effector integra y utiliza las siguientes librerías y componentes de cód
 * [**KaTeX**](https://katex.org/): Renderizado tipográfico de fórmulas matemáticas en interfaz y documentación (Licencia MIT).
 * [**Marked.js**](https://marked.js.org/): Compilador de Markdown para la documentación integrada y tooltips contextuales (Licencia MIT).
 * [**Lupa**](https://github.com/scoder/lupa): Puente de comunicación bidireccional en C entre Python y LuaJIT / Lua 5.1 (Licencia MIT).
-* [**PyWebView**](https://pywebview.flowrl.com/): Capa de ventana web nativa de escritorio para Windows (Licencia BSD-3).
+* [**PyWebView**](https://pywebview.flowrl.com/): Capa de ventana web nativa de escritorio para Windows, macOS y Linux (Licencia BSD-3).
 * [**FFmpeg**](https://ffmpeg.org/): Decodificación multimedia, extracción de pistas PCM y procesado de vídeo (Licencias LGPL v2.1+ / GPL v2+).
 * [**Python Runtime (Embedded)**](https://www.python.org/): Entorno embebido de Python Software Foundation (Licencia PSF).
 

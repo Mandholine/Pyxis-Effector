@@ -1,0 +1,4 @@
+# Dependencias opcionales: si alguna no se puede instalar, Pyxis sigue funcionando.
+# Una por línea (el empaquetador las instala de una en una y tolera fallos).
+
+pyopencl>=2024.1      # aceleración GPU OpenCL (fallback automático a CPU)

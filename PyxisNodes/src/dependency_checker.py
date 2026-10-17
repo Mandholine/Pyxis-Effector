@@ -143,13 +143,56 @@ def save_dependency_status(config_path: str, status: dict) -> bool:
 
 
 def _show_native_message(title: str, text: str, style: int = 0) -> int:
-    """Displays a native Windows MessageBox."""
-    try:
-        user32 = ctypes.windll.user32
-        return int(user32.MessageBoxW(0, text, title, style))
-    except Exception:
+    """Displays a native dialog: MessageBox on Windows, osascript on macOS, zenity/kdialog/tkinter on Linux.
+
+    On POSIX the dialog is informational only (the Windows-style button flags in ``style`` are ignored).
+    The message is always mirrored to stderr and to the user's debug log, because Aegisub launches
+    Python with its output discarded and a failed preflight would otherwise be invisible.
+    """
+    if sys.platform == "win32":
+        try:
+            user32 = ctypes.windll.user32
+            return int(user32.MessageBoxW(0, text, title, style))
+        except Exception:
+            pass
         print(f"[{title}] {text}", file=sys.stderr)
         return 0
+
+    print(f"[{title}] {text}", file=sys.stderr)
+    try:
+        from paths import get_user_data_dir
+        log_dir = os.path.join(get_user_data_dir(), "temp")
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, "preflight_debug.log"), "a", encoding="utf-8") as log_file:
+            log_file.write(f"[{datetime.now().isoformat()}] {title}\n{text}\n\n")
+    except Exception:
+        pass
+
+    try:
+        import shutil
+        if sys.platform == "darwin":
+            def _esc(value: str) -> str:
+                return value.replace("\\", "\\\\").replace('"', '\\"')
+            subprocess.run(
+                ["osascript", "-e",
+                 f'display dialog "{_esc(text)}" with title "{_esc(title)}" buttons {{"OK"}} default button "OK" with icon stop'],
+                capture_output=True, timeout=600,
+            )
+        elif shutil.which("zenity"):
+            subprocess.run(["zenity", "--error", "--no-markup", f"--title={title}", f"--text={text}"],
+                           capture_output=True, timeout=600)
+        elif shutil.which("kdialog"):
+            subprocess.run(["kdialog", "--title", title, "--error", text], capture_output=True, timeout=600)
+        else:
+            import tkinter
+            from tkinter import messagebox
+            root = tkinter.Tk()
+            root.withdraw()
+            messagebox.showerror(title, text, parent=root)
+            root.destroy()
+    except Exception:
+        pass
+    return 0
 
 
 def install_webview2_bootstrapper(interactive: bool = True) -> bool:
@@ -226,7 +269,16 @@ def _check_posix_gui_backend() -> tuple[bool, str, str]:
     """
     # macOS usa Cocoa nativo (siempre disponible en pywebview)
     if sys.platform == "darwin":
-        return True, "cocoa", "Cocoa"
+        try:
+            import AppKit  # noqa: F401  (pyobjc, instalado con pywebview)
+            import WebKit  # noqa: F401
+            return True, "cocoa", "Cocoa"
+        except Exception:
+            return False, "", (
+                "Faltan los bindings de Cocoa para la interfaz de Pyxis (pyobjc).\n\n"
+                "Reinstala el motor de Pyxis desde GitHub Releases, o ejecuta:\n"
+                "  python3 -m pip install -r requirements.txt"
+            )
 
     # GTK + WebKit2GTK (backend 'gtk' de pywebview)
     try:

@@ -5,7 +5,23 @@ WebAssembly y la integración con Aegisub (macro de Automation 4).
 
 ---
 
-## Requisitos del sistema
+## Paquete de release (recomendado)
+
+Descarga `PyxisEffector-v<versión>-linux64.zip` (o `linux-arm64`) desde
+[Releases](https://github.com/Mandholine/Pyxis-Effector/releases) y descomprímelo en
+`~/.config/aegisub/automation/autoload/`; crea `PyxisNodes/` con su propio Python 3.12,
+las dependencias y Qt WebEngine para la interfaz. La macro también ofrece descargarlo
+sola la primera vez. Solo hace falta lo que el paquete no puede llevar:
+
+* `ffmpeg` incluido en el paquete; si se compiló sin él, instálalo con tu gestor de paquetes.
+* Las bibliotecas de sistema que exige Qt WebEngine (en un escritorio normal ya están
+  instaladas: `libnss3`, `libxkbcommon`, `libxcb-*`…).
+
+El resto de este documento describe la **instalación desde el código fuente**.
+
+---
+
+## Requisitos del sistema (instalación desde el código fuente)
 
 | Componente | Obligatorio | Propósito | Debian / Ubuntu | Arch |
 |---|---|---|---|---|
@@ -102,17 +118,31 @@ En Windows se mantiene el comportamiento histórico (`%APPDATA%\PyxisNodes`).
 | Audio / vídeo | ffmpeg empaquetado | ffmpeg del sistema |
 | Vectorización de imágenes | potrace.exe | potrace del sistema (fallback Python) |
 | GPU OpenCL / CUDA | ✔ | ✔ (pyopencl / CPU fallback) |
-| Telemetría libass (`libass_profiler`) | ✔ | ✖ (solo binario Windows; la función se desactiva con error controlado) |
+| Telemetría libass (`libass_profiler`) | ✔ | ✔ mediante **Wine** (ver abajo); sin Wine, error controlado |
 | Limpieza de procesos hijos | Job Object | `PR_SET_PDEATHSIG` |
 | Descarga automática del motor desde la macro | ✔ (zip win64) | ✔ (zip linux64) o instalación manual |
 
 Notas:
 
-* `PyxisNodes/python/` (runtime embebido de Windows) y `PyxisNodes/bin/*.exe` /
-  `bin/ffmpeg.rar` **no se usan en Linux**; pueden eliminarse para ahorrar espacio
-  si solo usas Linux.
-* Para obtener la telemetría de renderizado, compila `libass_profiler` y coloca el
-  binario en `PyxisNodes/bin/libass_profiler`; el resto del sistema funciona sin él.
+* La macro busca el intérprete en este orden: `PyxisNodes/python/bin/python3` (paquete
+  de release) → `PyxisNodes/.venv/bin/python3` → `python3` del sistema.
+* Si clonaste el repositorio, `PyxisNodes/python/` puede contener el runtime de Windows
+  (`python.exe`); no se usa en Linux. Los paquetes de Linux se generan con
+  `python tools/build_release.py` y no comparten ese directorio.
+* `bin/*.exe` y `bin/ffmpeg.rar` tampoco se usan en Linux.
+* **Telemetría de renderizado:** `libass_profiler` solo existe como binario de Windows
+  (`bin/libass_profiler.exe`). Si hay `wine` instalado, Pyxis lo ejecuta con él de forma
+  automática (es una herramienta de consola, no necesita pantalla). Es una solución
+  provisional hasta que exista un port nativo:
+  * La primera vez crea un prefijo de Wine propio en `~/.local/share/PyxisNodes/wine`
+    (unos 10 s); las siguientes ejecuciones tardan fracciones de segundo.
+  * Los tiempos de render son orientativos: miden libass dentro de Wine, con su
+    resolución de fuentes (DirectWrite sobre fontconfig) y sin los mismos cachés que Windows.
+  * Si colocas un `libass_profiler` nativo en `PyxisNodes/bin/` (o en el `PATH`), tiene
+    prioridad y Wine deja de usarse.
+  * Variables de entorno: `PYXIS_DISABLE_WINE=1` (nunca usar Wine), `PYXIS_WINE=<ruta>`
+    (otro ejecutable de wine), `PYXIS_WINEPREFIX=<dir>` (otro prefijo).
+  * Instalación de Wine: `sudo apt install wine` / `sudo pacman -S wine`.
 
 ---
 

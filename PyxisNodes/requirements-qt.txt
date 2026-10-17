@@ -1,0 +1,6 @@
+# Backend gráfico Qt WebEngine para pywebview. Lo usan los paquetes de Linux, porque
+# WebKitGTK (python-gobject) depende de las bibliotecas del sistema y no se puede empaquetar.
+
+qtpy>=2.4
+PyQt6>=6.6
+PyQt6-WebEngine>=6.6

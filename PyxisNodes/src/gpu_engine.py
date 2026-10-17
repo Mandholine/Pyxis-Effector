@@ -162,10 +162,13 @@ class GpuEngineManager:
 
             if sys.platform == "win32":
                 opencl_lib_candidates = [os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "OpenCL.dll")]
+            elif sys.platform == "darwin":
+                opencl_lib_candidates = ["/System/Library/Frameworks/OpenCL.framework/OpenCL"]
             else:
                 opencl_lib_candidates = ["libOpenCL.so.1", "libOpenCL.so"]
             for opencl_dll_path in opencl_lib_candidates:
-                if os.path.isabs(opencl_dll_path) and not os.path.exists(opencl_dll_path):
+                # En macOS las librerías del sistema viven en la dyld shared cache y no existen como archivo
+                if sys.platform == "win32" and not os.path.exists(opencl_dll_path):
                     continue
                 try:
                     opencl_lib = ctypes.cdll.LoadLibrary(opencl_dll_path)

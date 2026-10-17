@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/badge/licence-GPL--3.0-green.svg" alt="GPL-3.0 Licence">
   </a>
   <img src="https://img.shields.io/badge/Aegisub-Automation%204-orange.svg" alt="Aegisub">
-  <img src="https://img.shields.io/badge/Python-3.11-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB.svg?logo=python&logoColor=white" alt="Python 3.12">
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@
 
 ## Philosophy and Origin
 
-**Pyxis Effector** renovates and extends the technical architecture of the legacy **Kara Effector 3.6** project, replacing sequential monolithic script execution with a visual environment structured around directed acyclic graphs (DAGs). The system combines a Python 3.11 core, GPU acceleration, real-time WebAssembly rendering, and comprehensive support for Advanced SubStation Alpha (ASS) vector subtitle manipulation.
+**Pyxis Effector** renovates and extends the technical architecture of the legacy **Kara Effector 3.6** project, replacing sequential monolithic script execution with a visual environment structured around directed acyclic graphs (DAGs). The system combines a Python 3.12 core, GPU acceleration, real-time WebAssembly rendering, and comprehensive support for Advanced SubStation Alpha (ASS) vector subtitle manipulation.
 
 The project is named after the **Pyxis** constellation (The Mariner's Compass), symbolising technical orientation and the modular convergence between kinetic typography, spatial geometry, temporal kinematics, and algorithmic logic.
 
@@ -55,14 +55,14 @@ The project is named after the **Pyxis** constellation (The Mariner's Compass), 
 ## Key Features
 
 * **Modular DAG Visual Canvas:** Interactive visual effect composition by interconnecting data and context ports without requiring mandatory sequential scripting.
-* **Hybrid Execution Architecture:** Optimised Python 3.11 runtime supporting multi-process parallel evaluation and OpenCL GPU acceleration.
+* **Hybrid Execution Architecture:** Optimised Python 3.12 runtime supporting multi-process parallel evaluation and OpenCL GPU acceleration.
 * **Real-Time Synchronised Preview:** Integrated canvas player powered by WebAssembly-compiled ASS rendering (JASSUB/libass) and ArtPlayer.js.
 * **Vector Morphology and Polygons:** Glyph outline conversion, bitmap raster vectorisation via Potrace, and boolean polygon operations (union, difference, intersection, xor, offsetting) via Clipper2.
 * **Spectral Acoustic Analysis:** Root Mean Square (RMS) power envelopes, acoustic peaks, frequency band filtering, and Fast Fourier Transform (FFT) linked to project audio.
-* **Dual Scripting Environment:** Imperative `System/Script Code` nodes with native execution support for Python 3.11 and Lua 5.1/LuaJIT via a low-latency bidirectional C bridge (Lupa).
+* **Dual Scripting Environment:** Imperative `System/Script Code` nodes with native execution support for Python 3.12 and Lua 5.1/LuaJIT via a low-latency bidirectional C bridge (Lupa).
 * **Pre-Generation Linter and Diagnostics:** Static syntax validator (`node_validator.py`) with real-time AST analysis for ASS Dark Tags, undeclared variables, and topological integrity.
 * **ASS Render Telemetry and Profiling (`libass` + QPC):** Multi-process frame-by-frame profiling of subtitle render costs, frame budget consumption, and bitmap memory, with an interactive workload heatmap in the player.
-* **Persistence and Template Management:** Full graph export/import, session isolation, and user template storage in `%APPDATA%\PyxisNodes\`.
+* **Persistence and Template Management:** Full graph export/import, session isolation, and user template storage in `%APPDATA%\PyxisNodes\` (Windows) or `~/.local/share/PyxisNodes` (Linux/macOS).
 
 ---
 
@@ -105,17 +105,27 @@ Pyxis Effector includes a comprehensive technical manual structured across 12 mo
 3. Launch Aegisub and execute the macro from the top menu:
    * **Automation** $\to$ **Pyxis Node Engine**
 
-### Linux
+### Linux and macOS
 
-Pyxis Effector runs natively on Linux (GTK/WebKitGTK or Qt WebEngine GUI, FreeType
-font engine, system ffmpeg). See **[PyxisNodes/README.linux.md](PyxisNodes/README.linux.md)**
-for system packages, `install_linux.sh` usage, XDG data locations and troubleshooting.
+Pyxis Effector runs natively on Linux and macOS. Every release ships one package per
+platform with its own ready-to-use Python, so nothing else needs installing (apart from
+ffmpeg where it is not bundled):
 
-Quick start:
-```bash
-cd PyxisNodes && ./install_linux.sh
-# then copy PyxisNodes/ and pyxis.NodeEngine.lua into Aegisub's automation/autoload
-```
+| Platform | Package | Aegisub `autoload` folder |
+| :--- | :--- | :--- |
+| Linux x86-64 | `PyxisEffector-v<version>-linux64.zip` | `~/.config/aegisub/automation/autoload/` |
+| Linux ARM64 | `PyxisEffector-v<version>-linux-arm64.zip` | `~/.config/aegisub/automation/autoload/` |
+| macOS Apple Silicon | `PyxisEffector-v<version>-macos-arm64.zip` | `~/Library/Application Support/Aegisub/automation/autoload/` |
+| macOS Intel | `PyxisEffector-v<version>-macos-x64.zip` | `~/Library/Application Support/Aegisub/automation/autoload/` |
+
+Unzip the package into the `autoload` folder (it creates `PyxisNodes/`), put
+`pyxis.NodeEngine.lua` next to it and run **Automation → Pyxis Node Engine**. If the engine
+is missing, the macro offers to download it automatically.
+
+* Linux: **[PyxisNodes/README.linux.md](PyxisNodes/README.linux.md)** (system dependencies, XDG data locations, installing from source with `install_linux.sh`, troubleshooting).
+* macOS: **[PyxisNodes/README.macos.md](PyxisNodes/README.macos.md)** (Gatekeeper, Homebrew, installing from source with `install_macos.sh`).
+* To build the packages yourself: `python tools/build_release.py` (see `tools/build_release.py --help`).
+
 ---
 
 ## Team and Contributions
@@ -145,7 +155,7 @@ Pyxis Effector integrates and builds upon the following open-source libraries an
 * [**KaTeX**](https://katex.org/): Fast mathematical formula typesetting engine for interface and documentation (MIT Licence).
 * [**Marked.js**](https://marked.js.org/): Markdown parser and compiler for integrated documentation and tooltips (MIT Licence).
 * [**Lupa**](https://github.com/scoder/lupa): High-performance C bridge connecting Python to LuaJIT / Lua 5.1 (MIT Licence).
-* [**PyWebView**](https://pywebview.flowrl.com/): Lightweight desktop webview window wrapper for Windows (BSD-3 Licence).
+* [**PyWebView**](https://pywebview.flowrl.com/): Lightweight desktop webview window wrapper for Windows, macOS and Linux (BSD-3 Licence).
 * [**FFmpeg**](https://ffmpeg.org/): Multimedia decoding, PCM stream extraction, and video processing (LGPL v2.1+ / GPL v2+ Licences).
 * [**Python Runtime (Embedded)**](https://www.python.org/): Embedded Python Software Foundation distribution (PSF Licence).
 

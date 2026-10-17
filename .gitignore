@@ -2,5 +2,13 @@
 __pycache__/
 *.py[cod]
 
-# Entorno virtual creado por PyxisNodes/install_linux.sh
+# Entorno virtual creado por PyxisNodes/install_linux.sh / install_macos.sh
 PyxisNodes/.venv/
+
+# Python independiente de cada plataforma: se genera con tools/build_release.py y se
+# distribuye en las releases, no en el repositorio
+PyxisNodes/python/
+
+# Salida del empaquetador
+dist/
+build/

@@ -1232,6 +1232,11 @@ def _worker_init (line_counter ,cancel_flag ):
     global _WORKER_LINE_COUNTER ,_WORKER_CANCEL_FLAG 
     _WORKER_LINE_COUNTER =line_counter 
     _WORKER_CANCEL_FLAG =cancel_flag 
+    try :
+        from process_utils import start_parent_watchdog 
+        start_parent_watchdog ()
+    except Exception :
+        pass 
 
 def abort_global_multiprocessing ():
     global _GLOBAL_ACTIVE_EXECUTOR 

@@ -1,20 +1,18 @@
-# Pyxis Effector - Python dependencies (Linux / macOS / Windows)
-# Instala con:  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# Pyxis Effector - Python dependencies (Windows / macOS / Linux)
+# Los paquetes de release ya incluyen todo esto (ver tools/build_release.py).
+# Instalación manual desde el código fuente:
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 # Núcleo (obligatorio)
-pywebview>=6.0        # GUI (WebView2 en Windows, WebKitGTK/Qt WebEngine en Linux)
+pywebview>=6.0        # GUI (WebView2 en Windows, Cocoa en macOS, WebKitGTK/Qt WebEngine en Linux).
+                      # Arrastra por sí solo pythonnet (Windows) y pyobjc (macOS).
 bottle>=0.13          # servidor HTTP interno de pywebview
 numpy>=1.26           # motor de partículas y audio
 Pillow>=10.0          # imágenes y métricas de fuente (FreeType)
 pyclipper>=1.3        # operaciones booleanas de polígonos (Clipper2)
 lupa>=2.0             # validación de scripts Lua (opcional pero recomendado)
-
-# Motor tipográfico de alta fidelidad (Linux/macOS: métricas y contornos reales)
-freetype-py>=2.4
-
-# Opcionales (recomendados)
+freetype-py>=2.4      # métricas y contornos tipográficos reales en Linux/macOS
 psutil>=5.9           # ciclo de vida del daemon (sin él se usa os.kill)
-pyopencl>=2024.1      # aceleración GPU OpenCL (fallback automático a CPU)
 
-# Solo Windows (icono nativo de ventana)
-# pythonnet>=3.1
+# Opcionales (aceleración GPU): requirements-optional.txt
+# Linux con bundle autosuficiente (Qt WebEngine): requirements-qt.txt

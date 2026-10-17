@@ -40,6 +40,18 @@ echo "==> Instalando dependencias de Python (puede tardar un momento)"
 "$VENV_DIR/bin/pip" install --quiet -r "$PYXIS_DIR/requirements.txt"
 echo "    Dependencias de Python instaladas correctamente"
 
+# Dependencias opcionales (una a una: si alguna falla, Pyxis sigue funcionando)
+while IFS= read -r line; do
+    spec="${line%%#*}"
+    spec="$(echo "$spec" | xargs)"
+    [ -z "$spec" ] && continue
+    if "$VENV_DIR/bin/pip" install --quiet "$spec" >/dev/null 2>&1; then
+        echo "    [OK] opcional: $spec"
+    else
+        echo "    [··] opcional no instalado: $spec"
+    fi
+done < "$PYXIS_DIR/requirements-optional.txt"
+
 # 4. Comprobaciones del sistema
 echo "==> Comprobando dependencias del sistema"
 WARN=0
@@ -65,6 +77,13 @@ if command -v potrace >/dev/null 2>&1; then
 else
     echo "    [··] potrace no encontrado (opcional: vectorización rápida de imágenes)"
     echo "         Debian/Ubuntu: sudo apt install potrace | Arch: sudo pacman -S potrace"
+fi
+
+if command -v wine >/dev/null 2>&1 || command -v wine64 >/dev/null 2>&1; then
+    echo "    [OK] wine: $(command -v wine || command -v wine64) (telemetría de renderizado)"
+else
+    echo "    [··] wine no encontrado (opcional: libass_profiler, la telemetría de renderizado, es un binario de Windows)"
+    echo "         Debian/Ubuntu: sudo apt install wine | Arch: sudo pacman -S wine"
 fi
 
 # Backend gráfico para la GUI (WebKitGTK o Qt WebEngine)

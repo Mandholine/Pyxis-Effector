@@ -14,33 +14,62 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 # For any question you can visit: https://discord.gg/rYsARc3fB9
 
-"""Resolución de fuentes del sistema a archivos .ttf/.otf/.ttc (fontconfig en POSIX).
+"""Resolución de fuentes del sistema a archivos .ttf/.otf/.ttc.
 
 Provee resolución de nombres de familia tipográfica (p. ej. "Arial") a rutas de
 archivo, para que los motores de métrica (FreeType/PIL) funcionen en Linux/macOS
 de la misma forma que Win32 GDI en Windows.
+
+Orden: fontconfig (si existe) -> índice de familias leído con FreeType de los
+directorios de fuentes de la plataforma -> búsqueda por nombre de archivo.
 """
 
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from typing import Dict, List, Optional, Tuple
 
-_FONT_EXTS = (".ttf", ".otf", ".ttc", ".otc")
+_FONT_EXTS = (".ttf", ".otf", ".ttc", ".otc", ".dfont")
 
-_FONT_SEARCH_DIRS_POSIX = [
-    "/usr/share/fonts",
-    "/usr/local/share/fonts",
-    "/usr/share/fonts/truetype",
-    "/usr/share/fonts/opentype",
-    os.path.join(os.path.expanduser("~"), ".local", "share", "fonts"),
-    os.path.join(os.path.expanduser("~"), ".fonts"),
-]
+_FT_STYLE_FLAG_ITALIC = 1
+_FT_STYLE_FLAG_BOLD = 2
 
 _FILE_SCAN_CACHE: Dict[str, List[str]] = {}
 _RESOLVE_CACHE: Dict[Tuple[str, bool, bool], Optional[str]] = {}
+_FAMILY_INDEX_CACHE: Dict[Tuple[str, ...], Dict[str, List[Tuple[str, bool, bool]]]] = {}
 _CACHE_LOCK = threading.Lock()
+
+
+def font_search_dirs() -> List[str]:
+    """Directorios donde cada plataforma instala fuentes (sistema y usuario)."""
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        dirs = [
+            "/System/Library/Fonts",
+            "/System/Library/Fonts/Supplemental",
+            "/Library/Fonts",
+            os.path.join(home, "Library", "Fonts"),
+        ]
+    elif sys.platform == "win32":
+        dirs = [
+            os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Fonts"),
+        ]
+    else:
+        dirs = [
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share"), "fonts"),
+            os.path.join(home, ".fonts"),
+        ]
+    try:
+        from paths import get_user_data_dir
+        dirs.append(os.path.join(get_user_data_dir(), "fonts"))
+    except Exception:
+        pass
+    return [d for d in dirs if d]
 
 
 def _norm(name: str) -> str:
@@ -112,13 +141,70 @@ def _scan_dir_files(base_dir: str) -> List[str]:
     return found
 
 
+def _decode_ft_name(value) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value or "")
+
+
+def _build_family_index(dirs: List[str]) -> Dict[str, List[Tuple[str, bool, bool]]]:
+    """Lee con FreeType la familia y el estilo de cada fuente: {familia normalizada: [(ruta, bold, italic)]}."""
+    key = tuple(dirs)
+    with _CACHE_LOCK:
+        cached = _FAMILY_INDEX_CACHE.get(key)
+        if cached is not None:
+            return cached
+    index: Dict[str, List[Tuple[str, bool, bool]]] = {}
+    try:
+        import freetype
+    except Exception:
+        freetype = None
+    if freetype is not None:
+        for d in dirs:
+            if not os.path.isdir(d):
+                continue
+            for path in _scan_dir_files(d):
+                try:
+                    first = freetype.Face(path)
+                    for i in range(max(1, int(first.num_faces or 1))):
+                        face = first if i == 0 else freetype.Face(path, i)
+                        family = _norm(_decode_ft_name(face.family_name))
+                        if not family:
+                            continue
+                        flags = int(face.style_flags or 0)
+                        index.setdefault(family, []).append(
+                            (path, bool(flags & _FT_STYLE_FLAG_BOLD), bool(flags & _FT_STYLE_FLAG_ITALIC))
+                        )
+                except Exception:
+                    continue
+    with _CACHE_LOCK:
+        _FAMILY_INDEX_CACHE[key] = index
+    return index
+
+
+def _family_index_lookup(font_name: str, bold: bool, italic: bool,
+                         extra_dirs: Optional[List[str]] = None) -> Optional[str]:
+    """Resuelve por nombre de familia real (no por nombre de archivo); no requiere fontconfig."""
+    req = _norm(font_name)
+    if not req:
+        return None
+    dirs = list(extra_dirs or []) + font_search_dirs()
+    index = _build_family_index(dirs)
+    entries = index.get(req)
+    if not entries:
+        return None
+    # Mejor coincidencia de estilo; ante empate, la ruta más corta (variante base)
+    entries = sorted(entries, key=lambda e: ((e[1] != bold) + (e[2] != italic), len(e[0])))
+    return entries[0][0]
+
+
 def _search_font_dirs(font_name: str, extra_dirs: Optional[List[str]] = None) -> Optional[str]:
     """Búsqueda directa y difusa por nombre de archivo en los directorios de fuentes."""
     req = _norm(font_name)
     if not req:
         return None
     dirs = list(extra_dirs or [])
-    dirs.extend(_FONT_SEARCH_DIRS_POSIX)
+    dirs.extend(font_search_dirs())
 
     all_files: List[str] = []
     for d in dirs:
@@ -144,8 +230,9 @@ def resolve_font_file(font_name: str, bold: bool = False, italic: bool = False,
                       extra_dirs: Optional[List[str]] = None) -> Optional[str]:
     """Resuelve un nombre tipográfico a la ruta de un archivo de fuente instalada.
 
-    Orden: fontconfig (fc-match con estilo) -> búsqueda en directorios de fuentes
-    -> fc-match genérico. Devuelve None si no hay resolución posible.
+    Orden: fontconfig (fc-match con estilo) -> índice de familias (FreeType) ->
+    búsqueda por nombre de archivo -> fc-match genérico. Devuelve None si no hay
+    resolución posible.
     """
     if not font_name:
         return None
@@ -155,6 +242,8 @@ def resolve_font_file(font_name: str, bold: bool = False, italic: bool = False,
             return _RESOLVE_CACHE[key]
 
     result = _fc_match(font_name, bold, italic)
+    if not result:
+        result = _family_index_lookup(font_name, bold, italic, extra_dirs)
     if not result:
         result = _search_font_dirs(font_name, extra_dirs)
     if not result:
@@ -171,3 +260,4 @@ def clear_resolver_cache() -> None:
     with _CACHE_LOCK:
         _RESOLVE_CACHE.clear()
         _FILE_SCAN_CACHE.clear()
+        _FAMILY_INDEX_CACHE.clear()

@@ -5,9 +5,93 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
+
+# libass_profiler solo existe como binario de Windows. Mientras no haya un port nativo,
+# en Linux/macOS se ejecuta mediante Wine. Un `libass_profiler` nativo (en bin/ o en el
+# PATH) tiene prioridad y hace innecesario Wine sin cambiar nada más.
+#   PYXIS_DISABLE_WINE=1   no usar Wine nunca
+#   PYXIS_WINE=<ruta>      ejecutable de wine concreto
+#   PYXIS_WINEPREFIX=<dir> prefijo de Wine (por defecto <datos de usuario>/PyxisNodes/wine)
+_WINE_INIT_LOCK = threading.Lock()
+_WINE_PREFIX_MARKER = ".pyxis_prefix_ready"
+_WINE_RUN_TIMEOUT_S = 600
+_MACOS_WINE_BINARIES = (
+    "/Applications/Wine Stable.app/Contents/Resources/wine/bin/wine",
+    "/Applications/Wine Staging.app/Contents/Resources/wine/bin/wine",
+    "/Applications/Wine Devel.app/Contents/Resources/wine/bin/wine",
+    "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine",
+)
+
+
+def find_wine() -> str | None:
+    """Localiza el ejecutable de Wine, o None si no hay (o está desactivado)."""
+    if os.environ.get("PYXIS_DISABLE_WINE") == "1":
+        return None
+    override = os.environ.get("PYXIS_WINE")
+    if override:
+        return override if os.path.isfile(override) else shutil.which(override)
+    for name in ("wine", "wine64"):
+        found = shutil.which(name)
+        if found:
+            return found
+    if sys.platform == "darwin":
+        for candidate in _MACOS_WINE_BINARIES:
+            if os.path.isfile(candidate):
+                return candidate
+    return None
+
+
+def _wine_env() -> dict:
+    """Entorno aislado para Wine: prefijo propio y sin pantalla (el profiler es de consola)."""
+    try:
+        from paths import get_user_data_dir
+        data_dir = get_user_data_dir()
+    except Exception:
+        data_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "PyxisNodes")
+    env = dict(os.environ)
+    env["WINEPREFIX"] = os.environ.get("PYXIS_WINEPREFIX") or os.path.join(data_dir, "wine")
+    env["WINEARCH"] = "win64"
+    env["WINEDEBUG"] = "-all"
+    env["WINEDLLOVERRIDES"] = "mscoree,mshtml=d"  # evita los diálogos de instalación de Mono/Gecko
+    env.pop("DISPLAY", None)
+    env.pop("WAYLAND_DISPLAY", None)
+    return env
+
+
+def _ensure_wine_prefix(wine: str, env: dict) -> str | None:
+    """Crea el prefijo de Wine una sola vez. Devuelve un mensaje de error, o None si está listo.
+
+    Debe hacerse antes de lanzar los shards en paralelo: varios Wine creando el mismo
+    prefijo a la vez lo corromperían.
+    """
+    prefix = env["WINEPREFIX"]
+    marker = os.path.join(prefix, _WINE_PREFIX_MARKER)
+    if os.path.isfile(marker):
+        return None
+    with _WINE_INIT_LOCK:
+        if os.path.isfile(marker):
+            return None
+        try:
+            os.makedirs(prefix, exist_ok=True)
+            result = subprocess.run([wine, "wineboot", "--init"], env=env, capture_output=True,
+                                    text=True, timeout=240)
+        except subprocess.TimeoutExpired:
+            return f"Wine no terminó de crear el prefijo en {prefix} (tiempo agotado)"
+        except OSError as exc:
+            return f"No se pudo ejecutar Wine ({wine}): {exc}"
+        if result.returncode != 0:
+            tail = (result.stderr or result.stdout or "").strip()[-300:]
+            return f"Wine no pudo crear el prefijo en {prefix} (código {result.returncode}). {tail}"
+        try:
+            with open(marker, "w", encoding="utf-8") as fp:
+                fp.write("ok\n")
+        except OSError:
+            pass
+    return None
 
 
 def parse_ass_time_ms(t_str: str) -> int:
@@ -223,26 +307,62 @@ def parse_profiler_csv(csv_path: str, offset_ms: int = 0, clip_start_ms: int = 0
 
 class ASSTelemetryManager:
     def __init__(self, profiler_exe_path: str | None = None):
-        if profiler_exe_path:
-            self.profiler_exe = profiler_exe_path
-        else:
-            exe_name = "libass_profiler.exe" if os.name == "nt" else "libass_profiler"
-            try:
-                from paths import get_bin_path
-                self.profiler_exe = get_bin_path("libass_profiler")
-            except Exception:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
-                candidates = [
-                    os.path.join(base_dir, "bin", exe_name),
-                    os.path.join(base_dir, "..", "bin", exe_name),
-                    os.path.join(base_dir, exe_name),
-                ]
-                self.profiler_exe = next((c for c in candidates if os.path.exists(c)), candidates[0])
+        self.profiler_exe = profiler_exe_path or self._locate_profiler()
         self._lock = threading.Lock()
         self._job_counter = 0
         self._active_procs = {}
         self._active_dirs = {}
         self._last_result = None
+
+    @staticmethod
+    def _locate_profiler() -> str:
+        """Ruta del profiler: nativo si existe; en POSIX, si no, el .exe de Windows (se ejecuta con Wine)."""
+        exe_name = "libass_profiler.exe" if os.name == "nt" else "libass_profiler"
+        try:
+            from paths import get_bin_path
+            found = get_bin_path("libass_profiler")
+            if os.path.isfile(found):
+                return found
+            if os.name != "nt":
+                found_exe = get_bin_path("libass_profiler.exe")
+                if os.path.isfile(found_exe):
+                    return found_exe
+            return found
+        except Exception:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            names = [exe_name] if os.name == "nt" else [exe_name, exe_name + ".exe"]
+            candidates = [
+                os.path.join(base_dir, rel, name)
+                for name in names
+                for rel in ("bin", os.path.join("..", "bin"), "")
+            ]
+            return next((c for c in candidates if os.path.exists(c)), candidates[0])
+
+    def _resolve_runner(self) -> dict:
+        """Decide cómo ejecutar el profiler: nativo o mediante Wine.
+
+        Devuelve {"kind", "prefix", "env", "timeout", "error"}; ``prefix`` es la lista de
+        argumentos previa al .ass y al .csv. Si no se puede ejecutar, "error" explica por qué.
+        """
+        exe = self.profiler_exe
+        if not exe or not os.path.isfile(exe):
+            return {"error": f"Profiler binary not found: {exe}"}
+
+        if os.name == "nt" or not exe.lower().endswith(".exe"):
+            return {"kind": "native", "prefix": [exe], "env": None, "timeout": None, "error": None}
+
+        wine = find_wine()
+        if not wine:
+            return {"error": (
+                "libass_profiler solo existe como binario de Windows y no se encontró Wine para ejecutarlo. "
+                "Instala wine (p. ej. 'sudo apt install wine' / 'sudo pacman -S wine' / 'brew install --cask wine-stable') "
+                "o coloca un libass_profiler nativo en PyxisNodes/bin/."
+            )}
+        env = _wine_env()
+        prefix_error = _ensure_wine_prefix(wine, env)
+        if prefix_error:
+            return {"error": prefix_error}
+        return {"kind": "wine", "prefix": [wine, exe], "env": env, "timeout": _WINE_RUN_TIMEOUT_S, "error": None}
 
     def get_last_result(self) -> dict | None:
         return self._last_result
@@ -298,14 +418,18 @@ class ASSTelemetryManager:
         t_wall_start = time.perf_counter()
         job_id = self.cancel_active_jobs()
 
-        if not os.path.isfile(self.profiler_exe):
+        runner = self._resolve_runner()
+        if runner.get("error"):
             return {
                 "status": "error",
                 "success": False,
                 "job_id": job_id,
-                "message": f"Profiler binary not found: {self.profiler_exe}",
-                "error": f"Profiler binary not found: {self.profiler_exe}",
+                "message": runner["error"],
+                "error": runner["error"],
             }
+        with self._lock:
+            if self._job_counter != job_id:
+                return {"success": False, "cancelled": True, "job_id": job_id}
 
         fps_val = float(fps) if fps and float(fps) > 0 else 23.976
         frame_budget_ms = round(1000.0 / fps_val, 3)
@@ -346,6 +470,7 @@ class ASSTelemetryManager:
                 "success": True,
                 "job_id": job_id,
                 "source": source,
+                "runner": runner["kind"],
                 "fps": round(fps_val, 3),
                 "frame_budget_ms": frame_budget_ms,
                 "clip_start_ms": eff_start,
@@ -457,9 +582,15 @@ class ASSTelemetryManager:
                 with self._lock:
                     if self._job_counter != job_id:
                         return {"success": False, "cancelled": True, "job_id": job_id}
+                    if runner["kind"] == "wine":
+                        # Wine recibe rutas relativas: cwd ya es work_dir y evita convertir rutas Unix a DOS
+                        profiler_args = [os.path.basename(spec["ass_file"]), os.path.basename(spec["csv_file"])]
+                    else:
+                        profiler_args = [spec["ass_file"], spec["csv_file"]]
                     proc = subprocess.Popen(
-                        [self.profiler_exe, spec["ass_file"], spec["csv_file"]],
+                        [*runner["prefix"], *profiler_args],
                         cwd=work_dir,
+                        env=runner["env"],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         creationflags=creationflags,
@@ -468,11 +599,21 @@ class ASSTelemetryManager:
                     spawned.append((spec, proc))
 
             for spec, proc in spawned:
-                proc.wait()
+                try:
+                    proc.wait(timeout=runner["timeout"])
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                spec["returncode"] = proc.returncode
                 with self._lock:
                     self._active_procs.pop(f"{job_id}_{spec['idx']}", None)
                     if self._job_counter != job_id:
                         return {"success": False, "cancelled": True, "job_id": job_id}
+
+            if runner["kind"] == "wine" and spawned and not any(os.path.isfile(s["csv_file"]) for s, _ in spawned):
+                codes = ", ".join(str(s.get("returncode")) for s, _ in spawned)
+                msg = f"libass_profiler (Wine) no generó resultados (códigos de salida: {codes}). Revisa la instalación de Wine."
+                return {"status": "error", "success": False, "job_id": job_id, "message": msg, "error": msg}
 
             active_frames = []
             for spec, _ in spawned:
@@ -635,6 +776,7 @@ class ASSTelemetryManager:
                 "success": True,
                 "job_id": job_id,
                 "source": source,
+                "runner": runner["kind"],
                 "fps": round(fps_val, 3),
                 "frame_budget_ms": frame_budget_ms,
                 "clip_start_ms": eff_clip_start_ms,

@@ -29,6 +29,24 @@ TEMPLATES_DIR = os.path.join(PYXIS_ROOT_DIR, "templates")
 PREVIEW_BASE_ASS = os.path.join(PYXIS_ROOT_DIR, "preview_base.ass")
 
 IS_WINDOWS = os.name == "nt"
+IS_MACOS = sys.platform == "darwin"
+
+# Una app GUI de macOS (p. ej. Aegisub abierto desde el Finder) hereda un PATH mínimo
+# sin Homebrew, así que ffmpeg/potrace instalados con brew no se encontrarían.
+_MACOS_EXTRA_BIN_DIRS = ("/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin")
+
+
+def ensure_tool_path() -> None:
+    """Añade al final del PATH los directorios habituales de herramientas en macOS."""
+    if not IS_MACOS:
+        return
+    current = os.environ.get("PATH", "").split(os.pathsep)
+    missing = [d for d in _MACOS_EXTRA_BIN_DIRS if d not in current and os.path.isdir(d)]
+    if missing:
+        os.environ["PATH"] = os.pathsep.join([p for p in current if p] + missing)
+
+
+ensure_tool_path()
 
 
 def get_user_data_dir() -> str:

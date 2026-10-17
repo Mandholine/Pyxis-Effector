@@ -16,6 +16,7 @@
 
 import json
 import os
+import sys
 import time
 import threading
 import urllib.request
@@ -359,6 +360,17 @@ class PyxisDaemonServer:
             try:
                 import shutil as _shutil
                 import subprocess as _sp
+                if sys.platform == "darwin":
+                    try:
+                        from AppKit import NSApplication
+                        from PyObjCTools import AppHelper
+                        AppHelper.callAfter(lambda: NSApplication.sharedApplication().activateIgnoringOtherApps_(True))
+                    except Exception:
+                        _sp.run(["osascript", "-e",
+                                 f'tell application "System Events" to set frontmost of '
+                                 f'(first process whose unix id is {os.getpid()}) to true'],
+                                capture_output=True, timeout=5)
+                    return True
                 if title and _shutil.which("wmctrl"):
                     _sp.run(["wmctrl", "-a", str(title)], capture_output=True, timeout=5)
                 elif title and _shutil.which("xdotool"):
