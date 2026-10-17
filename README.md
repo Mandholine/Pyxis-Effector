@@ -124,7 +124,7 @@ motor, la macro ofrece descargarlo automáticamente.
 
 * Linux: **[PyxisNodes/README.linux.md](PyxisNodes/README.linux.md)** (dependencias del sistema, datos XDG, instalación desde el código fuente con `install_linux.sh`, solución de problemas).
 * macOS: **[PyxisNodes/README.macos.md](PyxisNodes/README.macos.md)** (Gatekeeper, Homebrew, instalación desde el código fuente con `install_macos.sh`).
-* Para construir los paquetes tú mismo: `python tools/build_release.py` (ver `tools/build_release.py --help`).
+* Para construir los paquetes tú mismo (y para obtener o compilar ffmpeg): [tools/README.md](tools/README.md).
 
 ---
 

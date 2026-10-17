@@ -5,6 +5,9 @@ name: Build release packages
 #
 # - Al subir una etiqueta v* se crean los paquetes y se adjuntan a la release.
 # - Con "Run workflow" solo se generan como artefactos descargables (prueba).
+#
+# ffmpeg se descarga y se verifica (SHA-256) desde los proveedores definidos en
+# tools/get_ffmpeg.py; no hace falta indicar URLs aquí.
 
 on:
   push:
@@ -24,19 +27,14 @@ jobs:
         include:
           - platform: win64
             runner: windows-latest
-            ffmpeg: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
           - platform: linux64
             runner: ubuntu-latest
-            ffmpeg: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
-            ffmpeg: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz
           - platform: macos-arm64
             runner: macos-latest
-            ffmpeg: https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip
           - platform: macos-x64
             runner: macos-15-intel
-            ffmpeg: https://ffmpeg.martin-riedl.de/redirect/latest/macos/amd64/release/ffmpeg.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +46,7 @@ jobs:
       - name: Build package
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python tools/build_release.py --platform ${{ matrix.platform }} --ffmpeg-url "${{ matrix.ffmpeg }}"
+        run: python tools/build_release.py --platform ${{ matrix.platform }}
 
       - uses: actions/upload-artifact@v4
         with:

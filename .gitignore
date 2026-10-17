@@ -12,3 +12,9 @@ PyxisNodes/python/
 # Salida del empaquetador
 dist/
 build/
+
+# ffmpeg descargado/compilado con tools/get_ffmpeg.py (no se versiona)
+PyxisNodes/bin/ffmpeg
+PyxisNodes/bin/ffmpeg.exe
+PyxisNodes/bin/ffmpeg-build-info.json
+PyxisNodes/bin/FFMPEG-NOTICE.txt

@@ -37,9 +37,12 @@ Si la macro descarga el motor por sí misma, ejecuta ese comando automáticament
 
 ### ffmpeg
 
-Si tu paquete no lo incluye, instálalo con Homebrew (`brew install ffmpeg`). Pyxis busca
-también en `/opt/homebrew/bin` y `/usr/local/bin`, aunque Aegisub se abra desde el Finder
-con un `PATH` mínimo. `potrace` es opcional (`brew install potrace`).
+El paquete incluye un ffmpeg nativo para tu arquitectura (de [ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de),
+con libx264, libass, libwebp y VideoToolbox, verificado por SHA-256). Si se construyó con `--no-ffmpeg`,
+instálalo con Homebrew (`brew install ffmpeg`); Pyxis busca también en `/opt/homebrew/bin` y `/usr/local/bin`,
+aunque Aegisub se abra desde el Finder con un `PATH` mínimo. `potrace` es opcional (`brew install potrace`).
+
+Para compilar tu propio ffmpeg desde el código fuente: [tools/README.md](../tools/README.md).
 
 ---
 

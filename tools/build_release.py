@@ -26,17 +26,16 @@ máquina de la misma plataforma y arquitectura que el destino, porque las depend
 son binarias y se ejecutan durante la construcción:
 
     python tools/build_release.py                       # plataforma actual
-    python tools/build_release.py --platform macos-arm64 --ffmpeg-url <url>
+    python tools/build_release.py --ffmpeg-build        # compilando ffmpeg desde el código fuente
+    python tools/build_release.py --no-ffmpeg           # sin ffmpeg
 
+Por defecto incluye un ffmpeg descargado y verificado (ver tools/get_ffmpeg.py).
 Solo usa la biblioteca estándar.
 """
 
 import argparse
-import hashlib
-import http.client
 import json
 import os
-import platform
 import re
 import shutil
 import stat
@@ -45,54 +44,26 @@ import sys
 import tarfile
 import tempfile
 import time
-import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Optional
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-NODES_DIR = REPO_ROOT / "PyxisNodes"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import get_ffmpeg  # noqa: E402
+from common import NODES_DIR, PLATFORMS, REPO_ROOT, host_platform, http_get, log, sha256_file, warn  # noqa: E402
+
 LUA_FILE = REPO_ROOT / "pyxis.NodeEngine.lua"
 
 PBS_REPO = "astral-sh/python-build-standalone"
 
-# plataforma -> (triple de python-build-standalone, ejecutable de ffmpeg)
+# plataforma -> triple de python-build-standalone
 TARGETS = {
-    "win64": ("x86_64-pc-windows-msvc", "ffmpeg.exe"),
-    "linux64": ("x86_64-unknown-linux-gnu", "ffmpeg"),
-    "linux-arm64": ("aarch64-unknown-linux-gnu", "ffmpeg"),
-    "macos-arm64": ("aarch64-apple-darwin", "ffmpeg"),
-    "macos-x64": ("x86_64-apple-darwin", "ffmpeg"),
+    "win64": "x86_64-pc-windows-msvc",
+    "linux64": "x86_64-unknown-linux-gnu",
+    "linux-arm64": "aarch64-unknown-linux-gnu",
+    "macos-arm64": "aarch64-apple-darwin",
+    "macos-x64": "x86_64-apple-darwin",
 }
-
-# Fuentes de ffmpeg estáticos que usa el workflow de CI (se pasan con --ffmpeg-url).
-FFMPEG_NOTE = (
-    "win64/linux64/linux-arm64: https://github.com/BtbN/FFmpeg-Builds (GPL); "
-    "macOS: https://ffmpeg.martin-riedl.de"
-)
-
-
-def log(msg: str) -> None:
-    print(f"==> {msg}", flush=True)
-
-
-def warn(msg: str) -> None:
-    print(f"[!!] {msg}", file=sys.stderr, flush=True)
-
-
-def host_platform() -> str:
-    machine = platform.machine().lower()
-    arm = machine in ("arm64", "aarch64")
-    system = platform.system()
-    if system == "Windows":
-        if arm:
-            raise SystemExit("Windows ARM64 no está soportado todavía.")
-        return "win64"
-    if system == "Darwin":
-        return "macos-arm64" if arm else "macos-x64"
-    if system == "Linux":
-        return "linux-arm64" if arm else "linux64"
-    raise SystemExit(f"Sistema no soportado: {system}")
 
 
 def read_version() -> str:
@@ -100,28 +71,6 @@ def read_version() -> str:
     if not match:
         raise SystemExit(f"No se encontró script_version en {LUA_FILE}")
     return match.group(1)
-
-
-def http_get(url: str, dest: Optional[Path] = None):
-    headers = {"User-Agent": "pyxis-build-release"}
-    token = os.environ.get("GITHUB_TOKEN")
-    if token and url.startswith("https://api.github.com/"):
-        headers["Authorization"] = f"Bearer {token}"
-    request = urllib.request.Request(url, headers=headers)
-    attempts = 4
-    for attempt in range(1, attempts + 1):
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                if dest is None:
-                    return response.read()
-                with open(dest, "wb") as out:
-                    shutil.copyfileobj(response, out)
-            return None
-        except (OSError, http.client.HTTPException) as exc:
-            if attempt == attempts:
-                raise
-            warn(f"Descarga fallida ({exc}); reintento {attempt}/{attempts - 1}")
-            time.sleep(2 * attempt)
 
 
 def resolve_python_url(version: str, triple: str, tag: Optional[str]) -> str:
@@ -156,7 +105,7 @@ def python_exe(python_dir: Path, plat: str) -> Path:
 
 
 def install_python(stage_python: Path, plat: str, version: str, url: Optional[str], tag: Optional[str], work: Path) -> None:
-    triple = TARGETS[plat][0]
+    triple = TARGETS[plat]
     url = url or resolve_python_url(version, triple, tag)
     archive = work / "python.tar.gz"
     log("Descargando Python independiente")
@@ -232,66 +181,15 @@ def copy_nodes_tree(stage_nodes: Path, plat: str) -> None:
         warn("no hay libass_profiler nativo: en este paquete la telemetría de render requerirá Wine en el sistema del usuario")
 
 
-def find_in_archive_and_extract(archive: Path, exe_name: str, dest: Path) -> bool:
-    name = archive.name.lower()
-    if name.endswith(".zip"):
-        with zipfile.ZipFile(archive) as zf:
-            for member in zf.namelist():
-                if Path(member).name == exe_name and not member.endswith("/"):
-                    with zf.open(member) as src, open(dest, "wb") as out:
-                        shutil.copyfileobj(src, out)
-                    return True
-        return False
-    if name.endswith((".tar.xz", ".tar.gz", ".tgz", ".tar.bz2", ".tar")):
-        with tarfile.open(archive) as tar:
-            for member in tar.getmembers():
-                if member.isfile() and Path(member.name).name == exe_name:
-                    src = tar.extractfile(member)
-                    with open(dest, "wb") as out:
-                        shutil.copyfileobj(src, out)
-                    return True
-        return False
-    if name.endswith(".rar"):
-        with tempfile.TemporaryDirectory() as tmp:
-            for cmd in (["7z", "x", "-y", f"-o{tmp}", str(archive)],
-                        ["7zz", "x", "-y", f"-o{tmp}", str(archive)],
-                        ["bsdtar", "-xf", str(archive), "-C", tmp],
-                        ["unrar", "x", "-y", str(archive), tmp + os.sep]):
-                if shutil.which(cmd[0]) and subprocess.run(cmd, capture_output=True).returncode == 0:
-                    for found in Path(tmp).rglob(exe_name):
-                        shutil.copy2(found, dest)
-                        return True
-        warn("No se pudo extraer el .rar (se necesita 7z, bsdtar o unrar)")
-        return False
-    return False
-
-
-def install_ffmpeg(stage_bin: Path, plat: str, source: Optional[str], work: Path) -> None:
-    exe_name = TARGETS[plat][1]
-    dest = stage_bin / exe_name
-
-    if not source and plat == "win64" and (NODES_DIR / "bin" / "ffmpeg.rar").is_file():
-        source = str(NODES_DIR / "bin" / "ffmpeg.rar")
-
-    if not source:
-        warn(f"ffmpeg no incluido en el paquete: los usuarios necesitarán ffmpeg en el PATH ({FFMPEG_NOTE})")
-        return
-
-    if source.startswith(("http://", "https://")):
-        log("Descargando ffmpeg")
-        archive = work / source.split("?", 1)[0].rsplit("/", 1)[-1]
-        http_get(source, archive)
-    else:
-        archive = Path(source)
-        if not archive.is_file():
-            raise SystemExit(f"No existe el archivo de ffmpeg: {archive}")
-
-    if archive.name == exe_name:
-        shutil.copy2(archive, dest)
-    elif not find_in_archive_and_extract(archive, exe_name, dest):
-        raise SystemExit(f"No se encontró {exe_name} dentro de {archive.name}")
-    dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    log(f"ffmpeg incluido: {dest.name}")
+def install_ffmpeg(stage_bin: Path, plat: str, args, work: Path) -> Optional[dict]:
+    """Deja ffmpeg en el paquete: build alojado verificado (por defecto), local, o compilado."""
+    if args.no_ffmpeg:
+        warn("ffmpeg no incluido en el paquete: los usuarios necesitarán ffmpeg en el PATH")
+        return None
+    return get_ffmpeg.install(
+        plat, stage_bin, url=args.ffmpeg_url, sha256=args.ffmpeg_sha256, path=args.ffmpeg_path,
+        build=args.ffmpeg_build, work=work,
+    )
 
 
 def precompile(py: Path, stage_python: Path, stage_nodes: Path) -> None:
@@ -331,12 +229,16 @@ def write_zip(stage_nodes: Path, zip_path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--platform", choices=sorted(TARGETS), default=None, help="plataforma destino (por defecto, la actual)")
+    parser.add_argument("--platform", choices=PLATFORMS, default=None, help="plataforma destino (por defecto, la actual)")
     parser.add_argument("--python", default="3.12", help="versión menor de CPython a incluir (por defecto 3.12)")
     parser.add_argument("--python-url", help="URL de un python-build-standalone concreto (install_only*.tar.gz)")
     parser.add_argument("--pbs-tag", help="release fijo de python-build-standalone (por defecto, el último)")
-    parser.add_argument("--ffmpeg-url", help="URL de un archivo (zip/tar) que contenga ffmpeg")
-    parser.add_argument("--ffmpeg-path", help="ruta a un ffmpeg, o a un archivo que lo contenga")
+    ff = parser.add_argument_group("ffmpeg (por defecto se descarga y verifica el build de tools/get_ffmpeg.py)")
+    ff.add_argument("--ffmpeg-url", help="descargar este archivo (zip/tar) en lugar del build por defecto")
+    ff.add_argument("--ffmpeg-sha256", help="SHA-256 esperado de --ffmpeg-url")
+    ff.add_argument("--ffmpeg-path", help="usar un ffmpeg local (binario o archivo que lo contenga)")
+    ff.add_argument("--ffmpeg-build", action="store_true", help="compilar ffmpeg desde el código fuente (Linux/macOS; ver tools/build_ffmpeg.py)")
+    ff.add_argument("--no-ffmpeg", action="store_true", help="no incluir ffmpeg")
     parser.add_argument("--no-qt", action="store_true", help="en Linux, no incluir Qt WebEngine (se usará WebKitGTK del sistema)")
     parser.add_argument("--out", default=str(REPO_ROOT / "dist"), help="carpeta de salida (por defecto dist/)")
     parser.add_argument("--keep-stage", action="store_true", help="conserva la carpeta temporal de construcción")
@@ -366,7 +268,7 @@ def main() -> int:
             raise SystemExit(f"No se encontró el intérprete en {py}")
 
         install_dependencies(py, plat, with_qt=not args.no_qt)
-        install_ffmpeg(stage_nodes / "bin", plat, args.ffmpeg_path or args.ffmpeg_url, work)
+        ffmpeg_info = install_ffmpeg(stage_nodes / "bin", plat, args, work)
         precompile(py, stage_python, stage_nodes)
 
         info = {
@@ -375,11 +277,13 @@ def main() -> int:
             "python": subprocess.run([str(py), "-c", "import platform;print(platform.python_version())"],
                                      capture_output=True, text=True).stdout.strip(),
             "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "ffmpeg": ({k: ffmpeg_info.get(k) for k in ("provider", "url", "sha256", "version_string")}
+                       if ffmpeg_info else None),
         }
         (stage_nodes / "BUILD_INFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
 
         write_zip(stage_nodes, zip_path)
-        digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+        digest = sha256_file(zip_path)
         (zip_path.parent / (zip_path.name + ".sha256")).write_text(f"{digest}  {zip_path.name}\n", encoding="utf-8")
         log(f"Listo: {zip_path} ({zip_path.stat().st_size / 1_048_576:.0f} MB)")
         log(f"SHA-256: {digest}")

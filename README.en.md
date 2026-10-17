@@ -124,7 +124,7 @@ is missing, the macro offers to download it automatically.
 
 * Linux: **[PyxisNodes/README.linux.md](PyxisNodes/README.linux.md)** (system dependencies, XDG data locations, installing from source with `install_linux.sh`, troubleshooting).
 * macOS: **[PyxisNodes/README.macos.md](PyxisNodes/README.macos.md)** (Gatekeeper, Homebrew, installing from source with `install_macos.sh`).
-* To build the packages yourself: `python tools/build_release.py` (see `tools/build_release.py --help`).
+* To build the packages yourself (and to download or compile ffmpeg): [tools/README.md](tools/README.md) (in Spanish).
 
 ---
 

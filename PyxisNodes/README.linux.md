@@ -13,7 +13,7 @@ Descarga `PyxisEffector-v<versión>-linux64.zip` (o `linux-arm64`) desde
 las dependencias y Qt WebEngine para la interfaz. La macro también ofrece descargarlo
 sola la primera vez. Solo hace falta lo que el paquete no puede llevar:
 
-* `ffmpeg` incluido en el paquete; si se compiló sin él, instálalo con tu gestor de paquetes.
+* `ffmpeg`: el paquete incluye uno (build GPL de BtbN con libx264, libass y libwebp, verificado por SHA-256). Si se construyó con `--no-ffmpeg`, instálalo con tu gestor de paquetes.
 * Las bibliotecas de sistema que exige Qt WebEngine (en un escritorio normal ya están
   instaladas: `libnss3`, `libxkbcommon`, `libxcb-*`…).
 
@@ -115,7 +115,7 @@ En Windows se mantiene el comportamiento histórico (`%APPDATA%\PyxisNodes`).
 | Editor de nodos, preview, partículas | ✔ | ✔ |
 | Métricas y contornos tipográficos | Win32 GDI | **FreeType + fontconfig** (`freetype-py`) |
 | Texto a forma vectorial (`text_to_shape`) | Contornos GDI | Contornos FreeType reales |
-| Audio / vídeo | ffmpeg empaquetado | ffmpeg del sistema |
+| Audio / vídeo | ffmpeg empaquetado | ffmpeg empaquetado en el paquete de release; del sistema si instalas desde el código fuente |
 | Vectorización de imágenes | potrace.exe | potrace del sistema (fallback Python) |
 | GPU OpenCL / CUDA | ✔ | ✔ (pyopencl / CPU fallback) |
 | Telemetría libass (`libass_profiler`) | ✔ | ✔ mediante **Wine** (ver abajo); sin Wine, error controlado |
@@ -129,7 +129,8 @@ Notas:
 * Si clonaste el repositorio, `PyxisNodes/python/` puede contener el runtime de Windows
   (`python.exe`); no se usa en Linux. Los paquetes de Linux se generan con
   `python tools/build_release.py` y no comparten ese directorio.
-* `bin/*.exe` y `bin/ffmpeg.rar` tampoco se usan en Linux.
+* `bin/*.exe` no se usa en Linux, salvo `libass_profiler.exe` mediante Wine (ver arriba).
+* Para obtener o compilar un ffmpeg propio desde el repositorio, consulta [tools/README.md](../tools/README.md) (`python tools/get_ffmpeg.py` o `python tools/get_ffmpeg.py --build`).
 * **Telemetría de renderizado:** `libass_profiler` solo existe como binario de Windows
   (`bin/libass_profiler.exe`). Si hay `wine` instalado, Pyxis lo ejecuta con él de forma
   automática (es una herramienta de consola, no necesita pantalla). Es una solución
