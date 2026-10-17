@@ -226,8 +226,17 @@ class ASSTelemetryManager:
         if profiler_exe_path:
             self.profiler_exe = profiler_exe_path
         else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            self.profiler_exe = os.path.join(base_dir, "libass_profiler.exe")
+            try:
+                from paths import get_bin_path
+                self.profiler_exe = get_bin_path("libass_profiler.exe")
+            except Exception:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                candidates = [
+                    os.path.join(base_dir, "bin", "libass_profiler.exe"),
+                    os.path.join(base_dir, "..", "bin", "libass_profiler.exe"),
+                    os.path.join(base_dir, "libass_profiler.exe"),
+                ]
+                self.profiler_exe = next((c for c in candidates if os.path.exists(c)), candidates[0])
         self._lock = threading.Lock()
         self._job_counter = 0
         self._active_procs = {}

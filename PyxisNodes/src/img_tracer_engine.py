@@ -53,10 +53,18 @@ def clear_tracer_cache():
 
 def _get_potrace_exe_path() -> str:
     """Returns path to potrace.exe executable if present and executable."""
+    try:
+        from paths import get_bin_path
+        cand = get_bin_path("potrace.exe")
+        if os.path.isfile(cand) and os.path.getsize(cand) > 10000:
+            return cand
+    except Exception:
+        pass
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(base_dir, "potrace.exe"),
         os.path.join(base_dir, "bin", "potrace.exe"),
+        os.path.join(base_dir, "..", "bin", "potrace.exe"),
+        os.path.join(base_dir, "potrace.exe"),
         "potrace.exe"
     ]
     for cand in candidates:
@@ -66,10 +74,22 @@ def _get_potrace_exe_path() -> str:
 
 
 def _get_ffmpeg_exe_path() -> str:
+    try:
+        from paths import get_bin_path
+        cand = get_bin_path("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+        if os.path.isfile(cand):
+            return cand
+    except Exception:
+        pass
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    local_ffmpeg = os.path.join(base_dir, "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
-    if os.path.isfile(local_ffmpeg):
-        return local_ffmpeg
+    candidates = [
+        os.path.join(base_dir, "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg"),
+        os.path.join(base_dir, "..", "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg"),
+        os.path.join(base_dir, "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    ]
+    for cand in candidates:
+        if os.path.isfile(cand):
+            return cand
     import shutil
     sys_ffmpeg = shutil.which("ffmpeg")
     if sys_ffmpeg:

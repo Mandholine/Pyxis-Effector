@@ -5,7 +5,7 @@ It documents the node topology, injected namespaces, the native replacement func
 
 ---
 
-## 1. Node Topology, Ports, and Data Flow
+## 1. Topology, Ports, and Data Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

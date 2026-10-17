@@ -29,10 +29,24 @@ class AudioPreprocessor:
     @staticmethod
     def get_ffmpeg_path() -> Optional[str]:
         """Locates ffmpeg executable in PyxisNodes or system PATH."""
+        try:
+            from paths import get_bin_path
+            target = get_bin_path("ffmpeg.exe")
+            if os.path.isfile(target):
+                return target
+        except Exception:
+            pass
+
         local_dir = os.path.dirname(os.path.abspath(__file__))
-        local_ffmpeg = os.path.join(local_dir, "ffmpeg.exe")
-        if os.path.isfile(local_ffmpeg):
-            return local_ffmpeg
+        candidates = [
+            os.path.join(local_dir, "bin", "ffmpeg.exe"),
+            os.path.join(local_dir, "..", "bin", "ffmpeg.exe"),
+            os.path.join(local_dir, "ffmpeg.exe"),
+            os.path.join(local_dir, "..", "ffmpeg.exe"),
+        ]
+        for cand in candidates:
+            if os.path.isfile(cand):
+                return cand
 
         appdata_dir = os.environ.get("APPDATA")
         if appdata_dir:
