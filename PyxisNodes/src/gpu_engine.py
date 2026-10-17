@@ -161,20 +161,24 @@ class GpuEngineManager:
                 pass
 
             if sys.platform == "win32":
-                opencl_dll_path = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "OpenCL.dll")
-                if os.path.exists(opencl_dll_path):
-                    try:
-                        opencl_lib = ctypes.cdll.LoadLibrary(opencl_dll_path)
-                        num_platforms = ctypes.c_uint32()
-                        res_code = opencl_lib.clGetPlatformIDs(0, None, ctypes.byref(num_platforms))
-                        if res_code == 0 and num_platforms.value > 0:
-                            self.backend = "OpenCL (Ctypes Native Runtime)"
-                            self.device_name = f"OpenCL.dll Compatible Device ({num_platforms.value} Platform(s))"
-                            self.is_healthy = True
-                            print(f"[Pyxis GPU Engine] OpenCL Live Probe OK! Active backend: {self.backend} - {self.device_name}", flush=True)
-                            return True
-                    except Exception as cl_err:
-                        print(f"[Pyxis GPU Engine] OpenCL.dll probe exception: {cl_err}", flush=True)
+                opencl_lib_candidates = [os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "OpenCL.dll")]
+            else:
+                opencl_lib_candidates = ["libOpenCL.so.1", "libOpenCL.so"]
+            for opencl_dll_path in opencl_lib_candidates:
+                if os.path.isabs(opencl_dll_path) and not os.path.exists(opencl_dll_path):
+                    continue
+                try:
+                    opencl_lib = ctypes.cdll.LoadLibrary(opencl_dll_path)
+                    num_platforms = ctypes.c_uint32()
+                    res_code = opencl_lib.clGetPlatformIDs(0, None, ctypes.byref(num_platforms))
+                    if res_code == 0 and num_platforms.value > 0:
+                        self.backend = "OpenCL (Ctypes Native Runtime)"
+                        self.device_name = f"{os.path.basename(opencl_dll_path)} Compatible Device ({num_platforms.value} Platform(s))"
+                        self.is_healthy = True
+                        print(f"[Pyxis GPU Engine] OpenCL Live Probe OK! Active backend: {self.backend} - {self.device_name}", flush=True)
+                        return True
+                except Exception as cl_err:
+                    print(f"[Pyxis GPU Engine] {opencl_dll_path} probe exception: {cl_err}", flush=True)
 
         except Exception as e:
             print(f"[Pyxis GPU Engine] OpenCL Live Probe failed ({e}). Using CPU Fallback...", flush=True)

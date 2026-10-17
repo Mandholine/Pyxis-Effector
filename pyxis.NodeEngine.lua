@@ -57,63 +57,141 @@ else
     karaskel = _G.karaskel
 end
 
-ffi.cdef[[
-    void Sleep(int dwMilliseconds);
-    int ShellExecuteA(void* hwnd, const char* lpOperation, const char* lpFile, const char* lpParameters, const char* lpDirectory, int nShowCmd);
-    uint32_t GetCurrentProcessId(void);
-    bool AllowSetForegroundWindow(uint32_t dwProcessId);
-    bool CreateDirectoryA(const char* lpPathName, void* lpSecurityAttributes);
+-- [CROSS-PLATFORM LAYER]
+-- Windows: funciones Win32 vía FFI (kernel32/shell32/user32/wininet).
+-- Linux/macOS: equivalencias POSIX (libc vía ffi.C, curl/wget, nohup).
+local IS_WINDOWS = package.config:sub(1, 1) == "\\"
 
-    void* InternetOpenA(const char* lpszAgent, uint32_t dwAccessType, const char* lpszProxy, const char* lpszProxyBypass, uint32_t dwFlags);
-    void* InternetConnectA(void* hInternet, const char* lpszServerName, uint16_t nServerPort, const char* lpszUsername, const char* lpszPassword, uint32_t dwService, uint32_t dwFlags, uintptr_t dwContext);
-    void* HttpOpenRequestA(void* hConnect, const char* lpszVerb, const char* lpszObjectName, const char* lpszVersion, const char* lpszReferrer, const char** lplpszAcceptTypes, uint32_t dwFlags, uintptr_t dwContext);
-    bool HttpSendRequestA(void* hRequest, const char* lpszHeaders, uint32_t dwHeadersLength, void* lpOptional, uint32_t dwOptionalLength);
-    bool InternetReadFile(void* hFile, void* lpBuffer, uint32_t dwNumberOfBytesToRead, uint32_t* lpdwNumberOfBytesRead);
-    bool InternetCloseHandle(void* hInternet);
-]]
-local kernel32 = ffi.load("kernel32")
-local shell32 = ffi.load("shell32")
+local kernel32 = nil
+local shell32 = nil
 local user32 = nil
-pcall(function() user32 = ffi.load("user32") end)
 local wininet = nil
-pcall(function() wininet = ffi.load("wininet") end)
+
+if IS_WINDOWS then
+    ffi.cdef[[
+        void Sleep(int dwMilliseconds);
+        int ShellExecuteA(void* hwnd, const char* lpOperation, const char* lpFile, const char* lpParameters, const char* lpDirectory, int nShowCmd);
+        uint32_t GetCurrentProcessId(void);
+        bool AllowSetForegroundWindow(uint32_t dwProcessId);
+        bool CreateDirectoryA(const char* lpPathName, void* lpSecurityAttributes);
+
+        void* InternetOpenA(const char* lpszAgent, uint32_t dwAccessType, const char* lpszProxy, const char* lpszProxyBypass, uint32_t dwFlags);
+        void* InternetConnectA(void* hInternet, const char* lpszServerName, uint16_t nServerPort, const char* lpszUsername, const char* lpszPassword, uint32_t dwService, uint32_t dwFlags, uintptr_t dwContext);
+        void* HttpOpenRequestA(void* hConnect, const char* lpszVerb, const char* lpszObjectName, const char* lpszVersion, const char* lpszReferrer, const char** lplpszAcceptTypes, uint32_t dwFlags, uintptr_t dwContext);
+        bool HttpSendRequestA(void* hRequest, const char* lpszHeaders, uint32_t dwHeadersLength, void* lpOptional, uint32_t dwOptionalLength);
+        bool InternetReadFile(void* hFile, void* lpBuffer, uint32_t dwNumberOfBytesToRead, uint32_t* lpdwNumberOfBytesRead);
+        bool InternetCloseHandle(void* hInternet);
+    ]]
+    kernel32 = ffi.load("kernel32")
+    shell32 = ffi.load("shell32")
+    pcall(function() user32 = ffi.load("user32") end)
+    pcall(function() wininet = ffi.load("wininet") end)
+else
+    ffi.cdef[[
+        int usleep(unsigned int useconds);
+        int getpid(void);
+    ]]
+end
+
+local function sleep_ms(ms)
+    if IS_WINDOWS and kernel32 then
+        kernel32.Sleep(ms)
+    else
+        ffi.C.usleep(math.floor(tonumber(ms) or 0) * 1000)
+    end
+end
+
+local function get_process_id()
+    if IS_WINDOWS and kernel32 then
+        return tonumber(kernel32.GetCurrentProcessId()) or 0
+    end
+    return tonumber(ffi.C.getpid()) or 0
+end
+
+local function shell_quote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function has_bin(name)
+    local p = io.popen("command -v " .. tostring(name) .. " 2>/dev/null")
+    if not p then return false end
+    local out = p:read("*l")
+    p:close()
+    return out ~= nil and out ~= ""
+end
 
 local function ping_and_reopen_daemon(payload_json)
-    if not wininet then return false end
-    local hInternet = wininet.InternetOpenA("PyxisLuaClient", 1, nil, nil, 0)
-    if not hInternet or hInternet == ffi.cast("void*", 0) then return false end
+    if IS_WINDOWS and wininet then
+        local hInternet = wininet.InternetOpenA("PyxisLuaClient", 1, nil, nil, 0)
+        if not hInternet or hInternet == ffi.cast("void*", 0) then return false end
 
-    local hConnect = wininet.InternetConnectA(hInternet, "127.0.0.1", 28723, nil, nil, 3, 0, 0)
-    if not hConnect or hConnect == ffi.cast("void*", 0) then
-        wininet.InternetCloseHandle(hInternet)
-        return false
-    end
+        local hConnect = wininet.InternetConnectA(hInternet, "127.0.0.1", 28723, nil, nil, 3, 0, 0)
+        if not hConnect or hConnect == ffi.cast("void*", 0) then
+            wininet.InternetCloseHandle(hInternet)
+            return false
+        end
 
-    local hRequest = wininet.HttpOpenRequestA(hConnect, "POST", "/reopen", nil, nil, nil, 0x80000000, 0)
-    if not hRequest or hRequest == ffi.cast("void*", 0) then
+        local hRequest = wininet.HttpOpenRequestA(hConnect, "POST", "/reopen", nil, nil, nil, 0x80000000, 0)
+        if not hRequest or hRequest == ffi.cast("void*", 0) then
+            wininet.InternetCloseHandle(hConnect)
+            wininet.InternetCloseHandle(hInternet)
+            return false
+        end
+
+        local headers = "Content-Type: application/json\r\n"
+        local res = wininet.HttpSendRequestA(hRequest, headers, #headers, ffi.cast("void*", payload_json), #payload_json)
+        local reopened = false
+        if res then
+            local buf = ffi.new("char[512]")
+            local bytes_read = ffi.new("uint32_t[1]")
+            if wininet.InternetReadFile(hRequest, buf, 512, bytes_read) and bytes_read[0] > 0 then
+                local str_resp = ffi.string(buf, bytes_read[0])
+                if str_resp:match("reopened") then
+                    reopened = true
+                end
+            end
+        end
+
+        wininet.InternetCloseHandle(hRequest)
         wininet.InternetCloseHandle(hConnect)
         wininet.InternetCloseHandle(hInternet)
-        return false
+
+        return reopened
     end
 
-    local headers = "Content-Type: application/json\r\n"
-    local res = wininet.HttpSendRequestA(hRequest, headers, #headers, ffi.cast("void*", payload_json), #payload_json)
+    -- Linux/macOS: curl o wget contra el daemon local (127.0.0.1:28723)
+    local tmp = os.tmpname()
+    local f = io.open(tmp, "w")
+    if not f then return false end
+    f:write(payload_json)
+    f:close()
+
+    local cmd = nil
+    if has_bin("curl") then
+        cmd = string.format(
+            "curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary @%s http://127.0.0.1:28723/reopen 2>/dev/null",
+            shell_quote(tmp)
+        )
+    elseif has_bin("wget") then
+        cmd = string.format(
+            "wget -q -T 2 -O - --post-file=%s --header='Content-Type: application/json' http://127.0.0.1:28723/reopen 2>/dev/null",
+            shell_quote(tmp)
+        )
+    end
+
     local reopened = false
-    if res then
-        local buf = ffi.new("char[512]")
-        local bytes_read = ffi.new("uint32_t[1]")
-        if wininet.InternetReadFile(hRequest, buf, 512, bytes_read) and bytes_read[0] > 0 then
-            local str_resp = ffi.string(buf, bytes_read[0])
-            if str_resp:match("reopened") then
+    if cmd then
+        local p = io.popen(cmd)
+        if p then
+            local body = p:read("*all") or ""
+            p:close()
+            if body:match("reopened") then
                 reopened = true
             end
         end
     end
 
-    wininet.InternetCloseHandle(hRequest)
-    wininet.InternetCloseHandle(hConnect)
-    wininet.InternetCloseHandle(hInternet)
-
+    os.remove(tmp)
     return reopened
 end
 
@@ -131,7 +209,7 @@ end
 
 local function ensure_dir(path)
     if not path or path == "" then return end
-    if kernel32 and kernel32.CreateDirectoryA then
+    if IS_WINDOWS and kernel32 and kernel32.CreateDirectoryA then
         local current = ""
         for part in path:gmatch("[^\\/]+") do
             if current == "" and (path:sub(2,2) == ":" or path:sub(1,2) == "\\\\") then
@@ -142,10 +220,7 @@ local function ensure_dir(path)
             end
         end
     else
-        pcall(function()
-            local lfs = require("lfs")
-            if lfs and lfs.mkdir then lfs.mkdir(path) end
-        end)
+        os.execute("mkdir -p " .. shell_quote(path))
     end
 end
 
@@ -310,7 +385,7 @@ local function read_valid_session(path, timeout_ms)
             end
         end
 
-        kernel32.Sleep(interval)
+        sleep_ms(interval)
         elapsed = elapsed + interval
     end
 
@@ -358,15 +433,36 @@ function launch_Pyxis(subs, sel, act)
             return nil
         end
 
-        local temp_dir = os.getenv("TEMP") or target_dir
-        local zip_name = "PyxisEffector-v" .. script_version .. "-win64.zip"
+        local temp_dir = (IS_WINDOWS and os.getenv("TEMP")) or os.getenv("TMPDIR") or "/tmp"
+        local arch_tag = IS_WINDOWS and "win64" or "linux64"
+        local zip_name = "PyxisEffector-v" .. script_version .. "-" .. arch_tag .. ".zip"
         local zip_path = join_path(temp_dir, zip_name)
         local download_url = "https://github.com/Mandholine/Pyxis-Effector/releases/download/v" .. script_version .. "/" .. zip_name
-        local bat_file = join_path(temp_dir, "pyxis_installer.bat")
 
-        local f = io.open(bat_file, "w")
-        if f then
-            f:write(string.format([[@echo off
+        if not IS_WINDOWS then
+            -- Linux/macOS: curl/wget + unzip/python3 zipfile
+            aegisub.progress.task("Descargando motor de Pyxis...")
+            local dl_cmd = nil
+            if has_bin("curl") then
+                dl_cmd = string.format("curl -# -L -f -o %s %s", shell_quote(zip_path), shell_quote(download_url))
+            elseif has_bin("wget") then
+                dl_cmd = string.format("wget --progress=bar:force -O %s %s", shell_quote(zip_path), shell_quote(download_url))
+            end
+            if dl_cmd then
+                os.execute(dl_cmd)
+                if has_bin("unzip") then
+                    os.execute(string.format("unzip -o -q %s -d %s", shell_quote(zip_path), shell_quote(target_dir)))
+                else
+                    os.execute(string.format("python3 -m zipfile -e %s %s", shell_quote(zip_path), shell_quote(target_dir)))
+                end
+                pcall(os.remove, zip_path)
+            end
+        else
+            local bat_file = join_path(temp_dir, "pyxis_installer.bat")
+
+            local f = io.open(bat_file, "w")
+            if f then
+                f:write(string.format([[@echo off
 title Descargando Pyxis Effector
 echo Descargando motor de Pyxis (~370 MB)...
 curl.exe -# -L -f -o "%s" "%s"
@@ -382,9 +478,10 @@ echo Reintentando con PowerShell...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'Continue'; (New-Object Net.WebClient).DownloadFile('%s', '%s'); Expand-Archive -Path '%s' -DestinationPath '%s' -Force; Remove-Item '%s' -Force"
 exit /b 0
 ]], zip_path, download_url, zip_path, target_dir, zip_path, download_url, zip_path, zip_path, target_dir, zip_path))
-            f:close()
-            os.execute('cmd.exe /c "' .. bat_file .. '"')
-            pcall(os.remove, bat_file)
+                f:close()
+                os.execute('cmd.exe /c "' .. bat_file .. '"')
+                pcall(os.remove, bat_file)
+            end
         end
 
         local extracted_pyxis = join_path(target_dir, "PyxisNodes")
@@ -426,9 +523,14 @@ exit /b 0
         return
     end
 
-    -- Dynamic temporary directory in %APPDATA%\PyxisNodes\temp_cache
-    local appdata = os.getenv("APPDATA") or (os.getenv("USERPROFILE") and (os.getenv("USERPROFILE") .. "\\AppData\\Roaming")) or base_dir
-    local temp_cache_dir = join_path(join_path(appdata, "PyxisNodes"), "temp_cache")
+    -- Dynamic temporary directory in %APPDATA%\PyxisNodes\temp_cache (Linux: XDG_DATA_HOME)
+    local data_base
+    if IS_WINDOWS then
+        data_base = os.getenv("APPDATA") or (os.getenv("USERPROFILE") and (os.getenv("USERPROFILE") .. "\\AppData\\Roaming")) or "."
+    else
+        data_base = os.getenv("XDG_DATA_HOME") or (os.getenv("HOME") and (os.getenv("HOME") .. "/.local/share")) or "/tmp"
+    end
+    local temp_cache_dir = join_path(join_path(data_base, "PyxisNodes"), "temp_cache")
     ensure_dir(temp_cache_dir)
 
     -- Exclusive files for THIS Aegisub instance in temp_cache
@@ -553,7 +655,7 @@ exit /b 0
     end
 
     local aegisub_version = "3.4.2"
-    local aegisub_pid = kernel32.GetCurrentProcessId()
+    local aegisub_pid = get_process_id()
 
     -- Try instant launch (0ms) by communicating with background Python Daemon if it exists
     local json_payload = string.format(
@@ -570,35 +672,64 @@ exit /b 0
 
     if not daemon_reopened then
         aegisub.progress.task("Launching Pyxis Node Engine...")
-        local params = '-B "' .. main_script .. '" "' .. temp_ass .. '" "' .. result_file .. '" "' .. lock_file .. '" "' .. session_file .. '" "' .. aegisub_version .. '" "' .. tostring(aegisub_pid) .. '"'
 
-        -- Smart detection of Portable vs System Python (prefer pythonw, fallback to python)
-        local portable_pythonw = join_path(Pyxis_dir, "python\\pythonw.exe")
-        local portable_python = join_path(Pyxis_dir, "python\\python.exe")
-        local python_cmd = "pythonw"
-
-        local check_pyw = io.open(portable_pythonw, "r")
-        if check_pyw then
-            check_pyw:close()
-            python_cmd = portable_pythonw
-        else
-            local check_py = io.open(portable_python, "r")
-            if check_py then
-                check_py:close()
-                python_cmd = portable_python
+        if not IS_WINDOWS then
+            -- Linux/macOS: intérprete de Python (venv empaquetado primero, luego PATH)
+            local python_cmd = nil
+            local venv_py = join_path(Pyxis_dir, join_path(".venv", join_path("bin", "python3")))
+            local check_venv = io.open(venv_py, "r")
+            if check_venv then
+                check_venv:close()
+                python_cmd = venv_py
+            elseif has_bin("python3") then
+                python_cmd = "python3"
+            elseif has_bin("python") then
+                python_cmd = "python"
             end
-        end
 
-        local launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
-        if launch_result <= 32 then
-            -- Fallback if pythonw is not registered in system PATH
-            python_cmd = "python"
-            launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
-        end
-        if launch_result <= 32 then
-            aegisub.debug.out("Error launching Python (" .. tostring(python_cmd) .. "). Error code: " .. tostring(launch_result) .. "\n")
-            pcall(os.remove, lock_file)
-            return
+            if not python_cmd then
+                aegisub.dialog.display({{class="label", label="Error: no se encontró Python 3. Instala python3 (o ejecuta PyxisNodes/install_linux.sh)."}}, {"Cerrar"})
+                pcall(os.remove, lock_file)
+                return
+            end
+
+            local cmd_parts = { shell_quote(python_cmd), "-B", shell_quote(main_script) }
+            for _, arg in ipairs({ temp_ass, result_file, lock_file, session_file, aegisub_version, tostring(aegisub_pid) }) do
+                cmd_parts[#cmd_parts + 1] = shell_quote(arg)
+            end
+            local launch_cmd = table.concat(cmd_parts, " ") .. " >/dev/null 2>&1 &"
+            os.execute(launch_cmd)
+        else
+            local params = '-B "' .. main_script .. '" "' .. temp_ass .. '" "' .. result_file .. '" "' .. lock_file .. '" "' .. session_file .. '" "' .. aegisub_version .. '" "' .. tostring(aegisub_pid) .. '"'
+
+            -- Smart detection of Portable vs System Python (prefer pythonw, fallback to python)
+            local portable_pythonw = join_path(Pyxis_dir, "python\\pythonw.exe")
+            local portable_python = join_path(Pyxis_dir, "python\\python.exe")
+            local python_cmd = "pythonw"
+
+            local check_pyw = io.open(portable_pythonw, "r")
+            if check_pyw then
+                check_pyw:close()
+                python_cmd = portable_pythonw
+            else
+                local check_py = io.open(portable_python, "r")
+                if check_py then
+                    check_py:close()
+                    python_cmd = portable_python
+                end
+            end
+
+            local launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
+            if launch_result <= 32 then
+                -- Fallback if pythonw is not registered in system PATH
+                python_cmd = "python"
+                launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
+            end
+            if launch_result <= 32 then
+                aegisub.debug.out("Error launching Python (" .. tostring(python_cmd) .. "). Error code: " .. tostring(launch_result) .. "\n")
+                pcall(os.remove, lock_file)
+                return
+            end
         end
     else
         aegisub.progress.task("Instant launch from background daemon...")
@@ -624,7 +755,7 @@ exit /b 0
         end
 
         check:close()
-        kernel32.Sleep(50)
+        sleep_ms(50)
     end
 
     if cancelled then

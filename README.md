@@ -89,12 +89,14 @@ Pyxis Effector dispone de una documentación técnica exhaustiva organizada en 1
 
 ## Instalación y Uso Rápido
 
-### Requisitos del Sistema
+### Windows
+
+#### Requisitos del Sistema
 * Windows 10 / 11 (64-bit).
 * Aegisub 3.2.x, 3.3.x o 3.4.x (versión instalada o portable).
 * Microsoft Visual C++ Redistributable (2015-2022 x64).
 
-### Instrucciones de Instalación
+#### Instrucciones de Instalación
 1. Descarga el paquete de lanzamiento más reciente desde la sección de [**Releases**](https://github.com/Mandholine/Pyxis-Effector/releases).
 2. Copia el archivo `Pyxis_engine.lua` y el directorio `PyxisNodes` en la carpeta de automatizaciones de Aegisub:
    * **Instalación de usuario estándar:** `%APPDATA%\Aegisub\automation\autoload\`
@@ -102,6 +104,20 @@ Pyxis Effector dispone de una documentación técnica exhaustiva organizada en 1
    * **Instalación portable:** `<Carpeta_Aegisub>\automation\autoload\`
 3. Inicia Aegisub y ejecuta la macro desde la barra superior:
    * **Automatización** $\to$ **Pyxis Node Engine**
+
+### Linux
+
+Pyxis Effector funciona de forma nativa en Linux (GUI GTK/WebKitGTK o Qt WebEngine,
+motor tipográfico FreeType, ffmpeg del sistema). Consulta
+**[PyxisNodes/README.linux.md](PyxisNodes/README.linux.md)** para los paquetes del
+sistema, el uso de `install_linux.sh`, las ubicaciones de datos XDG y la solución
+de problemas.
+
+Inicio rápido:
+```bash
+cd PyxisNodes && ./install_linux.sh
+# después copia PyxisNodes/ y pyxis.NodeEngine.lua a automation/autoload de Aegisub
+```
 ---
 
 ## Equipo y Contribuciones

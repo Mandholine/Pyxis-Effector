@@ -16,8 +16,9 @@
 
 """Preflight dependency checker and one-time verification system for Pyxis Node Engine.
 
-Enforces Microsoft Edge WebView2 Runtime, blocks deprecated MSHTML (Internet Explorer),
-and persists the validation state in %APPDATA%/PyxisNodes/user_config.json.
+Windows: enforces Microsoft Edge WebView2 Runtime, blocks deprecated MSHTML (Internet Explorer).
+Linux/macOS: verifies that a pywebview GUI backend (WebKitGTK or Qt WebEngine) is available.
+Persists the validation state in %APPDATA%/PyxisNodes/user_config.json (XDG dirs on POSIX).
 """
 
 import ctypes
@@ -28,8 +29,12 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
-import winreg
 from datetime import datetime
+
+if sys.platform == "win32":
+    import winreg
+else:
+    winreg = None
 
 logger = logging.getLogger("pyxis.dependency_checker")
 
@@ -40,6 +45,8 @@ MIN_DOTNET_RELEASE = 394802  # .NET Framework 4.6.2
 
 def check_dotnet_installed() -> tuple[bool, int]:
     """Verifies that .NET Framework 4.6.2 or higher is installed."""
+    if winreg is None:
+        return True, 0
     try:
         with winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
@@ -53,6 +60,8 @@ def check_dotnet_installed() -> tuple[bool, int]:
 
 def check_webview2_installed() -> tuple[bool, str]:
     """Checks the Windows Registry for Microsoft Edge WebView2 Runtime."""
+    if winreg is None:
+        return True, "n/a"
     candidate_paths = [
         (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_GUID}"),
         (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_GUID}"),
@@ -210,12 +219,74 @@ def install_webview2_bootstrapper(interactive: bool = True) -> bool:
     return False
 
 
-def ensure_dependencies(config_path: str, interactive: bool = True) -> bool:
-    """Performs the one-time dependency check with persistent caching in AppData.
+def _check_posix_gui_backend() -> tuple[bool, str, str]:
+    """Verifica que exista un backend gráfico usable por pywebview en Linux/macOS.
 
-    Enforces EdgeChromium (WebView2) and strictly blocks fallback to Internet Explorer.
+    Devuelve (ok, backend, detalle). Prefiere GTK + WebKit2GTK, luego Qt WebEngine.
+    """
+    # macOS usa Cocoa nativo (siempre disponible en pywebview)
+    if sys.platform == "darwin":
+        return True, "cocoa", "Cocoa"
+
+    # GTK + WebKit2GTK (backend 'gtk' de pywebview)
+    try:
+        import gi
+        for webkit_ver in ("4.1", "4.0"):
+            try:
+                gi.require_version("WebKit2", webkit_ver)
+                from gi.repository import WebKit2  # noqa: F401
+                return True, "gtk", f"WebKit2GTK {webkit_ver}"
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Qt WebEngine (backend 'qt' de pywebview)
+    for qt_mod in ("PyQt6", "PySide6", "PyQt5"):
+        try:
+            __import__(f"{qt_mod}.QtWebEngineWidgets")
+            return True, "qt", qt_mod
+        except Exception:
+            continue
+
+    return False, "", (
+        "No se encontró ningún backend gráfico para la interfaz de Pyxis.\n\n"
+        "Instala una de estas dependencias según tu distribución:\n"
+        "  • GTK (recomendado): python3-gi, gir1.2-webkit2-4.1 (Debian/Ubuntu)\n"
+        "    o python-gobject, webkit2gtk-4.1 (Arch/Fedora)\n"
+        "  • Qt: python3-pyqt6.qtwebengine / python3-pyqt5.qtwebengine (Debian/Ubuntu)\n"
+        "    o python-pyqt6-webengine (Arch)\n\n"
+        "Además necesita: python3-tk (diálogos de archivo de respaldo)."
+    )
+
+
+def ensure_dependencies(config_path: str, interactive: bool = True) -> bool:
+    """Performs the one-time dependency check with persistent caching.
+
+    Windows: enforces EdgeChromium (WebView2) and blocks Internet Explorer.
+    Linux/macOS: verifies a pywebview GUI backend (WebKitGTK / Qt WebEngine).
     Returns True if environment is valid, False otherwise.
     """
+    if sys.platform != "win32":
+        # 1. Quick Cache Check
+        cached = get_cached_dependency_status(config_path)
+        if cached and cached.get("verified") is True:
+            return True
+
+        ok, backend, detail = _check_posix_gui_backend()
+        if not ok:
+            _show_native_message("Pyxis Effector — Requisito no cumplido", detail, 0x00000010)
+            return False
+
+        status_record = {
+            "verified": True,
+            "gui_backend": backend,
+            "gui_detail": detail,
+            "last_checked": datetime.now().isoformat(),
+        }
+        save_dependency_status(config_path, status_record)
+        return True
+
     # 1. Quick Cache Check: 0 ms overhead on subsequent launches
     cached = get_cached_dependency_status(config_path)
     if cached and cached.get("verified") is True:

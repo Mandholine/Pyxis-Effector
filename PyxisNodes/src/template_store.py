@@ -51,8 +51,13 @@ class TemplateStore:
             self.user_templates_dir = Path(templates_dir)
             self.system_templates_dir = Path(templates_dir)
         else:
-            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
-            self.user_templates_dir = Path(appdata_dir) / "PyxisNodes" / "templates"
+            try:
+                from paths import get_user_data_dir
+                base_dir = get_user_data_dir()
+            except Exception:
+                base_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                base_dir = os.path.join(base_dir, "PyxisNodes")
+            self.user_templates_dir = Path(base_dir) / "templates"
             self.system_templates_dir = Path(__file__).parent / "templates"
 
         self.templates_dir = self.user_templates_dir

@@ -430,6 +430,15 @@ Hierarchically inspects:
                 print(f"[FontVectorEngine GDI Warning] {e}")
 
         if not res_metrics or not res_metrics.shape or res_metrics.shape == "m 0 0":
+            try:
+                res_metrics = cls._text_to_shape_freetype(
+                    text_str, font_name, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val
+                )
+            except Exception as e:
+                print(f"[FontVectorEngine FreeType Warning] {e}")
+                res_metrics = None
+
+        if not res_metrics or not res_metrics.shape or res_metrics.shape == "m 0 0":
             res_metrics = cls._text_to_shape_fallback(
                 text_str, fs_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val
             )
@@ -613,6 +622,296 @@ Hierarchically inspects:
                     i += 1
             else:
                 i += 1
+
+        raw_shape = " ".join(ass_parts)
+
+        return FontVectorMetrics(
+            shape=raw_shape,
+            advance_width=adv_w,
+            cell_height=cell_h,
+            ascent=ascent_val,
+            descent=descent_val,
+            spacing=float(spacing),
+            lsb=lsb_val,
+            rsb=rsb_val,
+            ink_min_x=ink_min_x,
+            ink_min_y=ink_min_y,
+            ink_max_x=ink_max_x,
+            ink_max_y=ink_max_y,
+            ink_width=ink_w,
+            ink_height=ink_h,
+            delta_x=delta_x,
+            delta_y=delta_y
+        )
+
+    # ------------------------------------------------------------------
+    # FreeType outline extraction (Linux / macOS / fallback universal)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _decompose_contour(pts, tgs):
+        """Descompone un contorno TrueType en segmentos ('l', p) / ('q', ctrl, p) / ('c', c1, c2, p).
+
+        Reproduce la semántica de FT_Outline_Decompose: puntos ON=1, CONIC=0, CUBIC=2.
+        """
+        ON, CONIC, CUBIC = 1, 0, 2
+
+        def mid(a, b):
+            return ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5)
+
+        n = len(pts)
+        if n == 0:
+            return [], None
+        if n == 1:
+            return [], pts[0]
+
+        segs = []
+        # Resolución del punto inicial (puede ser virtual)
+        if tgs[0] == ON:
+            start = pts[0]
+            i0 = 1
+        elif tgs[0] == CONIC:
+            if tgs[n - 1] == ON:
+                start = pts[n - 1]; n -= 1; i0 = 1
+            elif tgs[n - 1] == CONIC:
+                start = mid(pts[n - 1], pts[0]); n -= 1; i0 = 1
+            else:
+                start = pts[0]; i0 = 1
+        else:  # CUBIC inicial (raro)
+            if tgs[n - 1] == ON:
+                start = pts[n - 1]; n -= 1; i0 = 1
+            else:
+                start = pts[0]; i0 = 1
+
+        pend_conic = None
+        pend_cubic = []
+
+        for i in range(i0, n):
+            tag = tgs[i]
+            p = pts[i]
+            if tag == ON:
+                if pend_conic is not None:
+                    segs.append(("q", pend_conic, p))
+                    pend_conic = None
+                elif pend_cubic:
+                    c1 = pend_cubic[0]
+                    c2 = pend_cubic[1] if len(pend_cubic) > 1 else pend_cubic[0]
+                    segs.append(("c", c1, c2, p))
+                    pend_cubic = []
+                else:
+                    segs.append(("l", p))
+            elif tag == CONIC:
+                if pend_conic is not None:
+                    mp = mid(pend_conic, p)
+                    segs.append(("q", pend_conic, mp))
+                pend_conic = p
+            else:  # CUBIC
+                pend_cubic.append(p)
+
+        # Cierre del contorno (segmento implícito final hacia el inicio)
+        if pend_conic is not None:
+            segs.append(("q", pend_conic, start))
+        elif pend_cubic:
+            c1 = pend_cubic[0]
+            c2 = pend_cubic[1] if len(pend_cubic) > 1 else pend_cubic[0]
+            segs.append(("c", c1, c2, start))
+        return segs, start
+
+    @staticmethod
+    def _conic_to_cubic(p0, q, p2):
+        """Elevación exacta de curva cuadrática (quadratic) a cúbica para ASS 'b'."""
+        c1 = (p0[0] + 2.0 / 3.0 * (q[0] - p0[0]), p0[1] + 2.0 / 3.0 * (q[1] - p0[1]))
+        c2 = (p2[0] + 2.0 / 3.0 * (q[0] - p2[0]), p2[1] + 2.0 / 3.0 * (q[1] - p2[1]))
+        return c1, c2
+
+    @classmethod
+    def _text_to_shape_freetype(
+        cls,
+        text: str,
+        font_name: str,
+        font_size: float,
+        bold: bool,
+        italic: bool,
+        scale: float,
+        scale_x: float = 100.0,
+        scale_y: float = 100.0,
+        spacing: float = 0.0,
+        anchor: str = "typographic"
+    ) -> FontVectorMetrics:
+        """Extrae contornos reales de glifos vía FreeType, equivalente al camino GDI.
+
+        Requiere freetype-py (opcional) y una fuente resuelta (fontconfig).
+        Coordina exactamente la misma notación de salida ASS y el sistema de
+        anclas que _text_to_shape_gdi.
+        """
+        import freetype
+        from font_resolver import resolve_font_file
+
+        text_w = str(text).rstrip()
+        if not text_w:
+            return FontVectorMetrics()
+
+        font_path = resolve_font_file(font_name, bold=bold, italic=italic)
+        if not font_path:
+            return FontVectorMetrics()
+
+        face = freetype.Face(font_path)
+        face.set_char_size(int(round(float(font_size) * 64.0)))
+
+        tm_height = float(face.size.height)      # 26.6
+        tm_ascent = float(face.size.ascender)    # 26.6
+        tm_descent = abs(float(face.size.descender))
+
+        sp_subpixel = float(spacing) * 64.0
+        pen_x = 0.0
+        total_cx = 0.0
+        all_points = []   # (x, y) en unidades 26.6, y positivo hacia ABAJO (convención GDI)
+
+        for idx, ch in enumerate(text_w):
+            face.load_char(ch, freetype.FT_LOAD_NO_BITMAP | freetype.FT_LOAD_NO_HINTING)
+            glyph = face.glyph
+            outline = glyph.outline
+
+            pts = [(float(p[0]), -float(p[1])) for p in outline.points]  # invertir eje Y (FreeType y-up -> GDI y-down)
+            tgs = []
+            for t in outline.tags:
+                t = int(t)
+                if t & 1:
+                    tgs.append(1)        # ON
+                elif t & 2:
+                    tgs.append(2)        # CUBIC
+                else:
+                    tgs.append(0)        # CONIC
+
+            offset_pts = [(x + pen_x, y) for (x, y) in pts]
+
+            c_start = 0
+            for c_end in list(outline.contours):
+                contour_pts = offset_pts[c_start:c_end + 1]
+                contour_tgs = tgs[c_start:c_end + 1]
+                segs, start = cls._decompose_contour(contour_pts, contour_tgs)
+                if start is not None:
+                    all_points.append(start)
+                    for seg in segs:
+                        if seg[0] == "l":
+                            all_points.append(seg[1])
+                        elif seg[0] == "q":
+                            all_points.append(seg[1])
+                            all_points.append(seg[2])
+                        else:
+                            all_points.append(seg[1])
+                            all_points.append(seg[2])
+                            all_points.append(seg[3])
+                c_start = c_end + 1
+
+            adv_64 = float(glyph.metrics.horiAdvance)
+            if idx < len(text_w) - 1:
+                pen_x += adv_64 + sp_subpixel
+                total_cx += adv_64 + sp_subpixel
+            else:
+                pen_x += adv_64
+                total_cx += adv_64
+
+        if not all_points:
+            return FontVectorMetrics()
+
+        scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0)
+        scale_factor_y = (1.0 / 64.0) * float(scale) * (float(scale_y) / 100.0)
+
+        adv_w = round(total_cx * scale_factor_x, 3)
+        cell_h = round(tm_height * scale_factor_y, 3)
+        ascent_val = round(tm_ascent * scale_factor_y, 3)
+        descent_val = round(tm_descent * scale_factor_y, 3)
+
+        min_px = min(p[0] for p in all_points)
+        max_px = max(p[0] for p in all_points)
+        min_py = min(p[1] for p in all_points)
+        max_py = max(p[1] for p in all_points)
+
+        lsb_val = round(min_px * scale_factor_x, 3)
+        rsb_val = round(adv_w - (max_px * scale_factor_x), 3)
+        ink_w = round(max(0.0, (max_px - min_px) * scale_factor_x), 3)
+        ink_h = round(max(0.0, (max_py - min_py) * scale_factor_y), 3)
+
+        typographic_cx = (total_cx * scale_factor_x) / 2.0
+        typographic_cy = (tm_height * scale_factor_y) / 2.0
+
+        ink_cx = ((min_px + max_px) * scale_factor_x) / 2.0
+        ink_cy = ((min_py + max_py) * scale_factor_y) / 2.0
+
+        delta_x = round(ink_cx - typographic_cx, 3)
+        delta_y = round(ink_cy - typographic_cy, 3)
+
+        ink_min_x = round(min_px * scale_factor_x - typographic_cx, 3)
+        ink_max_x = round(max_px * scale_factor_x - typographic_cx, 3)
+        ink_min_y = round(min_py * scale_factor_y - typographic_cy, 3)
+        ink_max_y = round(max_py * scale_factor_y - typographic_cy, 3)
+
+        anchor_clean = str(anchor).strip().lower()
+        if anchor_clean == "ink":
+            layout_cx = ink_cx
+            layout_cy = ink_cy
+        elif anchor_clean in ("origin", "baseline"):
+            layout_cx = 0.0
+            layout_cy = tm_ascent * scale_factor_y
+        else:
+            layout_cx = typographic_cx
+            layout_cy = typographic_cy
+
+        # Segunda pasada: emisión de la polilínea ASS con la misma semántica GDI
+        pen_x = 0.0
+        ass_parts = []
+        for idx, ch in enumerate(text_w):
+            face.load_char(ch, freetype.FT_LOAD_NO_BITMAP | freetype.FT_LOAD_NO_HINTING)
+            glyph = face.glyph
+            outline = glyph.outline
+
+            pts = [(float(p[0]), -float(p[1])) for p in outline.points]
+            tgs = []
+            for t in outline.tags:
+                t = int(t)
+                if t & 1:
+                    tgs.append(1)
+                elif t & 2:
+                    tgs.append(2)
+                else:
+                    tgs.append(0)
+
+            offset_pts = [(x + pen_x, y) for (x, y) in pts]
+
+            c_start = 0
+            for c_end in list(outline.contours):
+                contour_pts = offset_pts[c_start:c_end + 1]
+                contour_tgs = tgs[c_start:c_end + 1]
+                segs, start = cls._decompose_contour(contour_pts, contour_tgs)
+                if start is not None:
+                    sx = round(start[0] * scale_factor_x - layout_cx, 2)
+                    sy = round(start[1] * scale_factor_y - layout_cy, 2)
+                    ass_parts.append(f"m {sx} {sy}")
+                    for seg in segs:
+                        if seg[0] == "l":
+                            x = round(seg[1][0] * scale_factor_x - layout_cx, 2)
+                            y = round(seg[1][1] * scale_factor_y - layout_cy, 2)
+                            ass_parts.append(f"l {x} {y}")
+                        elif seg[0] == "q":
+                            c1, c2 = cls._conic_to_cubic(start, seg[1], seg[2])
+                            start_q = seg[2]
+                            x1 = round(c1[0] * scale_factor_x - layout_cx, 2); y1 = round(c1[1] * scale_factor_y - layout_cy, 2)
+                            x2 = round(c2[0] * scale_factor_x - layout_cx, 2); y2 = round(c2[1] * scale_factor_y - layout_cy, 2)
+                            x3 = round(start_q[0] * scale_factor_x - layout_cx, 2); y3 = round(start_q[1] * scale_factor_y - layout_cy, 2)
+                            ass_parts.append(f"b {x1} {y1} {x2} {y2} {x3} {y3}")
+                            start = start_q
+                        else:
+                            x1 = round(seg[1][0] * scale_factor_x - layout_cx, 2); y1 = round(seg[1][1] * scale_factor_y - layout_cy, 2)
+                            x2 = round(seg[2][0] * scale_factor_x - layout_cx, 2); y2 = round(seg[2][1] * scale_factor_y - layout_cy, 2)
+                            x3 = round(seg[3][0] * scale_factor_x - layout_cx, 2); y3 = round(seg[3][1] * scale_factor_y - layout_cy, 2)
+                            ass_parts.append(f"b {x1} {y1} {x2} {y2} {x3} {y3}")
+                            start = seg[3]
+                c_start = c_end + 1
+
+            adv_64 = float(glyph.metrics.horiAdvance)
+            if idx < len(text_w) - 1:
+                pen_x += adv_64 + sp_subpixel
 
         raw_shape = " ".join(ass_parts)
 

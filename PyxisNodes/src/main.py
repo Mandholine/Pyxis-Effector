@@ -80,6 +80,41 @@ except Exception:
 
 PYXIS_ENGINE_VERSION = "1.1.4"
 
+
+def _pyxis_user_data_base() -> str:
+    """Directorio base de datos por usuario (contenedor de 'PyxisNodes').
+
+    Windows: %APPDATA% (comportamiento histórico intacto).
+    Linux/macOS: $XDG_DATA_HOME o ~/.local/share.
+    """
+    if os.name == "nt":
+        return os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+
+
+def _pyxis_user_data_dir() -> str:
+    """Directorio de datos por usuario de PyxisNodes (XDG en POSIX, %APPDATA% en Windows)."""
+    return os.path.join(_pyxis_user_data_base(), "PyxisNodes")
+
+
+def _select_webview_gui():
+    """Selecciona el backend de pywebview según la plataforma.
+
+    Windows: EdgeChromium (WebView2) forzado. Linux/macOS: detección automática
+    (GTK + WebKit2GTK primero, luego Qt WebEngine); None = autodetección de pywebview.
+    """
+    if sys.platform == "win32":
+        os.environ["PYWEBVIEW_GUI"] = "edgechromium"
+        return "edgechromium"
+    try:
+        from dependency_checker import _check_posix_gui_backend
+        ok, backend, _detail = _check_posix_gui_backend()
+        if ok and backend in ("gtk", "qt"):
+            return backend
+    except Exception:
+        pass
+    return None
+
 if sys.platform == "win32":
     try:
         import ctypes
@@ -246,6 +281,36 @@ def _setup_windows_job_object():
 
 _GLOBAL_JOB_OBJECT = _setup_windows_job_object()
 
+
+def _setup_posix_child_cleanup():
+    """Linux/macOS: equivalente al Job Object de Windows (KILL_ON_JOB_CLOSE).
+
+    Registra PR_SET_PDEATHSIG (SIGKILL) en cada proceso hijo tras fork, de modo que
+    los workers de multiprocessing y los procesos de ffmpeg mueran si el proceso
+    principal termina inesperadamente. No-op en Windows y si prctl no existe.
+    """
+    if sys.platform == "win32":
+        return None
+    try:
+        import signal
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6", use_last_error=True)
+        PR_SET_PDEATHSIG = 1
+
+        def _set_pdeathsig():
+            try:
+                libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
+            except Exception:
+                pass
+
+        os.register_at_fork(after_in_child=_set_pdeathsig)
+        return _set_pdeathsig
+    except Exception:
+        return None
+
+
+_GLOBAL_PDEATHSIG_SETUP = _setup_posix_child_cleanup()
+
 def _cleanup_at_exit():
     try:
         from node_engine import abort_global_multiprocessing
@@ -303,7 +368,7 @@ class PyxisAPI:
         self._initial_lock_file = lock_file
         self._daemon_server = None
         self.system_templates_dir = os.path.join(os.path.dirname(__file__), "templates")
-        appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         self.user_templates_dir = os.path.join(appdata_dir, "PyxisNodes", "templates")
         os.makedirs(self.user_templates_dir, exist_ok=True)
         self.templates_dir = self.user_templates_dir
@@ -487,25 +552,19 @@ class PyxisAPI:
         return self._store
 
     def _get_config_path(self):
-        appdata_dir = os.environ.get("APPDATA")
-        if not appdata_dir:
-            appdata_dir = os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
         os.makedirs(pyxis_config_dir, exist_ok=True)
         return os.path.join(pyxis_config_dir, "user_config.json")
 
     def _get_bg_media_dir(self):
-        appdata_dir = os.environ.get("APPDATA")
-        if not appdata_dir:
-            appdata_dir = os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         bg_media_dir = os.path.join(appdata_dir, "PyxisNodes", "bg_media")
         os.makedirs(bg_media_dir, exist_ok=True)
         return bg_media_dir
 
     def _get_bg_image_path(self):
-        appdata_dir = os.environ.get("APPDATA")
-        if not appdata_dir:
-            appdata_dir = os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
         os.makedirs(pyxis_config_dir, exist_ok=True)
         webp_path = os.path.join(pyxis_config_dir, "bg_image.webp")
@@ -516,7 +575,7 @@ class PyxisAPI:
 
     def _get_default_back_path(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
         candidates = [
             os.path.join(script_dir, "..", "web", "default_back.webp"),
@@ -531,7 +590,7 @@ class PyxisAPI:
         return None
 
     def _get_bg_media_info(self):
-        appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
         bg_media_dir = os.path.join(pyxis_config_dir, "bg_media")
 
@@ -683,7 +742,7 @@ class PyxisAPI:
             is_removing_bg = bool(config_data.get("remove_bg_image", False) or config_data.get("remove_bg_media", False))
             
             if is_removing_bg:
-                appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                appdata_dir = _pyxis_user_data_base()
                 pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
                 bg_media_dir = os.path.join(pyxis_config_dir, "bg_media")
 
@@ -826,13 +885,13 @@ class PyxisAPI:
             return False
 
     def _get_themes_dir(self):
-        appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         pyxis_themes_dir = os.path.join(appdata_dir, "PyxisNodes", "themes")
         os.makedirs(pyxis_themes_dir, exist_ok=True)
         return pyxis_themes_dir
 
     def _get_custom_themes_path(self):
-        appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
         os.makedirs(pyxis_config_dir, exist_ok=True)
         return os.path.join(pyxis_config_dir, "custom_themes.json")
@@ -957,7 +1016,7 @@ class PyxisAPI:
         """Deletes temporary files and cache fragments older than max_age_hours (default 72h)."""
         import time
         try:
-            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+            appdata_dir = _pyxis_user_data_base()
             pyxis_dir = os.path.join(appdata_dir, "PyxisNodes")
             if not os.path.exists(pyxis_dir):
                 return {"cleaned_files": 0, "freed_bytes": 0}
@@ -1144,9 +1203,7 @@ class PyxisAPI:
             return {"success": False, "error": str(e)}
 
     def _get_code_templates_path(self):
-        appdata_dir = os.environ.get("APPDATA")
-        if not appdata_dir:
-            appdata_dir = os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
         os.makedirs(pyxis_config_dir, exist_ok=True)
         return os.path.join(pyxis_config_dir, "user_code_templates.json")
@@ -1367,7 +1424,7 @@ class PyxisAPI:
             if not file_path or not os.path.exists(file_path):
                 return {"success": False, "cancelled": True}
             
-            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+            appdata_dir = _pyxis_user_data_base()
             pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
             bg_media_dir = os.path.join(pyxis_config_dir, "bg_media")
             os.makedirs(bg_media_dir, exist_ok=True)
@@ -1489,7 +1546,7 @@ class PyxisAPI:
         except Exception as e:
             print("Pyxis: error selecting background", e)
             try:
-                appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                appdata_dir = _pyxis_user_data_base()
                 pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
                 bg_media_dir = os.path.join(pyxis_config_dir, "bg_media")
                 temp_image = os.path.join(pyxis_config_dir, "bg_image_temp.webp")
@@ -1726,7 +1783,7 @@ class PyxisAPI:
             if not parsed_ass or not parsed_ass.dialogues:
                 parsed_ass = getattr(self, '_cached_aegisub_parsed', None)
             if not parsed_ass or not parsed_ass.dialogues:
-                appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                appdata_dir = _pyxis_user_data_base()
                 preview_ass = os.path.join(appdata_dir, "PyxisNodes", "preview_base.ass")
                 if not os.path.isfile(preview_ass):
                     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -2125,19 +2182,20 @@ class PyxisAPI:
 
     @staticmethod
     def _find_ffmpeg():
+        exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
         try:
             from paths import get_bin_path
-            target = get_bin_path("ffmpeg.exe")
+            target = get_bin_path("ffmpeg")
             if os.path.isfile(target):
                 return target
         except Exception:
             pass
         base_dir = os.path.dirname(os.path.abspath(__file__))
         candidates = [
-            os.path.join(base_dir, "bin", "ffmpeg.exe"),
-            os.path.join(base_dir, "..", "bin", "ffmpeg.exe"),
-            os.path.join(base_dir, "ffmpeg.exe"),
-            os.path.join(base_dir, "..", "ffmpeg.exe"),
+            os.path.join(base_dir, "bin", exe_name),
+            os.path.join(base_dir, "..", "bin", exe_name),
+            os.path.join(base_dir, exe_name),
+            os.path.join(base_dir, "..", exe_name),
         ]
         for cand in candidates:
             if os.path.isfile(cand):
@@ -2259,7 +2317,7 @@ class PyxisAPI:
     def _purge_corrupted_bg_media(self):
         """Limpia en segundo plano archivos MP4 corruptos o incompletos en bg_media."""
         try:
-            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+            appdata_dir = _pyxis_user_data_base()
             bg_media_dir = os.path.join(appdata_dir, "PyxisNodes", "bg_media")
             if os.path.isdir(bg_media_dir):
                 for fname in os.listdir(bg_media_dir):
@@ -2319,11 +2377,17 @@ class PyxisAPI:
     def _get_aegisub_mru_media():
         """Reads the most recent valid video from Aegisub's mru.json as a defensive fallback."""
         try:
-            appdata = os.environ.get("APPDATA")
-            if not appdata:
-                return None
-            mru_path = os.path.join(appdata, "Aegisub", "mru.json")
-            if not os.path.isfile(mru_path):
+            mru_candidates = []
+            if os.name == "nt":
+                appdata = os.environ.get("APPDATA")
+                if appdata:
+                    mru_candidates.append(os.path.join(appdata, "Aegisub", "mru.json"))
+            else:
+                xdg_config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+                mru_candidates.append(os.path.join(xdg_config, "aegisub", "mru.json"))
+                mru_candidates.append(os.path.join(os.path.expanduser("~"), ".aegisub", "mru.json"))
+            mru_path = next((p for p in mru_candidates if os.path.isfile(p)), None)
+            if not mru_path:
                 return None
             import json
             with open(mru_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -2352,7 +2416,7 @@ class PyxisAPI:
 
         with self._clip_lock:
             try:
-                appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                appdata_dir = _pyxis_user_data_base()
                 bg_media_dir = os.path.join(appdata_dir, "PyxisNodes", "bg_media")
                 os.makedirs(bg_media_dir, exist_ok=True)
 
@@ -3275,7 +3339,7 @@ class PyxisAPI:
         }
 
     def _get_temp_dir(self):
-        appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+        appdata_dir = _pyxis_user_data_base()
         temp_dir = os.path.join(appdata_dir, "PyxisNodes", "temp")
         os.makedirs(temp_dir, exist_ok=True)
         return temp_dir
@@ -3295,6 +3359,8 @@ class PyxisAPI:
     def _extract_font_data_from_gdi(self, font_name: str):
         """Extracts raw binary bytes of font file (.ttf/.otf/.ttc) directly from Windows GDI memory."""
         if not font_name:
+            return None
+        if os.name != "nt":
             return None
         try:
             import ctypes
@@ -3355,7 +3421,7 @@ class PyxisAPI:
         if gdi_res:
             raw_bytes, actual_face = gdi_res
             ext = ".otf" if raw_bytes[:4] == b"OTTO" else ".ttf"
-            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+            appdata_dir = _pyxis_user_data_base()
             cache_dir = os.path.join(appdata_dir, "PyxisNodes", "fonts")
             os.makedirs(cache_dir, exist_ok=True)
             cached_file = os.path.join(cache_dir, f"{font_name}{ext}")
@@ -3368,7 +3434,18 @@ class PyxisAPI:
                 print(f"[Pyxis Font Cache Error] {e}", flush=True)
 
         candidates_from_reg = []
-        
+
+        if os.name != "nt":
+            # Linux/macOS: resolución vía fontconfig y directorios de fuentes del sistema
+            try:
+                from font_resolver import resolve_font_file
+                resolved = resolve_font_file(font_name)
+                if resolved:
+                    print(f"[Pyxis Font] ¡FOUND via fontconfig/directorios! '{font_name}' -> '{resolved}'", flush=True)
+                    return resolved
+            except Exception as e:
+                print(f"[Pyxis Font] POSIX resolve error: {e}", flush=True)
+
         try:
             import winreg
             for root_name, root in [("HKCU", winreg.HKEY_CURRENT_USER), ("HKLM", winreg.HKEY_LOCAL_MACHINE)]:
@@ -3387,18 +3464,29 @@ class PyxisAPI:
                 except Exception as e:
                     print(f"[Pyxis Font] Error reading registry {root_name}: {e}", flush=True)
         except Exception as e:
-            print(f"[Pyxis Font] General exception scanning registry: {e}", flush=True)
+            if os.name == "nt":
+                print(f"[Pyxis Font] General exception scanning registry: {e}", flush=True)
 
-        search_dirs = [
-            os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\Windows\Fonts"),
-            os.path.join(os.environ.get("APPDATA", ""), r"PyxisNodes\fonts"),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts"),
-            r"E:\Fuentes\FontBase",
-            r"E:\Fuentes",
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "FontBase"),
-            os.path.join(os.environ.get("APPDATA", ""), "FontBase"),
-        ]
+        if os.name == "nt":
+            search_dirs = [
+                os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\Windows\Fonts"),
+                os.path.join(os.environ.get("APPDATA", ""), r"PyxisNodes\fonts"),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts"),
+                r"E:\Fuentes\FontBase",
+                r"E:\Fuentes",
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), "FontBase"),
+                os.path.join(os.environ.get("APPDATA", ""), "FontBase"),
+            ]
+        else:
+            search_dirs = [
+                os.path.join(_pyxis_user_data_base(), "PyxisNodes", "fonts"),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts"),
+                "/usr/share/fonts",
+                "/usr/local/share/fonts",
+                os.path.join(os.path.expanduser("~"), ".local", "share", "fonts"),
+                os.path.join(os.path.expanduser("~"), ".fonts"),
+            ]
         print(f"[Pyxis Font] Font search directories: {search_dirs}", flush=True)
 
         for val in candidates_from_reg:
@@ -3443,6 +3531,16 @@ class PyxisAPI:
                     if os.path.exists(p):
                         print(f"[Pyxis Font] Fallback a Arial resuelto en: '{p}'", flush=True)
                         return p
+        if os.name != "nt":
+            try:
+                from font_resolver import resolve_font_file
+                for fallback_name in ("Arial", "DejaVu Sans", "Liberation Sans", "Helvetica"):
+                    p = resolve_font_file(fallback_name)
+                    if p:
+                        print(f"[Pyxis Font] Fallback POSIX resuelto en: '{p}' (familia '{fallback_name}')", flush=True)
+                        return p
+            except Exception:
+                pass
         print(f"[Pyxis Font] ERROR: Arial not found in {search_dirs}", flush=True)
         return None
 
@@ -3533,7 +3631,7 @@ If it already exists, preserves all user modifications.
 If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
 """
         try:
-            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+            appdata_dir = _pyxis_user_data_base()
             pyxis_user_dir = os.path.join(appdata_dir, "PyxisNodes")
             os.makedirs(pyxis_user_dir, exist_ok=True)
             user_base_path = os.path.join(pyxis_user_dir, "preview_base.ass")
@@ -4194,7 +4292,7 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
 
             ass_filename = f"preview_dummy_{output_tag}.ass"
             gen_res = self.generate_preview_ass(payload, target_output_id=target_output_id, out_filename=ass_filename, source=source, for_hardsub=True)
-            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+            appdata_dir = _pyxis_user_data_base()
             pyxis_dir = os.path.join(appdata_dir, "PyxisNodes")
             temp_dir = os.path.join(pyxis_dir, "temp")
             os.makedirs(temp_dir, exist_ok=True)
@@ -4611,7 +4709,7 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+    appdata_dir = _pyxis_user_data_base()
     user_temp_dir = os.path.join(appdata_dir, "PyxisNodes", "temp")
     os.makedirs(user_temp_dir, exist_ok=True)
 
@@ -4640,8 +4738,12 @@ def main():
     try:
         api = PyxisAPI(temp_ass, result_file, session_file, aegisub_version, lock_file=lock_file)
 
-        # Enforce EdgeChromium (WebView2) and strictly block deprecated MSHTML / Internet Explorer
-        os.environ["PYWEBVIEW_GUI"] = "edgechromium"
+        # Selección de backend gráfico:
+        # Windows: EdgeChromium (WebView2) forzado, bloqueando MSHTML / Internet Explorer.
+        # Linux/macOS: autodetección (GTK + WebKit2GTK, luego Qt WebEngine).
+        webview_gui = _select_webview_gui()
+        if webview_gui:
+            os.environ["PYWEBVIEW_GUI"] = webview_gui
         from dependency_checker import ensure_dependencies
         if not ensure_dependencies(api._get_config_path()):
             if hasattr(api, "release_lock"):
@@ -4667,10 +4769,11 @@ def main():
                 init_width = w_val
                 init_height = h_val
 
-        os.environ["COREWEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
-            "--disable-features=HardwareMediaKeyHandling,MediaSessionService "
-            "--disable-component-update"
-        )
+        if sys.platform == "win32":
+            os.environ["COREWEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
+                "--disable-features=HardwareMediaKeyHandling,MediaSessionService "
+                "--disable-component-update"
+            )
 
         window = webview.create_window(
             title=f"Pyxis Node Engine {PYXIS_ENGINE_VERSION}",
@@ -4695,11 +4798,31 @@ def main():
                     if not os.path.exists(ico_path):
                         ico_path = os.path.join(script_dir, "web", "icon.ico")
                 if os.path.exists(ico_path) and hasattr(window, "native") and window.native:
-                    import importlib
-                    clr = importlib.import_module("clr")
-                    clr.AddReference("System.Drawing")
-                    sys_drawing = importlib.import_module("System.Drawing")
-                    window.native.Icon = getattr(sys_drawing, "Icon")(ico_path)
+                    if os.name != "nt":
+                        try:
+                            native = window.native
+                            if hasattr(native, "set_icon_from_file"):
+                                # GTK: Gtk.Window.set_icon_from_file
+                                native.set_icon_from_file(ico_path)
+                            elif hasattr(native, "setWindowIcon"):
+                                # Qt: QWidget.setWindowIcon(QIcon)
+                                try:
+                                    from PyQt6.QtGui import QIcon
+                                except Exception:
+                                    try:
+                                        from PyQt5.QtGui import QIcon
+                                    except Exception:
+                                        QIcon = None
+                                if QIcon is not None:
+                                    native.setWindowIcon(QIcon(ico_path))
+                        except Exception:
+                            pass
+                    else:
+                        import importlib
+                        clr = importlib.import_module("clr")
+                        clr.AddReference("System.Drawing")
+                        sys_drawing = importlib.import_module("System.Drawing")
+                        window.native.Icon = getattr(sys_drawing, "Icon")(ico_path)
             except Exception:
                 pass
             if isinstance(saved_win_state, dict) and saved_win_state.get("maximized"):
@@ -4806,7 +4929,41 @@ def main():
                                 with open(cfg_path, "w", encoding="utf-8") as f:
                                     json.dump(saved_cfg, f, indent=2)
                 except Exception as e:
-                    print(f"[Pyxis Window State Save Error] {e}", flush=True)
+                    if sys.platform == "win32":
+                        print(f"[Pyxis Window State Save Error] {e}", flush=True)
+
+                if sys.platform != "win32":
+                    # Linux/macOS: geometría vía API de pywebview (sin Win32)
+                    try:
+                        is_maximized = False
+                        try:
+                            is_maximized = str(window.get_current_state() or "").lower() == "maximized"
+                        except Exception:
+                            _prev = getattr(api, "_saved_window_state", None)
+                            is_maximized = bool(isinstance(_prev, dict) and _prev.get("maximized"))
+                        win_state = {
+                            "maximized": is_maximized,
+                            "width": int(getattr(window, "width", 0) or 0),
+                            "height": int(getattr(window, "height", 0) or 0),
+                            "x": int(getattr(window, "left", 0) or 0),
+                            "y": int(getattr(window, "top", 0) or 0),
+                        }
+                        if win_state["width"] > 0 and win_state["height"] > 0:
+                            api._saved_window_state = win_state
+                            cfg_path = api._get_config_path()
+                            saved_cfg = {}
+                            if os.path.exists(cfg_path):
+                                try:
+                                    with open(cfg_path, "r", encoding="utf-8") as f:
+                                        saved_cfg = json.load(f)
+                                except Exception:
+                                    saved_cfg = {}
+                            if isinstance(saved_cfg, dict):
+                                saved_cfg["window_state"] = win_state
+                                with open(cfg_path, "w", encoding="utf-8") as f:
+                                    json.dump(saved_cfg, f, indent=2)
+                    except Exception as e:
+                        print(f"[Pyxis Window State Save Error] {e}", flush=True)
 
                 config = api.get_user_config()
                 is_daemon = config.get("daemon_mode", True)
@@ -4852,8 +5009,20 @@ def main():
 
         window.events.closing += on_closing
         webview.settings['OPEN_DEVTOOLS_IN_DEBUG'] = False
-        os.environ["PYWEBVIEW_GUI"] = "edgechromium"
-        webview.start(debug=False, http_server=True, gui="edgechromium")
+        if webview_gui:
+            os.environ["PYWEBVIEW_GUI"] = webview_gui
+        # private_mode=False + storage_path: en el backend GTK de pywebview el modo
+        # privado desactiva localStorage por completo; la interfaz lo necesita
+        # (undo, temas, plantillas). Equivalente al comportamiento de WebView2.
+        _webview_storage = os.path.join(_pyxis_user_data_dir(), "webview_storage")
+        os.makedirs(_webview_storage, exist_ok=True)
+        webview.start(
+            debug=False,
+            http_server=True,
+            gui=webview_gui,
+            private_mode=False,
+            storage_path=_webview_storage,
+        )
     except Exception:
         debug_file = result_file + "_debug.log"
         try:

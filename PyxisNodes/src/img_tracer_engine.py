@@ -52,24 +52,29 @@ def clear_tracer_cache():
 
 
 def _get_potrace_exe_path() -> str:
-    """Returns path to potrace.exe executable if present and executable."""
+    """Returns path to potrace executable if present and executable."""
+    exe_name = "potrace.exe" if os.name == "nt" else "potrace"
     try:
         from paths import get_bin_path
-        cand = get_bin_path("potrace.exe")
+        cand = get_bin_path("potrace")
         if os.path.isfile(cand) and os.path.getsize(cand) > 10000:
             return cand
     except Exception:
         pass
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(base_dir, "bin", "potrace.exe"),
-        os.path.join(base_dir, "..", "bin", "potrace.exe"),
-        os.path.join(base_dir, "potrace.exe"),
-        "potrace.exe"
+        os.path.join(base_dir, "bin", exe_name),
+        os.path.join(base_dir, "..", "bin", exe_name),
+        os.path.join(base_dir, exe_name),
+        exe_name
     ]
     for cand in candidates:
         if os.path.isfile(cand) and os.path.getsize(cand) > 10000:
             return cand
+    import shutil
+    system_potrace = shutil.which("potrace")
+    if system_potrace:
+        return system_potrace
     return ""
 
 

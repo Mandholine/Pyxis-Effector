@@ -70,8 +70,13 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
                 file_path = None
                 if self.path.startswith("/bg_media/"):
                     f_name = parsed.path.replace("/bg_media/", "").strip()
-                    appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
-                    file_path = os.path.join(appdata_dir, "PyxisNodes", "bg_media", f_name)
+                    try:
+                        from paths import get_user_data_dir
+                        base_dir = get_user_data_dir()
+                    except Exception:
+                        base_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                        base_dir = os.path.join(base_dir, "PyxisNodes")
+                    file_path = os.path.join(base_dir, "bg_media", f_name)
                 else:
                     params = parse_qs(parsed.query)
                     file_path = params.get("path", [None])[0]
@@ -234,6 +239,17 @@ class PyxisDaemonServer:
         except Exception:
             pass
 
+        if os.name != "nt":
+            try:
+                os.kill(int(pid), 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+            except Exception:
+                return False
+
         try:
             import ctypes
             from ctypes import wintypes
@@ -337,6 +353,20 @@ class PyxisDaemonServer:
 
     @classmethod
     def bring_to_foreground(cls, title=None, is_maximized=False):
+        if os.name != "nt":
+            # Linux/macOS: la ventana ya fue mostrada/restaurada con window.show().
+            # Se intenta elevar el foco con herramientas de escritorio si están disponibles.
+            try:
+                import shutil as _shutil
+                import subprocess as _sp
+                if title and _shutil.which("wmctrl"):
+                    _sp.run(["wmctrl", "-a", str(title)], capture_output=True, timeout=5)
+                elif title and _shutil.which("xdotool"):
+                    _sp.run(["xdotool", "search", "--name", str(title), "windowactivate"],
+                            capture_output=True, timeout=5)
+            except Exception:
+                pass
+            return True
         try:
             import ctypes
             user32 = ctypes.windll.user32

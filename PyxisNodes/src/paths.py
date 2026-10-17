@@ -28,31 +28,57 @@ DOCS_DIR = os.path.join(PYXIS_ROOT_DIR, "docs")
 TEMPLATES_DIR = os.path.join(PYXIS_ROOT_DIR, "templates")
 PREVIEW_BASE_ASS = os.path.join(PYXIS_ROOT_DIR, "preview_base.ass")
 
+IS_WINDOWS = os.name == "nt"
+
+
+def get_user_data_dir() -> str:
+    """Retorna el directorio de datos por usuario de PyxisNodes.
+
+    Windows: %APPDATA%\\PyxisNodes (comportamiento histórico intacto).
+    Linux/macOS: $XDG_DATA_HOME/PyxisNodes o ~/.local/share/PyxisNodes.
+    """
+    if IS_WINDOWS:
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, "PyxisNodes")
+
 
 def get_bin_path(binary_name: str) -> str:
-    """Retorna la ruta absoluta a un binario buscando en bin/, luego en la raíz, o en el PATH del sistema."""
-    if os.name == "nt" and not binary_name.lower().endswith(".exe"):
-        exe_name = f"{binary_name}.exe"
+    """Retorna la ruta absoluta a un binario buscando en bin/, luego en la raíz, o en el PATH del sistema.
+
+    En Windows se busca con sufijo .exe; en Linux/macOS se acepta tanto el nombre
+    con .exe (binarios empaquetados) como el equivalente nativo sin sufijo.
+    """
+    if IS_WINDOWS:
+        names = [f"{binary_name}.exe"] if not binary_name.lower().endswith(".exe") else [binary_name]
     else:
-        exe_name = binary_name
+        names = []
+        if binary_name.lower().endswith(".exe"):
+            names.append(binary_name[:-4])
+        names.append(binary_name)
 
-    # 1. Buscar en bin/
-    bin_target = os.path.join(BIN_DIR, exe_name)
-    if os.path.exists(bin_target):
-        return bin_target
+    fallback_target = None
+    for exe_name in names:
+        # 1. Buscar en bin/
+        bin_target = os.path.join(BIN_DIR, exe_name)
+        if fallback_target is None:
+            fallback_target = bin_target
+        if os.path.exists(bin_target):
+            return bin_target
 
-    # 2. Buscar en la raíz de PyxisNodes
-    root_target = os.path.join(PYXIS_ROOT_DIR, exe_name)
-    if os.path.exists(root_target):
-        return root_target
+        # 2. Buscar en la raíz de PyxisNodes
+        root_target = os.path.join(PYXIS_ROOT_DIR, exe_name)
+        if os.path.exists(root_target):
+            return root_target
 
-    # 3. Buscar en el PATH del sistema
-    system_path = shutil.which(exe_name)
-    if system_path:
-        return system_path
+        # 3. Buscar en el PATH del sistema
+        system_path = shutil.which(exe_name)
+        if system_path:
+            return system_path
 
     # Fallback al target en bin/
-    return bin_target
+    return fallback_target
 
 
 def get_web_path(resource: str = "") -> str:

@@ -275,7 +275,9 @@ class AudioEngine:
     @classmethod
     def load_wav(cls, file_path: str) -> AudioData:
         """Carga y decodifica un archivo PCM WAV directamente a memoria RAM con vectorización en C."""
-        clean_path = os.path.abspath(file_path).lower()
+        clean_path = os.path.abspath(file_path)
+        if os.name == "nt":
+            clean_path = clean_path.lower()
         if clean_path in cls._audio_cache:
             return cls._audio_cache[clean_path]
 

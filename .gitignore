@@ -1,0 +1,6 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Entorno virtual creado por PyxisNodes/install_linux.sh
+PyxisNodes/.venv/

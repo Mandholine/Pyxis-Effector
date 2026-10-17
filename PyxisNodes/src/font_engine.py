@@ -182,6 +182,11 @@ class FontEngine:
             except Exception:
                 pass
 
+        res_fb = cls._get_font_metrics_freetype(font_name, font_size, bold, italic)
+        if res_fb is not None:
+            h, d, e = res_fb
+            return cls.snap_26_6(h), cls.snap_26_6(d), cls.snap_26_6(e)
+
         return cls.snap_26_6(font_size), cls.snap_26_6(font_size * 0.2), 0.0
 
     @classmethod
@@ -220,9 +225,83 @@ class FontEngine:
 
         return final_w, height, descent, extlead
 
+    # ------------------------------------------------------------------
+    # FreeType / Pillow paths (Linux, macOS y fallback universal)
+    # ------------------------------------------------------------------
+
+    _font_file_cache: Dict[str, Optional[str]] = {}
+
+    @classmethod
+    def _resolve_font_path(cls, font_name: str, bold: bool = False, italic: bool = False) -> Optional[str]:
+        try:
+            from font_resolver import resolve_font_file
+            return resolve_font_file(font_name, bold=bold, italic=italic)
+        except Exception:
+            return None
+
+    @classmethod
+    def _get_font_metrics_freetype(cls, font_name: str, font_size: float, bold: bool, italic: bool) -> Optional[Tuple[float, float, float]]:
+        """Métricas (height, descent, extlead) vía FreeType/Pillow para fuentes resueltas."""
+        try:
+            font_path = cls._resolve_font_path(font_name, bold, italic)
+            if not font_path:
+                return None
+            try:
+                import freetype
+                face = freetype.Face(font_path)
+                face.set_char_size(int(round(float(font_size) * 64.0)))
+                ascent = (face.size.ascender / 64.0)
+                descent = abs(face.size.descender / 64.0)
+                line_gap = (face.size.height / 64.0) - ascent - descent
+                return float(font_size), float(descent), max(0.0, float(line_gap))
+            except Exception:
+                pass
+            from PIL import ImageFont
+            font = ImageFont.truetype(font_path, int(round(float(font_size))))
+            ascent, descent = font.getmetrics()
+            return float(font_size), float(descent), 0.0
+        except Exception:
+            return None
+
+    @classmethod
+    def _get_text_extents_freetype(cls, text: str, font_name: str, font_size: float, bold: bool, italic: bool,
+                                   scale_x: float, spacing: float) -> Optional[Tuple[float, float, float, float]]:
+        """Anchos reales (advance) vía FreeType/Pillow para fuentes resueltas."""
+        try:
+            font_path = cls._resolve_font_path(font_name, bold, italic)
+            if not font_path:
+                return None
+            try:
+                import freetype
+                face = freetype.Face(font_path)
+                face.set_char_size(int(round(float(font_size) * 64.0)))
+                total = 0.0
+                for ch in text:
+                    face.load_char(ch, freetype.FT_LOAD_DEFAULT | freetype.FT_LOAD_NO_BITMAP)
+                    total += face.glyph.metrics.horiAdvance / 64.0
+                base_w = total
+                descent = abs(face.size.descender / 64.0)
+                line_gap = (face.size.height / 64.0) - (face.size.ascender / 64.0) - descent
+                extlead = max(0.0, line_gap)
+            except Exception:
+                from PIL import ImageFont
+                font = ImageFont.truetype(font_path, int(round(float(font_size))))
+                base_w = float(font.getlength(text))
+                ascent, descent_i = font.getmetrics()
+                descent = float(descent_i)
+                extlead = 0.0
+
+            final_w = base_w * (scale_x / 100.0) + float(spacing) * max(0, len(text) - 1) * (scale_x / 100.0)
+            return float(final_w), float(font_size), float(descent), float(extlead)
+        except Exception:
+            return None
+
     @classmethod
     def _get_text_extents_fallback(cls, text: str, font_name: str, font_size: float, bold: bool, italic: bool,
                                    scale_x: float, spacing: float) -> Tuple[float, float, float, float]:
+        res_ft = cls._get_text_extents_freetype(text, font_name, font_size, bold, italic, scale_x, spacing)
+        if res_ft is not None:
+            return res_ft
         try:
             from PIL import ImageFont
             font = ImageFont.truetype(font_name, int(font_size))
