@@ -21,7 +21,7 @@
             {
               "name": ".lua",
               "url": "@{fileBaseUrl}/pyxis.NodeEngine.lua",
-              "sha1": "EC5B7D5795189E051BC3B4610DE61E98B380D405"
+              "sha1": "B62AA7C155EA6D1A1011EBA68879AA68478578C4"
             }
           ],
           "requiredModules": []

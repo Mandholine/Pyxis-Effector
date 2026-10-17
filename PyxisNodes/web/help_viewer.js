@@ -1,6 +1,6 @@
 /*
  * Pyxis Effector - Plugin for Aegisub
- * Copyright (C) 2026 @mandholine, @effector2, @pholguinc
+ * Copyright (C) 2026 @mandholine, @effector2, @pholguinc and Pyxis Effector contributors
  *
  * Integrated Documentation & Manual Viewer Service
  */

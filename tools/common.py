@@ -1,5 +1,5 @@
 # Pyxis Effector - Plugin for Aegisub
-# Copyright (C) 2026 @mandholine, @effector2, @pholguinc
+# Copyright (C) 2026 Pyxis Effector contributors
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
