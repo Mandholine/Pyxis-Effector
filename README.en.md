@@ -61,7 +61,7 @@ The project is named after the **Pyxis** constellation (The Mariner's Compass), 
 * **Spectral Acoustic Analysis:** Root Mean Square (RMS) power envelopes, acoustic peaks, frequency band filtering, and Fast Fourier Transform (FFT) linked to project audio.
 * **Dual Scripting Environment:** Imperative `System/Script Code` nodes with native execution support for Python 3.12 and Lua 5.1/LuaJIT via a low-latency bidirectional C bridge (Lupa).
 * **Pre-Generation Linter and Diagnostics:** Static syntax validator (`node_validator.py`) with real-time AST analysis for ASS Dark Tags, undeclared variables, and topological integrity.
-* **ASS Render Telemetry and Profiling (`libass` + QPC):** Multi-process frame-by-frame profiling of subtitle render costs, frame budget consumption, and bitmap memory, with an interactive workload heatmap in the player.
+* **ASS Render Telemetry and Profiling (`libass` + QPC):** Multi-process frame-by-frame profiling of subtitle render costs, frame budget consumption, and bitmap memory, with an interactive workload heatmap in the player. Native on Windows; on Linux and macOS it runs through Wine (provisional workaround).
 * **Persistence and Template Management:** Full graph export/import, session isolation, and user template storage in `%APPDATA%\PyxisNodes\` (Windows) or `~/.local/share/PyxisNodes` (Linux/macOS).
 
 ---
@@ -89,41 +89,28 @@ Pyxis Effector includes a comprehensive technical manual structured across 12 mo
 
 ## Quick Installation and Usage
 
-### Windows
+Installation is the same on every platform:
 
-#### System Requirements
-* Windows 10 / 11 (64-bit).
-* Aegisub 3.2.x, 3.3.x, or 3.4.x (standard or portable installation).
-* Microsoft Visual C++ Redistributable (2015-2022 x64).
+1. Download [`pyxis.NodeEngine.lua`](https://raw.githubusercontent.com/Mandholine/Pyxis-Effector/main/pyxis.NodeEngine.lua) (it is also attached to every release in [**Releases**](https://github.com/Mandholine/Pyxis-Effector/releases)).
+2. Copy it into Aegisub's `automation/autoload` folder (see the table).
+3. Open Aegisub and run **Automation** $\to$ **Pyxis Node Engine**. The first time, the macro offers to download the engine (`PyxisNodes/`) automatically.
 
-#### Installation Instructions
-1. Download the latest release package from the repository's [**Releases**](https://github.com/Mandholine/Pyxis-Effector/releases) section.
-2. Copy the `Pyxis_engine.lua` script and the `PyxisNodes` directory into your Aegisub automation autoload folder:
-   * **Standard User Installation:** `%APPDATA%\Aegisub\automation\autoload\`
-   * **System-Wide Installation:** `C:\Program Files\Aegisub\automation\autoload\`
-   * **Portable Aegisub:** `<Aegisub_Folder>\automation\autoload\`
-3. Launch Aegisub and execute the macro from the top menu:
-   * **Automation** $\to$ **Pyxis Node Engine**
-
-### Linux and macOS
-
-Pyxis Effector runs natively on Linux and macOS. Every release ships one package per
-platform with its own ready-to-use Python, so nothing else needs installing (apart from
-ffmpeg where it is not bundled):
+If you would rather install it by hand or offline, download the package for your platform from [**Releases**](https://github.com/Mandholine/Pyxis-Effector/releases) and unzip it into that same folder (it creates `PyxisNodes/`). Each package ships its own Python and ffmpeg, so nothing else needs installing.
 
 | Platform | Package | Aegisub `autoload` folder |
 | :--- | :--- | :--- |
+| Windows 10 / 11 (64-bit) | `PyxisEffector-v<version>-win64.zip` | `%APPDATA%\Aegisub\automation\autoload\` (user), `C:\Program Files\Aegisub\automation\autoload\` (system-wide) or `<Aegisub_Folder>\automation\autoload\` (portable) |
 | Linux x86-64 | `PyxisEffector-v<version>-linux64.zip` | `~/.config/aegisub/automation/autoload/` |
 | Linux ARM64 | `PyxisEffector-v<version>-linux-arm64.zip` | `~/.config/aegisub/automation/autoload/` |
 | macOS Apple Silicon | `PyxisEffector-v<version>-macos-arm64.zip` | `~/Library/Application Support/Aegisub/automation/autoload/` |
 | macOS Intel | `PyxisEffector-v<version>-macos-x64.zip` | `~/Library/Application Support/Aegisub/automation/autoload/` |
 
-Unzip the package into the `autoload` folder (it creates `PyxisNodes/`), put
-`pyxis.NodeEngine.lua` next to it and run **Automation → Pyxis Node Engine**. If the engine
-is missing, the macro offers to download it automatically.
+> **If you have `Pyxis_engine.lua`** from an earlier version, delete it: it is the same script under another name and Aegisub would load the macro twice.
 
-* Linux: **[PyxisNodes/README.linux.md](PyxisNodes/README.linux.md)** (system dependencies, XDG data locations, installing from source with `install_linux.sh`, troubleshooting).
-* macOS: **[PyxisNodes/README.macos.md](PyxisNodes/README.macos.md)** (Gatekeeper, Homebrew, installing from source with `install_macos.sh`).
+**Requirements:** Aegisub 3.2.x, 3.3.x or 3.4.x (Automation 4). On Windows, also the Microsoft Visual C++ Redistributable (2015-2022 x64); if the Microsoft Edge WebView2 Runtime is missing, Pyxis offers to install it on first launch.
+
+* Linux: **[PyxisNodes/README.linux.md](PyxisNodes/README.linux.md)** (system dependencies, XDG data locations, installing from source with `install_linux.sh`, troubleshooting; in Spanish).
+* macOS: **[PyxisNodes/README.macos.md](PyxisNodes/README.macos.md)** (Gatekeeper, Homebrew, installing from source with `install_macos.sh`; in Spanish). macOS support is implemented but **has not been tested on real Mac hardware yet**.
 * To build the packages yourself (and to download or compile ffmpeg): [tools/README.md](tools/README.md) (in Spanish).
 
 ---
@@ -156,17 +143,26 @@ Pyxis Effector integrates and builds upon the following open-source libraries an
 * [**Marked.js**](https://marked.js.org/): Markdown parser and compiler for integrated documentation and tooltips (MIT Licence).
 * [**Lupa**](https://github.com/scoder/lupa): High-performance C bridge connecting Python to LuaJIT / Lua 5.1 (MIT Licence).
 * [**PyWebView**](https://pywebview.flowrl.com/): Lightweight desktop webview window wrapper for Windows, macOS and Linux (BSD-3 Licence).
-* [**FFmpeg**](https://ffmpeg.org/): Multimedia decoding, PCM stream extraction, and video processing (LGPL v2.1+ / GPL v2+ Licences).
-* [**Python Runtime (Embedded)**](https://www.python.org/): Embedded Python Software Foundation distribution (PSF Licence).
+* [**FFmpeg**](https://ffmpeg.org/): Multimedia decoding, PCM stream extraction, and video processing. The core is LGPL v2.1+, but the packages ship **GPL v2+** builds (with libx264, libass and libwebp) from [BtbN](https://github.com/BtbN/FFmpeg-Builds) (Windows and Linux) and [martin-riedl.de](https://ffmpeg.martin-riedl.de) (macOS).
+* [**Python**](https://www.python.org/) via [**python-build-standalone**](https://github.com/astral-sh/python-build-standalone): Standalone interpreter bundled in every package (PSF Licence).
+* [**PyQt6**](https://www.riverbankcomputing.com/software/pyqt/) / [**Qt WebEngine**](https://www.qt.io/): Graphical interface bundled in the Linux packages (GPL v3 / LGPL v3 Licences).
+* [**FreeType**](https://freetype.org/) / [**freetype-py**](https://github.com/rougier/freetype-py): Font metrics and outlines on Linux and macOS (FreeType / BSD Licences).
+* [**NumPy**](https://numpy.org/) / [**Pillow**](https://python-pillow.org/): Particle, audio and image processing (BSD-3 / HPND Licences).
+* [**Wine**](https://www.winehq.org/): Optional; runs `libass_profiler.exe` on Linux and macOS (LGPL v2.1+ Licence).
 
 ---
 
 ## AI Disclosure and Transparency Notice
 
-In the interest of transparency and clear authorship practices, please note that the technical design and web interface architecture of this project were developed with technical assistance from **Google Gemini** via **Antigravity**.
+In the interest of transparency and clear authorship practices, please note that:
+
+* The technical design and web interface architecture of this project were developed with technical assistance from **Google Gemini** via **Antigravity**.
+* Linux and macOS support (engine adaptation, packaging with a bundled Python, continuous integration and the `tools/` scripts) was developed with the assistance of AI models: **Claude** (Anthropic) and **MiMo 2.6 Pro** (Xiaomi), the latter through **OpenCode Go**.
 
 ---
 
 ## Licence
+
+Copyright (C) 2026 @mandholine, @effector2, @pholguinc and the Pyxis Effector contributors.
 
 This project is distributed under the terms of the **GNU General Public License v3.0 (GPL-3.0)**. Full text is available in the [LICENSE](LICENSE) file.

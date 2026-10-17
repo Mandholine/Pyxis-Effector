@@ -127,13 +127,13 @@ Al abrir el panel de **`Telemetry`** desde el mapa térmico:
 ## 3. Nodo `System/Script Code` (Ejecución de Código Embebido Python y Lua)
 
 * **Categoría Canónica:** `System` (UI: *Sistema / Script Code*)
-* **Propósito:** Ejecuta fragmentos de código en Python 3.11 o Lua 5.1/LuaJIT dentro del flujo del grafo, con acceso bidireccional a variables del contexto ASS y funciones auxiliares de tags.
+* **Propósito:** Ejecuta fragmentos de código en Python 3.12 o Lua 5.1/LuaJIT dentro del flujo del grafo, con acceso bidireccional a variables del contexto ASS y funciones auxiliares de tags.
 
 ![System/Script Code](img/script_code.png)
 
 ### 3.1. Encabezado y Selector de Lenguaje
 1. **`[1.1] Language` (`language`):** Motor de ejecución:
-   * `Python`: Entorno nativo Python 3.11 con acceso a librerías estándar (`math`, `random`, `re`).
+   * `Python`: Entorno nativo Python 3.12 con acceso a librerías estándar (`math`, `random`, `re`).
    * `Lua`: Entorno de scripting Lua estándar mediante Lupa/LuaJIT con compatibilidad para sintaxis tradicional de macros de Aegisub.
 
 ### 3.2. Puertos de Entrada y Salida

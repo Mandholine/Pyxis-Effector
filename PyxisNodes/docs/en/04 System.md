@@ -127,13 +127,13 @@ When opening the **`Telemetry`** diagnostic panel from the heatmap:
 ## 3. Node `System/Script Code` (Embedded Python & Lua Code Execution)
 
 * **Canonical Category:** `System` (UI: *System / Script Code*)
-* **Purpose:** Executes inline code snippets in Python 3.11 or Lua 5.1/LuaJIT within the graph flow, with bidirectional access to ASS context variables and tag utility functions.
+* **Purpose:** Executes inline code snippets in Python 3.12 or Lua 5.1/LuaJIT within the graph flow, with bidirectional access to ASS context variables and tag utility functions.
 
 ![System/Script Code](img/script_code.png)
 
 ### 3.1. Header Mode Combos
 1. **`[1.1] Language` (`language`):** Execution engine:
-   * `Python`: Native Python 3.11 environment with access to standard modules (`math`, `random`, `re`).
+   * `Python`: Native Python 3.12 environment with access to standard modules (`math`, `random`, `re`).
    * `Lua`: Standard Lua scripting via Lupa/LuaJIT with compatibility for traditional Aegisub macro syntax.
 
 ### 3.2. Input and Output Ports

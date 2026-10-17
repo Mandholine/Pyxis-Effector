@@ -104,8 +104,7 @@ git tag v1.1.4 && git push origin v1.1.4
 * **Forks:** la macro descarga de `Mandholine/Pyxis-Effector`. Para probar las releases de un fork sin tocar
   el código, abre Aegisub con `PYXIS_RELEASE_REPO=usuario/repositorio` en el entorno. Para que un fork las use
   siempre, cambia la constante `RELEASE_REPO` de `pyxis.NodeEngine.lua` y las URL de `DependencyControl.json`
-  (y actualiza su `sha1`: `sha1sum pyxis.NodeEngine.lua`). `Pyxis_engine.lua` es una copia idéntica que debe
-  mantenerse sincronizada.
+  (y actualiza su `sha1`: `sha1sum pyxis.NodeEngine.lua`).
 
 ## Licencia
 
