@@ -71,6 +71,72 @@ local function platform_tag()
     return arm and "linux-arm64" or "linux64"
 end
 
+-- Repositorio de GitHub del que se descarga el motor (PyxisNodes). Un fork puede cambiar
+-- esta constante o exportar PYXIS_RELEASE_REPO=usuario/repositorio antes de abrir Aegisub.
+local RELEASE_REPO = "Mandholine/Pyxis-Effector"
+do
+    local override = os.getenv("PYXIS_RELEASE_REPO")
+    if override and override:match("^[%w%-%._]+/[%w%-%._]+$") then
+        RELEASE_REPO = override
+    end
+end
+
+-- URL candidatas del paquete, por orden. Las releases nuevas (tools/build_release.py + CI)
+-- usan la etiqueta v<versión>; la primera release, subida a mano, usó otra para Windows.
+local function release_urls(zip_name, tag)
+    local base = "https://github.com/" .. RELEASE_REPO .. "/releases/download/"
+    return {
+        base .. "v" .. script_version .. "/" .. zip_name,
+        base .. "PyxisEffector-v" .. script_version .. "-" .. tag .. "/" .. zip_name,
+    }
+end
+
+local function file_size(path)
+    local f = io.open(path, "rb")
+    if not f then return 0 end
+    local size = f:seek("end") or 0
+    f:close()
+    return size
+end
+
+-- Script de instalación de Windows: prueba cada URL con curl.exe y, si todas fallan,
+-- con PowerShell (también URL por URL). Función pura para poder probar su flujo.
+local function build_installer_bat(zip_path, urls, target_dir)
+    local lines = {
+        "@echo off",
+        "title Descargando Pyxis Effector",
+        "echo Descargando motor de Pyxis (~370 MB)...",
+    }
+    for i, url in ipairs(urls) do
+        local cmd = string.format('curl.exe -# -L -f -o "%s" "%s"', zip_path, url)
+        lines[#lines + 1] = (i == 1) and cmd or ("if errorlevel 1 " .. cmd)
+    end
+    local quoted = {}
+    for _, url in ipairs(urls) do quoted[#quoted + 1] = "'" .. url .. "'" end
+    local ps = string.format(
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+        .. "$ProgressPreference = 'Continue'; $wc = New-Object Net.WebClient; $ok = $false; "
+        .. "foreach ($u in @(%s)) { if (-not $ok) { try { $wc.DownloadFile($u, '%s'); $ok = $true } catch {} } }; "
+        .. "if ($ok) { Expand-Archive -Path '%s' -DestinationPath '%s' -Force; Remove-Item '%s' -Force }",
+        table.concat(quoted, ", "), zip_path, zip_path, target_dir, zip_path)
+    local tail = {
+        "if errorlevel 1 goto fallback",
+        "echo Descomprimiendo archivos...",
+        string.format('tar.exe -xf "%s" -C "%s"', zip_path, target_dir),
+        "if errorlevel 1 goto fallback",
+        string.format('del /f /q "%s" >nul 2>&1', zip_path),
+        "exit /b 0",
+        "",
+        ":fallback",
+        "echo Reintentando con PowerShell...",
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "' .. ps .. '"',
+        "exit /b 0",
+        "",
+    }
+    for _, l in ipairs(tail) do lines[#lines + 1] = l end
+    return table.concat(lines, "\n")
+end
+
 -- Aegisub lanzado desde el Finder/launcher hereda un PATH mínimo; Homebrew y
 -- /usr/local no están incluidos, así que se añaden para localizar python3, ffmpeg, etc.
 local POSIX_PATH_PREFIX = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:"
@@ -438,7 +504,7 @@ function launch_Pyxis(subs, sel, act)
     local function download_and_extract_runtime(target_dir)
         local btn, _ = aegisub.dialog.display({
             {class="label", label="Pyxis Effector requiere el motor de ejecución (~370 MB).", x=0, y=0, width=2, height=1},
-            {class="label", label="Repositorio: https://github.com/Mandholine/Pyxis-Effector", x=0, y=1, width=2, height=1},
+            {class="label", label="Repositorio: https://github.com/" .. RELEASE_REPO, x=0, y=1, width=2, height=1},
             {class="label", label="¿Desea iniciar la descarga ahora?", x=0, y=2, width=2, height=1}
         }, {"Descargar", "Cancelar"})
 
@@ -450,19 +516,30 @@ function launch_Pyxis(subs, sel, act)
         local arch_tag = platform_tag()
         local zip_name = "PyxisEffector-v" .. script_version .. "-" .. arch_tag .. ".zip"
         local zip_path = join_path(temp_dir, zip_name)
-        local download_url = "https://github.com/Mandholine/Pyxis-Effector/releases/download/v" .. script_version .. "/" .. zip_name
+        local download_urls = release_urls(zip_name, arch_tag)
 
         if not IS_WINDOWS then
             -- Linux/macOS: curl/wget + unzip/python3 zipfile
             aegisub.progress.task("Descargando motor de Pyxis...")
-            local dl_cmd = nil
+            local dl_template = nil
             if has_bin("curl") then
-                dl_cmd = string.format("curl -# -L -f -o %s %s", shell_quote(zip_path), shell_quote(download_url))
+                dl_template = "curl -# -L -f -o %s %s"
             elseif has_bin("wget") then
-                dl_cmd = string.format("wget --progress=bar:force -O %s %s", shell_quote(zip_path), shell_quote(download_url))
+                dl_template = "wget --progress=bar:force -O %s %s"
             end
-            if dl_cmd then
-                os.execute(dl_cmd)
+            local downloaded = false
+            if dl_template then
+                for _, url in ipairs(download_urls) do
+                    pcall(os.remove, zip_path)
+                    os.execute(string.format(dl_template, shell_quote(zip_path), shell_quote(url)))
+                    if file_size(zip_path) > 0 then
+                        downloaded = true
+                        break
+                    end
+                end
+                if not downloaded then pcall(os.remove, zip_path) end
+            end
+            if downloaded then
                 if has_bin("unzip") then
                     os.execute(string.format("unzip -o -q %s -d %s", shell_quote(zip_path), shell_quote(target_dir)))
                 else
@@ -485,22 +562,7 @@ function launch_Pyxis(subs, sel, act)
 
             local f = io.open(bat_file, "w")
             if f then
-                f:write(string.format([[@echo off
-title Descargando Pyxis Effector
-echo Descargando motor de Pyxis (~370 MB)...
-curl.exe -# -L -f -o "%s" "%s"
-if errorlevel 1 goto fallback
-echo Descomprimiendo archivos...
-tar.exe -xf "%s" -C "%s"
-if errorlevel 1 goto fallback
-del /f /q "%s" >nul 2>&1
-exit /b 0
-
-:fallback
-echo Reintentando con PowerShell...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'Continue'; (New-Object Net.WebClient).DownloadFile('%s', '%s'); Expand-Archive -Path '%s' -DestinationPath '%s' -Force; Remove-Item '%s' -Force"
-exit /b 0
-]], zip_path, download_url, zip_path, target_dir, zip_path, download_url, zip_path, zip_path, target_dir, zip_path))
+                f:write(build_installer_bat(zip_path, download_urls, target_dir))
                 f:close()
                 os.execute('cmd.exe /c "' .. bat_file .. '"')
                 pcall(os.remove, bat_file)
