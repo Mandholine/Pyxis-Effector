@@ -13,12 +13,26 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- * For any question you can visit: https://discord.gg/rYsARc3fB9
+ * For any question you can visit: https://discord.gg/fsxRESeQZN
+ */
+
+/**
+ * @file theme_manager.js
+ * @description Theme engine and global application settings manager for Pyxis Effector.
+ * Coordinates dynamic CSS variable injection, official color schemes (Teal, Violet, Crimson),
+ * interactive theme editor dialogues, colour space conversions (HEX/HSL), canvas background media,
+ * and persistence of user preferences in localStorage and backend configuration.
  */
 
 (function (window) {
     "use strict";
 
+    /**
+     * Resolves the canonical category string for a given node instance or type identifier.
+     * Evaluates compound slashes, legacy localized names, and core keyword mappings.
+     * @param {object|string} nodeOrType - LiteGraph node instance, type string, or title.
+     * @returns {string} Canonical category key ('Basics', 'Loops', 'System', 'Variables', 'Functions', 'Shape', 'Audio', 'Time').
+     */
     window.getNodeCategory = function(nodeOrType) {
         if (!nodeOrType) return "Functions";
         const typeStr = typeof nodeOrType === "string" ? nodeOrType : (nodeOrType.type || nodeOrType.title || "");
@@ -158,6 +172,17 @@
         }
     };
 
+    /**
+     * Displays a styled modal confirmation dialogue with configurable danger severity and action callbacks.
+     * @param {object} [options={}] - Configuration parameters for the dialogue.
+     * @param {string} [options.title] - Dialogue title heading.
+     * @param {string} [options.message] - Explanatory message content.
+     * @param {string} [options.confirmText] - Label for the primary affirmative button.
+     * @param {string} [options.cancelText] - Label for the dismissal button.
+     * @param {boolean} [options.isDanger=true] - Whether to apply danger styling (red border, alert icon).
+     * @param {Function} [options.onConfirm] - Callback executed when confirmed.
+     * @param {Function} [options.onCancel] - Callback executed when dismissed.
+     */
     function showPyxisConfirm(options = {}) {
         const {
             title = (window.t ? window.t("common.confirm") : "Confirmation"),
@@ -240,10 +265,18 @@
         currentTheme = "teal";
     }
 
+    /**
+     * Retrieves the complete dictionary of registered themes, merging default and custom palettes.
+     * @returns {object} Map of theme objects indexed by theme identifier.
+     */
     function getAllThemes() {
         return THEMES;
     }
 
+    /**
+     * Fetches custom user themes from the backend storage and merges them into the runtime registry.
+     * @returns {Promise<object>} Resolves with the updated theme dictionary.
+     */
     async function syncCustomThemesWithBackend() {
         if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.get_custom_themes === "function") {
             try {
@@ -270,6 +303,11 @@
         await syncCustomThemesWithBackend();
     });
 
+    /**
+     * Converts a 6-digit or 3-digit HEX colour string to normalized HSL components.
+     * @param {string} hex - Hex colour code (e.g. '#22858C' or 'fff').
+     * @returns {[number, number, number]} Array containing [hue (0-360), saturation (0-1), lightness (0-1)].
+     */
     function hexToHsl(hex) {
         if (!hex || typeof hex !== "string") return [0, 0, 0.5];
         let c = hex.replace("#", "").trim();
@@ -293,6 +331,13 @@
         return [h, s, l];
     }
 
+    /**
+     * Converts HSL colour components to a 6-digit hexadecimal colour string.
+     * @param {number} h - Hue angle in degrees (0-360).
+     * @param {number} s - Saturation factor (0-1).
+     * @param {number} l - Lightness factor (0-1).
+     * @returns {string} Hexadecimal colour string with leading '#' (e.g. '#10b981').
+     */
     function hslToHex(h, s, l) {
         h = ((h % 360) + 360) % 360;
         s = Math.max(0, Math.min(1, s));
@@ -313,6 +358,11 @@
         return "#" + [r, g, b].map(v => v.toString(16).padStart(2, "0")).join("");
     }
 
+    /**
+     * Applies a theme palette to the application by injecting dynamic CSS variables on documentElement.
+     * Updates LiteGraph canvas visual parameters, node category colour definitions, and telemetry overlays.
+     * @param {string} themeId - Unique key of the theme to activate.
+     */
     function applyTheme(themeId) {
         if (!THEMES[themeId]) themeId = "teal";
         currentTheme = themeId;
@@ -471,6 +521,11 @@
         }
     }
 
+    /**
+     * Persists the user configuration dictionary to the backend via pywebview IPC.
+     * Records active theme, grid mode, undo steps, background media settings, and language preference.
+     * @param {boolean} [removeBg=false] - When true, forces background media flags to be cleared.
+     */
     function saveConfig(removeBg = false) {
         if (window.pywebview && window.pywebview.api) {
             const hasBg = !!(window.backgroundImageSettings && (window.backgroundImageSettings.dataUrl || window.backgroundImageSettings.videoUrl || window.backgroundImageSettings.hasBg));
@@ -494,6 +549,12 @@
         }
     }
 
+    /**
+     * Stores a custom user theme definition to localStorage and backend configuration.
+     * @param {object} themeObj - Complete theme definition object containing id, name, and color mappings.
+     * @param {boolean} [shouldApply=true] - Whether to immediately activate the saved theme.
+     * @returns {Promise<boolean>} True upon successful storage.
+     */
     async function saveCustomTheme(themeObj, shouldApply = true) {
         if (!themeObj || !themeObj.id) return false;
         themeObj.isCustom = true;
@@ -517,6 +578,12 @@
         return true;
     }
 
+    /**
+     * Removes a custom theme record from runtime memory, localStorage, and backend storage.
+     * Reverts to the default 'teal' theme if the deleted theme was currently active.
+     * @param {string} themeId - Unique key of the custom theme to delete.
+     * @returns {Promise<boolean>} True upon deletion.
+     */
     async function deleteCustomTheme(themeId) {
         if (customThemes[themeId]) {
             delete customThemes[themeId];
@@ -542,6 +609,11 @@
         return true;
     }
 
+    /**
+     * Opens the visual theme designer modal dialogue to create or customise a palette.
+     * Provides colour pickers, live SVG canvas preview, swap buttons, and import/export capabilities.
+     * @param {string|null} [themeIdToEdit] - ID of an existing custom or default theme to clone/edit.
+     */
     function openThemeEditorModal(themeIdToEdit) {
         const existing = document.getElementById("pyxis-theme-editor-modal");
         if (existing) existing.remove();
@@ -575,6 +647,15 @@
 
         const categoryList = ["Basics", "Loops", "System", "Variables", "String", "Text", "Math", "Functions", "Shape", "Time", "Audio", "Particles", "Meta"];
 
+        /**
+         * Renders an interactive colour field component with chip swatch, native picker, and Pro picker trigger.
+         * @param {string} fieldId - Unique identifier or property key for the colour input.
+         * @param {string} currentHex - Hexadecimal colour code currently assigned.
+         * @param {string} [dataCat=""] - Node category identifier if configuring a category colour.
+         * @param {string} [dataProp=""] - Specific sub-property ('color' or 'gradientEnd').
+         * @param {string} [title="Color"] - Tooltip text describing the field purpose.
+         * @returns {string} HTML markup string for the colour picker component.
+         */
         function createColorFieldHtml(fieldId, currentHex, dataCat = "", dataProp = "", title = "Color") {
             const hex = (currentHex || "#10B981").toUpperCase();
             const dataAttrs = dataCat ? `data-cat="${dataCat}" data-prop="${dataProp}"` : `data-field-id="${fieldId}"`;
@@ -897,6 +978,10 @@
 
         document.body.appendChild(modal);
 
+        /**
+         * Re-evaluates theme editor form inputs and renders simulated visual previews for nodes and wires.
+         * Dynamically applies the candidate theme in real-time to allow visual inspection.
+         */
         function updateLivePreview() {
             editingTheme.name = modal.querySelector("#theme-edit-name").value || "Custom Theme";
             
@@ -988,6 +1073,11 @@
             applyTheme(editingTheme.id);
         }
 
+        /**
+         * Sets a new hexadecimal colour value on a target input field and propagates changes to chips and badges.
+         * @param {HTMLElement} targetElem - Child input, chip or button inside the colour field.
+         * @param {string} newHex - New hex colour code to apply.
+         */
         function setFieldColor(targetElem, newHex) {
             let hex = (newHex || "#10B981").toUpperCase();
             if (!hex.startsWith("#")) hex = "#" + hex;
@@ -1352,6 +1442,10 @@
         updateLivePreview();
     }
 
+    /**
+     * Opens the master application settings and theme selection modal dialogue.
+     * Synchronises custom themes with backend, renders theme lists with swatches, and provides canvas background controls.
+     */
     async function openSettingsModal() {
         if (window.LiteGraph && typeof window.LiteGraph.closeAllContextMenus === "function") {
             window.LiteGraph.closeAllContextMenus();

@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
 """Canonical font vector extraction engine to ASSdraw format (m ... l ... b ...).
 Supports Win32 GDI via ctypes on Windows with smooth fallback, normalized cache, and comprehensive context resolution.
@@ -35,6 +35,24 @@ class POINT(ctypes.Structure):
 
 class SIZE(ctypes.Structure):
     _fields_ = [("cx", wintypes.LONG), ("cy", wintypes.LONG)]
+
+class SCRIPT_ANALYSIS(ctypes.Structure):
+    _fields_ = [
+        ("eScript", wintypes.WORD, 10),
+        ("fRTL", wintypes.WORD, 1),
+        ("fLayoutRTL", wintypes.WORD, 1),
+        ("fLinkBefore", wintypes.WORD, 1),
+        ("fLinkAfter", wintypes.WORD, 1),
+        ("fLogicalOrder", wintypes.WORD, 1),
+        ("fNoGlyphIndex", wintypes.WORD, 1),
+        ("s", wintypes.WORD)
+    ]
+
+class SCRIPT_ITEM(ctypes.Structure):
+    _fields_ = [
+        ("iCharPos", wintypes.INT),
+        ("a", SCRIPT_ANALYSIS)
+    ]
 
 class TEXTMETRICW(ctypes.Structure):
     _fields_ = [
@@ -62,7 +80,27 @@ class TEXTMETRICW(ctypes.Structure):
 
 @dataclass(frozen=True)
 class FontVectorMetrics:
-    """Retiene la ficha métrica completa y no destructiva de la fuente y de la forma vectorial."""
+    """
+    Retains complete non-destructive font and vector shape bounding metrics.
+
+    Attributes:
+        shape: ASSdraw vector commands string (e.g. 'm ... l ... b ...').
+        advance_width: Typographic advance width including spacing in script pixels.
+        cell_height: Total font design cell height in script pixels.
+        ascent: Font ascent from baseline to cell top in script pixels.
+        descent: Font descent from baseline to cell bottom in script pixels.
+        spacing: Additional inter-character spacing applied in script pixels.
+        lsb: Left Side Bearing (distance from origin to leftmost ink point).
+        rsb: Right Side Bearing (distance from rightmost ink point to advance width).
+        ink_min_x: Minimum X coordinate of the rendered glyph ink relative to layout centre.
+        ink_min_y: Minimum Y coordinate of the rendered glyph ink relative to layout centre.
+        ink_max_x: Maximum X coordinate of the rendered glyph ink relative to layout centre.
+        ink_max_y: Maximum Y coordinate of the rendered glyph ink relative to layout centre.
+        ink_width: Measured ink bounding box width (excluding typographic side bearings).
+        ink_height: Measured ink bounding box height.
+        delta_x: Horizontal offset between ink centre and typographic centre.
+        delta_y: Vertical offset between ink centre and typographic centre.
+    """
     shape: str = ""
     advance_width: float = 0.0
     cell_height: float = 0.0
@@ -281,7 +319,12 @@ Hierarchically inspects:
         spacing: Optional[float] = None,
         anchor: str = "typographic"
     ) -> str:
-        """Función canónica para convertir texto a vector ASSdraw usando el contexto completo."""
+        """
+        Converts text string into ASSdraw vector commands using comprehensive node execution context.
+
+        Hierarchically resolves typographic attributes from context (`active_unit`, `active_line`,
+        `styleref`, inline overrides) and returns the ASSdraw shape string.
+        """
         metrics = cls.get_metrics_from_context(
             text=text,
             context=context,
@@ -314,7 +357,12 @@ Hierarchically inspects:
         spacing: Optional[float] = None,
         anchor: str = "typographic"
     ) -> FontVectorMetrics:
-        """Extrae la ficha métrica completa y no destructiva de la fuente y de la forma vectorial."""
+        """
+        Extracts complete non-destructive font and vector metrics using hierarchical context resolution.
+
+        Inspects explicit parameters, unit/line override tags, and style references before generating
+        the vector shape and geometric bounding metrics.
+        """
         params = cls.extract_font_params(
             text=text,
             context=context,
@@ -357,7 +405,24 @@ Hierarchically inspects:
         spacing: float = 0.0,
         anchor: str = "typographic"
     ) -> str:
-        """Convierte una cadena de texto a forma vectorial ASSdraw con caché normalizado."""
+        """
+        Converts a text string into ASSdraw vector commands with normalisation caching.
+
+        Args:
+            text: Text string to vectorise.
+            font_name: Font family name.
+            font_size: Typographic font size.
+            bold: Bold weight flag.
+            italic: Italic styling flag.
+            scale: Uniform scalar multiplier.
+            scale_x: Horizontal scale percentage.
+            scale_y: Vertical scale percentage.
+            spacing: Inter-character tracking offset.
+            anchor: Coordinate anchoring mode ('typographic', 'ink', 'origin', 'baseline').
+
+        Returns:
+            ASSdraw format path string.
+        """
         metrics = cls.get_metrics(
             text=text,
             font_name=font_name,
@@ -386,7 +451,24 @@ Hierarchically inspects:
         spacing: float = 0.0,
         anchor: str = "typographic"
     ) -> FontVectorMetrics:
-        """Retorna la ficha métrica completa de vector y tipografía con caché normalizado."""
+        """
+        Returns full vector and typography metrics with normalisation caching.
+
+        Args:
+            text: Text string to vectorise.
+            font_name: Font family name.
+            font_size: Typographic font size.
+            bold: Bold weight flag.
+            italic: Italic styling flag.
+            scale: Uniform scalar multiplier.
+            scale_x: Horizontal scale percentage.
+            scale_y: Vertical scale percentage.
+            spacing: Inter-character tracking offset.
+            anchor: Coordinate anchoring mode ('typographic', 'ink', 'origin', 'baseline').
+
+        Returns:
+            FontVectorMetrics instance containing shapes and geometric bounding boxes.
+        """
         if not text or not str(text).strip():
             return FontVectorMetrics()
 
@@ -455,6 +537,29 @@ Hierarchically inspects:
         spacing: float = 0.0,
         anchor: str = "typographic"
     ) -> FontVectorMetrics:
+        """
+        Extracts vector outlines via Win32 GDI paths and constructs ASSdraw commands ('m ... l ... b ...').
+
+        Executes BeginPath / ExtTextOutW / EndPath on an in-memory Device Context at 64x sub-pixel
+        precision. Retrieves point coordinates and segment types (PT_MOVETO, PT_LINETO, PT_BEZIERTO),
+        computes typographic versus ink bounding boxes, calculates left/right side bearings and offsets,
+        and translates coordinates to the requested anchor point ('typographic', 'ink', 'origin', 'baseline').
+
+        Args:
+            text: Text string to outline.
+            font_name: Font typeface family name.
+            font_size: Typographic point size.
+            bold: Bold weight flag.
+            italic: Italic styling flag.
+            scale: Uniform scalar multiplier.
+            scale_x: Horizontal scale percentage.
+            scale_y: Vertical scale percentage.
+            spacing: Tracking/inter-character advance spacing in script pixels.
+            anchor: Origin anchor mode ('typographic', 'ink', 'origin', 'baseline').
+
+        Returns:
+            Populated FontVectorMetrics dataclass containing ASSdraw commands and geometric bounding boxes.
+        """
         gdi32 = ctypes.windll.gdi32
 
         hdc = gdi32.CreateCompatibleDC(None)
@@ -462,6 +567,13 @@ Hierarchically inspects:
             return FontVectorMetrics()
 
         gdi32.SetBkMode(hdc, 1)
+
+        calib = 1.0
+        try:
+            from font_engine import FontEngine
+            calib = FontEngine.get_font_calibration_ratio(font_name, font_size)
+        except Exception:
+            pass
 
         FW_BOLD = 700
         FW_NORMAL = 400
@@ -492,37 +604,89 @@ Hierarchically inspects:
         dx_array = None
         total_cx = 0.0
         sp_subpixel = float(spacing) * 64.0
+        used_shaped_glyphs = False
 
-        if len(text_w) > 1:
-            dx_list = []
-            total_adv = 0.0
-            for idx, c in enumerate(text_w):
-                gdi32.GetTextExtentPoint32W(hdc, c, 1, ctypes.byref(sz_c))
-                adv_64 = float(sz_c.cx)
-                if idx < len(text_w) - 1:
-                    adv_with_sp = adv_64 + sp_subpixel
-                else:
-                    adv_with_sp = adv_64
-                adv_int = int(round(adv_with_sp))
-                dx_list.append(adv_int)
-                total_adv += adv_with_sp
-            dx_array = (ctypes.c_int * len(text_w))(*dx_list)
-            total_cx = total_adv
-        else:
-            sz_single = SIZE()
-            gdi32.GetTextExtentPoint32W(hdc, text_w, len(text_w), ctypes.byref(sz_single))
-            total_cx = float(sz_single.cx)
+        # Selective Capa 2: If spacing is zero and text contains OpenType ligatures, use Uniscribe shaped glyphs
+        if abs(spacing) < 1e-4 and len(text_w) > 1 and platform.system() == "Windows":
+            try:
+                usp10 = ctypes.windll.usp10
+                cInChars = len(text_w)
+                items = (SCRIPT_ITEM * (cInChars + 2))()
+                cItems = wintypes.INT()
+                hr = usp10.ScriptItemize(text_w, cInChars, cInChars + 2, None, None, items, ctypes.byref(cItems))
+                if hr == 0 and cItems.value > 0:
+                    sc = ctypes.c_void_p()
+                    shaped_runs = []
+                    has_ligatures = False
+                    try:
+                        for idx in range(cItems.value):
+                            sc_pos = items[idx].iCharPos
+                            ec_pos = items[idx + 1].iCharPos
+                            l = ec_pos - sc_pos
+                            if l <= 0:
+                                continue
+                            it = text_w[sc_pos:ec_pos]
+                            mg = l * 2 + 16
+                            g = (wintypes.WORD * mg)()
+                            cl = (wintypes.WORD * l)()
+                            va = (ctypes.c_byte * mg)()
+                            pg = wintypes.INT()
 
-        gdi32.BeginPath(hdc)
-        gdi32.ExtTextOutW(hdc, 0, 0, 0, None, text_w, len(text_w), dx_array)
-        gdi32.EndPath(hdc)
+                            hr_s = usp10.ScriptShape(hdc, ctypes.byref(sc), it, l, mg, ctypes.byref(items[idx].a), g, cl, va, ctypes.byref(pg))
+                            if hr_s == 0 and pg.value > 0:
+                                if pg.value < l or any(cl[k] == cl[k + 1] for k in range(l - 1)):
+                                    has_ligatures = True
+                                gw = (wintypes.INT * pg.value)()
+                                gdi32.GetCharWidthI(hdc, g[0], pg.value, g, gw)
+                                shaped_runs.append((g, pg.value, gw))
+
+                        if has_ligatures and shaped_runs:
+                            gdi32.BeginPath(hdc)
+                            cur_x = 0
+                            for g_arr, g_count, adv_arr in shaped_runs:
+                                gdi32.ExtTextOutW(hdc, cur_x, 0, 0x0010, None, ctypes.cast(g_arr, wintypes.LPCWSTR), g_count, adv_arr)
+                                run_adv = sum(adv_arr[k] for k in range(g_count))
+                                cur_x += run_adv
+                            gdi32.EndPath(hdc)
+                            total_cx = float(cur_x)
+                            used_shaped_glyphs = True
+                    finally:
+                        usp10.ScriptFreeCache(ctypes.byref(sc))
+            except Exception:
+                pass
+
+        if not used_shaped_glyphs:
+            if len(text_w) > 1:
+                dx_list = []
+                total_adv = 0.0
+                for idx, c in enumerate(text_w):
+                    gdi32.GetTextExtentPoint32W(hdc, c, 1, ctypes.byref(sz_c))
+                    adv_64 = float(sz_c.cx)
+                    if idx < len(text_w) - 1:
+                        sp_term = (sp_subpixel / calib) if calib > 0 else sp_subpixel
+                        adv_with_sp = adv_64 + sp_term
+                    else:
+                        adv_with_sp = adv_64
+                    adv_int = int(round(adv_with_sp))
+                    dx_list.append(adv_int)
+                    total_adv += adv_with_sp
+                dx_array = (ctypes.c_int * len(text_w))(*dx_list)
+                total_cx = total_adv
+            else:
+                sz_single = SIZE()
+                gdi32.GetTextExtentPoint32W(hdc, text_w, len(text_w), ctypes.byref(sz_single))
+                total_cx = float(sz_single.cx)
+
+            gdi32.BeginPath(hdc)
+            gdi32.ExtTextOutW(hdc, 0, 0, 0, None, text_w, len(text_w), dx_array)
+            gdi32.EndPath(hdc)
 
         sz = SIZE()
         gdi32.GetTextExtentPoint32W(hdc, text_w, len(text_w), ctypes.byref(sz))
 
         num_points = gdi32.GetPath(hdc, None, None, 0)
-        scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0)
-        scale_factor_y = (1.0 / 64.0) * float(scale) * (float(scale_y) / 100.0)
+        scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0) * calib
+        scale_factor_y = (1.0 / 64.0) * float(scale) * (float(scale_y) / 100.0) * calib
 
         adv_w = round(total_cx * scale_factor_x, 3)
         cell_h = round(tm.tmHeight * scale_factor_y, 3)
@@ -645,7 +809,7 @@ Hierarchically inspects:
         spacing: float = 0.0,
         anchor: str = "typographic"
     ) -> FontVectorMetrics:
-        """Fallback aproximado de caja contenedora vectorial centrado en (0, 0) con métricas."""
+        """Generates an approximate vector bounding box fallback centred at (0, 0) with metrics."""
         extra_sp = float(spacing) * max(0, len(text) - 1)
         width = (float(len(text) * float(font_size) * 0.6) + extra_sp) * (float(scale_x) / 100.0) * float(scale)
         height = float(float(font_size) * (float(scale_y) / 100.0) * float(scale))

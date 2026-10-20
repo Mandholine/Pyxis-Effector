@@ -13,7 +13,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- * For any question you can visit: https://discord.gg/rYsARc3fB9
+ * For any question you can visit: https://discord.gg/fsxRESeQZN
  */
 
 /* =============================================================================
@@ -5277,6 +5277,7 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    overflow: hidden;
 }
 
 .pyxis-help-search-box {
@@ -5285,6 +5286,7 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.05));
     display: flex;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .pyxis-help-search-icon {
@@ -5331,6 +5333,7 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
 
 .pyxis-help-toc {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 6px 0;
 }

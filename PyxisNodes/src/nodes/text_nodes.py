@@ -12,9 +12,39 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
-"""Text manipulation and typographic layout nodes."""
+"""
+Module: text_nodes.py
+Architectural Role: String Manipulation, Typographic Transliteration, and Kinematic Layout Engine.
+
+This module provides comprehensive string processing and kinetic text positioning capabilities:
+    - String Transformation Utilities: Stripping ASS tags, whitespace normalisation,
+      case transforms (upper/lower), substring extraction, and regex/literal replacements.
+    - Japanese Syllabic Transliteration (`text_transliterate_kana`): Two-way conversion
+      between Romaji, Hiragana, and Katakana, handling digraphs, trigraphs, and geminate consonants (sokuon).
+    - Romaji-to-Karaoke Segmentation (`text_romaji_to_karaoke`): Tokenises Latin-script lyrics into
+      phonetic mora/syllables and calculates centisecond durations (`\\k`, `\\kf`, `\\ko`, `\\K`) from context.
+    - Unified Text Dispatcher (`eval_text_node`): Canonical execution handler for the `Basics/Text` node.
+    - Vector Font Rasterisation Bridge (`text_to_shape_node`): Converts strings into ASSdraw vector outlines via `FontVectorEngine`.
+    - Text on Path Engine (`text_on_path_core`, `text_on_path_node`): Computes arc lengths along ASSdraw
+      splines (lines and cubic Béziers), evaluating exact spatial coordinates and tangential angles (`\\frz`).
+    - Kinetic Layout Relocation (`move_text_node`, `MoveTextNode`): Displaces text elements without altering
+      global origin coordinates, utilising character spacing (`\\fsp`) and vertical spacer shapes (`\\fscy`),
+      with automatic zero-crossing transition partitioning.
+
+Upstream Dependencies:
+    - decorators.py: `@pyxis_node` decorator for node registration.
+    - node_engine.py: `NODE_REGISTRY`, `_eval_num_expr` for dynamic expression evaluation.
+    - font_engine.py: `FontEngine.get_text_extents` for font metrics calculation.
+    - font_vector_engine.py: `FontVectorEngine` for vectorising font glyphs to ASSdraw paths.
+    - nodes.shape_nodes.py: Spline and curve utilities (`parse_assdraw_segments`, arc length, Bézier evaluations).
+    - nodes.tag_nodes.py: Cleaning and numeric formatting helpers (`_clean_num`, `_get_default_dur`, etc.).
+
+Downstream Callers:
+    - node_engine.GraphEngine: Dispatches `Basics/Text`, `Functions/Text on Path`, and `Functions/Move Text`.
+    - ass_parser.KaraokeProcessor: Consumes sanitised strings and transliterated mora sequences.
+"""
 
 import re
 from decorators import pyxis_node
@@ -23,7 +53,19 @@ from node_engine import NODE_REGISTRY
 _TAG_RE = re.compile(r'\{.*?\}')
 
 def _get_text(context, text):
-    """Gets the provided text or performs smart autocompletion from the active context."""
+    """
+    Extract explicitly supplied text or resolve fallback string from the active context.
+
+    Inspects unit-level candidates (`active_unit`, `syl`, `char`, `word`) followed by
+    line-level candidates (`active_line`, `line`), preferring `text_stripped` over raw `text`.
+
+    Args:
+        context (dict | Any): Execution context dictionary containing active AST/ASS structures.
+        text (Any): Explicit text passed to the node.
+
+    Returns:
+        str: Resolved string content, or empty string if no valid text is found.
+    """
     if text is not None and str(text) != "":
         return str(text)
     if isinstance(context, dict):
@@ -39,6 +81,19 @@ def _get_text(context, text):
 
 
 def text_strip_tags(context, text=""):
+    """
+    Strip all ASS override formatting tags and normalise whitespace.
+
+    Removes curly bracket blocks (`{...}`) and converts ASS hard line breaks
+    (`\\N`, `\\n`) and hard spaces (`\\h`) into standard whitespace before trimming.
+
+    Args:
+        context (dict | Any): Execution context for fallback text retrieval.
+        text (str): Input text containing potential ASS tags.
+
+    Returns:
+        str: Sanitised plain-text string.
+    """
     raw = _get_text(context, text)
     clean = _TAG_RE.sub("", raw)
     clean = clean.replace(r"\N", " ").replace(r"\n", " ").replace(r"\h", " ")
@@ -46,19 +101,66 @@ def text_strip_tags(context, text=""):
 
 
 def text_upper(context, text=""):
+    """
+    Convert resolved text to uppercase characters.
+
+    Args:
+        context (dict | Any): Execution context for fallback text retrieval.
+        text (str): Input text to transform.
+
+    Returns:
+        str: Uppercase string representation.
+    """
     return _get_text(context, text).upper()
 
 
 def text_lower(context, text=""):
+    """
+    Convert resolved text to lowercase characters.
+
+    Args:
+        context (dict | Any): Execution context for fallback text retrieval.
+        text (str): Input text to transform.
+
+    Returns:
+        str: Lowercase string representation.
+    """
     return _get_text(context, text).lower()
 
 
 def text_replace(context, text="", search="", replace=""):
+    """
+    Perform literal substring replacement across resolved text.
+
+    Args:
+        context (dict | Any): Execution context for fallback text retrieval.
+        text (str): Source text.
+        search (str): Substring target to locate.
+        replace (str): Replacement string.
+
+    Returns:
+        str: Transformed string with occurrences replaced.
+    """
     raw = _get_text(context, text)
     return raw.replace(str(search), str(replace))
 
 
 def text_substring(context, text="", start=0, length=10):
+    """
+    Extract a contiguous slice from resolved text using dynamic numeric expressions.
+
+    Evaluates `start` and `length` expressions via `_eval_num_expr` against the
+    active context to support variable-driven slicing.
+
+    Args:
+        context (dict | Any): Execution context for variable evaluation.
+        text (str): Source text to slice.
+        start (int | str): Zero-based start index or formula.
+        length (int | str): Substring character length or formula.
+
+    Returns:
+        str: Sliced substring, or full string on evaluation failure.
+    """
     st = _get_text(context, text)
     try:
         from node_engine import _eval_num_expr
@@ -70,10 +172,31 @@ def text_substring(context, text="", start=0, length=10):
 
 
 def text_len(context, text=""):
+    """
+    Calculate the character length of the resolved text.
+
+    Args:
+        context (dict | Any): Execution context for fallback text retrieval.
+        text (str): Input text.
+
+    Returns:
+        int: Number of unicode code points in the string.
+    """
     return len(_get_text(context, text))
 
 
 def text_contains(context, text="", search=""):
+    """
+    Check if a search substring is present within the resolved text.
+
+    Args:
+        context (dict | Any): Execution context for fallback text retrieval.
+        text (str): Text to inspect.
+        search (str): Substring to query.
+
+    Returns:
+        int: `1` if substring is contained, `0` otherwise.
+    """
     raw = _get_text(context, text)
     return 1 if str(search) in raw else 0
 
@@ -112,6 +235,24 @@ _SOKUON_LETTERS = set("bcdfghjklmpqrstvwxyz")
 
 
 def text_transliterate_kana(context, text="", mode="Romaji to Hiragana"):
+    """
+    Transliterate Japanese text across Romaji, Hiragana, and Katakana scripts.
+
+    Supported transformation modes:
+        - "Romaji to Hiragana": Converts Latin alphabet to Hiragana, handling sokuon gemination (`っ`).
+        - "Romaji to Katakana": Converts Latin alphabet to Katakana, handling sokuon gemination (`ッ`).
+        - "Hiragana to Katakana": Direct phoneme mapping from Hiragana to Katakana.
+        - "Katakana to Hiragana": Direct phoneme mapping from Katakana to Hiragana.
+        - "Kana to Romaji": Converts either syllabary into Hepburn Romaji representation.
+
+    Args:
+        context (dict | Any): Execution context for fallback text retrieval.
+        text (str): Japanese or Romaji input text.
+        mode (str): Transliteration direction mode string.
+
+    Returns:
+        str: Converted syllabic string.
+    """
     txt = _get_text(context, text)
     if not txt:
         return ""
@@ -180,6 +321,18 @@ _ROMAJI_SORTED = sorted(_ROMAJI_SYLLABLES, key=len, reverse=True)
 
 
 def _tokenize_romaji_word(word):
+    """
+    Tokenise an individual Romaji word into phonetic mora syllables.
+
+    Matches longest prefix against sorted trigraphs, digraphs, and monographs
+    according to standard Hepburn phonetic tables.
+
+    Args:
+        word (str): Single alphabetic word to split.
+
+    Returns:
+        list[str]: Sequence of constituent mora strings.
+    """
     syllables = []
     i = 0
     w_lower = word.lower()
@@ -199,6 +352,22 @@ def _tokenize_romaji_word(word):
 
 
 def text_romaji_to_karaoke(context=None, text="", kmode="k", duration=None, **kwargs):
+    """
+    Convert Romaji lyric strings into timed ASS karaoke tag sequences.
+
+    Tokenises Latin text into phonetic syllables and calculates individual
+    centisecond durations from explicit parameter, `active_unit.duration`, or `active_line.duration`.
+
+    Args:
+        context (dict | None): Active execution context.
+        text (str): Romaji lyric string to segment.
+        kmode (str): Karaoke tag flavour (`"k"`, `"kf"`, `"ko"`, `"K"`).
+        duration (float | str | None): Optional total duration override in centiseconds.
+        **kwargs: Supplementary parameters.
+
+    Returns:
+        str: Segmented karaoke text with inline tags (e.g. `{\\k15}ko{\\k20}no`).
+    """
     raw_text = _get_text(context, text)
     if not raw_text:
         return ""
@@ -271,7 +440,27 @@ def text_romaji_to_karaoke(context=None, text="", kmode="k", duration=None, **kw
 
 
 def eval_text_node(context=None, **kwargs):
-    """Unified canonical handler for the Basics/Text node."""
+    """
+    Unified canonical execution dispatcher for the `Basics/Text` node.
+
+    Dispatches string operations based on the `operation` property:
+        - `striptags`: Strips ASS tags and normalises line breaks.
+        - `uppercase` / `lowercase`: Case transformations.
+        - `cleanspaces`: Collapses consecutive whitespace.
+        - `replace`: String search and substitution.
+        - `substring`: Dynamic character slicing.
+        - `length`: String character count.
+        - `contains`: Boolean substring query (`"1"` or `"0"`).
+        - `transliteratekana`: Romaji/Kana conversion.
+        - `romajitokaraoke`: Automatic phonetic karaoke segmentation.
+
+    Args:
+        context (dict | None): Active execution context.
+        **kwargs: Node parameters and inline properties.
+
+    Returns:
+        str: Processed text output string.
+    """
     operation = str(kwargs.get("operation", kwargs.get("mode", "strip_tags"))).strip()
     ctx = context or {}
 
@@ -341,6 +530,23 @@ def eval_text_node(context=None, **kwargs):
 
 
 def text_to_shape_node(context, text="", font_name=None, font_size=None, bold=None, italic=None, scale=1.0):
+    """
+    Rasterise typographic characters into continuous ASSdraw vector outlines.
+
+    Delegates font glyph geometry generation to `FontVectorEngine.from_context`.
+
+    Args:
+        context (dict | Any): Execution context providing font style references.
+        text (str): String or character to vectorise.
+        font_name (str | None): Font family override.
+        font_size (float | None): Typographic font size in points.
+        bold (bool | None): Bold style toggle override.
+        italic (bool | None): Italic style toggle override.
+        scale (float): Geometric scale factor multiplier.
+
+    Returns:
+        str: ASSdraw drawing commands representing glyph outlines (e.g. `m ... b ...`).
+    """
     from font_vector_engine import FontVectorEngine
     return FontVectorEngine.from_context(
         text=text,
@@ -361,9 +567,37 @@ def text_on_path_core(
     extra_angle: float = 0.0,
     subdivs: int = 30
 ):
-    """Calculates position and tangential angle of active text element along an ASSdraw path.
-    
-    Returns tuple: (tag_out, pos_str, angle_str, x_val, y_val, total_length, target_dist)
+    """
+    Calculate position and tangential rotation angle of an active text unit along an ASSdraw path.
+
+    Traces piecewise linear and cubic Bézier segments in the vector path, computes
+    arc-length parameterisation, maps relative character or syllable positions
+    according to alignment mode, and extracts tangential slope angle in degrees (`\\frz`).
+
+    Alignment Modes:
+        - `Left`: Anchors text starting from path origin plus offset.
+        - `Right`: Anchors text ending at path terminus minus offset.
+        - `Justified`: Distributes characters evenly along the entire path arc length.
+        - `Animated` / `Progress`: Drives path traversal via progress factor (`offset`).
+        - `Center`: Centred alignment along the path length.
+
+    Args:
+        shape_str (str): ASSdraw drawing commands defining the spline trajectory.
+        context (dict | None): Context containing `active_unit`, `line`, and metric bounds.
+        mode (str): Path distribution and alignment mode.
+        offset (float): Metric pixel offset or normalised traversal progress.
+        extra_angle (float): Additional angular rotation offset in degrees.
+        subdivs (int): Subdivision count for Bézier arc-length approximation.
+
+    Returns:
+        tuple: (tag_out, pos_str, frz_str, cur_x, cur_y, total_len, target_dist)
+            - `tag_out` (str): Combined ASS positioning and rotation tags (e.g. `\\pos(x,y)\\frz45`).
+            - `pos_str` (str): Standalone `\\pos(x,y)` tag.
+            - `frz_str` (str): Standalone `\\frz<deg>` tag.
+            - `cur_x` (float): Target X coordinate on the path.
+            - `cur_y` (float): Target Y coordinate on the path.
+            - `total_len` (float): Total cumulative arc length of the path.
+            - `target_dist` (float): Exact linear distance from path start to current unit.
     """
     import math
     from nodes.shape_nodes import (
@@ -538,7 +772,23 @@ def text_on_path_node(
     extra_angle=0.0,
     subdivs=30
 ):
-    """Controller for Text on Path node (Functions / Text)."""
+    """
+    Controller node for Text on Path (`Functions/Text on Path`).
+
+    Evaluates dynamic numeric expressions in properties, calls `text_on_path_core`,
+    and packs results for downstream dataflow connections.
+
+    Args:
+        context (dict | None): Active execution context.
+        shape (str): ASSdraw spline or shape reference.
+        mode (str): Path alignment mode.
+        offset (float | str): Offset expression.
+        extra_angle (float | str): Angular offset expression.
+        subdivs (int | str): Curve subdivision count expression.
+
+    Returns:
+        tuple: (tag_out, pos_str, frz_str, x_val, y_val, total_len)
+    """
     from node_engine import _eval_num_expr
 
     ctx = context or {}
@@ -572,6 +822,18 @@ NODE_REGISTRY["Text/Romaji to Karaoke"] = text_romaji_to_karaoke
 
 
 def _resolve_context_style(context):
+    """
+    Extract typographic style attributes from the active context or line reference.
+
+    Inspects `context['style']`, `context['active_style']`, or `line.styleref`
+    to resolve font family, size, bold, italic, scaling, spacing, and colours.
+
+    Args:
+        context (dict | Any): Active execution context.
+
+    Returns:
+        dict: Normalised style dictionary with font metrics.
+    """
     if isinstance(context, dict):
         st = context.get('style') or context.get('active_style') or context.get('styleref')
         if isinstance(st, dict):
@@ -593,6 +855,22 @@ def _resolve_context_style(context):
 
 
 def _split_axis_transitions(t_matches, off_init, tag_name):
+    """
+    Deconstruct ASS animated transitions (`\\t`) crossing zero on a displacement axis.
+
+    VSFilter and libass do not support negative font scale (`\\fscy`) or inverse spacing
+    without rendering artifacts. When a transition moves across zero (positive to negative
+    or negative to positive), this function splits the interval at the exact zero-crossing
+    instant, generating separate positive and negative transition sub-blocks.
+
+    Args:
+        t_matches (list[str]): List of regex-matched `\\t(...)` transition strings.
+        off_init (float): Initial axis offset.
+        tag_name (str): ASS tag identifier (e.g. `"\\fsp"` or `"\\fscy"`).
+
+    Returns:
+        tuple[list[str], list[str]]: (positive_transitions, negative_transitions)
+    """
     vals = [off_init]
     parsed = []
     for t in t_matches:
@@ -649,9 +927,38 @@ def move_text_node(
     **kwargs
 ):
     """
-    Translates text position using character spacing (fsp) and vertical spacer shapes (fscy),
-    matching the exact ASS layout hack from Effector 2's ke.text.move in newkara_library.
-    Supports 2D trajectories (shapes or point lists) with geometric anchor normalization.
+    Translate text layout positions using character spacing and vertical spacer shapes.
+
+    Implements the classical layout shift hack from Effector 2's `ke.text.move`:
+        - Horizontal displacement: Modulates character spacing (`\\fsp`) across hidden
+          spacer periods (`.`), doubling the value to achieve bilateral coordinate shifts.
+        - Vertical displacement: Injects vertical line-break spacer shapes (`\\p1 m 0 0 m 0 100`)
+          modulated by vertical font scale (`\\fscy`) and hard line breaks (`\\N`).
+        - Zero-Crossing Safety: Automatically partitions transitions passing through zero
+          to prevent negative font scale inversion.
+        - Trajectory Support: Accommodates discrete 2D point trajectories or ASSdraw shapes
+          with geometric anchor normalisation (`center`, `origin`, `first_point`).
+
+    Args:
+        context (dict | None): Active execution context.
+        text (str | None): Text or ASSdraw shape string to displace.
+        tags (str | None): Additional override tags to apply to the text block.
+        dx (float | str): Horizontal displacement delta.
+        dy (float | str): Vertical displacement delta.
+        ox (float | str): Horizontal origin offset.
+        oy (float | str): Vertical origin offset.
+        trajectory (Any): 2D trajectory path or shape.
+        anchor (str): Spatial anchor normalisation mode (`"center"`, `"origin"`, `"first_point"`).
+        shape (str): Supplementary shape trajectory.
+        points (list | None): Discrete waypoint coordinates.
+        step_px (float | str): Arc-length sampling interval in pixels.
+        t1 (float | str): Start time for motion transition in milliseconds.
+        t2 (float | str | None): End time for motion transition in milliseconds.
+        accel (float | str): Easing acceleration exponent.
+        **kwargs: Additional configuration packets or segment lists.
+
+    Returns:
+        str: Composite ASS string containing vertical and horizontal spacer blocks wrapping the payload.
     """
     from font_engine import FontEngine
     from nodes.tag_nodes import (
@@ -840,6 +1147,20 @@ def move_text_node(
 
 @pyxis_node("Functions", "Move Text", [])
 def MoveTextNode(context=None, *args, **kwargs):
+    """
+    Pyxis node entrypoint for Functions/Move Text.
+
+    Displaces text via layout spacing hacks (`\\fsp` and vertical spacer shapes),
+    allowing complex cinematic trajectories without resetting line origin coordinates.
+
+    Args:
+        context (dict | None): Active execution context.
+        *args: Variable positional arguments passed to `move_text_node`.
+        **kwargs: Variable keyword arguments forwarded to `move_text_node`.
+
+    Returns:
+        str: Layout-shifted ASS composite string.
+    """
     return move_text_node(context=context, *args, **kwargs)
 
 NODE_REGISTRY["Functions/Move Text"] = MoveTextNode

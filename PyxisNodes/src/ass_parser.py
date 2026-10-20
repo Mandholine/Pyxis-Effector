@@ -12,11 +12,45 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
-"""Autonomous ASS file parser and karaoke line processor.
+"""
+Module: ass_parser.py
+Architectural Role: Autonomous Advanced SubStation Alpha (ASS) file parser and typographic tokenisation engine.
 
-Uses pure Python KaraskelEngine and FontEngine to layout lines, syllables, characters, words, and furigana identically to Aegisub C++ without relying on PyxisMetrics comments or Lua macros.
+This module parses ASS script files into memory structures, resolving resolution headers, styles,
+project metadata, and dialogue events. It decomposes dialogue lines into discrete typographical
+hierarchies (lines, syllables, words, characters, furigana) with accurate spatial positioning,
+timing, and style cascading.
+
+Architecture and Pipeline:
+    1. ASS File Tokenisation: Parses [Script Info], [V4+ Styles], [Events], [Aegisub Project Garbage],
+       and [Pyxis Config] sections (`ASSParser.read_file`).
+    2. Header and Dummy Media Resolution: Extracts PlayResX/Y, FrameDuration, video/audio paths,
+       and parses ?dummy video strings.
+    3. Event Decomposition: Tokenises raw ASS Dialogue lines into structured PyxisLine entities
+       via `KaraokeProcessor.process_line`.
+    4. Syllable and Character Layout: Integrates with `KaraskelEngine` and `FontEngine` to compute
+       metrics without reliance on external Lua engines or Aegisub runtime comments.
+    5. Structural Linking: Assembles word boundaries, calculates proportional character durations,
+       computes contiguous visible indices (ci, cn), and links adjacent siblings (prev, next).
+
+Upstream Dependencies:
+    - re, math: Standard pattern matching and numeric functions.
+    - utils.parse_time: Converts H:MM:SS.CS timestamps to integer milliseconds.
+    - models: Instantiates PyxisLine, PyxisUnit, and StyleRef.
+    - font_engine.FontEngine: Typographic width and extent measurements.
+    - karaskel_engine.KaraskelEngine: Core layout positioning and font dimension calculation.
+
+Downstream Callers:
+    - node_engine.GraphEngine: Ingests parsed dialogues and styles to drive DAG execution.
+    - main.py: Loads ASS project files and passes parsed metadata to the UI.
+    - pyxis_daemon.py: Previews and renders subtitles on incoming IPC requests.
+    - benchmark_runner.py: Evaluates parser throughput and stress workloads.
+
+Side Effects and State:
+    - Passive file reading via UTF-8 with BOM stripping (`utf-8-sig`).
+    - Zero global mutable state; instantiates isolated, immutable or freshly bound data structures.
 """
 
 import re
@@ -70,7 +104,27 @@ DUMMY_AUDIO_REGEX = re.compile(r"^dummy-audio:silence", re.IGNORECASE)
 
 
 class ASSParseResult(tuple):
-    """5-element tuple compatible with (styles, dialogues, res_x, res_y, frame_dur) with enriched attributes."""
+    """
+    Structured 5-element tuple representing the parsed ASS document, enriched with named properties.
+
+    Maintains backwards compatibility with standard 5-tuple unpacking `(styles, dialogues, res_x, res_y, frame_dur)`
+    while exposing auxiliary media metadata as first-class attributes.
+
+    Attributes:
+        styles (dict[str, dict]): Mapping of style names to raw style definition dictionaries.
+        dialogues (list[dict]): List of raw dialogue/comment event lines with optional pre-parsed metrics.
+        res_x (int): Horizontal script resolution (PlayResX or video width), guaranteed even.
+        res_y (int): Vertical script resolution (PlayResY or video height), guaranteed even.
+        frame_dur (float): Video frame duration in milliseconds (default 41.708 ms for ~23.976 fps).
+        audio_file (str): Associated audio file path or URI from project metadata.
+        video_file (str): Associated video file path or ?dummy video specification string.
+        video_ar (float): Video aspect ratio value if defined in project garbage.
+        video_pos (int): Current frame playback position in Aegisub.
+        dummy_info (dict): Extracted parameters if video_file is an Aegisub dummy video.
+        is_dummy_video (bool): True if the video stream is synthetic/dummy.
+        is_dummy_audio (bool): True if the audio stream is dummy or silent.
+        script_file (str): Original ASS script filepath recorded in Pyxis config.
+    """
     def __new__(cls, styles, dialogues, res_x, res_y, frame_dur, audio_file="", video_file="",
                 video_ar=0.0, video_pos=0, dummy_info=None, is_dummy_video=False, is_dummy_audio=False,
                 script_file=""):
@@ -92,8 +146,30 @@ class ASSParseResult(tuple):
 
 
 class ASSParser:
+    """
+    Parser for Advanced SubStation Alpha (.ass) subtitle files.
+
+    Reads ASS files from disk, segments sections by standard header markers, and extracts
+    project configuration, styles, and raw dialogue events.
+    """
     @staticmethod
     def read_file(filepath: str) -> ASSParseResult:
+        """
+        Parses an ASS file from disk and returns an enriched ASSParseResult container.
+
+        Processes Sections:
+            - [Script Info]: Script resolution (PlayResX, PlayResY).
+            - [Pyxis Config]: Embedded project properties (FrameDuration, linked files).
+            - [Aegisub Project Garbage]: Editor metadata (Audio/Video File, AR, position).
+            - [V4+ Styles]: Typographic style formatting records.
+            - [Events]: Dialogue and comment lines with inline metrics compatibility.
+
+        Args:
+            filepath (str): Absolute or relative filesystem path to the .ass file.
+
+        Returns:
+            ASSParseResult: Container tuple with styles, dialogues, resolution, and media info.
+        """
         styles: Dict[str, StyleDict] = {}
         dialogues: List[DialogueItem] = []
         raw_res_x: Optional[int] = None
@@ -198,7 +274,11 @@ class ASSParser:
                         except Exception:
                             pass
                     elif line.startswith('Dialogue:') or line.startswith('Comment:'):
-                        dialogues.append({'raw': line, 'metrics': current_metrics})
+                        prefix_len = 9 if line.startswith('Dialogue:') else 8
+                        parts_fx = line[prefix_len:].split(',', 9)
+                        line_effect = parts_fx[8].strip() if len(parts_fx) >= 9 else ""
+                        if line_effect != "pyxis_fx":
+                            dialogues.append({'raw': line, 'metrics': current_metrics})
                         current_metrics = None
         except Exception:
             pass
@@ -252,6 +332,13 @@ class ASSParser:
 
 
 class KaraokeProcessor:
+    """
+    Typographical tokeniser and layout processor for ASS dialogue lines.
+
+    Orchestrates the conversion of raw ASS Dialogue/Comment strings into fully measured
+    and linked `PyxisLine` objects with child syllabic (`syls`), lexical (`words`),
+    and character (`chars`) units.
+    """
     def __init__(self, res_x: int = 1280, res_y: int = 720, frame_dur: float = 41.708) -> None:
         self.res_x: int = res_x
         self.res_y: int = res_y
@@ -259,6 +346,28 @@ class KaraokeProcessor:
 
     def process_line(self, raw_line: str, style: StyleDict,
                      metrics: Optional[MetricsDict] = None) -> Optional[PyxisLine]:
+        """
+        Parses a raw ASS event line into a structured PyxisLine with full geometric and temporal layout.
+
+        Execution Steps:
+            1. Regex matching of ASS dialogue fields (layer, start, end, style, actor, margins, effect, text).
+            2. Header pre-processing via `KaraskelEngine.preproc_line()` for layout bounding box and tags.
+            3. Syllable segmentation:
+               - If karaoke tags exist (`\\k`, `\\K`, `\\kf`, `\\ko`): extracts duration per syllable from `k_line.kara`.
+               - If plain text: synthesises word-based syllable units with equal or proportional intervals.
+            4. Character segmentation: allocates proportional character duration based on glyph advance width
+               measured by `FontEngine.get_char_widths()`.
+            5. Word aggregation: groups contiguous non-whitespace characters into `PyxisUnit` word objects.
+            6. Topological linking: assigns contiguous visible indices (`ci`, `cn`) and binds `prev` and `next` proxies.
+
+        Args:
+            raw_line (str): Raw ASS Dialogue or Comment line string.
+            style (StyleDict): Base typographic style dictionary corresponding to the line's style name.
+            metrics (Optional[MetricsDict]): Precomputed metrics dictionary (e.g. from Aegisub PyxisMetrics).
+
+        Returns:
+            Optional[PyxisLine]: Fully structured dialogue line, or None if raw_line failed regex matching.
+        """
         match = re.match(
             r'(?:Dialogue|Comment):\s*(\d+),([^,]+),([^,]+),([^,]*),([^,]*),(\-?\d+),(\-?\d+),(\-?\d+),([^,]*),(.*)',
             raw_line
@@ -267,6 +376,9 @@ class KaraokeProcessor:
             return None
 
         groups = match.groups()
+        if groups[8].strip() == "pyxis_fx":
+            return None
+
         line = PyxisLine()
         raw_stripped = raw_line.strip()
         line.is_comment = raw_stripped.startswith("Comment:") or raw_stripped.startswith("Comment :")
@@ -380,8 +492,8 @@ class KaraokeProcessor:
 
                 txt_strip = k_syl.text_stripped or ""
                 syl_eff_style = syl.style_override if syl.style_override is not None else style
-                cw_list = FontEngine.get_char_widths(syl_eff_style, txt_strip)
-                syl_cw_sum = sum(cw_list) if cw_list else 1.0
+                char_metrics = FontEngine.get_char_layout_metrics(syl_eff_style, txt_strip)
+                syl_cw_sum = sum(m["advance"] for m in char_metrics) if char_metrics else 1.0
 
                 eff_sp = KaraskelEngine.get_effective_spacing(syl_eff_style, meta)
                 n_pre = len(k_syl.prespace or "")
@@ -397,8 +509,15 @@ class KaraokeProcessor:
                     elif i_c == (n_pre + n_text) and n_post > 0:
                         current_x = k_syl.postspace_left
 
-                    cw = cw_list[i_c] if i_c < len(cw_list) else (syl.width / len(txt_strip) if txt_strip else 10.0)
-                    char_dur = int(syl.duration * (cw / syl_cw_sum)) if syl_cw_sum > 0 else 0
+                    m = char_metrics[i_c] if i_c < len(char_metrics) else {
+                        "advance": syl.width / len(txt_strip) if txt_strip else 10.0,
+                        "isolated_width": syl.width / len(txt_strip) if txt_strip else 10.0,
+                        "is_ligature": False
+                    }
+                    adv = m["advance"]
+                    w_iso = m["isolated_width"]
+
+                    char_dur = int(syl.duration * (adv / syl_cw_sum)) if syl_cw_sum > 0 else 0
                     if i_c == len(txt_strip) - 1:
                         char_dur = max(0, syl.duration - current_t)
 
@@ -414,13 +533,13 @@ class KaraokeProcessor:
                     char.start_time = int(current_t)
                     char.end_time = int(current_t + char_dur)
                     char.mid_time = char.start_time + (char.duration / 2.0)
-                    char.width = cw
+                    char.width = w_iso
                     char.height = line.height
                     char.descent = line.descent
                     char.extlead = line.extlead
                     char.left = current_x
-                    char.right = current_x + cw
-                    char.center = current_x + (cw / 2.0)
+                    char.right = current_x + w_iso
+                    char.center = current_x + (w_iso / 2.0)
                     char.top = line.top
                     char.middle = line.middle
                     char.bottom = line.bottom
@@ -430,38 +549,45 @@ class KaraokeProcessor:
                     syl.chars.append(char)
                     line.chars.append(char)
 
-                    current_x += (cw + eff_sp)
+                    current_x += (adv + eff_sp)
                     current_t += char_dur
                     char_idx += 1
         else:
             txt_strip = k_line.text_stripped or ""
             line_eff_style = line.style_override if line.style_override is not None else style
-            cw_list = FontEngine.get_char_widths(line_eff_style, txt_strip)
+            char_metrics = FontEngine.get_char_layout_metrics(line_eff_style, txt_strip)
             eff_sp = KaraskelEngine.get_effective_spacing(line_eff_style, meta)
             all_chars = []
             cur_x = k_line.left
             for i_c, c in enumerate(txt_strip):
-                cw = cw_list[i_c] if i_c < len(cw_list) else 10.0
+                m = char_metrics[i_c] if i_c < len(char_metrics) else {
+                    "advance": 10.0,
+                    "isolated_width": 10.0,
+                    "is_ligature": False
+                }
+                adv = m["advance"]
+                w_iso = m["isolated_width"]
+
                 ch = _make_unit()
                 ch.line = line
                 ch.style_override = line.style_override
                 ch.i = i_c + 1
                 ch.text = c
                 ch.text_stripped = c
-                ch.width = cw
+                ch.width = w_iso
                 ch.height = line.height
                 ch.descent = line.descent
                 ch.extlead = line.extlead
                 ch.left = cur_x
-                ch.right = cur_x + cw
-                ch.center = cur_x + (cw / 2.0)
+                ch.right = cur_x + w_iso
+                ch.center = cur_x + (w_iso / 2.0)
                 ch.top = line.top
                 ch.middle = line.middle
                 ch.bottom = line.bottom
                 ch.x = ch.center
                 ch.y = ch.middle
                 all_chars.append(ch)
-                cur_x += (cw + eff_sp)
+                cur_x += (adv + eff_sp)
 
             word_char_groups = []
             curr_g = []
@@ -586,6 +712,12 @@ class KaraokeProcessor:
         return line
 
     def _build_words_from_chars(self, line: PyxisLine) -> None:
+        """
+        Constructs lexical word units (`line.words`) by aggregating non-whitespace character sequences.
+
+        Args:
+            line (PyxisLine): Active dialogue line containing populated `chars` collection.
+        """
         word_idx: int = 1
         word_chars: List[PyxisUnit] = []
         for char in line.chars:
@@ -601,6 +733,20 @@ class KaraokeProcessor:
             self._create_word(line, word_chars, word_idx)
 
     def _create_word(self, line: PyxisLine, chars: List[PyxisUnit], index: int) -> PyxisUnit:
+        """
+        Creates and binds a single PyxisUnit word entity from a list of constituent character units.
+
+        Calculates aggregated start/end timestamps, bounding box bounds (left, right, width),
+        and updates parent/child references between characters, syllables, and words.
+
+        Args:
+            line (PyxisLine): Enclosing dialogue line.
+            chars (List[PyxisUnit]): Contiguous character units forming the word.
+            index (int): 1-based index of the word within the line.
+
+        Returns:
+            PyxisUnit: Newly constructed and bound word unit.
+        """
         word = _make_unit()
         word.line, word.chars, word.i = line, chars, index
         word.style_override = getattr(chars[0], 'style_override', None) if chars else getattr(line, 'style_override', None)
@@ -638,6 +784,18 @@ class KaraokeProcessor:
         return word
 
     def _update_ns(self, line: PyxisLine) -> None:
+        """
+        Normalises total counts, sequential indices, and establishes bidirectional neighbour links.
+
+        Iterates over `line.syls`, `line.words`, and `line.chars` to:
+            - Calculate total count (`n`) and total visible count (`cn`).
+            - Assign 1-based visible counter index (`ci`) skipping whitespace tokens (`is_blank`).
+            - Bind intra-unit relative indices (`syl_i`, `word_i`).
+            - Establish sequential neighbour navigation (`prev` and `next`).
+
+        Args:
+            line (PyxisLine): Dialogue line with populated child collections.
+        """
         line.dur = line.duration
         line.x, line.y = line.center, line.middle
 

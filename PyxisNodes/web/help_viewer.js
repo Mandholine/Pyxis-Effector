@@ -10,7 +10,15 @@
 
     const STORAGE_KEY = "pyxis_help_window_state";
 
+    /**
+     * Interactive documentation and technical manual viewer service for Pyxis Effector.
+     * Manages a non-blocking floating window with live Markdown parsing, KaTeX formula
+     * rendering, bi-directional scrollspy navigation, and LocalStorage bounds persistence.
+     */
     class PyxisHelpViewer {
+        /**
+         * Initialises internal state, bounds tracking, and DOM lifecycle hooks.
+         */
         constructor() {
             this.container = null;
             this.header = null;
@@ -41,6 +49,9 @@
             this.init();
         }
 
+        /**
+         * Binds DOM readiness listener to construct the viewer shell.
+         */
         init() {
             if (document.readyState === "loading") {
                 document.addEventListener("DOMContentLoaded", () => this.buildDOM());
@@ -49,6 +60,13 @@
             }
         }
 
+        /**
+         * Resolves internationalised UI string via the Pyxis i18n subsystem.
+         * @param {string} key - Translation key.
+         * @param {object} [params] - Replacement tokens.
+         * @param {string} [fallback] - Fallback string if key is unmapped.
+         * @returns {string} Translated string.
+         */
         t(key, params, fallback) {
             if (window.PyxisI18n && typeof window.PyxisI18n.t === "function") {
                 return window.PyxisI18n.t(key, params, fallback);
@@ -59,6 +77,9 @@
             return fallback !== undefined ? fallback : key;
         }
 
+        /**
+         * Constructs the floating window DOM structure, header actions, and resizer handles.
+         */
         buildDOM() {
             if (document.getElementById("pyxis-help-window")) {
                 return;
@@ -152,6 +173,9 @@
             this.configureMarked();
         }
 
+        /**
+         * Configures marked.js options and injects custom image renderer for local assets.
+         */
         configureMarked() {
             if (window.marked && typeof window.marked.setOptions === "function") {
                 const renderer = new (window.marked.Renderer || Object)();
@@ -261,6 +285,9 @@
         // WINDOW POSITIONING & PERSISTENCE
         // =========================================================================
 
+        /**
+         * Restores window geometry and sidebar split dimensions from LocalStorage.
+         */
         restoreBounds() {
             try {
                 const raw = localStorage.getItem(STORAGE_KEY);
@@ -298,6 +325,9 @@
             this.container.style.top = `${defT}px`;
         }
 
+        /**
+         * Persists window size, location, and sidebar split width into LocalStorage.
+         */
         saveBounds() {
             if (this.isMaximized) return;
             try {
@@ -317,6 +347,10 @@
         // DRAG & RESIZE ENGINE
         // =========================================================================
 
+        /**
+         * Initiates floating window drag interaction from the titlebar header.
+         * @param {MouseEvent} e - Mouse event initiating the drag gesture.
+         */
         onDragStart(e) {
             if (e.target.closest(".pyxis-floating-header-actions")) return;
             if (this.isMaximized) return;
@@ -330,6 +364,11 @@
             document.body.style.userSelect = "none";
         }
 
+        /**
+         * Updates floating window coordinates during an active drag interaction.
+         * Clamps the window position within visible browser viewport boundaries.
+         * @param {MouseEvent} e - Mouse event reporting current pointer coordinates.
+         */
         onDragMove(e) {
             if (!this.isDragging) return;
             let x = e.clientX - this.dragOffset.x;
@@ -347,6 +386,9 @@
             this.container.style.top = `${y}px`;
         }
 
+        /**
+         * Finalises floating window dragging and saves the resulting position into LocalStorage.
+         */
         onDragEnd() {
             if (!this.isDragging) return;
             this.isDragging = false;
@@ -355,6 +397,11 @@
             this.saveBounds();
         }
 
+        /**
+         * Initiates an 8-direction resize operation on the floating window.
+         * @param {MouseEvent} e - Mouse event initiating the resize action.
+         * @param {string} dir - Compass direction of the active resizer handle ('n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se').
+         */
         onResizeStart(e, dir) {
             if (this.isMaximized) return;
             e.stopPropagation();
@@ -388,6 +435,11 @@
             }
         }
 
+        /**
+         * Recalculates and applies window dimensions during an active edge or corner resize gesture.
+         * Enforces minimum dimensions to prevent window collapse.
+         * @param {MouseEvent} e - Mouse event reporting pointer movement.
+         */
         onResizeMove(e) {
             if (!this.isResizing) return;
             const dx = e.clientX - this.resizeStart.x;
@@ -429,6 +481,9 @@
             this.container.style.top = `${newT}px`;
         }
 
+        /**
+         * Finalises window resizing, restores document cursor and persists geometry.
+         */
         onResizeEnd() {
             if (!this.isResizing) return;
             this.isResizing = false;
@@ -439,6 +494,10 @@
             this.saveBounds();
         }
 
+        /**
+         * Initiates horizontal sidebar splitter drag interaction.
+         * @param {MouseEvent} e - Mouse event on the splitter bar.
+         */
         onSplitterStart(e) {
             e.stopPropagation();
             this.isSplitterDragging = true;
@@ -448,6 +507,10 @@
             document.body.style.userSelect = "none";
         }
 
+        /**
+         * Adjusts sidebar width according to splitter drag displacement, clamped between 180px and 480px.
+         * @param {MouseEvent} e - Mouse event with current pointer coordinates.
+         */
         onSplitterMove(e) {
             if (!this.isSplitterDragging) return;
             const dx = e.clientX - this.splitterStartX;
@@ -455,6 +518,9 @@
             this.sidebar.style.width = `${newW}px`;
         }
 
+        /**
+         * Finalises splitter dragging and persists new sidebar width to LocalStorage.
+         */
         onSplitterEnd() {
             if (!this.isSplitterDragging) return;
             this.isSplitterDragging = false;
@@ -467,10 +533,17 @@
         // WINDOW VISIBILITY & CONTROLS
         // =========================================================================
 
+        /**
+         * Checks whether the help viewer window is currently displayed.
+         * @returns {boolean} True if window container exists and is visible.
+         */
         isOpen() {
             return this.container && this.container.style.display !== "none";
         }
 
+        /**
+         * Displays the help viewer window, resets scroll offsets, and loads Table of Contents if empty.
+         */
         open() {
             if (!this.container) this.buildDOM();
             if (this.isMinimized) {
@@ -479,16 +552,30 @@
             this.container.style.display = "flex";
             this.container.style.zIndex = "150000";
 
+            this.container.scrollTop = 0;
+            this.container.scrollLeft = 0;
+            if (this.sidebar) { this.sidebar.scrollTop = 0; this.sidebar.scrollLeft = 0; }
+            const mainEl = this.container.querySelector("#pyxis-help-main");
+            if (mainEl) { mainEl.scrollTop = 0; mainEl.scrollLeft = 0; }
+            const bodyEl = this.container.querySelector("#pyxis-help-body");
+            if (bodyEl) { bodyEl.scrollTop = 0; bodyEl.scrollLeft = 0; }
+
             if (this.tocData.length === 0) {
                 this.loadTOC();
             }
         }
 
+        /**
+         * Hides the help viewer window.
+         */
         close() {
             if (!this.container) return;
             this.container.style.display = "none";
         }
 
+        /**
+         * Toggles the visibility state of the help viewer window.
+         */
         toggle() {
             if (this.isOpen()) {
                 this.close();
@@ -497,6 +584,9 @@
             }
         }
 
+        /**
+         * Minimises the window to only show the header bar, or restores full window body.
+         */
         toggleMinimize() {
             if (this.isMaximized) {
                 this.toggleMaximize();
@@ -524,6 +614,9 @@
             }
         }
 
+        /**
+         * Maximises the help viewer to occupy the full viewport or restores previously saved bounds.
+         */
         toggleMaximize() {
             if (this.isMinimized) {
                 this.toggleMinimize();
@@ -560,6 +653,9 @@
         // DATA LOADING & TOC RENDERING
         // =========================================================================
 
+        /**
+         * Fetches documentation Table of Contents from backend API and renders sidebar navigation.
+         */
         async loadTOC() {
             if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.get_docs_toc !== "function") {
                 this.tocContainer.innerHTML = `<div class="pyxis-help-error">${this.t("help.ipc_error", null, "Backend documentation service not available.")}</div>`;
@@ -585,6 +681,11 @@
             }
         }
 
+        /**
+         * Renders the hierarchical Table of Contents with expandable chapter groups and node items.
+         * @param {Array<object>} chapters - List of chapter descriptor objects.
+         * @param {string} [filterText=""] - Optional search query to filter chapters and nodes.
+         */
         renderTOC(chapters, filterText = "") {
             this.tocContainer.innerHTML = "";
             const lowerFilter = (filterText || "").trim().toLowerCase();
@@ -622,9 +723,25 @@
                     ${hasNodes ? `<span class="pyxis-toc-badge">${ch.nodes.length}</span>` : ""}
                 `;
 
+                // Clic en el chevron: solo pliega / despliega la sección sin recargar ni navegar
+                const chevronEl = chHeader.querySelector(".pyxis-toc-chevron");
+                if (chevronEl && hasNodes) {
+                    chevronEl.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        chGroup.classList.toggle("is-expanded");
+                    });
+                }
+
+                // Clic en la cabecera:
                 chHeader.addEventListener("click", () => {
-                    chGroup.classList.toggle("is-expanded");
-                    this.loadChapter(ch.file);
+                    if (this.currentChapter === ch.file) {
+                        // Si ya es el capítulo actual, alternar plegado sin recargar ni reiniciar scroll
+                        chGroup.classList.toggle("is-expanded");
+                    } else {
+                        // Si es un capítulo diferente, expandirlo y cargarlo
+                        chGroup.classList.add("is-expanded");
+                        this.loadChapter(ch.file);
+                    }
                 });
 
                 chGroup.appendChild(chHeader);
@@ -664,6 +781,10 @@
             }
         }
 
+        /**
+         * Filters the Table of Contents interactively based on user query input.
+         * Toggles the visibility of the search clear button.
+         */
         onSearch() {
             const val = this.searchInput.value;
             const clearBtn = this.container.querySelector("#pyxis-help-search-clear");
@@ -675,6 +796,11 @@
         // CHAPTER & NODE CONTENT RENDERING
         // =========================================================================
 
+        /**
+         * Loads and displays a documentation chapter markdown document.
+         * @param {string} chapterFile - Filename of the target chapter (e.g. '03 Basics.md').
+         * @param {string|null} [targetAnchor=null] - Optional section/node anchor to scroll to.
+         */
         async loadChapter(chapterFile, targetAnchor = null) {
             this.isProgrammaticScroll = true;
             clearTimeout(this._programmaticScrollTimer);
@@ -686,7 +812,7 @@
             if (!targetAnchor) {
                 this.currentNode = null;
             }
-            this.updateActiveTOC(true);
+            this.updateActiveTOC(true, true);
             this.updateBreadcrumbs();
 
             let content = this.chapterCache[chapterFile];
@@ -698,24 +824,24 @@
                     return;
                 }
 
-                try {
-                    const lang = (window.PyxisI18n && window.PyxisI18n.currentLang) || "es";
-                    const res = await window.pywebview.api.get_doc_chapter(chapterFile, lang);
-                    if (res && res.success) {
-                        content = res.content;
-                        if (res.filename) {
-                            this.currentChapter = res.filename;
-                        }
-                        this.chapterCache[this.currentChapter] = content;
-                    } else {
-                        this.contentPane.innerHTML = `<div class="pyxis-help-error">${res.error || "Chapter not found."}</div>`;
-                        return;
+            try {
+                const lang = (window.PyxisI18n && window.PyxisI18n.currentLang) || "es";
+                const res = await window.pywebview.api.get_doc_chapter(chapterFile, lang);
+                if (res && res.success) {
+                    content = res.content;
+                    if (res.filename) {
+                        this.currentChapter = res.filename;
                     }
-                } catch (e) {
-                    this.contentPane.innerHTML = `<div class="pyxis-help-error">Error: ${e.message || e}</div>`;
+                    this.chapterCache[this.currentChapter] = content;
+                } else {
+                    this.contentPane.innerHTML = `<div class="pyxis-help-error">${res.error || "Chapter not found."}</div>`;
                     return;
                 }
+            } catch (e) {
+                this.contentPane.innerHTML = `<div class="pyxis-help-error">Error: ${e.message || e}</div>`;
+                return;
             }
+        }
 
             this.renderMarkdown(content);
 
@@ -729,6 +855,11 @@
             }
         }
 
+        /**
+         * Sanitises plain text into safe HTML entities.
+         * @param {string} str - Unsanitised string.
+         * @returns {string} HTML-escaped string.
+         */
         escapeHtml(str) {
             return (str || "")
                 .replace(/&/g, "&amp;")
@@ -738,6 +869,10 @@
                 .replace(/'/g, "&#039;");
         }
 
+        /**
+         * Converts raw Markdown text into styled HTML with KaTeX math and code protection.
+         * @param {string} markdownText - Raw markdown source text.
+         */
         renderMarkdown(markdownText) {
             let html = "";
             if (window.marked && typeof window.marked.parse === "function") {
@@ -813,6 +948,10 @@
             this.enhanceMarkdownElements();
         }
 
+        /**
+         * Enhances parsed HTML elements with node anchor identifiers, code copy buttons,
+         * async local image loading, and GitHub-style callout alert containers.
+         */
         enhanceMarkdownElements() {
             // 1. Inyectar IDs y data attributes en encabezados de nodos para navegación directa y scrollspy
             const headers = this.contentPane.querySelectorAll("h2");
@@ -925,6 +1064,10 @@
             });
         }
 
+        /**
+         * Smoothly scrolls the content container to a specified anchor or node heading.
+         * @param {string} anchor - Element identifier, anchor name, or node-type token.
+         */
         scrollToAnchor(anchor) {
             if (!anchor) return;
             let el = null;
@@ -965,19 +1108,39 @@
                 }
             }
 
-            if (el) {
+            if (el && this.contentPane) {
                 this.isProgrammaticScroll = true;
                 clearTimeout(this._programmaticScrollTimer);
                 this._programmaticScrollTimer = setTimeout(() => {
                     this.isProgrammaticScroll = false;
                 }, 800);
 
-                el.scrollIntoView({ behavior: "smooth", block: "start" });
+                const paneRect = this.contentPane.getBoundingClientRect();
+                const elRect = el.getBoundingClientRect();
+                const targetScroll = this.contentPane.scrollTop + (elRect.top - paneRect.top) - 16;
+
+                this.contentPane.scrollTo({
+                    top: Math.max(0, targetScroll),
+                    behavior: "smooth"
+                });
+
+                // Prevent any ancestor containers from retaining unwanted scroll
+                if (this.container) { this.container.scrollTop = 0; this.container.scrollLeft = 0; }
+                const mainEl = this.container ? this.container.querySelector("#pyxis-help-main") : null;
+                if (mainEl) { mainEl.scrollTop = 0; mainEl.scrollLeft = 0; }
+
                 el.classList.add("pyxis-section-highlight");
                 setTimeout(() => el.classList.remove("pyxis-section-highlight"), 2400);
             }
         }
 
+        /**
+         * Navigates directly to the manual entry for a canonical node type.
+         * Opens the viewer window, loads the relevant chapter if needed, and scrolls to anchor.
+         * @param {string} nodeType - Canonical node type (e.g. 'Basic/Coordinate System').
+         * @param {string|null} [chapterFile=null] - Optional chapter filename hint.
+         * @param {string|null} [nodeAnchor=null] - Optional anchor string override.
+         */
         async jumpToNode(nodeType, chapterFile = null, nodeAnchor = null) {
             this.open();
             this.currentNode = nodeType;
@@ -1027,10 +1190,13 @@
                 }
             }
 
-            this.updateActiveTOC(true);
+            this.updateActiveTOC(true, true);
             this.updateBreadcrumbs();
         }
 
+        /**
+         * Initialises passive requestAnimationFrame scroll listening on the markdown viewport.
+         */
         setupScrollSpy() {
             if (this._scrollListenerAttached) return;
             this._scrollListenerAttached = true;
@@ -1048,6 +1214,10 @@
             }, { passive: true });
         }
 
+        /**
+         * Evaluates viewport scroll position against rendered node headings and synchronises active node.
+         * Uses a 130px visual reading threshold from the top of the container.
+         */
         onContentScroll() {
             if (!this.contentPane || this.isProgrammaticScroll) return;
 
@@ -1102,12 +1272,19 @@
             }
         }
 
+        /**
+         * Updates the active node state triggered by scrollspy and propagates changes to TOC and breadcrumbs.
+         * @param {string|null} nodeType - Detected canonical node type or null if scrolled to chapter header.
+         */
         setCurrentNodeFromScroll(nodeType) {
             this.currentNode = nodeType;
-            this.updateActiveTOC(true);
+            this.updateActiveTOC(true, false);
             this.updateBreadcrumbs();
         }
 
+        /**
+         * Synchronises the breadcrumb navigation bar with current chapter and node titles.
+         */
         updateBreadcrumbs() {
             if (!this.breadcrumbEl) return;
             const chInfo = this.tocData.find(c => c.file === this.currentChapter);
@@ -1139,7 +1316,13 @@
             `;
         }
 
-        updateActiveTOC(scrollSidebar = true) {
+        /**
+         * Highlights the currently active chapter and node item in the Table of Contents tree.
+         * Optionally auto-scrolls the sidebar container to keep the active item within visible view.
+         * @param {boolean} [scrollSidebar=true] - Whether to scroll the sidebar to reveal the active node.
+         * @param {boolean} [forceExpand=false] - Whether to force accordion expansion of the active chapter group.
+         */
+        updateActiveTOC(scrollSidebar = true, forceExpand = false) {
             if (!this.tocContainer) return;
             const chHeaders = this.tocContainer.querySelectorAll(".pyxis-toc-chapter-header");
             chHeaders.forEach(h => h.classList.remove("is-active"));
@@ -1163,7 +1346,9 @@
                     currentGroup = activeCh;
                     const hdr = activeCh.querySelector(".pyxis-toc-chapter-header");
                     if (hdr) hdr.classList.add("is-active");
-                    activeCh.classList.add("is-expanded");
+                    if (forceExpand) {
+                        activeCh.classList.add("is-expanded");
+                    }
                 }
             }
 
@@ -1179,8 +1364,20 @@
 
                 if (activeNode) {
                     activeNode.classList.add("is-active");
-                    if (scrollSidebar) {
-                        activeNode.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                    if (forceExpand) {
+                        currentGroup.classList.add("is-expanded");
+                    }
+                    if (scrollSidebar && currentGroup.classList.contains("is-expanded") && this.tocContainer) {
+                        const tocRect = this.tocContainer.getBoundingClientRect();
+                        const nodeRect = activeNode.getBoundingClientRect();
+                        if (nodeRect.top < tocRect.top || nodeRect.bottom > tocRect.bottom) {
+                            const targetScroll = this.tocContainer.scrollTop + (nodeRect.top - tocRect.top) - (tocRect.height / 2) + (nodeRect.height / 2);
+                            this.tocContainer.scrollTo({
+                                top: Math.max(0, targetScroll),
+                                behavior: "smooth"
+                            });
+                        }
+                        if (this.sidebar) { this.sidebar.scrollTop = 0; this.sidebar.scrollLeft = 0; }
                     }
                 }
             }

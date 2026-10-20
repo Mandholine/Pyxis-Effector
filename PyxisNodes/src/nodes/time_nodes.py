@@ -12,9 +12,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
-"""Temporal manipulation, delays, and time conversion nodes."""
+"""Temporal manipulation, synchronisation, delays, and time conversion nodes.
+
+This module provides the core temporal architecture of Pyxis Effector, enabling
+precise keyframe scheduling, phase intervals, inter-line synchronization gaps,
+rhythmic lead-in/lead-out offsets, and frame-rate conversions for ASS subtitle pipelines.
+"""
 
 import math
 import re
@@ -22,11 +27,33 @@ from decorators import pyxis_node, NODE_REGISTRY
 from utils import parse_time, format_time
 
 def _num(val, default=0.0):
+    """Safely coerces an arbitrary input into a float scalar.
+
+    Args:
+        val (Any): Input value to convert.
+        default (float): Fallback value if conversion fails. Defaults to 0.0.
+
+    Returns:
+        float: Parsed floating-point representation.
+    """
     try: return float(val)
     except: return default
 
 
 def _eval_val(val, context, default=0.0):
+    """Evaluates an expression or numeric value within the active DAG execution context.
+
+    Resolves mathematical expressions or variable references using the engine's
+    AST evaluator, falling back to direct scalar parsing or default value.
+
+    Args:
+        val (Any): Expression string or numeric value to evaluate.
+        context (dict): Active DAG execution context.
+        default (float): Fallback value on evaluation error or empty input.
+
+    Returns:
+        float: Evaluated numeric result.
+    """
     if val is None or val == "":
         return default
     if isinstance(val, (int, float)):
@@ -46,6 +73,16 @@ def _eval_val(val, context, default=0.0):
 
 
 def _get_base_time(context, is_end_time=False, base=None):
+    """Calculates the reference base timestamp for phase and lead delay offsets.
+
+    Args:
+        context (dict): Active DAG execution context.
+        is_end_time (bool): Whether the base represents an ending boundary. Defaults to False.
+        base (Any, optional): Explicit base override expression or scalar.
+
+    Returns:
+        float: Resolved base timestamp in milliseconds.
+    """
     if base is not None and str(base).strip() != "":
         try: return float(_eval_val(base, context, 0.0))
         except: pass
@@ -62,16 +99,21 @@ SYNC_MODE_MAP = {
 
 
 def calculate_sync_gap(context=None, direction="next", mode="order", max_gap=None):
-    """Calculates the temporal gap (in ms) to the adjacent line based on direction, mode, and max_gap.
+    """Calculates the temporal gap (in milliseconds) between the active dialogue line and an adjacent line.
 
-    - direction: 'next' (default) or 'prev' (or 1 / -1, 'n', 'p')
-    - mode: 'order' (1, default), 'style' (2), 'actor' (3), 'effect' (4), 'layer' (5)
-    - max_gap: upper limit in ms (default context['maxgap'] or 2000.0)
+    Scans the dialogue sequence forwards or backwards according to matching criteria
+    (visual order, identical style, actor, effect, or layer) and computes the temporal
+    distance between boundaries.
+
+    Args:
+        context (dict, optional): Active DAG execution context containing line lists and state.
+        direction (str | int, optional): Scan direction ('next', 'prev', 1, -1). Defaults to 'next'.
+        mode (str | int, optional): Matching filter mode ('order', 'style', 'actor', 'effect', 'layer'). Defaults to 'order'.
+        max_gap (float | str, optional): Maximum ceiling cap in milliseconds. Defaults to 2000.0 or context['maxgap'].
 
     Returns:
-    - If no matching adjacent line: max_gap
-    - If lines overlap (gap < 0): raw negative gap (delta_t < 0)
-    - If lines do not overlap (gap >= 0): min(gap, max_gap)
+        float: Temporal gap in milliseconds. Returns raw negative value if lines overlap,
+               or min(gap, max_gap) if lines do not overlap. Returns max_gap if no adjacent line exists.
     """
     if not isinstance(context, dict):
         context = {}
@@ -210,15 +252,48 @@ def calculate_sync_gap(context=None, direction="next", mode="order", max_gap=Non
 
 
 class PyxisSyncHelper:
-    """Hybrid callable and namespace object for Inter-Line Synchronization (sync)."""
+    """Hybrid callable and namespace dispatcher object for Inter-Line Synchronisation (sync).
+
+    Supports both function invocation syntax:
+        `sync(direction='next', mode='order', max_gap=2000)`
+    and attribute access syntax:
+        `sync.next`, `sync.prev_style`, `sync.actor`, etc.
+    Additionally acts as a float-compatible scalar in arithmetic expressions.
+
+    Attributes:
+        _context (dict): Active DAG execution context.
+    """
 
     def __init__(self, context=None):
+        """Initialises the synchronisation helper with the active DAG context.
+
+        Args:
+            context (dict, optional): Active DAG execution context.
+        """
         self._context = context if isinstance(context, dict) else {}
 
     def __call__(self, direction="next", mode="order", max_gap=None):
+        """Executes explicit gap calculation with the provided parameters.
+
+        Args:
+            direction (str | int): Scan direction ('next', 'prev'). Defaults to 'next'.
+            mode (str | int): Filter mode ('order', 'style', 'actor', etc.). Defaults to 'order'.
+            max_gap (float, optional): Maximum ceiling cap in milliseconds.
+
+        Returns:
+            float: Evaluated temporal gap in milliseconds.
+        """
         return calculate_sync_gap(self._context, direction=direction, mode=mode, max_gap=max_gap)
 
     def _eval_named(self, attr_name):
+        """Parses compound attribute names into canonical direction and filter mode.
+
+        Args:
+            attr_name (str): Compound name (e.g. 'prev_actor', 'style', 'next').
+
+        Returns:
+            float: Evaluated synchronisation gap.
+        """
         name = str(attr_name).strip().lower()
         dir_val = "next"
         mode_val = "order"
@@ -236,11 +311,27 @@ class PyxisSyncHelper:
         return calculate_sync_gap(self._context, direction=dir_val, mode=mode_val, max_gap=None)
 
     def __getattr__(self, name):
+        """Resolves dynamic attribute access to sync gaps.
+
+        Args:
+            name (str): Attribute name representing direction and mode.
+
+        Returns:
+            float: Calculated synchronisation gap.
+
+        Raises:
+            AttributeError: If name starts with an underscore.
+        """
         if name.startswith("_"):
             raise AttributeError(name)
         return self._eval_named(name)
 
     def _get_default_val(self):
+        """Retrieves default sync value ('next' under visual order).
+
+        Returns:
+            float: Default synchronisation gap.
+        """
         return self._eval_named("next")
 
     def __float__(self):
@@ -293,7 +384,17 @@ class PyxisSyncHelper:
 
 
 def _get_active_unit_indices(context):
-    """Detects active unit index (i) and count (n) from active unit in main loop or context."""
+    """Detects active unit index (i) and total count (n) from the execution context.
+
+    Inspects active syllable, character, or word units, falling back to top-level
+    iterators in the context dictionary.
+
+    Args:
+        context (dict): DAG execution context.
+
+    Returns:
+        tuple[float, float]: Ordered pair (i, n) representing current index and count.
+    """
     if not isinstance(context, dict):
         return 1.0, 1.0
     unit = context.get('active_unit') or context.get('unit')
@@ -312,6 +413,18 @@ def _get_active_unit_indices(context):
 
 @pyxis_node("Time", "Lead In", ["Delay (ms)"])
 def time_lead_in(*args, **kwargs):
+    """Calculates lead-in phase start delay offset for entry animations.
+
+    Evaluates the stagger time offset for incoming units:
+        base + delay * (i - 1) - 200.0 ms.
+
+    Args:
+        *args: Positional arguments (context, delay, base).
+        **kwargs: Keyword arguments containing 'delay_ms', 'delay', 'base', 'context'.
+
+    Returns:
+        float: Calculated timestamp in milliseconds.
+    """
     if len(args) > 0 and isinstance(args[0], dict):
         context = args[0]
         delay = args[1] if len(args) > 1 else kwargs.get("delay_ms", kwargs.get("delay", kwargs.get("retraso", 40)))
@@ -329,6 +442,18 @@ def time_lead_in(*args, **kwargs):
 
 @pyxis_node("Time", "Lead Out", ["Delay (ms)"])
 def time_lead_out(*args, **kwargs):
+    """Calculates lead-out phase start delay offset for exit animations.
+
+    Evaluates the stagger time offset for outgoing units:
+        base + delay * (i - n - 1) + 200.0 ms.
+
+    Args:
+        *args: Positional arguments (context, delay, base).
+        **kwargs: Keyword arguments containing 'delay_ms', 'delay', 'base', 'context'.
+
+    Returns:
+        float: Calculated timestamp in milliseconds.
+    """
     if len(args) > 0 and isinstance(args[0], dict):
         context = args[0]
         delay = args[1] if len(args) > 1 else kwargs.get("delay_ms", kwargs.get("delay", kwargs.get("retraso", 40)))
@@ -346,6 +471,19 @@ def time_lead_out(*args, **kwargs):
 
 @pyxis_node("Time", "Middle 1", ["Delay (ms)"])
 def time_middle_1(*args, **kwargs):
+    """Calculates symmetrical temporal stagger expanding outward from the centre.
+
+    Evaluates time offsets for phonetic units split into left and right halves:
+        - If i <= (n + 1) / 2: offset = delay * (i - 1) - 200.0 ms
+        - Otherwise: offset = delay * (n - i + 0.5) - 200.0 ms
+
+    Args:
+        *args: Positional arguments (context, delay, base).
+        **kwargs: Keyword arguments containing 'delay_ms', 'delay', 'base', 'context'.
+
+    Returns:
+        float: Calculated timestamp in milliseconds.
+    """
     if len(args) > 0 and isinstance(args[0], dict):
         context = args[0]
         delay = args[1] if len(args) > 1 else kwargs.get("delay_ms", kwargs.get("delay", kwargs.get("retraso", 30)))
@@ -367,6 +505,19 @@ def time_middle_1(*args, **kwargs):
 
 @pyxis_node("Time", "Middle 2", ["Delay (ms)"])
 def time_middle_2(*args, **kwargs):
+    """Calculates symmetrical temporal stagger contracting inward toward the centre.
+
+    Evaluates time offsets for exit animations converging on the typographic centre:
+        - If i >= (n + 1) / 2: offset = delay * (i - n - 1) - 200.0 ms
+        - Otherwise: offset = delay * (-i + 0.5) - 200.0 ms
+
+    Args:
+        *args: Positional arguments (context, delay, base).
+        **kwargs: Keyword arguments containing 'delay_ms', 'delay', 'base', 'context'.
+
+    Returns:
+        float: Calculated timestamp in milliseconds.
+    """
     if len(args) > 0 and isinstance(args[0], dict):
         context = args[0]
         delay = args[1] if len(args) > 1 else kwargs.get("delay_ms", kwargs.get("delay", kwargs.get("retraso", 30)))
@@ -388,6 +539,18 @@ def time_middle_2(*args, **kwargs):
 
 @pyxis_node("Time", "Loop 1", ["Delay (ms)"])
 def time_loop_1(*args, **kwargs):
+    """Calculates temporal stagger tied to the local loop iterator j (or fx_i).
+
+    Supports progression modes ('leadin', 'leadout', 'middle1', 'middle2')
+    evaluated against the active local loop bounds j and maxj.
+
+    Args:
+        *args: Positional arguments (context, delay, mode, base).
+        **kwargs: Keyword arguments containing 'delay_ms', 'mode', 'base', 'context'.
+
+    Returns:
+        float: Calculated timestamp in milliseconds.
+    """
     if len(args) > 0 and isinstance(args[0], dict):
         context = args[0]
         delay = args[1] if len(args) > 1 else kwargs.get("delay_ms", kwargs.get("delay", kwargs.get("retraso", 30)))
@@ -428,6 +591,18 @@ def time_loop_1(*args, **kwargs):
 
 @pyxis_node("Time", "Loop 2", ["Delay (ms)"])
 def time_loop_2(*args, **kwargs):
+    """Calculates temporal stagger tied to the global loop iterator J.
+
+    Supports progression modes ('leadin', 'leadout', 'middle1', 'middle2')
+    evaluated against the global loop bounds J and maxJ.
+
+    Args:
+        *args: Positional arguments (context, delay, mode, base).
+        **kwargs: Keyword arguments containing 'delay_ms', 'mode', 'base', 'context'.
+
+    Returns:
+        float: Calculated timestamp in milliseconds.
+    """
     if len(args) > 0 and isinstance(args[0], dict):
         context = args[0]
         delay = args[1] if len(args) > 1 else kwargs.get("delay_ms", kwargs.get("delay", kwargs.get("retraso", 30)))
@@ -468,6 +643,18 @@ def time_loop_2(*args, **kwargs):
 
 @pyxis_node("Time", "Ipol", ["Duration (ms)", "Points / Values", "Acceleration"])
 def time_ipol(*args, **kwargs):
+    """Computes non-linear segmented time intervals for multi-point transitions.
+
+    Subdivides a given duration into discrete sequential time brackets according to
+    the power acceleration law: $t_{next} = \\text{dur} \\cdot (u^{\\text{accel}})$.
+
+    Args:
+        *args: Positional arguments (context, dur, points, accel).
+        **kwargs: Keyword arguments containing 'dur_ms', 'points', 'accel', 'context'.
+
+    Returns:
+        str: Comma-separated list of formatted intervals (e.g. '[0.0, 300.0], [300.0, 1000.0]').
+    """
     if len(args) > 0 and (isinstance(args[0], dict) or args[0] is None):
         context = args[0] or {}
         dur = args[1] if len(args) > 1 else kwargs.get("dur_ms", kwargs.get("dur", kwargs.get("duration", None)))
@@ -507,6 +694,15 @@ def time_ipol(*args, **kwargs):
 
 @pyxis_node("Time", "Offset", ["Base (ms)"])
 def time_offset(*args, **kwargs):
+    """Applies a linear millisecond offset to a base timestamp.
+
+    Args:
+        *args: Positional arguments (context, base, offset).
+        **kwargs: Keyword arguments containing 'time_in', 'base', 'offset_ms', 'offset'.
+
+    Returns:
+        int: Offset integer timestamp in milliseconds.
+    """
     if len(args) > 0 and (isinstance(args[0], dict) or args[0] is None):
         context = args[0] or {}
         base = args[1] if len(args) > 1 else kwargs.get("time_in", kwargs.get("base", kwargs.get("time", 0)))
@@ -532,6 +728,17 @@ def time_offset(*args, **kwargs):
 
 @pyxis_node("Time", "Duration", ["Start Time (ms)", "End Time (ms)"])
 def time_duration(*args, **kwargs):
+    """Calculates the non-negative duration between two timestamps in milliseconds.
+
+    Automatically resolves missing start or end bounds from the active unit or line.
+
+    Args:
+        *args: Positional arguments (context, st, et).
+        **kwargs: Keyword arguments containing 'time_in', 'time_out', 'start_time', 'end_time'.
+
+    Returns:
+        int: Evaluated duration in milliseconds: max(0, et - st).
+    """
     if len(args) > 0 and (isinstance(args[0], dict) or args[0] is None):
         context = args[0] or {}
         st = args[1] if len(args) > 1 else kwargs.get("time_in", kwargs.get("start_time", kwargs.get("st", kwargs.get("start", None))))
@@ -563,6 +770,15 @@ NODE_REGISTRY["Duración"] = time_duration
 
 @pyxis_node("Time", "Parse ASS Time", ["ASS Time"])
 def time_parse_ass(*args, **kwargs):
+    """Converts a standard ASS timestamp string ('H:MM:SS.cs') into milliseconds.
+
+    Args:
+        *args: Positional arguments (context, ass_str).
+        **kwargs: Keyword arguments containing 'ass_time', 'ass_str', 'context'.
+
+    Returns:
+        int: Timestamp parsed into integer milliseconds.
+    """
     if len(args) > 0 and (isinstance(args[0], dict) or args[0] is None):
         context = args[0] or {}
         ass_str = args[1] if len(args) > 1 else kwargs.get("ass_time", kwargs.get("ass_str", ""))
@@ -582,6 +798,15 @@ def time_parse_ass(*args, **kwargs):
 
 @pyxis_node("Time", "Format ASS Time", ["Time (ms)"])
 def time_format_ass(*args, **kwargs):
+    """Formats an integer or floating-point millisecond timestamp into ASS format ('H:MM:SS.cs').
+
+    Args:
+        *args: Positional arguments (context, ms).
+        **kwargs: Keyword arguments containing 'time', 'ms', 'context'.
+
+    Returns:
+        str: Formatted ASS timestamp string.
+    """
     if len(args) > 0 and (isinstance(args[0], dict) or args[0] is None):
         context = args[0] or {}
         ms = args[1] if len(args) > 1 else kwargs.get("time", kwargs.get("ms", None))
@@ -604,7 +829,15 @@ def time_format_ass(*args, **kwargs):
 
 def _get_line_visual_bounds(line_obj):
     """Obtains the exact visual 2D boundaries (left, right, top, bottom) of a line.
-    Extracts true vector glyph ink contours, falling back to the typographic box.
+
+    Extracts true vector glyph ink contours when available, falling back to
+    the typographic bounding box calculated from layout metrics.
+
+    Args:
+        line_obj (PyxisLine): Dialogue line instance to inspect.
+
+    Returns:
+        tuple[float, float, float, float]: Quadruple (left, right, top, bottom) in visual coordinates.
     """
     if not line_obj:
         return 0.0, 0.0, 0.0, 0.0
@@ -629,8 +862,22 @@ def _get_line_visual_bounds(line_obj):
 
 
 def _get_effective_avg_char_width(line_obj, next_line_obj=None, context=None, user_avg_w=None):
-    """Calculates the true average character width using font engine and measured units,
-    avoiding arbitrary hardcoded assumptions like 15.0 px when real data is available.
+    """Calculates the true average character width using font engine and measured units.
+
+    Prevents arbitrary typographic assumptions by prioritising:
+        1. Direct sampling of measured character widths from line.chars.
+        2. Vector ink width divided by non-whitespace character count.
+        3. FontEngine measurement of the active style's 'M' glyph width.
+        4. Canonical safety fallback of 15.0 px if all previous lookups fail.
+
+    Args:
+        line_obj (PyxisLine): Current dialogue line object.
+        next_line_obj (PyxisLine, optional): Subsequent adjacent dialogue line object.
+        context (dict, optional): Active DAG execution context.
+        user_avg_w (float | str, optional): Explicit override width provided by user.
+
+    Returns:
+        float: Effective average character width in pixels.
     """
     if user_avg_w is not None and str(user_avg_w).strip() != "":
         try:
@@ -707,7 +954,21 @@ def _get_effective_avg_char_width(line_obj, next_line_obj=None, context=None, us
 
 @pyxis_node("Time", "Synced", ["Constant", "Fade (ms)", "Max Extra", "Delay Line", "Threshold"])
 def time_synchronized_extra_node(context=None, *args, **kwargs):
-    """Dynamic calculation of synchronized inter-line time extension (calculate.synchronized_extratime_3)."""
+    """Calculates dynamic inter-line synchronised extra time extension.
+
+    Implements the multi-scenario inter-line synchronisation algorithm:
+        - Detached spatial coordinates: extends line until incoming fade-out.
+        - Same row horizontal continuation: adds spatial compensation based on physical gap and char width.
+        - In-place replacement: coordinates char-staggered crossfade transitions.
+
+    Args:
+        context (dict, optional): Active DAG execution context.
+        *args: Positional node arguments (progression_const, fade_dur, max_added_time, delay_ms, max_gap_threshold).
+        **kwargs: Keyword parameters and output port specification.
+
+    Returns:
+        float: Evaluated extra time duration or extended absolute end time.
+    """
     if len(args) > 0 and (isinstance(args[0], dict) or args[0] is None) and context is None:
         context = args[0]
         arg_offset = 1
@@ -912,18 +1173,25 @@ def time_synchronized_extra_node(context=None, *args, **kwargs):
 
 @pyxis_node("Time", "Time to Frame", ["Time (ms)", "Frame Dur (ms)"])
 def time_to_frame_node(*args, **kwargs):
-    """Converts time to frame count or frame index (time_to_frame).
-    
-    Modes:
-      - Ceil: round up (duration / frame count).
-      - Floor: round down (0-based timeline index).
-      - Round: round to nearest frame.
-      
-    Sources:
-      - Custom: input value 'time_val' or property 'time'.
-      - Start: active unit or line start time.
-      - End: active unit or line end time.
-      - Dur: active unit or line duration.
+    """Converts a millisecond timestamp or duration into an integer frame count or timeline frame index.
+
+    Rounding Modes ('mode'):
+        - 'Ceil': Rounds upward, ideal for frame duration quantities (ceil(time / frame_dur)).
+        - 'Floor': Rounds downward, ideal for 0-based frame indices along the timeline (floor(time / frame_dur)).
+        - 'Round': Rounds to the nearest discrete video frame (round(time / frame_dur)).
+
+    Source Channels ('source'):
+        - 'Custom': Explicit user value from socket or widget.
+        - 'Start': Active unit or line start timestamp.
+        - 'End': Active unit or line end timestamp.
+        - 'Dur': Active unit or line duration.
+
+    Args:
+        *args: Positional arguments (context, time_val, frame_dur).
+        **kwargs: Keyword arguments containing 'time_val', 'time', 'frame_dur', 'mode', 'source', 'context'.
+
+    Returns:
+        int: Discrete frame number or frame duration count.
     """
     if len(args) > 0 and isinstance(args[0], dict):
         context = args[0]
@@ -988,18 +1256,26 @@ def time_to_frame_node(*args, **kwargs):
 
 @pyxis_node("Time", "Frame to Time", ["Frames (f)", "Frame Dur (ms)"])
 def frame_to_time_node(*args, **kwargs):
-    """Converts frames to time in ms, ASS format or seconds (frame_to_time).
-    
-    Formats (format):
-      - MS: numeric milliseconds (e.g. 2502.48).
-      - HMS: ASS subtitle timestamp string (e.g. 0:00:02.50).
-      - SEC: floating-point seconds (e.g. 2.502).
-      
-    Sources (source):
-      - Custom: input value 'frames' from properties or socket.
-      - j: current loop counter context['j'].
-      - J: global loop counter context['J'].
-      - i: active unit index unit.i.
+    """Converts a frame count into milliseconds, ASS timestamp string, or seconds.
+
+    Output Formats ('format'):
+        - 'MS': Numeric milliseconds (e.g. 2502.48).
+        - 'HMS': Formatted ASS timestamp string 'H:MM:SS.cs' (e.g. 0:00:02.50).
+        - 'SEC': Floating-point seconds (e.g. 2.502).
+
+    Source Channels ('source'):
+        - 'Custom': User-provided frame quantity from socket or widget.
+        - 'j': Active local loop iteration counter context['j'].
+        - 'J': Active global loop iteration counter context['J'].
+        - 'i': Active phonetic unit index unit.i.
+        - 'iter': Named iterator variable from context.
+
+    Args:
+        *args: Positional arguments (context, frames, frame_dur).
+        **kwargs: Keyword arguments containing 'frames', 'frame_dur', 'format', 'source', 'context'.
+
+    Returns:
+        float | str: Evaluated timestamp as a numeric scalar or formatted ASS string.
     """
     if len(args) > 0 and isinstance(args[0], dict):
         context = args[0]
@@ -1069,6 +1345,14 @@ def frame_to_time_node(*args, **kwargs):
 # ==============================================================================
 
 def _format_clean_scalar(val):
+    """Formats a numeric scalar cleanly without trailing decimal zeros.
+
+    Args:
+        val (int | float | str): Input numeric value.
+
+    Returns:
+        str: Clean string representation (e.g. '100' instead of '100.0').
+    """
     try:
         f = float(val)
         if f.is_integer():
@@ -1078,7 +1362,17 @@ def _format_clean_scalar(val):
         return str(val)
 
 def _resolve_unit_and_line_times(context):
-    """Extracts phonetic timestamps both globally (video timeline) and locally (relative to eff_line_st / fx_start_time)."""
+    """Extracts phonetic timestamps globally (video timeline) and locally (relative to eff_line_st).
+
+    Resolves start, end, and duration boundaries across dialogue lines, active effects,
+    syllables, words, and individual characters to construct a unified temporal reference dictionary.
+
+    Args:
+        context (dict): DAG execution context containing active units, lines, and effect overrides.
+
+    Returns:
+        dict[str, float]: Dictionary containing resolved local and global boundary timestamps.
+    """
     unit = context.get('active_unit') if isinstance(context, dict) else None
     line = context.get('active_line') or (context.get('line') if isinstance(context, dict) else None)
     if not line and unit and getattr(unit, 'line', None):
@@ -1195,10 +1489,20 @@ def _resolve_unit_and_line_times(context):
 
 
 def _resolve_phase_interval(phase_name, times_dict, custom_st=0.0, custom_et=0.0, off_in=0.0, off_out=0.0, is_global=False):
-    """Resolves the final interval [T1, T2] according to retime modes.
-    
-    is_global=True: Returns absolute video timeline timestamps (for Start/End Time ports).
-    is_global=False: Returns local line-relative timestamps to eff_line_st (for ASS \t(...) blocks).
+    """Resolves the final interval [T1, T2] according to the specified phonetic retime mode.
+
+    Args:
+        phase_name (str): Name of the phase mode (e.g. 'syl', 'char', 'word', 'line', 'leadin', 'leadout', 'abs', 'pct').
+        times_dict (dict): Reference timestamps dictionary resolved by _resolve_unit_and_line_times.
+        custom_st (float, optional): Custom start timestamp for 'custom' mode.
+        custom_et (float, optional): Custom end timestamp for 'custom' mode.
+        off_in (float, optional): Start offset in milliseconds.
+        off_out (float, optional): End offset in milliseconds.
+        is_global (bool, optional): If True, returns absolute video timeline timestamps (for Start/End Time ports);
+                                    if False, returns line-relative timestamps (for ASS \\t(...) tags).
+
+    Returns:
+        tuple[float, float]: Ordered pair (T1, T2) in milliseconds.
     """
     p = str(phase_name or "syl").strip().lower().replace("_", "").replace(" ", "").replace("-", "")
     line_st = times_dict['line_st']
@@ -1282,7 +1586,19 @@ def _resolve_phase_interval(phase_name, times_dict, custom_st=0.0, custom_et=0.0
 
 
 def eval_retime_node(context=None, *args, **kwargs):
-    """Evaluates the Retime node, rescaling timestamps and \\t(...) blocks according to selected mode."""
+    """Evaluates the Retime node, rescaling timestamps and \\t(...) blocks according to selected mode.
+
+    Maps animation blocks and start/end line times to phonetic phases (syllable, character,
+    word, line, lead-in, lead-out) with optional acceleration curve and millisecond offsets.
+
+    Args:
+        context (dict, optional): DAG execution context containing unit and line metadata.
+        *args: Positional node arguments.
+        **kwargs: Keyword arguments containing 'tags', 'phase', 'offset_in', 'offset_out', 'accel', etc.
+
+    Returns:
+        str | float: Formatted ASS tag string (slot 0) or numeric timestamp/duration (slots 1, 2, 3).
+    """
     if len(args) > 0 and isinstance(args[0], dict) and context is None:
         context = args[0]
 
@@ -1361,6 +1677,7 @@ def eval_retime_node(context=None, *args, **kwargs):
 
 @pyxis_node("Time", "Retime", ["Tags or \\t", "Offset In (ms)", "Offset Out (ms)", "Accel"])
 def RetimeNode(context=None, *args, **kwargs):
+    """DAG wrapper node for Retime functionality."""
     return eval_retime_node(context=context, *args, **kwargs)
 
 NODE_REGISTRY["Time/Parse ASS Time"] = time_parse_ass

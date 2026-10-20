@@ -12,9 +12,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
-"""Inline script code and variable execution nodes."""
+"""Inline script code and variable execution nodes.
+
+Provides embedded sandboxed scripting environments for Python and Lua,
+including AST bytecode compilation, caching mechanisms, context synchronisation,
+time modifier wrappers, and stochastic dispatcher bindings.
+"""
 
 import math
 import sys
@@ -30,6 +35,15 @@ def clear_compiled_script_cache():
 _STATIC_BASE_SCOPE = None
 
 def _get_static_base_scope():
+    """Initialises and caches the immutable base execution scope.
+
+    Pre-populates the dictionary with standard mathematical routines, type casting
+    built-ins, ASS formatting wrappers, vector shape resolvers, easing curves,
+    and registered node functions to optimise per-iteration execution overhead.
+
+    Returns:
+        dict: A reusable global mapping of base functions and utilities.
+    """
     global _STATIC_BASE_SCOPE
     if _STATIC_BASE_SCOPE is not None:
         return _STATIC_BASE_SCOPE
@@ -95,6 +109,14 @@ def _get_static_base_scope():
 
 
 def _pyxis_fmt_num(val):
+    """Formats a numerical value for ASS tag output with trimmed trailing zeroes.
+
+    Args:
+        val: Numerical or boolean scalar to format.
+
+    Returns:
+        str: Sanitised string representation suitable for ASS parameters.
+    """
     if val is None:
         return ""
     if isinstance(val, bool):
@@ -109,28 +131,34 @@ def _pyxis_fmt_num(val):
 
 
 def _pyxis_pos(x, y):
+    """Formats an ASS coordinate positioning tag: \\pos(x, y)."""
     return f"\\pos({_pyxis_fmt_num(x)},{_pyxis_fmt_num(y)})"
 
 
 def _pyxis_move(x1, y1, x2, y2, t1=None, t2=None):
+    """Formats an ASS trajectory motion tag: \\move(x1, y1, x2, y2[, t1, t2])."""
     if t1 is None:
         return f"\\move({_pyxis_fmt_num(x1)},{_pyxis_fmt_num(y1)},{_pyxis_fmt_num(x2)},{_pyxis_fmt_num(y2)})"
     return f"\\move({_pyxis_fmt_num(x1)},{_pyxis_fmt_num(y1)},{_pyxis_fmt_num(x2)},{_pyxis_fmt_num(y2)},{_pyxis_fmt_num(t1)},{_pyxis_fmt_num(t2)})"
 
 
 def _pyxis_org(x, y):
+    """Formats an ASS transformation origin tag: \\org(x, y)."""
     return f"\\org({_pyxis_fmt_num(x)},{_pyxis_fmt_num(y)})"
 
 
 def _pyxis_fad(in_dur, out_dur):
+    """Formats a simple ASS fade-in and fade-out tag: \\fad(in_dur, out_dur)."""
     return f"\\fad({_pyxis_fmt_num(in_dur)},{_pyxis_fmt_num(out_dur)})"
 
 
 def _pyxis_fade(a1, a2, a3, t1, t2, t3, t4):
+    """Formats a complex multi-point ASS alpha fade tag: \\fade(a1, a2, a3, t1, t2, t3, t4)."""
     return f"\\fade({_pyxis_fmt_num(a1)},{_pyxis_fmt_num(a2)},{_pyxis_fmt_num(a3)},{_pyxis_fmt_num(t1)},{_pyxis_fmt_num(t2)},{_pyxis_fmt_num(t3)},{_pyxis_fmt_num(t4)})"
 
 
 def _pyxis_clip(*args):
+    """Formats an ASS rectangular or vector contour clipping tag: \\clip(...)."""
     if len(args) == 4:
         return f"\\clip({_pyxis_fmt_num(args[0])},{_pyxis_fmt_num(args[1])},{_pyxis_fmt_num(args[2])},{_pyxis_fmt_num(args[3])})"
     elif len(args) == 2:
@@ -141,6 +169,7 @@ def _pyxis_clip(*args):
 
 
 def _pyxis_iclip(*args):
+    """Formats an inverse ASS clipping tag: \\iclip(...)."""
     if len(args) == 4:
         return f"\\iclip({_pyxis_fmt_num(args[0])},{_pyxis_fmt_num(args[1])},{_pyxis_fmt_num(args[2])},{_pyxis_fmt_num(args[3])})"
     elif len(args) == 2:
@@ -196,6 +225,7 @@ def _pyxis_alpha(val):
 
 
 def _pyxis_trans(*args):
+    """Formats an animated transformation tag: \\t([t1, t2,] [accel,] tags)."""
     if len(args) == 1:
         return f"\\t({args[0]})"
     elif len(args) == 3:
@@ -444,6 +474,20 @@ def _pyxis_kana(text):
 
 
 def _build_unit_lua_table(lua, unit_obj, line_tbl=None):
+    """Constructs a Lua table representing a Pyxis typographic unit.
+
+    Extracts temporal, geometric, typographic, and ink metrics from the given
+    PyxisUnit instance (syllable, character, or word) and converts them into
+    a native Lua table compatible with the embedded Lua runtime.
+
+    Args:
+        lua: Active Lupa LuaRuntime instance.
+        unit_obj: Source PyxisUnit instance.
+        line_tbl (optional): Pre-built Lua table for the parent dialogue line.
+
+    Returns:
+        LuaTable: Native table populated with unit attributes and ink bounds.
+    """
     if not unit_obj:
         return None
     st = getattr(unit_obj, "start_time", 0)
@@ -507,6 +551,8 @@ def _build_unit_lua_table(lua, unit_obj, line_tbl=None):
     return lua.table_from(d)
 
 
+# Bidirectional alias clusters for synchronising spatial, temporal, and metadata
+# mutations between execution scopes, active units, and dialogue line instances.
 VAR_ALIAS_GROUPS = {
     # Position X group
     "x": ["x", "pos_x", "fx_pos_x", "val_x"],
@@ -554,6 +600,21 @@ VAR_ALIAS_GROUPS = {
 
 
 def _propagate_alias_changes(context, user_modified_keys, active_unit=None, line_obj=None):
+    """Propagates mutated variable aliases across context dictionaries and unit models.
+
+    Identifies modified attributes (such as position coordinates, timing bounds,
+    or duration), reflects updates to all canonical aliases in the cluster, and
+    flags override states (e.g. pos_overridden, has_org).
+
+    Args:
+        context (dict): The active Pyxis DAG context dictionary.
+        user_modified_keys (set): Collection of variable names modified by user script.
+        active_unit (optional): The currently active PyxisUnit instance.
+        line_obj (optional): The current PyxisLine dialogue instance.
+
+    Returns:
+        set: Comprehensive set of all affected variable aliases.
+    """
     raw_modified_keys = set(user_modified_keys)
     all_modified_aliases = set(raw_modified_keys)
 
@@ -604,6 +665,17 @@ def _propagate_alias_changes(context, user_modified_keys, active_unit=None, line
 
 
 def _sync_python_scope_to_context(eval_scope, context, initial_vals=None):
+    """Synchronises modified global variables from the Python sandbox back to the DAG context.
+
+    Inspects variables mutated during script execution, filters out internal and
+    system primitives, updates the active unit and line attributes, and synchronises
+    all alias groups.
+
+    Args:
+        eval_scope (dict): Local execution namespace populated during script run.
+        context (dict): Active Pyxis DAG context to update.
+        initial_vals (dict, optional): Baseline snapshot of variable values prior to execution.
+    """
     if not isinstance(context, dict):
         return
     base_scope = _get_static_base_scope()
@@ -691,6 +763,7 @@ def _sync_python_scope_to_context(eval_scope, context, initial_vals=None):
 
 
 def _get_val_safe(obj, field):
+    """Safely retrieves a field from a dictionary or object attribute."""
     if obj is None:
         return None
     try:
@@ -706,6 +779,7 @@ def _get_val_safe(obj, field):
 
 
 def _is_lua_callable_or_fn(val):
+    """Determines whether a Lua object represents an executable function."""
     if val is None:
         return False
     if type(val).__name__ == "_LuaTable":
@@ -724,6 +798,7 @@ def _is_lua_callable_or_fn(val):
 
 
 def _lua_val_to_python(val, seen=None):
+    """Recursively converts a Lua value or table into a native Python data structure."""
     if val is None:
         return None
     if isinstance(val, (int, float, str, bool)):
@@ -751,6 +826,18 @@ def _lua_val_to_python(val, seen=None):
 
 
 def _sync_lua_globals_to_context(g, context, ctx_dict, initial_vals=None):
+    """Reflects user-modified global variables from the Lua runtime into the DAG context.
+
+    Scans the Lua global environment table (_G), extracts user-defined or mutated
+    variables (excluding Lua built-ins and pre-injected Pyxis helpers), and writes
+    them back to the active context dictionary and unit models.
+
+    Args:
+        g: Global table of the active LuaRuntime instance.
+        context (dict): Pyxis DAG context to receive modified variables.
+        ctx_dict (dict): Read-only snapshot of the context provided to the runtime.
+        initial_vals (dict, optional): Baseline snapshot of values prior to script execution.
+    """
     if not isinstance(context, dict):
         return
 
@@ -916,6 +1003,7 @@ def _sync_lua_globals_to_context(g, context, ctx_dict, initial_vals=None):
 
 
 def _pyxis_clamp(val, min_val=0.0, max_val=1.0):
+    """Restricts a numerical value within upper and lower inclusive bounds."""
     try:
         v = float(val)
         mn = float(min_val)
@@ -928,6 +1016,7 @@ def _pyxis_clamp(val, min_val=0.0, max_val=1.0):
 
 
 def _pyxis_lerp(a, b, t):
+    """Computes linear interpolation between values a and b at progress factor t."""
     try:
         a_f = float(a)
         b_f = float(b)
@@ -938,11 +1027,16 @@ def _pyxis_lerp(a, b, t):
 
 
 def _pyxis_tag_only(cond, tag):
+    """Conditionally emits an ASS tag string if the boolean condition evaluates to True."""
     return str(tag) if cond else ""
 
 
 class PyxisTimeModifier:
-    """Wrapper for short time modifiers (li, lo, m1, m2, l1, l2) in code nodes."""
+    """Callable modifier proxy for short timing variables (li, lo, m1, m2, l1, l2).
+
+    Supports functional calls with custom delays and operator overloading for arithmetic
+    expressions directly inside user scripts (e.g. `2 * li`, `li + 10`, `float(lo)`).
+    """
     def __init__(self, func, context, default_delay=40.0, **default_kwargs):
         self.func = func
         self.context = context
@@ -1037,7 +1131,21 @@ class PyxisTimeModifier:
 
 
 def execute_python_script(context, script, inputs_map):
-    """Executes an optimized Python script with cached bytecode compilation."""
+    """Executes a Python script within an optimised sandbox with bytecode compilation caching.
+
+    Parses the script into an AST structure, detecting trailing expressions for automatic
+    result evaluation ('ast_split'). Injects standard Pyxis helpers (stochastic dispatchers,
+    timing modifiers, ASS tag generators, and unit references) and synchronises modified
+    variables back to the DAG context.
+
+    Args:
+        context (dict): The active Pyxis DAG iteration context.
+        script (str): Python script code to compile and execute.
+        inputs_map (dict): Mapping of dynamic input port values ('in1'..'in16').
+
+    Returns:
+        str: The resulting string representation or generated ASS tags.
+    """
     if not script:
         return ""
 
@@ -1083,13 +1191,36 @@ def execute_python_script(context, script, inputs_map):
     eval_scope["is_last"] = (i_val == n_val) or (next_obj is None)
     eval_scope["has_prev"] = (prev_obj is not None)
     eval_scope["has_next"] = (next_obj is not None)
-
     eval_scope["outputs"] = {}
     eval_scope["out"] = eval_scope["outputs"]
     for i in range(1, 17):
         eval_scope[f"out{i}"] = None
         eval_scope[f"out_{i}"] = None
         eval_scope[f"Out{i}"] = None
+
+    # Defaults neutros canónicos para iteradores y totales de sub-bucles cuando no están activos
+    # Indices/Piezas: default 0 (identidad aditiva neutra)
+    for subloop_i in (
+        "s_i", "slice_i", "d_i", "divide_i", "p_i", "particle_i", "b_i", "ring_i",
+        "a_i", "array_i", "m_i", "multi_i", "tp_i", "text_p_i", "ip_i", "img_p_i",
+        "c_i", "clip_i", "an_i", "anim_i", "an_j"
+    ):
+        eval_scope.setdefault(subloop_i, 0)
+
+    # Totales/Denominadores: default 1 (evita ZeroDivisionError y desfases en razones)
+    for subloop_n in (
+        "s_n", "s_max", "slice_n", "slice_max", "slicer_loop_count",
+        "d_n", "d_max", "divide_n", "divide_max",
+        "p_n", "p_max", "particle_n", "particle_max",
+        "b_n", "b_max", "ring_n", "ring_max",
+        "a_n", "a_max", "array_n", "array_max",
+        "m_n", "m_max", "multi_n", "multi_max",
+        "tp_n", "tp_max", "text_p_n", "text_p_max",
+        "ip_n", "ip_max", "img_p_n", "img_p_max", "total_pixels",
+        "c_n", "c_max", "clip_n", "clip_max",
+        "an_n", "an_max", "anim_n", "anim_max"
+    ):
+        eval_scope.setdefault(subloop_n, 1)
 
     if inputs_map and isinstance(inputs_map, dict):
         eval_scope["inputs"] = inputs_map
@@ -1103,6 +1234,12 @@ def execute_python_script(context, script, inputs_map):
     eval_scope["by"] = PyxisByDispatcher(context)
 
     def _make_rnd_caller(mode_name, default_step=None):
+        """Constructs a callable wrapper for a specific pseudo-random generation mode.
+
+        Supports dynamic argument unpacking (min, max, step) and extracts optional
+        iterator scoping keywords ('by', 'iter', 'iterator') to delegate execution
+        to math_random_master with deterministic seeding.
+        """
         def _caller(*args, **kwargs):
             by_val = kwargs.get("by", kwargs.get("iter", kwargs.get("iterator", None)))
             if len(args) == 0:
@@ -1309,7 +1446,20 @@ def execute_python_script(context, script, inputs_map):
 
 
 def execute_lua_script(context, script, inputs_map):
-    """Executes a Lua script via lupa with injected Pyxis Nodes context."""
+    """Executes a Lua script via Lupa with injected Pyxis Nodes contextual environment.
+
+    Initialises an isolated Lua 5.1/LuaJIT runtime, sets up numerical and ASS formatting
+    helpers, binds typographic unit and line tables, executes the script wrapped in a
+    protected entry point, and synchronises mutated global variables back to Python.
+
+    Args:
+        context (dict): The active Pyxis DAG iteration context.
+        script (str): Lua script code to evaluate.
+        inputs_map (dict): Mapping of dynamic input port values ('in1'..'in16').
+
+    Returns:
+        str: The resulting string representation or generated ASS tags.
+    """
     try:
         import lupa
     except ImportError:
@@ -1377,6 +1527,11 @@ def execute_lua_script(context, script, inputs_map):
         g.by = PyxisByDispatcher(context)
 
         def _make_lua_rnd_caller(mode_name, default_step=None):
+            """Constructs a Lua-callable wrapper for a pseudo-random generation mode.
+
+            Extracts positional arguments and keyword bounds from Lua calls and invokes
+            math_random_master within the active Pyxis execution context.
+            """
             def _caller(*args, **kwargs):
                 by_val = kwargs.get("by", kwargs.get("iter", kwargs.get("iterator", None)))
                 if len(args) == 0:
@@ -1879,7 +2034,20 @@ def execute_lua_script(context, script, inputs_map):
         return f"[Err Lua Script: {err_msg}]"
 
 def code_script_master(context, script="", language="Python", **inputs_map):
-    """Dispatch function for the Script Code master node."""
+    """Dispatches code execution for the System/Script Code node.
+
+    Routes execution to either the Python sandbox or the Lua Lupa runtime based
+    on the selected language property.
+
+    Args:
+        context (dict): The active Pyxis DAG iteration context.
+        script (str): Embedded source code to execute.
+        language (str): Target runtime language ("Python" or "Lua").
+        **inputs_map: Dynamic input arguments connected to node input ports.
+
+    Returns:
+        str: Resulting formatted string, ASS tags, or diagnostic error message.
+    """
     script_str = str(script or "").strip()
     if not script_str:
         return ""

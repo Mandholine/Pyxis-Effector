@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
 
 import math 
@@ -36,20 +36,24 @@ _TAG_BLOCK_RE =re .compile (r'\{.*?\}')
 
 
 def _has_visible_content (unit )->bool :
+    """Determine whether an active subtitle unit contains non-whitespace text."""
     return bool (str (getattr (unit ,'text_stripped','')).strip ())
 
 
 def _final_text_has_content (rendered :str )->bool :
+    """Determine whether rendered ASS text has visible characters after stripping tag blocks and breaks."""
     stripped =_TAG_BLOCK_RE .sub ('',str (rendered ))
     stripped =stripped .replace (r'\N',' ').replace (r'\n',' ').replace (r'\h',' ')
     return stripped .strip ()!=""
 
 
 def _is_empty_value (value )->bool :
+    """Check if a value is None or an empty/whitespace string."""
     return value is None or str (value ).strip ()==""
 
 
 def _to_int_or_default (value ,default ,context =None ):
+    """Safely convert a value or expression to an integer, falling back to a evaluated default."""
     if _is_empty_value (value ):
         if isinstance (default ,(int ,float )):
             return int (round (default ))
@@ -81,9 +85,10 @@ def _to_int_or_default (value ,default ,context =None ):
 
 
 def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional [Dict [str ,Any ]]=None )->str :
-    r"""Combina y desduplica limpiamente las etiquetas ASS de Return y Tags port.
-    Las etiquetas del puerto Tags tienen prioridad absoluta y reemplazan a las de Return en caso de colisión.
-    Soporta secuencias complejas de etiquetas con cierre/apertura de llaves (ej: \p1}m 0 0 m 100 100 {\p0\r).
+    r"""Cleanly merge and deduplicate ASS override tags from node Return and Tags input port.
+
+    Tags supplied via the Tags port take strict precedence over Return tags in the event of collisions.
+    Supports complex tag sequences containing drawing closures and openings (e.g. \p1}m 0 0 ... {\p0\r).
     """
     if not return_tags_str and not port_tags_str :
         return ""
@@ -228,7 +233,7 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional 
 
 
 def _split_tokens_respecting_delimiters (s :str )->list :
-    """Divide un string separado por comas, puntos y comas o saltos de línea respetando paréntesis () y llaves {}."""
+    """Split a delimiter-separated string (commas, semicolons, newlines) respecting nested parentheses () and braces {}."""
     if not s :
         return []
     s =str (s ).strip ()
@@ -264,7 +269,7 @@ def _split_tokens_respecting_delimiters (s :str )->list :
 
 
 def _format_tagged_item (tag_prefix :str ,val )->str :
-    """Aplica un prefijo de tag ASS a un valor formateando colores, alphas, coordenadas y escalares adecuadamente."""
+    """Apply an ASS tag prefix to a value, formatting colours, alphas, coordinate tuples, and scalars appropriately."""
     if val is None :
         return ""
 
@@ -336,6 +341,7 @@ def _format_tagged_item (tag_prefix :str ,val )->str :
 
 
 def _clean_key (k ):
+    """Normalise property or input port names to lowercase snake_case without accents or symbols."""
     s =str (k ).lower ().strip ()
     s =s .replace ('ñ','n').replace ('º','').replace ('°','').replace ('(','').replace (')','').replace (',','')
     s =s .replace ('[','').replace (']','').replace ('\\','').replace ('/','_').replace ('-','_').replace ('.','')
@@ -346,6 +352,7 @@ def _clean_key (k ):
 
 
 def _get_prop_value (props ,key ,default =""):
+    """Retrieve property value from dictionary with exact matching or normalised key matching."""
     if not isinstance (props ,dict ):
         return default 
     if key in props and props [key ]is not None and str (props [key ]).strip ()!="":
@@ -361,8 +368,12 @@ def _get_prop_value (props ,key ,default =""):
 
 
 
-class ShapePresetsNamespace :
-    """Helper namespace para exponer formas prediseñadas vía sintaxis shape.<nombre> (ej. shape.circle, shape.heart, shape.flower1t)."""
+class ShapePresetsNamespace:
+    """Namespace resolver exposing pre-defined vector shapes via shape.<name> syntax.
+
+    Dynamically delegates attribute and key lookups (e.g. shape.circle, shape.heart,
+    shape.flower1t) to `resolve_shape_value` for ASSdraw vector paths.
+    """
     def __getattr__ (self ,name ):
         from nodes .shape_nodes import resolve_shape_value 
         return resolve_shape_value (f"shape.{name }")
@@ -379,6 +390,17 @@ class ShapePresetsNamespace :
 
 
 def _apply_fx_setting(name, value, context):
+    """Mutate effect parameters and synchronise active unit coordinate and timing state.
+
+    Updates particle and effect context variables (coordinates, boundaries, timings,
+    alignment, and iteration counters) whilst synchronising attributes on the active
+    PyxisUnit instance.
+
+    Args:
+        name: Parameter identifier to update (e.g. 'pos_x', 'dur', 'align', 'i').
+        value: Numerical, boolean or string value to assign.
+        context: Active execution dictionary containing graph state and unit references.
+    """
     if not isinstance(context, dict):
         return
     u = context.get("active_unit")
@@ -471,6 +493,18 @@ def _apply_fx_setting(name, value, context):
 
 
 def _apply_set_vars_to_context_helper(vars_str, context, active_unit=None):
+    """Parse, evaluate and inject multi-line variable definitions into the execution context.
+
+    Processes newline- or semicolon-separated assignment expressions ('var = expression'),
+    evaluating values via the Python execution sandbox (`execute_python_script`) and
+    routing targets into specific namespaces (`fx.*`, `syl.*`, `char.*`, `word.*`,
+    `line.*`) with automated alias propagation.
+
+    Args:
+        vars_str: String containing one or multiple assignment statements or script lines.
+        context: Active execution dictionary receiving the evaluated variables.
+        active_unit: Optional active PyxisUnit instance undergoing transformation.
+    """
     if not vars_str or not isinstance(context, dict):
         return
     from nodes.code_nodes import execute_python_script, _propagate_alias_changes
@@ -533,8 +567,14 @@ def _apply_set_vars_to_context_helper(vars_str, context, active_unit=None):
             execute_python_script(context, part_clean, {})
 
 
-class FxContext :
-    """Helper class para exponer variables de efectos (fx.pos_x, fx.pos_y, fx.i, fx.n, etc.)."""
+class FxContext:
+    """Proxy object providing transparent access and mutation over effect and particle variables.
+
+    Exposes effect coordinates, temporal spans (start, end, duration), metric boundaries,
+    and iteration counters (fx.pos_x, fx.pos_y, fx.dur, fx.i, fx.n). Intercepts mutations
+    via `__setattr__` to dispatch to `_apply_fx_setting`, and resolves missing metrics by
+    evaluating active unit and line fallbacks.
+    """
     def __init__ (self ,ctx ):
         object.__setattr__(self, "_ctx", ctx if isinstance (ctx ,dict )else {})
 
@@ -556,31 +596,37 @@ class FxContext :
             return getattr (ShapePresetsNamespace (),name [6 :])
 
 
-        if name in ("dur","duration"):
-            for k in ("fx_dur","effect_dur"):
-                if k in self ._ctx :
-                    return self ._ctx [k ]
-            u =self ._ctx .get ("active_unit")
-            l =self ._ctx .get ("line")
-            return self ._ctx .get ("dur",getattr (u ,"duration",getattr (u ,"dur",getattr (l ,"duration",0.0 ))))
+        if name in ("dur", "duration"):
+            for k in ("fx_dur", "effect_dur", "dur", "duration"):
+                if k in self._ctx and self._ctx[k] is not None:
+                    return self._ctx[k]
+            if "fx_end_time" in self._ctx and "fx_start_time" in self._ctx:
+                return max(0.0, float(self._ctx["fx_end_time"]) - float(self._ctx["fx_start_time"]))
+            u = self._ctx.get("active_unit")
+            l = self._ctx.get("line")
+            return getattr(u, "duration", getattr(u, "dur", getattr(l, "duration", 0.0)))
 
+        if name in ("start_time", "st"):
+            for k in ("fx_start_time", "fx_st", "effect_st", "start_time", "st", "unit_abs_start_time"):
+                if k in self._ctx and self._ctx[k] is not None:
+                    return self._ctx[k]
+            u = self._ctx.get("active_unit")
+            l = self._ctx.get("line")
+            line_st = float(getattr(l, "start_time", 0.0)) if l else 0.0
+            if u is not None and u is not l and hasattr(u, "start_time"):
+                return line_st + float(getattr(u, "start_time", 0.0))
+            return getattr(l, "start_time", 0.0)
 
-        if name in ("start_time","st"):
-            for k in ("fx_start_time","fx_st","effect_st"):
-                if k in self ._ctx :
-                    return self ._ctx [k ]
-            u =self ._ctx .get ("active_unit")
-            l =self ._ctx .get ("line")
-            return self ._ctx .get ("start_time",getattr (u ,"start_time",getattr (l ,"start_time",0.0 )))
-
-
-        if name in ("end_time","et"):
-            for k in ("fx_end_time","fx_et","effect_et"):
-                if k in self ._ctx :
-                    return self ._ctx [k ]
-            u =self ._ctx .get ("active_unit")
-            l =self ._ctx .get ("line")
-            return self ._ctx .get ("end_time",getattr (u ,"end_time",getattr (l ,"end_time",0.0 )))
+        if name in ("end_time", "et"):
+            for k in ("fx_end_time", "fx_et", "effect_et", "end_time", "et", "unit_abs_end_time"):
+                if k in self._ctx and self._ctx[k] is not None:
+                    return self._ctx[k]
+            u = self._ctx.get("active_unit")
+            l = self._ctx.get("line")
+            line_st = float(getattr(l, "start_time", 0.0)) if l else 0.0
+            if u is not None and u is not l and hasattr(u, "end_time"):
+                return line_st + float(getattr(u, "end_time", 0.0))
+            return getattr(l, "end_time", 0.0)
 
 
         if name in ("x","pos_x"):
@@ -640,8 +686,32 @@ class FxContext :
         return getattr (self ,name )
 
 
-def _eval_sys_var (var_name :Any ,context :Any ,default :Any ="")->Any :
-    if not var_name :
+def _eval_sys_var(var_name: Any, context: Any, default: Any = "") -> Any:
+    """Evaluate system, context, metric, or temporal variable queries against execution state.
+
+    Resolves variable identifiers and nested object references using a hierarchical
+    evaluation cascade:
+    1. Inter-line synchronisation metrics (`sync.*` via PyxisSyncHelper).
+    2. Vector ink and contour bounding metrics (`ink.*` via InkNamespace).
+    3. Structural topology predicates (`is_first`, `is_last`, `has_prev`, `has_next`).
+    4. Frame duration and ratio metrics (`frame_dur`, `fd`, `ratio`).
+    5. Unit geometry and metric shortcuts (`val_*`).
+    6. Effect particle state (`fx.*` via FxContext or context dictionaries).
+    7. Phase time helpers (`time.*` such as lead_in, lead_out, middle_1, middle_2, loop_1, loop_2).
+    8. Video script metadata (`meta.*` such as res_x, res_y, fps, frame_dur).
+    9. Direct context key lookup.
+    10. Nested dot-notation attribute navigation (`line.*`, `syl.*`, `char.*`, `word.*`, `prev.*`, `next.*`, `styleref.*`).
+    11. Unit property fallbacks (`st`, `et`, `text`, `dur`, etc.).
+
+    Args:
+        var_name: Name of the variable or dot-delimited path to resolve.
+        context: Active execution dictionary containing graph and line state.
+        default: Fallback value returned if the variable cannot be resolved.
+
+    Returns:
+        Resolved value (numerical, string, boolean or structural object), or `default`.
+    """
+    if not var_name:
         return default 
     if not isinstance (context ,dict ):
         context ={}
@@ -742,10 +812,16 @@ def _eval_sys_var (var_name :Any ,context :Any ,default :Any ="")->Any :
 
     if lookup_str.startswith("fx."):
         attr_name = lookup_str[3:]
+        fx_obj = context.get("fx")
+        if isinstance(fx_obj, FxContext):
+            try:
+                return getattr(fx_obj, attr_name)
+            except AttributeError:
+                pass
         if attr_name in ("start_time", "st"):
-            return context.get("fx_start_time", context.get("start_time", getattr(active_unit, "start_time", 0.0)))
+            return context.get("fx_start_time", context.get("unit_abs_start_time", context.get("start_time", getattr(active_unit, "start_time", 0.0))))
         if attr_name in ("end_time", "et"):
-            return context.get("fx_end_time", context.get("end_time", getattr(active_unit, "end_time", 0.0)))
+            return context.get("fx_end_time", context.get("unit_abs_end_time", context.get("end_time", getattr(active_unit, "end_time", 0.0))))
         if attr_name in ("dur", "duration"):
             return context.get("fx_dur", context.get("effect_dur", context.get("dur", getattr(active_unit, "dur", getattr(active_unit, "duration", 0.0)))))
         if attr_name == "i":
@@ -859,12 +935,28 @@ _EVAL_EXPR_CACHE = OrderedDict()
 _MAX_EVAL_EXPR_CACHE = 2048
 
 def clear_eval_expr_cache():
-    """Clears cached compiled math expressions."""
+    """Clear cached compiled mathematical and AST expressions from the evaluation cache."""
     _EVAL_EXPR_CACHE.clear()
 
-_STATIC_EVAL_GLOBALS =None 
+_STATIC_EVAL_GLOBALS = None 
 
-def _get_static_eval_globals ():
+def _get_static_eval_globals():
+    """Initialise and return the singleton execution globals sandbox for mathematical evaluation.
+
+    Assembles a hardened global execution dictionary incorporating:
+    - Safe Python built-ins (arithmetic, sequences, type conversions, boolean aliases).
+    - Standard `math` module functions and geometric constants.
+    - Node functions registered via `@pyxis_node` in `NODE_REGISTRY`.
+    - Real-time audio measurement hooks (RMS, peak, frequency bands, FFT).
+    - Stochastic random generators and dispatchers (`R`, `Rs`, `by`, `PyxisByDispatcher`).
+    - Standard vector shape presets and geometry constructor wrappers.
+    - Synchronisation helpers and temporal gap calculators (`PyxisSyncHelper`).
+    - Standard ASS tag wrappers (`pos`, `move`, `clip`, `c1`..`c4`, `alpha`, `fscx`, `blur`, etc.).
+    - Kinetic easing curves and wave oscillators (`lerp`, `clamp`, `ease_in`, `sine_wave`, `polar`).
+
+    Returns:
+        Dictionary of static global symbols shared across expression evaluations.
+    """
     global _STATIC_EVAL_GLOBALS 
     if _STATIC_EVAL_GLOBALS is not None :
         return _STATIC_EVAL_GLOBALS 
@@ -984,8 +1076,12 @@ def _get_static_eval_globals ():
     return _STATIC_EVAL_GLOBALS 
 
 
-class AttrDict (dict ):
-    """Permite acceso por atributo (.campo) a diccionarios en expresiones de eval()."""
+class AttrDict(dict):
+    """Dictionary subclass providing attribute-style property access for mathematical expressions.
+
+    Enables dot-notation lookup (`d.attr`) over dictionary keys, recursively wrapping nested
+    dictionaries into `AttrDict` instances to allow deep expression traversal in `eval()`.
+    """
     def __getattr__ (self ,name ):
         if name in self :
             val =self [name ]
@@ -996,7 +1092,38 @@ class AttrDict (dict ):
         self [name ]=value 
 
 
-def _eval_num_expr (val ,context =None ,default =0.0 ):
+def _eval_num_expr(val, context=None, default=0.0):
+    """Evaluate a numerical, mathematical, or ternary expression against the execution context.
+
+    Processes expressions through a multi-tiered pipeline:
+    1. Fast paths for `None`, empty strings, and existing integers/floats.
+    2. Comma-to-dot decimal normalisation and ASS hexadecimal literal parsing (`&H...&`).
+    3. Syntax pre-processing outside string quotes:
+       - Lua inequality operator translation (`~=` to `!=`).
+       - Frame unit expansion (`10f` to `(10 * frame_dur)`).
+       - Ratio unit expansion (`0.5r` to `(0.5 * ratio)`).
+       - Temporal modifier multiplication (`2li`, `3lo`, `1m1`, etc.).
+    4. AST compilation with LRU caching (`_EVAL_EXPR_CACHE` up to 2048 entries).
+    5. Scope synthesis:
+       - AttrDict-wrapped local context with unit and line references.
+       - Context-bound time helpers (`time_lead_in`, `li`, `lo`, `m1`, `m2`, `l1`, `l2`).
+       - Synchronisation helpers (`sync`, `calculate_sync_gap`, and scope criteria).
+       - Contextualised audio functions (`audio_rms`, `audio_peak`, `audio_band`, `audio_fft`).
+       - Stochastic dispatchers (`by`, `R`, `Rs`, `Rc`, `Rd`, `Rm`, `rand`, `Rbool`, `Rcolor`).
+       - Sub-loop and multi-generator iterators (`j`, `maxj`, `s_i`, `d_i`, `b_i`, `a_i`, etc.).
+       - Adjacency proxies (`prev`, `next`, `is_first`, `is_last`, `has_prev`, `has_next`).
+       - Vector ink boundaries (`ink.*`) and persistent memory closures (`remember`, `recall`).
+       - Reactive effect proxy (`fx.*`).
+    6. Sandboxed evaluation via `eval()` returning floating-point numbers or `default`.
+
+    Args:
+        val: Input expression, string, or scalar to evaluate.
+        context: Active execution dictionary containing graph state and line models.
+        default: Fallback numeric value returned upon evaluation failure or empty input.
+
+    Returns:
+        Evaluated float value, or `default` if evaluation fails.
+    """
     if val is None or val =="":
         return default 
     if isinstance (val ,(int ,float )):
@@ -1228,12 +1355,23 @@ _GLOBAL_ACTIVE_EXECUTOR =None
 _WORKER_LINE_COUNTER =None 
 _WORKER_CANCEL_FLAG =None 
 
-def _worker_init (line_counter ,cancel_flag ):
-    global _WORKER_LINE_COUNTER ,_WORKER_CANCEL_FLAG 
-    _WORKER_LINE_COUNTER =line_counter 
-    _WORKER_CANCEL_FLAG =cancel_flag 
+def _worker_init(line_counter, cancel_flag):
+    """Initialise global telemetry synchronization and cancellation flags in multiprocessing workers.
 
-def abort_global_multiprocessing ():
+    Args:
+        line_counter: Shared multiprocessing Value or integer tracking completed lines.
+        cancel_flag: Shared multiprocessing Value or Event indicating execution cancellation.
+    """
+    global _WORKER_LINE_COUNTER, _WORKER_CANCEL_FLAG 
+    _WORKER_LINE_COUNTER = line_counter 
+    _WORKER_CANCEL_FLAG = cancel_flag 
+
+def abort_global_multiprocessing():
+    """Cancel pending generation futures and asynchronously terminate the active process pool.
+
+    Invoked upon user cancellation, fatal runtime exceptions, or process shutdown to prevent
+    orphaned child worker processes from consuming CPU resources.
+    """
     global _GLOBAL_ACTIVE_EXECUTOR 
     if _GLOBAL_ACTIVE_EXECUTOR is not None :
         try :
@@ -1243,8 +1381,22 @@ def abort_global_multiprocessing ():
         _GLOBAL_ACTIVE_EXECUTOR =None 
 
 
-class GraphEngine :
+class GraphEngine:
+    """Core execution engine for compiling and rendering directed acyclic node graphs (DAG).
+
+    Coordinates graph traversal, node evaluation, unit data binding, loop chains,
+    telemetry profiling, and ASS dialogue line generation across subtitle units.
+    """
     def __init__ (self ,graph_data =None ,rx =1280 ,ry =720 ,fd =41.708 ,default_audio_source =""):
+        """Initialise the GraphEngine with graph topology, project dimensions, and audio settings.
+
+        Args:
+            graph_data: Dictionary containing 'nodes' and 'links' defining the canvas graph.
+            rx: Horizontal video resolution in pixels (e.g. 1280 or 1920).
+            ry: Vertical video resolution in pixels (e.g. 720 or 1080).
+            fd: Frame duration in milliseconds (default 41.708 ms for 23.976 fps).
+            default_audio_source: Path to audio file or media track used by audio nodes.
+        """
         if graph_data is None :
             graph_data ={"nodes":[],"links":[]}
         self .raw_graph =graph_data 
@@ -1265,13 +1417,40 @@ class GraphEngine :
         )
 
     def remember (self ,key ,val ):
+        """Store an arbitrary value in the persistent graph execution memory.
+
+        Args:
+            key: Unique key identifier.
+            val: Value to store.
+
+        Returns:
+            The stored value.
+        """
         self .memory [str (key )]=val 
         return val 
 
     def recall (self ,key ,default =""):
+        """Retrieve a stored value from the persistent graph execution memory.
+
+        Args:
+            key: Unique key identifier to look up.
+            default: Fallback value returned if the key is not found.
+
+        Returns:
+            Retrieved value or `default`.
+        """
         return self .memory .get (str (key ),default )
 
     def is_port_connected (self ,target_node ,input_index ):
+        """Check whether a specific input port on a target node has an active incoming link.
+
+        Args:
+            target_node: Dictionary representing the node in the canvas graph.
+            input_index: Zero-based integer index of the input port.
+
+        Returns:
+            `True` if connected via a cable link; otherwise `False`.
+        """
         inputs =target_node .get ('inputs',[])
         if len (inputs )<=input_index :return False 
         inp =inputs [input_index ]
@@ -1279,6 +1458,20 @@ class GraphEngine :
         return bool (inp .get ('link')is not None or (isinstance (inp .get ('links'),list )and len (inp .get ('links'))>0 ))
 
     def get_input_value (self ,target_node ,input_index ,context ):
+        """Retrieve the evaluated value for an input port, checking links or inline properties.
+
+        If the port is connected via a cable link, evaluates the upstream node; if disconnected,
+        falls back to inline property values or default widget text, resolving preset shapes
+        via `resolve_shape_value`.
+
+        Args:
+            target_node: Target node dictionary being evaluated.
+            input_index: Zero-based integer index of the input port.
+            context: Active execution dictionary containing line and particle state.
+
+        Returns:
+            Evaluated string or vector shape representation.
+        """
         if not self .is_port_connected (target_node ,input_index ):
             inputs =target_node .get ('inputs',[])
             if input_index <len (inputs ):
@@ -1332,8 +1525,21 @@ class GraphEngine :
         return ""
 
     def get_named_input_or_prop(self, node, prop_name, default_slot_idx=None, default_val="", context=None):
-        """Resolves input value by dynamically searching node['inputs'] by property/name,
-        checking connection status, and falling back to default_slot_idx or node['properties']."""
+        """Resolve an input value by property name, connection status, slot index, or inline property.
+
+        Searches node inputs for matching names or bound properties. If connected, evaluates
+        the upstream link; otherwise falls back to inline properties or default values.
+
+        Args:
+            node: Target node dictionary.
+            prop_name: Name of the property or port to search.
+            default_slot_idx: Optional fallback input slot index.
+            default_val: Default value returned if the property cannot be found.
+            context: Optional active execution dictionary.
+
+        Returns:
+            Resolved parameter value.
+        """
         inputs = node.get('inputs', [])
         props = node.get('properties', {})
         p_clean = prop_name.lower().replace(":", "").replace(" ", "_").strip()
@@ -1357,6 +1563,22 @@ class GraphEngine :
         return _get_prop_value(props, prop_name, default_val)
 
     def bind_active_unit (self ,context ,unit ,is_noblank =True ,output_node =None ):
+        """Bind the active subtitle unit to the execution context, computing spatial and temporal metrics.
+
+        Calculates spatial coordinates (`x`, `y`, `left`, `center`, `right`, `top`, `middle`, `bottom`),
+        dimensions (`width`, `height`), absolute and relative timeline markers (`st`, `et`, `dur`, `ini`),
+        inter-unit adyacencies (`prev`, `next`, `is_first`, `is_last`), origin alignment according
+        to `output_node`, and initialises proxy helpers (`ink`, `fx`).
+
+        Args:
+            context: Execution dictionary to populate and synchronise.
+            unit: Active `PyxisUnit` or `PyxisLine` instance to bind.
+            is_noblank: When `True`, assigns non-blank indices (`ci`, `cn`) to iteration counters.
+            output_node: Optional reference to the terminal `System/Output` node for origin alignment.
+
+        Returns:
+            Mutated and synchronised context dictionary.
+        """
         context ['active_unit']=unit 
         context ['default_audio_source']=self .default_audio_source 
         if unit :
@@ -1588,6 +1810,16 @@ class GraphEngine :
         return context 
 
     def _update_module_context (self ,context ):
+        """Calculate and update the normalised progress ratio (`module` and `m`) for sub-loops.
+
+        Computes ratio in the range [0.0, 1.0] from iteration index `j` and total `maxj`.
+
+        Args:
+            context: Active execution dictionary containing `j` and `maxj`.
+
+        Returns:
+            Updated context dictionary with `module` and `m` keys.
+        """
         j =float (context .get ('j',context .get ('fx_i',1 )))
         maxj =float (context .get ('maxj',context .get ('fx_n',1 )))
 
@@ -1597,6 +1829,24 @@ class GraphEngine :
         return context 
 
     def _apply_defaults (self ,active_unit ,layer_raw ,st_raw ,et_raw ,tags_raw ,return_raw ,context =None ):
+        """Apply final default values, positioning, and formatting rules to generated ASS line components.
+
+        Resolves timing markers, validates shape outputs (injecting `\\p1` and neutral scale `\\fscx100\\fscy100`),
+        synthesises `\\pos` and `\\org` coordinates according to canonical precedence rules, merges
+        leading tags with port tags, and ensures valid ASS override block structure.
+
+        Args:
+            active_unit: Subtitle unit being rendered.
+            layer_raw: Raw layer parameter or expression.
+            st_raw: Raw start time parameter or expression.
+            et_raw: Raw end time parameter or expression.
+            tags_raw: Accumulated ASS tags string.
+            return_raw: Text or vector shape drawing string.
+            context: Active execution dictionary.
+
+        Returns:
+            Tuple of `(layer, start_time, end_time, merged_tags, final_text_or_drawing)`.
+        """
         line_obj = context.get('line') if context else getattr(active_unit, 'line', None)
         line_st = float(getattr(line_obj, 'start_time', 0.0)) if line_obj else 0.0
         default_st = context.get('unit_abs_start_time', line_st + getattr(active_unit, 'start_time', 0)) if context else (line_st + getattr(active_unit, 'start_time', 0))
@@ -1792,6 +2042,18 @@ class GraphEngine :
         return layer, st, et, tags_raw, return_raw 
 
     def trace_loop_chain (self ,output_node ):
+        """Trace the loop execution pipeline upstream from the terminal output node.
+
+        Walks backwards along cable connections from `output_node` to identify the loop hierarchy:
+        `Loops/Main Loop` (base unit: syl, char, word, line), `Loops/MaxLoop` (sub-loops and fbf),
+        `Variables/Define Vars`, and `System/Script Code`.
+
+        Args:
+            output_node: Terminal `System/Output` node dictionary.
+
+        Returns:
+            Ordered list of loop stage dictionaries from outer root to inner terminal.
+        """
         chain =[]
         current_node =output_node 
         input_port_index =0 
@@ -1860,10 +2122,26 @@ class GraphEngine :
         return res_chain 
 
     def _apply_set_vars_to_context(self, vars_str, context, active_unit=None):
-        """Executes set_vars assignments into context."""
+        """Execute multi-line variable definitions and assign results into the context dictionary.
+
+        Args:
+            vars_str: String containing newline- or semicolon-separated assignment expressions.
+            context: Active execution dictionary.
+            active_unit: Optional active subtitle unit instance.
+        """
         return _apply_set_vars_to_context_helper(vars_str, context, active_unit)
 
     def evaluate_data_node (self ,node_id ,context ,output_slot_index =0 ):
+        """Evaluate a data node with optional performance profiling telemetry.
+
+        Args:
+            node_id: Unique integer identifier of the node in the canvas graph.
+            context: Active execution dictionary.
+            output_slot_index: Zero-based integer index of the output slot to extract.
+
+        Returns:
+            Evaluated data result (scalar, string, list, or shape).
+        """
         if _PROFILER_ENABLED :
             _t0 =time .perf_counter ()
             res =self ._evaluate_data_node_body (node_id ,context ,output_slot_index )
@@ -1879,6 +2157,20 @@ class GraphEngine :
         return self ._evaluate_data_node_body (node_id ,context ,output_slot_index )
 
     def _evaluate_data_node_body (self ,node_id ,context ,output_slot_index =0 ):
+        """Internal evaluator dispatching data nodes to specialized category handlers.
+
+        Resolves node inputs, handles wired-vs-inline precedence, invokes underlying
+        domain algorithms across categories (Basics, Shape, Time, Functions, Variables,
+        Loops, Audio, and System), and routes multi-slot outputs.
+
+        Args:
+            node_id: Unique integer identifier of the node in the canvas graph.
+            context: Active execution dictionary containing line, particle, and DAG state.
+            output_slot_index: Zero-based integer index of the output slot to extract.
+
+        Returns:
+            Evaluated result value (string, float, list, or ASSdraw vector path).
+        """
         node =self .nodes [node_id ]
         node_type =node ['type']
         props =node .get ('properties',{})
@@ -2269,6 +2561,27 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Shape/Slicer: Vector Mesh Segmentation & Polygonal Tessellation Engine
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Sub-loop generator and geometric dissector. Slices an input vector
+        #   drawing into discrete polygonal pieces across 23 procedural mesh patterns
+        #   utilising the Clipper2 polygon clipping library.
+        #
+        # Evaluation Workflow:
+        #   1. Resolves tessellation mode aliases to canonical engine identifiers.
+        #   2. Coerces input geometry and extraction parameters with wired socket precedence.
+        #   3. Generates a deterministic signature tuple for multi-tiered memoisation
+        #      (unit-level `_slicer_cache`, `_global_slicer_cache`, or `_slicer_pieces`).
+        #   4. Dispatches slicing to `ClipperEngine.slice_grid(...)` on cache miss.
+        #   5. Injects sub-loop variables (`s_i`, `s_n`, `s_max`, `slice_i`, `slice_n`,
+        #      `slice_max`, `slicer_loop_count`, `maxloop`, `col`, `row`) into `context`.
+        #   6. Re-aligns piece coordinates and generates `\pos`/`\org` overrides via
+        #      `resolve_piece_anchor` based on the active `anchor` mode ('pieces', 'relative',
+        #      'parent_org', 'pos', 'absolute').
+        #   7. Dispatches multi-slot outputs (0: Piece/Clip, 1: X, 2: Y, 3: Col, 4: Row).
+        # -------------------------------------------------------------------------
         if node_type in ["Shape/Slicer", "Slicer"]:
             try :
                 modo_alias_map ={
@@ -2560,6 +2873,21 @@ class GraphEngine :
                 traceback .print_exc ()
                 return f"[Err Slicer: {e}]"
 
+        # -------------------------------------------------------------------------
+        # Shape/Manipulator Dispatcher
+        # Handles affine, morphological, perspective 3D, and matrix transformations:
+        # 1. Parameter extraction: resolves mode, input shape/fallback unit glyph.
+        # 2. Dynamic mode routing:
+        #    - "borders": Clipper2 polygon offset expansion/shrinkage.
+        #    - "deform": non-uniform scaling with translation offsets.
+        #    - "position": 2D translation relative to spatial anchor.
+        #    - "redraw": Bézier densification (factor > 0) or polygonisation (factor < 0).
+        #    - "matrix": comprehensive 7-stage pipeline (offset -> redraw -> scale/skew
+        #                -> 3D Euler rotation -> perspective camera -> reflection -> translation).
+        #    - "3d_rotate": Euler spatial rotations (frx, fry, frz) with pinhole camera (d=1000).
+        #    - "reflect": specular symmetry across Cartesian axes with pivot displacement.
+        #    - "scale": isotropic/anisotropic scaling relative to bounding box anchor.
+        # -------------------------------------------------------------------------
         if node_type in ["Shape/Manipulator", "Manipulator"]:
             try :
                 modo =str (props .get ("mode",props .get ("modo","scale"))).strip ()
@@ -2639,6 +2967,14 @@ class GraphEngine :
             except Exception as e :
                 return f"[Err Manipulator: {e}]"
 
+        # -------------------------------------------------------------------------
+        # Shape/Filter Dispatcher
+        # Applies procedural filtering, vertex expression evaluation, and noise:
+        # - "vertices": Evaluates per-vertex mathematical expressions (expr_x, expr_y)
+        #   with access to geometry bounds, vertex indices, and trigonometric functions.
+        # - "group": Compounded multi-piece affine transformation per sub-contour.
+        # - "noise": Seeded pseudo-random jitter displacement bounded by radii.
+        # -------------------------------------------------------------------------
         if node_type in ["Shape/Filter", "Filter"]:
             try :
                 modo =str (props .get ("mode",props .get ("modo","vertices"))).strip ()
@@ -2686,6 +3022,16 @@ class GraphEngine :
             except Exception as e :
                 return f"[Err Filter: {e}]"
 
+        # -------------------------------------------------------------------------
+        # Shape/Transform Dispatcher
+        # Handles advanced non-native ASS geometric transformations:
+        # - "skew": 2D planar angular shearing with singularity clamping.
+        # - "round_corners": Polyhedral vertex filleting (round/bevel/miter).
+        # - "flexor": Non-linear bending along parametric circular arcs or guide splines.
+        # - "distort": 2-shape continuous vector morphing (analytical or resampled).
+        # - "distort2": 3-stage piecewise vector morphing (source -> mid -> target).
+        # - "inflate": Radial spherification or bulging towards circle/ellipse.
+        # -------------------------------------------------------------------------
         if node_type in ["Shape/Transform", "Transform"]:
             try :
                 modo =str (props .get ("mode",props .get ("modo","inflate"))).strip ()
@@ -2847,6 +3193,19 @@ class GraphEngine :
             except Exception as e :
                 return f"[Err Transform: {e}]"
 
+        # -------------------------------------------------------------------------
+        # Shape/Multi: Composite Procedural Vector Patterns & Mosaics
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Procedural multi-shape generator and sub-loop dispatcher. Produces
+        #   geometric composites across 10 structured modes: Concentric Squares,
+        #   Diagonal Stripes, Concentric Rings, Multi-Shape Mosaic, Polygonal Mosaic,
+        #   Segmented Border, Radial Rosette, Tunnel / Cascade, Banner, and Gear.
+        #
+        # Context Injections:
+        #   Injects sub-loop index variables (m_i, multi_i) and tracks upstream
+        #   spatial position overrides (pos_overridden, pos_x, pos_y).
+        # -------------------------------------------------------------------------
         if node_type in ["Shape/Multi", "Multi"]:
             try :
                 m_idx_cur = context.get(f'_gen_idx_{node_id}') if isinstance(context, dict) else None
@@ -3074,6 +3433,20 @@ class GraphEngine :
             except Exception as e :
                 return f"[Err Multi: {e}]"
 
+        # -------------------------------------------------------------------------
+        # Functions/Polar to Cartesian: Coordinate System Converter
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Trigonometric converter mapping polar coordinates (angle, radius) relative
+        #   to an origin (x0, y0) into Cartesian coordinates (res_x, res_y).
+        #
+        # Output Slots:
+        #   - Slot 0: Formatted ASS tag \pos(x, y).
+        #   - Slot 1: Absolute X coordinate.
+        #   - Slot 2: Absolute Y coordinate.
+        #   - Slot 3: Relative horizontal displacement (dx).
+        #   - Slot 4: Relative vertical displacement (dy).
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Polar to Cartesian","Polar to Cartesian"]:
             try :
                 import math 
@@ -3113,6 +3486,26 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/Bezier Curve: Parametric Spline & Kinetic Trajectory Engine
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   High-precision parametric spline evaluator and procedural motion path
+        #   generator. Solves arbitrary polynomial splines via De Casteljau's algorithm,
+        #   computes instantaneous velocity vectors and tangent/normal angles, supports
+        #   constant-speed arc-length re-parameterisation, De Casteljau curve splitting,
+        #   and generates pseudo-random organic trajectories (Free Wander, Bounded, Orbit).
+        #
+        # Output Slots:
+        #   - Slot 0: Formatted ASS tag \pos(x, y).
+        #   - Slot 1: Absolute horizontal coordinate (x).
+        #   - Slot 2: Absolute vertical coordinate (y).
+        #   - Slot 3: Tangent orientation angle (deg).
+        #   - Slot 4: Normal orientation angle (deg).
+        #   - Slot 5: Complete ASSdraw spline trajectory (m ... b ...).
+        #   - Slot 6: Left subdivided segment ASSdraw.
+        #   - Slot 7: Right subdivided segment ASSdraw.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Bezier Curve", "Bezier Curve"]:
             try:
                 import math
@@ -3576,6 +3969,19 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/Text to Shape: Font Vectorisation & Glyph Extraction
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Vectorises raw typographic text strings or active unit syllables directly
+        #   into ASSdraw commands utilising FontVectorEngine and calculates metric
+        #   bounding box dimensions (width, height) via ClipperEngine.
+        #
+        # Output Slots:
+        #   - Slot 0: ASSdraw path commands.
+        #   - Slot 1: Bounding box width (px).
+        #   - Slot 2: Bounding box height (px).
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Text to Shape","Text to Shape"]:
             try :
                 txt =self .get_input_value (node ,0 ,context )
@@ -3623,6 +4029,16 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Shape/IMG to Shape: Raster image and animated GIF vectorisation via Potrace
+        # Resolves parameters from connected input slots or inline node properties,
+        # decodes dynamic frame indices, handles animated GIF sequences, and dispatches
+        # to img_tracer_engine.trace_image. Injects ish_i, ish_n, ish_max into context.
+        # Output slots:
+        #   [0] Shape Out (ASSDraw)        [1] Width (px)
+        #   [2] Height (px)                [3] Points (vertex count)
+        #   [4] Shapes Array (comma list)  [5] Total Frames (count)
+        # -------------------------------------------------------------------------
         elif node_type in ["Shape/IMG to Shape","IMG to Shape"]:
             try :
                 img_path =self .get_input_value (node ,0 ,context )
@@ -3755,6 +4171,14 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Time/Synced: Inter-Unit Temporal Synchronisation Engine
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Calculates progressive lead-in and lead-out timings between adjacent units
+        #   and dialogue lines, implementing linear/exponential duration extensions,
+        #   inter-syllable delay offsets, and silence threshold clamping.
+        # -------------------------------------------------------------------------
         elif node_type in ["Time/Synced", "Synced"]:
             try :
                 line =None 
@@ -3808,6 +4232,24 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Shape/Concentric Borders: Multi-Layer Offset Dilation & Outline Nesting
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Procedural concentric boundary generator and sub-loop dispatcher. Produces
+        #   expanding or contracting boundary layers with hollow or solid fill modes
+        #   using Clipper2 polygon offsets.
+        #
+        # Context Injections:
+        #   Injects sub-loop iteration variables (b_i, ring_i) and manages spatial
+        #   anchor re-alignment (pos_overridden, pos_x, pos_y).
+        #
+        # Output Slots:
+        #   - Slot 0: ASSdraw vector commands of the active ring or unified shape.
+        #   - Slot 1: Formatted \pos(x, y) tag.
+        #   - Slot 2: Active ring index (b_i).
+        #   - Slot 3: Total ring count.
+        # -------------------------------------------------------------------------
         elif node_type in ["Shape/Concentric Borders","Concentric Borders"]:
             try :
                 if isinstance(context, dict):
@@ -3871,6 +4313,23 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Shape/Walker: Parametric Arc-Length Path Trimming & Tip Trajectory Engine
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Kinetic path trimmer and write-on animation generator. Computes arc-length
+        #   intervals [start_t, progress] over linear and cubic Bézier splines,
+        #   projects leading tip coordinates to absolute screen space, and computes
+        #   instantaneous tangent orientation angle (\frz) for attached particles.
+        #
+        # Output Slots:
+        #   - Slot 0: Trimmed ASSdraw vector commands.
+        #   - Slot 1: Formatted \pos(x, y) tag placed at the instantaneous path tip.
+        #   - Slot 2: Tangent orientation tag \frz<deg>.
+        #   - Slot 3: Current trimmed arc-length in pixels.
+        #   - Slot 4: Absolute tip horizontal coordinate (Tip X).
+        #   - Slot 5: Absolute tip vertical coordinate (Tip Y).
+        # -------------------------------------------------------------------------
         elif node_type in ["Shape/Walker", "Walker"]:
             try :
                 shp_raw =self .get_input_value (node ,0 ,context )
@@ -3918,9 +4377,19 @@ class GraphEngine :
             except Exception as e :
                 return f"[Err Walker: {e}]"
 
-
-
-
+        # -------------------------------------------------------------------------
+        # Shape/Stroke: Polygon Dilation & Outline Thickening Engine
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Geometric stroke expander. Converts open lines, curves, and closed
+        #   ASSdraw contours into thickened polygons with real area using Clipper2
+        #   offset dilation. Supports custom join modes (round, miter, bevel)
+        #   and end cap styles (round, square, flat, bezier).
+        #
+        # Output Slots:
+        #   - Slot 0: Closed ASSdraw polygon representing the thickened stroke.
+        #   - Slot 1: Stroke width in pixels.
+        # -------------------------------------------------------------------------
         elif node_type in ["Shape/Stroke", "Stroke"]:
             try :
                 is_connected =self .is_port_connected (node ,0 )
@@ -3956,6 +4425,14 @@ class GraphEngine :
             except Exception as e :
                 return f"[Err Stroke: {e}]"
 
+        # -------------------------------------------------------------------------
+        # Shape/Clipper Dispatcher
+        # Handles 2D vector boolean operations, dilation/erosion, and Minkowski operations:
+        # - Resolves subject (A) and clip (B) shapes with unit glyph fallback.
+        # - Routes CSG operations: difference, intersection, union, xor, offset,
+        #   minkowski_sum, and minkowski_diff.
+        # - Supports multi-slot outputs: [0] Shape Out, [1] Out List, [2] BBox Data.
+        # -------------------------------------------------------------------------
         elif node_type in ["Shape/Clipper", "Clipper"]:
             try:
                 raw_mode = self.get_named_input_or_prop(node, "mode", default_slot_idx=2, default_val="difference", context=context)
@@ -4084,6 +4561,15 @@ class GraphEngine :
                 traceback.print_exc()
                 return f"[Err Clipper: {e}]"
 
+        # -------------------------------------------------------------------------
+        # Shape/Union & Divide Dispatcher
+        # Decomposes, merges, or fuses shapes via Clipper2 topological PolyTree:
+        # - "divide": True topological island decomposition with hole containment and 2D sorting.
+        # - "union": Boolean merge of primary and secondary shapes.
+        # - "subpaths": Raw contour segmentation by 'm' commands without hierarchy reconstruction.
+        # - "fusion": Piece combination with style override tag injection.
+        # - Supports multi-slot outputs: [0] Shape Out, [1] Out List, [2] BBox Data.
+        # -------------------------------------------------------------------------
         elif node_type in ["Shape/Union & Divide", "Union & Divide"]:
             try :
                 mode_raw = str(_get_prop_value(props, "mode", "divide")).strip()
@@ -4319,6 +4805,18 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Shape/Array: 2D spatial vector formations and matrix replication.
+        # Resolves parameters across 6 topological modes (grid, hex, rings, spiral,
+        # scatter, formation) and 2 emission modes (loops vs monolithic shape).
+        # Injects and manages iterator variables a_i / array_i and a_n / array_n.
+        # Output slots:
+        #   [0] Shape (active piece or unified)   [1] \pos Tag (\pos(x,y))
+        #   [2] X (screen X)                      [3] Y (screen Y)
+        #   [4] Angle (\frz<deg>)                 [5] Index (a_i)
+        #   [6] Total (a_n)                       [7] Col / Ring
+        #   [8] Row / IdxRing
+        # -------------------------------------------------------------------------
         elif node_type in ["Shape/Array", "Array"]:
             try :
                 a_idx_cur = context.get(f'_gen_idx_{node_id}', context.get('a_i', 1)) if isinstance(context, dict) else 1
@@ -4618,6 +5116,22 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/Text on Path: Spline-Guided Kinetic Typographic Layout
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Aligns dialogue lines and syllable units along arbitrary ASSdraw vector
+        #   guide paths. Computes arc-length positions, tangential orientation angles
+        #   (\frz), and formatted \pos tags for text characters or syllables.
+        #
+        # Output Slots:
+        #   - Slot 0: Combined positioning and orientation ASS tags (\pos...\frz).
+        #   - Slot 1: Formatted \pos(x, y) tag.
+        #   - Slot 2: Formatted \frz<deg> tag.
+        #   - Slot 3: Absolute horizontal coordinate (x).
+        #   - Slot 4: Absolute vertical coordinate (y).
+        #   - Slot 5: Total path arc-length in pixels.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Text on Path","Text on Path","Text/Text on Path"]:
             try :
                 shp_raw =self .get_input_value (node ,0 ,context )
@@ -4661,6 +5175,25 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/Clip Gradient: Vector Tessellation & Angular Gradient Masks
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Procedural clipping generator and sub-loop dispatcher. Produces multi-cell
+        #   rectangular or angled clipping slices (\clip, \iclip) forming spatial
+        #   gradient masks across columns and rows.
+        #
+        # Context Injections:
+        #   Injects sub-loop variables c_i and clip_i.
+        #
+        # Output Slots:
+        #   - Slot 0: Formatted ASS tag \clip(...) or \iclip(...).
+        #   - Slot 1: Normalised progress factor [0.0, 1.0].
+        #   - Slot 2: Active slice index (c_i).
+        #   - Slot 3: Total slices count.
+        #   - Slot 4: Column index.
+        #   - Slot 5: Row index.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Clip Gradient","Shape/Clip Gradient","Clip Gradient"]:
             try :
                 c_idx_cur = context.get(f'_gen_idx_{node_id}') if isinstance(context, dict) else None
@@ -4728,6 +5261,19 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Audio/Modulator: Real-Time Audio Metric & Tag Reactive Modulator
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Analyses external audio tracks or project audio using RMS energy or FFT
+        #   spectral bandpass filtering, mapping acoustic volume into dynamic ASS tags
+        #   (e.g., \fscy, \alpha, \blur) or raw numeric values.
+        #
+        # Output Slots:
+        #   - Slot 0: Formatted ASS tag with audio-reactive value.
+        #   - Slot 1: Raw floating-point modulated value.
+        #   - Slot 2: Time-series value array across sampled dialogue duration.
+        # -------------------------------------------------------------------------
         elif node_type in ["Audio/Modulator", "Modulator"]:
             try :
                 inputs_list =node .get ("inputs",[])
@@ -4791,6 +5337,21 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Audio/Waveform: Audio Vector Visualiser & Spectrum Renderer
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Generates reactive ASSdraw vector shapes from audio files across multiple
+        #   modes: oscilloscope, frequency spectrum bars, circular/radial visualisers,
+        #   and parametric wave ribbons.
+        #
+        # Output Slots:
+        #   - Slot 0: Rendered ASSdraw waveform vector path.
+        #   - Slot 1: Formatted \pos(x, y) tag placed at the waveform origin.
+        #   - Slot 2: Raw normalised sample amplitude list.
+        #   - Slot 3: Peak amplitude scalar.
+        #   - Slot 4: RMS energy scalar.
+        # -------------------------------------------------------------------------
         elif node_type in ["Audio/Waveform", "Waveform"]:
             try :
                 inputs_list =node .get ("inputs",[])
@@ -4854,6 +5415,19 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/Tag Oscillator: Cyclic & Waveform Tag Modulation Engine
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Generates rhythmic, harmonic, and periodic oscillations of ASS override
+        #   tags over specified time intervals [Start Time, End Time]. Supports wave
+        #   interpolation, pulse duty cycles, and dilating cadence steps.
+        #
+        # Output Slots:
+        #   - Slot 0: Formatted concatenated ASS tags with active oscillation values.
+        #   - Slot 1: Normalised wave scalar factor [0.0, 1.0].
+        #   - Slot 2: List of instantaneous tag strings per frame.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Tag Oscillator","Tag Oscillator"]:
             try :
                 inputs_list =node .get ("inputs",[])
@@ -4928,6 +5502,18 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/Glitter: Stochastic Shimmer & Multi-Tag Micro-Animation
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Applies pseudo-random sparkling and stochastic micro-animations across
+        #   arbitrary ASS tags (\c, \alpha, \blur, \fscx). Modulates tag values with
+        #   controllable density, oscillation modes (flashes, sine, noise), and seed.
+        #
+        # Output Slots:
+        #   - Slot 0: Combined ASS tags with sparkling overrides.
+        #   - Slot 1..N: Individual tag stream outputs.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Glitter","Glitter"]:
             try :
                 inputs_list =node .get ("inputs",[])
@@ -5027,6 +5613,14 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/Once: Scope-Constrained Execution Gate & Cache
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Evaluation control gate ensuring an input expression or connected branch
+        #   is calculated only once within a defined scope ('global', 'line', 'word',
+        #   'syl', 'char', 'loop'), memoising the result for subsequent evaluations.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Once","Once","Basics/Once"]or name =="Once":
             try :
                 modo =str (_get_prop_value (props ,"mode","line")).strip ().lower ()
@@ -5077,6 +5671,14 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/Only: Boolean Conditional Router & Selection Gate
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Binary routing gate evaluating boolean conditions:
+        #   - Selector Mode: Emits Port 0 when condition evaluates to True, otherwise Port 1.
+        #   - Pass Mode: Passes Port 0 on Slot 0 if True, or on Slot 1 if False.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Only","Only","Basics/Only"]or name =="Only":
             try :
                 cond_raw =_get_prop_value (props ,"condition","True")
@@ -5122,6 +5724,14 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # System/Benchmark Math: Computational Throughput & Stress Telemetry
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Performance profiler evaluating heavy mathematical loops (trigonometry,
+        #   prime factorisation, matrix multiplication) and reporting execution time
+        #   in milliseconds for performance profiling and benchmarking.
+        # -------------------------------------------------------------------------
         elif node_type in ["System/Benchmark Math","Benchmark Math"]:
             try :
                 inputs = node.get('inputs', [])
@@ -5174,6 +5784,17 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/Particles: Vector Glyph & Contour Particle Engine
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Procedural particle scatter generator and sub-loop dispatcher. Emits
+        #   particle instances along text glyph contours or vector shapes, supporting
+        #   density distributions, spatial sorting (numpad orders), and anchor offsets.
+        #
+        # Context Injections:
+        #   Injects particle sub-loop variables p_i, tp_i, text_p_i, and particle_i.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Particles","Particles"]:
             try :
                 if isinstance(context, dict):
@@ -5199,8 +5820,11 @@ class GraphEngine :
                 scale =self .get_input_value (node ,5 ,context )
                 if scale =="":scale =str (_get_prop_value (props ,"scale","1.0")).strip ()
 
-                order =self .get_input_value (node ,6 ,context )
-                if order =="":order =str (_get_prop_value (props ,"order","79")).strip ()
+                anchor = self.get_input_value(node, 6, context)
+                if anchor == "": anchor = str(_get_prop_value(props, "anchor", "pieces")).strip()
+
+                order = self.get_input_value(node, 7, context)
+                if order == "": order = str(_get_prop_value(props, "order", "79")).strip()
 
                 modo = str(_get_prop_value(props, "mode", "outline_v2")).strip()
 
@@ -5217,8 +5841,8 @@ class GraphEngine :
                         context['particle_i'] = p_idx_val
 
                 from particle_nodes import particle_text_node 
-                abs_x ,abs_y ,particle_ass_shape ,total_pts =particle_text_node (
-                context ,shape =shp ,particle_shape =p_shp ,density =density ,redraw_dist =redraw ,seed =seed ,scale =scale ,mode =modo ,order =order 
+                abs_x, abs_y, particle_ass_shape, total_pts = particle_text_node(
+                    context, shape=shp, particle_shape=p_shp, density=density, redraw_dist=redraw, seed=seed, scale=scale, mode=modo, order=order, anchor=anchor
                 )
 
                 if output_slot_index ==1 :return f"\\pos({abs_x },{abs_y })"
@@ -5233,6 +5857,17 @@ class GraphEngine :
 
 
 
+        # -------------------------------------------------------------------------
+        # Functions/IMG to Pixels: Raster Image Particle Decomposition Engine
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Decomposes bitmap images and animated GIF frames into structured particle
+        #   matrices. Samples pixel coordinates, chromatic color tags (\1c), and alpha
+        #   values (\1a), supporting step subsampling and alpha thresholding.
+        #
+        # Context Injections:
+        #   Injects image particle sub-loop variables p_i, particle_i, ip_i, and img_p_i.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/IMG to pixels", "Functions/IMG to Pixels", "IMG to pixels", "IMG to Pixels"]:
             try :
                 if isinstance(context, dict):
@@ -5293,6 +5928,13 @@ class GraphEngine :
             except Exception as e :
                 return f"[Err Image Particles: {e }]"
 
+        # -------------------------------------------------------------------------
+        # Loops/Module: Parametric Iteration Normaliser
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Calculates a normalised progress ratio across an iteration range:
+        #   res = (val_i - 1.0 + val_m) / (val_n + val_m - 1.0)
+        # -------------------------------------------------------------------------
         if node_type in ["Loops/Module","Module"]:
             in_i =self .get_input_value (node ,0 ,context )
             in_n =self .get_input_value (node ,1 ,context )
@@ -5340,6 +5982,13 @@ class GraphEngine :
         if node_type in ["Variables/Get Var", "Get Var"]:
             return context .get (props .get ("var_name",""),"")
 
+        # -------------------------------------------------------------------------
+        # Variables/Define Vars: Context Variable Injection Engine
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Parses multi-line variable definitions and evaluates them into the active
+        #   execution context, making user-defined variables available downstream.
+        # -------------------------------------------------------------------------
         elif node_type in ["Variables/Define Vars", "Define Vars"] or name == "Define Vars":
             input_val = self.get_input_value(node, 0, context)
             vars_str = str(_get_prop_value(props, "variables", "")).strip()
@@ -5347,6 +5996,14 @@ class GraphEngine :
                 self._apply_set_vars_to_context(vars_str, context, context.get("active_unit"))
             return str(input_val) if input_val is not None else ""
 
+        # -------------------------------------------------------------------------
+        # Variables/Memory: Cross-Unit Persistent State Store
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Provides persistent key-value memory storage across units or lines:
+        #   - Mode "remember" / "save": Stores an expression or scalar into memory.
+        #   - Mode "recall": Retrieves stored value with default fallback.
+        # -------------------------------------------------------------------------
         elif node_type in ["Variables/Memory","Memory"]:
             mode =str (props .get ("mode","remember")).strip ().lower ()
             key_val =self .get_input_value (node ,0 ,context )
@@ -5377,6 +6034,13 @@ class GraphEngine :
                 return str (context .get (var_name +'_max',context .get ('maxj',context .get ('fx_n',1 ))))
             return ""
 
+        # -------------------------------------------------------------------------
+        # Basics/Color Picker: Swatch Palette & Hex/ASS Formatter
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Manages user-selected colour swatches and palettes, formatting them into
+        #   standard ASS BGR (&HBBGGRR&) or HTML/Hex (#RRGGBB) notation.
+        # -------------------------------------------------------------------------
         elif node_type in ["Basics/Color Picker", "Color Picker"] or name == "Color Picker":
             try :
                 from utils import parse_color_to_rgb ,rgb_to_ass_color ,rgb_to_hex_color 
@@ -5425,6 +6089,13 @@ class GraphEngine :
                 traceback .print_exc ()
                 return "&HFFFFFF&"
 
+        # -------------------------------------------------------------------------
+        # Functions/Color Gradient: Multi-Stop Chromatic Gradient Generator
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Evaluates smooth or stepped multi-stop colour transitions along a progress
+        #   parameter, emitting interpolated ASS colour override tags (\1c, \2c, etc.).
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Color Gradient","Color Gradient"]:
             try :
                 from nodes .tag_nodes import node_color_gradient 
@@ -5454,6 +6125,14 @@ class GraphEngine :
             except Exception as e :
                 return f"[Err Color Gradient: {e }]"
 
+        # -------------------------------------------------------------------------
+        # Basics/Concatenate: Universal String & Keyframe Joiner
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Joins arbitrary input strings or tag blocks with configurable separators
+        #   (nil, space, comma, semicolon, newline) and supports "zip" mode for
+        #   interleaving multi-frame keyframe lists.
+        # -------------------------------------------------------------------------
         elif node_type in ["Basics/Concatenate", "Concatenate", "Functions/Concatenate", "Text/Concatenate"] or name == "Concatenate":
             inputs_count =len (node .get ('inputs',[]))
             sep =str (_get_prop_value (props ,"separator","nil")).strip ().lower ()
@@ -5536,6 +6215,17 @@ class GraphEngine :
                     sep_char =sep 
                 return sep_char .join (values )
 
+        # -------------------------------------------------------------------------
+        # Functions/Interpolator: Polymorphic Multi-Type Easing Interpolator
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Universal transition evaluator interpolating across 5 data types:
+        #   1. ASSdraw vector paths (equidistant resampling and linear coordinate blend).
+        #   2. ASS override tag blocks (morphing keyframes).
+        #   3. Hexadecimal alpha values (&HAA&).
+        #   4. Hex/ASS RGB colours (&HBBGGRR& / #RRGGBB).
+        #   5. Continuous numeric scalars with acceleration / deceleration easing.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Interpolator","Interpolator"]:
             try :
                 raw_i =self .get_input_value (node ,0 ,context )
@@ -5758,6 +6448,13 @@ class GraphEngine :
             except Exception as e :
                 return f"[Err Interpolator: {e }]"
 
+        # -------------------------------------------------------------------------
+        # Functions/Animation: Frame-by-Frame Sprite & Keyframe Sequencer
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Generates frame-by-frame (fbf) animated sprite sequences and transitions,
+        #   injecting animation loop index variables an_i and anim_i.
+        # -------------------------------------------------------------------------
         elif node_type in ["Functions/Animation", "Animation"]:
             try:
                 an_idx_cur = context.get(f'_gen_idx_{node_id}') if isinstance(context, dict) else None
@@ -5812,6 +6509,14 @@ class GraphEngine :
                 traceback.print_exc()
                 return f"[Err Animation: {e}]"
 
+        # -------------------------------------------------------------------------
+        # Global Registry Dispatcher: Dynamic Reflection & Custom Nodes
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Universal fallback dispatcher for custom nodes registered in NODE_REGISTRY.
+        #   Inspects callable signatures, binds positional and keyword arguments,
+        #   resolves context variables, and dispatches output slot indices.
+        # -------------------------------------------------------------------------
         if node_type in NODE_REGISTRY :
             func =NODE_REGISTRY [node_type ]
             expected_inputs =PYXIS_DB .get (category ,{}).get (name ,[])
@@ -5869,40 +6574,65 @@ class GraphEngine :
 
         return ""
 
-    def _update_progress (self ,progress_tracker ,progress_callback ):
-        if not progress_tracker or not callable (progress_callback ):
-            return 
-        progress_tracker ['current']+=1 
-        curr =progress_tracker ['current']
-        total =max (1 ,progress_tracker .get ('total',1 ))
+    def _update_progress(self, progress_tracker, progress_callback):
+        """Calculates real-time ASS generation progress and notifies the UI callback.
 
-        has_audio =getattr (self ,'_has_audio_nodes',False )
-        base_min_pct =25 if has_audio else 5 
-        pct =min (89 ,base_min_pct +int ((curr /total )*(89 -base_min_pct )))
+        Telemetry and Throttling Strategy:
+            - If audio processing nodes are detected, reserves 0-25% for audio analysis
+              and scales per-unit line generation across 25-89%. Otherwise, generation
+              spans 5-89%.
+            - Reserves the 89-100% bracket for subsequent libass preview rendering and
+              IPC payload serialization.
+            - Employs dual time/delta throttling: updates are throttled to a minimum of
+              20 ms intervals or a 1% progress delta (or every 25 generated lines) to
+              avoid saturating the PyWebView/IPC socket channel.
+            - Computes real-time throughput metrics (lines generated per second).
 
-        now =time .time ()
-        last_pct =progress_tracker .get ('last_pct',0 )
-        last_time =progress_tracker .get ('last_time',0.0 )
-        t_start =progress_tracker .get ('start_time')
-        if not t_start :
-            progress_tracker ['start_time']=now 
-            t_start =now 
+        Args:
+            progress_tracker: Mutable dictionary tracking current unit index, total units,
+                start timestamp, and last reported percentage/time.
+            progress_callback: Callable accepting a telemetry payload dictionary.
+        """
+        if not progress_tracker or not callable(progress_callback):
+            return
+        progress_tracker['current'] += 1
+        curr = progress_tracker['current']
+        total = max(1, progress_tracker.get('total', 1))
 
-        current_lines =len (self .all_generated_lines )
-        if (pct >last_pct and (now -last_time >=0.02 or pct -last_pct >=1 ))or (now -last_time >=0.05 )or (current_lines >0 and current_lines %25 ==0 )or total <=30 :
-            progress_tracker ['last_pct']=pct 
-            progress_tracker ['last_time']=now 
-            elapsed =max (0.001 ,now -t_start )
-            speed =int (current_lines /elapsed )if elapsed >0.05 else 0 
-            progress_callback ({
-            "percent":max (base_min_pct ,pct ),
-            "lines_generated":current_lines ,
-            "total_units":total ,
-            "current_unit":curr ,
-            "speed":speed ,
-            "phase":f"Generating... {current_lines :,} lines ({speed } l/s)"if speed >0 else f"Generating... {current_lines :,} lines"
+        has_audio = getattr(self, '_has_audio_nodes', False)
+        base_min_pct = 25 if has_audio else 5
+        pct = min(89, base_min_pct + int((curr / total) * (89 - base_min_pct)))
+
+        now = time.time()
+        last_pct = progress_tracker.get('last_pct', 0)
+        last_time = progress_tracker.get('last_time', 0.0)
+        t_start = progress_tracker.get('start_time')
+        if not t_start:
+            progress_tracker['start_time'] = now
+            t_start = now
+
+        current_lines = len(self.all_generated_lines)
+        if (pct > last_pct and (now - last_time >= 0.02 or pct - last_pct >= 1)) or (now - last_time >= 0.05) or (current_lines > 0 and current_lines % 25 == 0) or total <= 30:
+            progress_tracker['last_pct'] = pct
+            progress_tracker['last_time'] = now
+            elapsed = max(0.001, now - t_start)
+            speed = int(current_lines / elapsed) if elapsed > 0.05 else 0
+            progress_callback({
+                "percent": max(base_min_pct, pct),
+                "lines_generated": current_lines,
+                "total_units": total,
+                "current_unit": curr,
+                "speed": speed,
+                "phase": f"Generating... {current_lines:,} lines ({speed} l/s)" if speed > 0 else f"Generating... {current_lines:,} lines"
             })
 
+    # -------------------------------------------------------------------------
+    # Canonical Sub-Loop Generator Specifications
+    # -------------------------------------------------------------------------
+    # Maps registered generator node types (canonical and legacy aliases) to their
+    # respective iteration variables ('i'), maximum/count variables ('n'), and
+    # probe count keys ('count_keys') queried during probe execution.
+    # -------------------------------------------------------------------------
     _SUBLOOP_GENERATOR_SPECS = {
         "Shape/Slicer":             {"i": ("s_i", "slice_i"),          "n": ("s_n", "s_max", "slice_n", "slice_max"),                  "count_keys": ("slicer_loop_count", "s_n")},
         "Slicer":                   {"i": ("s_i", "slice_i"),          "n": ("s_n", "s_max", "slice_n", "slice_max"),                  "count_keys": ("slicer_loop_count", "s_n")},
@@ -5928,14 +6658,26 @@ class GraphEngine :
     }
 
     def _trace_generator_pipeline(self, output_node, context=None):
-        """Traces connected sub-loop generator nodes in topological post-order:
-        1. Output.Return (port 5) -> stage='return' (upstream root to downstream leaf)
-        2. Output.Tags (port 4)   -> stage='tags'   (respecting Concatenate port order In1..InN)
-        3. Output.Meta (ports 1..3) -> stage='meta'
-        If context is provided, performs dynamic conditional pruning through branching
-        nodes (Basics/Only, Functions/Conditioner, Basics/Once) so only active branches
-        are collected into the sub-loop pipeline.
-        Returns list of (node_id, node_obj, node_type, stage).
+        """Traces connected sub-loop generator nodes in topological post-order.
+
+        Traverses the upstream DAG backwards starting from the Output sink node:
+            1. Output.Return (port 5) -> stage='return' (upstream geometry/shape generation)
+            2. Output.Tags (port 4)   -> stage='tags'   (styling, transforms and clip generators)
+            3. Output.Meta (ports 1..3: Layer, StartTime, EndTime) -> stage='meta'
+
+        Dynamic Conditional Pruning:
+            If a runtime `context` is provided, dynamically evaluates condition expressions
+            on branching nodes (e.g. Basics/Only, Functions/Conditioner). Dead branches
+            are pruned on-the-fly, ensuring dormant sub-loop generators are omitted from
+            the recursive execution pipeline to prevent catastrophic performance degradation.
+
+        Args:
+            output_node: Dictionary representing the 'Output' sink node.
+            context: Optional FxContext dictionary containing resolved unit variables.
+
+        Returns:
+            List of tuples: [(node_id, node_obj, node_type, stage), ...] ordered topologically
+            from outermost generator (root) to innermost generator (leaf).
         """
         visited = set()
         pipeline = []
@@ -5955,6 +6697,7 @@ class GraphEngine :
             inputs = node_obj.get("inputs", [])
             inputs_to_traverse = []
 
+            # Dynamic conditional pruning for branching selector and conditioner nodes
             if context is not None and ntype in ("Basics/Only", "Only", "Functions/Only"):
                 props = node_obj.get("properties", {})
                 cond_raw = _get_prop_value(props, "condition", "True")
@@ -5969,10 +6712,12 @@ class GraphEngine :
                     is_true = True
 
                 if is_selector:
+                    # In selector mode, only traverse the chosen active input branch
                     active_inp_idx = 0 if is_true else 1
                     if active_inp_idx < len(inputs):
                         inputs_to_traverse = [inputs[active_inp_idx]]
                 else:
+                    # In split/filter mode, check if the edge originates from the active output slot
                     active_slot = 0 if is_true else 1
                     if coming_from_slot is None or coming_from_slot == active_slot:
                         if len(inputs) > 0:
@@ -5992,6 +6737,7 @@ class GraphEngine :
             else:
                 inputs_to_traverse = inputs
 
+            # Recurse through connected input links
             for inp in inputs_to_traverse:
                 link_id = inp.get("link") if isinstance(inp, dict) else None
                 if link_id is not None:
@@ -5999,9 +6745,11 @@ class GraphEngine :
                     if link_obj:
                         _dfs(link_obj[1], stage, coming_from_slot=link_obj[2])
 
+            # Append generator node to pipeline in post-order
             if ntype in self._SUBLOOP_GENERATOR_SPECS:
                 pipeline.append((node_id, node_obj, ntype, stage))
 
+        # Trace backwards from Output sink ports: Return (5) first, then Tags (4), then Meta (1..3)
         inputs = output_node.get("inputs", [])
         for port_idx, stage_name in ((5, "return"), (4, "tags"), (2, "meta"), (3, "meta"), (1, "meta")):
             if len(inputs) > port_idx and isinstance(inputs[port_idx], dict):
@@ -6014,9 +6762,24 @@ class GraphEngine :
         return pipeline
 
     def _resolve_return_stage_for_tags(self, context, output_node, active_unit):
-        """Evaluates Output.Return (port 5) once for the current geometry leaf so downstream
-        'tags' stage generators (such as Clip Gradient) receive the active piece/particle
-        geometry in context['return_raw'] and its anchor coordinates in context['pos_x']/['pos_y'].
+        """Evaluates Output.Return (port 5) once for the active geometry leaf.
+
+        Downstream 'tags' stage generators (such as Clip Gradient) require the active
+        piece/particle geometry in context['return_raw'] and its anchor coordinates
+        in context['pos_x']/['pos_y'] to calculate relative bounding boxes and clip tags.
+
+        Responsibilities:
+            1. Applies active user variables ('_active_set_vars') into the context.
+            2. Detects if port 5 is connected or using inline text fallback.
+            3. Detects if the source is a vector drawing/shape vs standard text.
+            4. Caches 'return_raw' and flags '_return_stage_resolved' = True.
+            5. Auto-detects explicit '\\an<N>' alignment tags from Output.Tags (port 4)
+               to ensure shape anchors match ASS rendering geometry.
+
+        Args:
+            context: Mutable execution context dictionary.
+            output_node: The 'Output' sink node.
+            active_unit: The PyxisUnit currently being processed.
         """
         if context.get("_return_stage_resolved"):
             return
@@ -6053,10 +6816,43 @@ class GraphEngine :
                 if m_an:
                     context["an"] = int(m_an[-1])
 
+
     def _execute_subloops_recursive(
         self, pipeline, idx, context, output_node, active_unit,
         layer_in, st_in, et_in, check_cancel, progress_tracker, progress_callback
     ):
+        """Recursively executes topologically ordered sub-loop generators and multiplies unit emissions.
+
+        Recursive Execution Architecture:
+            - Traverses the generator pipeline established by `_trace_generator_pipeline`.
+            - Base Case: When `idx >= len(pipeline)`, invokes `_emit_output_leaf` to assemble
+              and append the concrete ASS dialogue line for the current multi-dimensional iteration.
+            - Pre-Resolution: Ensures the 'return' stage geometry is pre-evaluated via
+              `_resolve_return_stage_for_tags` before evaluating any downstream 'tags' generators.
+            - Explicit Variable Protection: Skips automatic sub-looping if iterator variables
+              are already bound explicitly by user loop nodes (`_explicit_loop_vars`).
+            - Probe Execution: Performs a test evaluation with iterator=1 to query the total
+              iteration count (`count_keys`) from the generator's probe context.
+            - Iteration Ingestion: Spawns recursive sub-branches from 1 to `gen_n`:
+                * Binds iterator (`spec['i']`) and boundary (`spec['n']`) variables.
+                * Special animation sequencer handling: dynamically computes frame timing windows
+                  (`st`, `et`, `frame_dur`, `fd`) when `anim_step_ms` is active.
+                * Binds universal loop variables (`j`, `maxj`, `fx_i`, `fx_n`) and refreshes `FxContext`.
+                * Applies runtime user variable assignments (`_apply_set_vars_to_context`).
+
+        Args:
+            pipeline: List of tuples `[(node_id, node_obj, node_type, stage), ...]` from `_trace_generator_pipeline`.
+            idx: Current recursion depth index into `pipeline`.
+            context: Execution context dictionary containing state and active unit references.
+            output_node: The 'Output' sink node dictionary.
+            active_unit: The PyxisUnit currently being processed.
+            layer_in: Default fallback ASS layer integer.
+            st_in: Default fallback start time (ms).
+            et_in: Default fallback end time (ms).
+            check_cancel: Optional callable returning True if processing should be cancelled.
+            progress_tracker: Dictionary tracking unit progress and batch counters.
+            progress_callback: Optional callable for telemetry progress dispatch.
+        """
         if self.is_cancelled:
             return
         if idx >= len(pipeline):
@@ -6069,9 +6865,11 @@ class GraphEngine :
         gen_id, gen_node, gen_type, stage = pipeline[idx]
         spec = self._SUBLOOP_GENERATOR_SPECS[gen_type]
 
+        # Ensure return stage geometry is pre-evaluated for downstream tags generators
         if stage != "return" and not context.get("_return_stage_resolved"):
             self._resolve_return_stage_for_tags(context, output_node, active_unit)
 
+        # Skip sub-looping if iterator variables are bound explicitly by external loop nodes
         explicit_vars = context.get("_explicit_loop_vars") or set()
         if any(ik in explicit_vars for ik in spec["i"]):
             self._execute_subloops_recursive(
@@ -6080,6 +6878,7 @@ class GraphEngine :
             )
             return
 
+        # Execute probe pass to ascertain dynamic iteration count (gen_n)
         probe_ctx = context.copy()
         probe_ctx[f"_gen_idx_{gen_id}"] = 1
         for ik in spec["i"]:
@@ -6100,6 +6899,7 @@ class GraphEngine :
         gen_n = max(1, gen_n)
         anim_step = probe_ctx.get("anim_step_ms") if gen_type in ("Functions/Animation", "Animation") else None
 
+        # Iterate across the sub-loop range and branch recursively
         for gen_j in range(1, gen_n + 1):
             if self.is_cancelled:
                 break
@@ -6110,6 +6910,7 @@ class GraphEngine :
             for nk in spec["n"]:
                 iter_ctx[nk] = gen_n
 
+            # Frame-by-frame animation sequencer timing calculations
             if gen_type in ("Functions/Animation", "Animation"):
                 num_f = max(1, int(probe_ctx.get("an_n", gen_n)))
                 cur_f = ((gen_j - 1) % num_f) + 1
@@ -6162,12 +6963,55 @@ class GraphEngine :
         self, context, output_node, active_unit, layer_in, st_in, et_in,
         check_cancel, progress_tracker, progress_callback
     ):
+        """Terminal leaf emitter: evaluates Output ports, resolves tags/templates, and records the ASS line.
+
+        Processing Pipeline:
+            1. Variable Refresh & Side-Effect Evaluation:
+               - Re-evaluates active user variables (`_active_set_vars`).
+               - Executes side-effect nodes: `Variables/Memory` (in 'Remember' mode) and
+                 `System/Script Code` to allow per-iteration state updates or logging.
+            2. Timing & Layer Resolution:
+               - Evaluates Layer (port 1), StartTime (port 2), and EndTime (port 3).
+               - Prioritises frame-by-frame timing when in animation/fbf loops (`anim_step_ms`).
+               - Synchronises timing aliases (`fx_start_time`, `fx_end_time`, `fx_dur`, `st`, `et`, `dur`, `ini`).
+               - Adjusts syllabic, character, and word relative boundaries (`syl_start`, `syl_end`,
+                 `char_start`, `word_start`) relative to line start and timing offset `ini`.
+            3. Return Stage (Geometry / Text) Resolution:
+               - Evaluates Return (port 5), distinguishing vector shapes from plain dialogue text.
+               - Discards empty or whitespace-only lines.
+            4. Tags & Queues Evaluation:
+               - Auto-detects explicit `\\an<N>` alignment tags in `Output.Tags` if absent from context.
+               - Evaluates Tags (port 4) and merges script/loop tags (`merge_ass_tags`).
+               - Resolves Queue ID (port 6 / properties) and Queue Order (port 7 / properties).
+               - Applies defaults via `_apply_defaults(...)` and validates non-empty visual content.
+            5. String Template Evaluation & Line Assembly:
+               - Resolves macro expressions and dark tags in tags via `eval_string_template`.
+               - Evaluates inline ASS tag blocks or isolated ternaries in return text.
+               - Constructs complete ASS text: `{evaluated_tags}{evaluated_ret}`.
+            6. Emission, IPC Batching & Telemetry:
+               - Appends assembled dictionary to `self.all_generated_lines`.
+               - Increments local batch counter; updates `shared_line_counter` atomically every 25 lines
+                 and triggers `_update_progress`.
+               - Checks cancellation flags periodically (every 10 lines).
+
+        Args:
+            context: Mutable execution context dictionary.
+            output_node: The 'Output' sink node.
+            active_unit: The PyxisUnit currently being processed.
+            layer_in: Default fallback ASS layer integer.
+            st_in: Default fallback start time (ms).
+            et_in: Default fallback end time (ms).
+            check_cancel: Optional callable returning True if processing should be cancelled.
+            progress_tracker: Dictionary tracking unit progress and batch counters.
+            progress_callback: Optional callable for telemetry progress dispatch.
+        """
         props = output_node.get("properties", {})
 
         active_vars = context.get("_active_set_vars", [])
         for v_str in active_vars:
             self._apply_set_vars_to_context(v_str, context, active_unit)
 
+        # Execute persistent memory and side-effect scripting nodes per leaf
         for n_id, n_obj in self.nodes.items():
             node_type = n_obj.get("type", "")
             if node_type in ["Variables/Memory", "Memory"]:
@@ -6177,6 +7021,95 @@ class GraphEngine :
             elif node_type in ["System/Script Code", "Script Code"]:
                 self.evaluate_data_node(n_id, context)
 
+        # 1. Resolve Layer, Start Time, and End Time within active leaf context
+        layer_val = self.get_input_value(output_node, 1, context)
+        if _is_empty_value(layer_val):
+            layer_val = layer_in
+
+        line_obj = context.get('line') if context else getattr(active_unit, 'line', None)
+        line_st = float(getattr(line_obj, 'start_time', 0.0)) if line_obj else 0.0
+        default_st = context.get('unit_abs_start_time', line_st + getattr(active_unit, 'start_time', 0)) if context else (line_st + getattr(active_unit, 'start_time', 0))
+        default_et = context.get('unit_abs_end_time', line_st + getattr(active_unit, 'end_time', 0)) if context else (line_st + getattr(active_unit, 'end_time', 0))
+
+        st_val = self.get_input_value(output_node, 2, context)
+        if _is_empty_value(st_val):
+            st_val = st_in
+
+        if context and (context.get('in_fbf_loop') or context.get('in_anim_loop') or context.get('anim_step_ms')) and 'st' in context:
+            st_num = _to_int_or_default(context['st'], default_st, context=context)
+        else:
+            st_num = _to_int_or_default(st_val, default_st, context=context)
+
+        context['fx_start_time'] = float(st_num)
+        context['fx_st'] = float(st_num)
+        context['effect_st'] = float(st_num)
+        context['start_time'] = float(st_num)
+        context['st'] = float(st_num)
+        context['val_start'] = float(st_num)
+        if "fx" not in context or not isinstance(context["fx"], FxContext) or context["fx"]._ctx is not context:
+            context["fx"] = FxContext(context)
+
+        et_val = self.get_input_value(output_node, 3, context)
+        if _is_empty_value(et_val):
+            et_val = et_in
+
+        if context and (context.get('in_fbf_loop') or context.get('in_anim_loop') or context.get('anim_step_ms')) and 'et' in context:
+            et_num = _to_int_or_default(context['et'], default_et, context=context)
+        else:
+            et_num = _to_int_or_default(et_val, default_et, context=context)
+
+        context['fx_end_time'] = float(et_num)
+        context['fx_et'] = float(et_num)
+        context['effect_et'] = float(et_num)
+        context['end_time'] = float(et_num)
+        context['et'] = float(et_num)
+        context['val_end'] = float(et_num)
+
+        eff_dur = max(0.0, float(et_num) - float(st_num))
+        context['fx_dur'] = eff_dur
+        context['effect_dur'] = eff_dur
+        context['dur'] = eff_dur
+        context['duration'] = eff_dur
+        context['val_dur'] = eff_dur
+
+        # Adjust relative unit timing offsets for syllable/character/word proxies
+        ini = line_st - float(st_num)
+        context['ini'] = ini
+        syl_obj = context.get('syl')
+        char_obj = context.get('char')
+        word_obj = context.get('word')
+        if isinstance(syl_obj, PyxisUnit):
+            s_st = float(getattr(syl_obj, 'start_time', 0.0))
+            s_dur = float(getattr(syl_obj, 'dur', getattr(syl_obj, 'duration', 0.0)))
+            syl_obj.syl_start = round(ini + s_st, 3)
+            syl_obj.syl_end = round(syl_obj.syl_start + s_dur, 3)
+            syl_obj.syl_mid = round(syl_obj.syl_start + s_dur / 2.0, 3)
+        elif isinstance(active_unit, PyxisUnit) and not hasattr(active_unit, 'style_name'):
+            s_st = float(getattr(active_unit, 'start_time', 0.0))
+            s_dur = float(getattr(active_unit, 'dur', getattr(active_unit, 'duration', 0.0)))
+            active_unit.syl_start = round(ini + s_st, 3)
+            active_unit.syl_end = round(active_unit.syl_start + s_dur, 3)
+            active_unit.syl_mid = round(active_unit.syl_start + s_dur / 2.0, 3)
+        if isinstance(char_obj, PyxisUnit):
+            syl_parent = getattr(char_obj, 'syl', None)
+            s_st = float(getattr(syl_parent, 'start_time', 0.0)) if isinstance(syl_parent, PyxisUnit) else 0.0
+            s_dur = float(getattr(syl_parent, 'dur', getattr(syl_parent, 'duration', 0.0))) if isinstance(syl_parent, PyxisUnit) else 0.0
+            c_st = float(getattr(char_obj, 'start_time', 0.0))
+            c_dur = float(getattr(char_obj, 'dur', getattr(char_obj, 'duration', 0.0)))
+            char_obj.syl_start = round(ini + s_st, 3)
+            char_obj.syl_end = round(char_obj.syl_start + s_dur, 3)
+            char_obj.syl_mid = round(char_obj.syl_start + s_dur / 2.0, 3)
+            char_obj.char_start = round(ini + s_st + c_st, 3)
+            char_obj.char_end = round(char_obj.char_start + c_dur, 3)
+            char_obj.char_mid = round(char_obj.char_start + c_dur / 2.0, 3)
+        if isinstance(word_obj, PyxisUnit):
+            w_st = float(getattr(word_obj, 'start_time', 0.0))
+            w_dur = float(getattr(word_obj, 'dur', getattr(word_obj, 'duration', 0.0)))
+            word_obj.word_start = round(ini + w_st, 3)
+            word_obj.word_end = round(word_obj.word_start + w_dur, 3)
+            word_obj.word_mid = round(word_obj.word_start + w_dur / 2.0, 3)
+
+        # 2. Evaluate Return Stage (Geometry / Vector Shapes / Plain Text)
         is_ret_conn = self.is_port_connected(output_node, 5)
         context["_return_port_connected"] = is_ret_conn
         if is_ret_conn:
@@ -6203,6 +7136,7 @@ class GraphEngine :
         for v_str in active_vars:
             self._apply_set_vars_to_context(v_str, context, active_unit)
 
+        # 3. Evaluate Tags, Queues, and Defaults
         if "an" not in context:
             an_probe_ctx = context.copy()
             an_probe_ctx["fx"] = FxContext(an_probe_ctx)
@@ -6232,7 +7166,7 @@ class GraphEngine :
                     break
 
         layer, st, et, tags_str, return_str = self._apply_defaults(
-            active_unit, layer_in, st_in, et_in, tags_str, return_str, context=context
+            active_unit, layer_val, st_num, et_num, tags_str, return_str, context=context
         )
 
         if _is_empty_value(return_str) or not str(return_str).strip():
@@ -6311,6 +7245,35 @@ class GraphEngine :
                 self.is_cancelled = True
 
     def execute_loops_recursive (self ,chain ,context ,output_node ,active_unit =None ,check_cancel =None ,progress_tracker =None ,progress_callback =None ):
+        """Recursively traverses and unrolls user-defined loop chains down to terminal sub-loop emission.
+
+        Loop Hierarchy and Recursive Unrolling:
+            - Traverses the outer loop chain established by `trace_loop_chain`:
+                1. 'base' units: Iterates through line elements ('line', 'syl', 'word', 'char'),
+                   optionally filtering blank units if 'is_noblank' is enabled.
+                2. 'maxloop' iterations:
+                   - Normal mode: Evaluates loop count expression and iterates 1 to N, binding
+                     custom iterator variable (default 'j'), 'fx_i', and 'maxj'.
+                   - Frame-by-Frame ('fbf') mode: Computes frame step intervals ('step_ms'),
+                     temporal bounds ('st', 'et', 'start_time', 'end_time', 'frame_dur', 'fd'),
+                     and sets 'in_fbf_loop' = True.
+                3. 'set_vars': Dynamically evaluates and binds user variables via `_apply_set_vars_to_context`.
+                4. 'code_script': Executes embedded code nodes, capturing and merging ASS override tags.
+            - Base Case (Chain Depleted):
+                When `chain` is empty, resolves spatial alignment and coordinate origins ('origin_align',
+                'fx_pos_x', 'fx_pos_y', '_base_unit_x', '_base_unit_y'), resolves initial layer/time defaults,
+                traces sub-loop generator nodes via `_trace_generator_pipeline`, and initiates recursive
+                sub-loop multiplication through `_execute_subloops_recursive`.
+
+        Args:
+            chain: List of loop specification dictionaries defining the nested iteration order.
+            context: Mutable execution context dictionary.
+            output_node: The 'Output' sink node dictionary.
+            active_unit: The PyxisUnit or PyxisLine currently bound as the iteration subject.
+            check_cancel: Optional callable returning True if processing should abort.
+            progress_tracker: Dictionary tracking completed unit counts and timestamps.
+            progress_callback: Optional callable for UI progress telemetry dispatch.
+        """
         if self .is_cancelled :
             return 
         if getattr (self ,'shared_cancel_flag',None )is not None and getattr (self .shared_cancel_flag ,'value',False ):
@@ -6355,24 +7318,51 @@ class GraphEngine :
             context ['_base_unit_x']=float (u_center )
             context ['_base_unit_y']=float (u_middle )
 
-            layer_in =self .get_input_value (output_node ,1 ,context )
-            st_in =self .get_input_value (output_node ,2 ,context )
-            et_in =self .get_input_value (output_node ,3 ,context )
+            layer_in = self.get_input_value(output_node, 1, context)
+            st_in = self.get_input_value(output_node, 2, context)
 
+            line_obj = context.get('line') if context else getattr(active_unit, 'line', None)
+            line_st = float(getattr(line_obj, 'start_time', 0.0)) if line_obj else 0.0
+            default_st = context.get('unit_abs_start_time', line_st + getattr(active_unit, 'start_time', 0)) if context else (line_st + getattr(active_unit, 'start_time', 0))
+            default_et = context.get('unit_abs_end_time', line_st + getattr(active_unit, 'end_time', 0)) if context else (line_st + getattr(active_unit, 'end_time', 0))
 
-            _ ,st_tmp ,et_tmp ,_ ,_ =self ._apply_defaults (
-            active_unit ,layer_in ,st_in ,et_in ,"","",context =context 
+            st_interim = _to_int_or_default(st_in, default_st, context=context)
+            context["effect_st"] = float(st_interim)
+            context["fx_st"] = float(st_interim)
+            context["fx_start_time"] = float(st_interim)
+            context["start_time"] = float(st_interim)
+            context["st"] = float(st_interim)
+            context["val_start"] = float(st_interim)
+            context["fx"] = FxContext(context)
+
+            et_in = self.get_input_value(output_node, 3, context)
+            et_interim = _to_int_or_default(et_in, default_et, context=context)
+            eff_dur_interim = max(0.0, float(et_interim) - float(st_interim))
+            context["effect_et"] = float(et_interim)
+            context["fx_et"] = float(et_interim)
+            context["fx_end_time"] = float(et_interim)
+            context["end_time"] = float(et_interim)
+            context["et"] = float(et_interim)
+            context["val_end"] = float(et_interim)
+            context["effect_dur"] = eff_dur_interim
+            context["fx_dur"] = eff_dur_interim
+            context["dur"] = eff_dur_interim
+            context["duration"] = eff_dur_interim
+            context["val_dur"] = eff_dur_interim
+
+            _, st_tmp, et_tmp, _, _ = self._apply_defaults(
+                active_unit, layer_in, st_interim, et_interim, "", "", context=context
             )
-            eff_dur =max (1.0 ,float (et_tmp )-float (st_tmp ))
-            context ["effect_st"]=float (st_tmp )
-            context ["effect_et"]=float (et_tmp )
-            context ["effect_dur"]=eff_dur 
-            context ["fx_st"]=float (st_tmp )
-            context ["fx_et"]=float (et_tmp )
-            context ["fx_dur"]=eff_dur 
-            context ["fx_start_time"]=float (st_tmp )
-            context ["fx_end_time"]=float (et_tmp )
-            context ["fx"]=FxContext (context )
+            eff_dur = max(1.0, float(et_tmp) - float(st_tmp))
+            context["effect_st"] = float(st_tmp)
+            context["effect_et"] = float(et_tmp)
+            context["effect_dur"] = eff_dur
+            context["fx_st"] = float(st_tmp)
+            context["fx_et"] = float(et_tmp)
+            context["fx_dur"] = eff_dur
+            context["fx_start_time"] = float(st_tmp)
+            context["fx_end_time"] = float(et_tmp)
+            context["fx"] = FxContext(context)
 
             pipeline = self._trace_generator_pipeline(output_node, context=context)
             self._execute_subloops_recursive(
@@ -6573,7 +7563,42 @@ class GraphEngine :
             self .execute_loops_recursive (rest_chain ,ctx ,output_node ,active_unit ,check_cancel ,progress_tracker ,progress_callback )
 
     def estimate_workload (self ,dialogue_items ,styles ,allow_fallback_select_all =True ,global_selected_styles =None ):
-        """Calculates a high-speed mathematical estimation (< 1ms) of total FX lines that the current graph will generate over subtitles, as well as the complexity level."""
+        """Calculates a high-speed mathematical estimation (< 1ms) of total output ASS lines and concurrency.
+
+        Pre-flight Workload Analysis Architecture:
+            - Performs a non-evaluating structural sweep over target dialogue lines and output node loop chains.
+            - Static Multiplier Caching: Computes and caches unit expansion factors per style and layer
+              (`static_mult_cache`) to avoid redundant sub-graph evaluations.
+            - Sub-Loop Multiple Evaluation: Simulates generator pipeline expansion (Slicer, Concentric Borders,
+              Array, Particles) using test context probes.
+            - Concurrency Simulation: Records start and end timestamp events into a chronological sweep-line
+              (`concurrency_events`) to calculate peak simultaneous dialogue lines in the video buffer.
+            - Memory & File Footprint: Estimates total dialogue line count, expansion ratio, and final file size in KB.
+            - Categorises overall algorithmic complexity:
+                * 'low'     (< 2,000 lines)   -> #34d399
+                * 'normal'  (< 15,000 lines)  -> #60a5fa
+                * 'high'    (< 50,000 lines)  -> #fbbf24
+                * 'extreme' (>= 50,000 lines) -> #f87171
+
+        Args:
+            dialogue_items: List of raw dialogue line dictionaries or PyxisLine instances.
+            styles: Dictionary of ASS style definitions.
+            allow_fallback_select_all: Whether to process all dialogue lines if no explicit selection exists.
+            global_selected_styles: Optional set of style names to filter target lines.
+
+        Returns:
+            Dictionary containing metrics:
+                - 'estimated_lines': Total projected ASS dialogue lines.
+                - 'input_lines': Number of source lines selected for rendering.
+                - 'base_units': Total individual syllables, characters, words, or lines processed.
+                - 'peak_simultaneous_lines': Maximum overlapping active subtitles in any video frame.
+                - 'expansion_ratio': Ratio of generated lines per base input unit.
+                - 'estimated_size_kb': Projected subtitle file size in kilobytes.
+                - 'complexity': Human-readable complexity tier ('Baja', 'Normal', 'Alta', 'Extrema').
+                - 'complexity_key': Standardised programmatic key ('low', 'normal', 'high', 'extreme').
+                - 'complexity_color': Hexadecimal colour code for UI progress widgets.
+                - 'is_heavy': Boolean flag set True if total lines exceed 30,000.
+        """
         from ass_parser import KaraokeProcessor 
         processor =KaraokeProcessor (self .rx ,self .ry ,self .fd )
 
@@ -6926,7 +7951,32 @@ class GraphEngine :
         }
 
     def process_single (self ,dialogue_items ,styles ,progress_callback =None ,check_cancel_callback =None ,allow_fallback_select_all =True ,global_selected_styles =None ,chunk_indices =None ):
-        """Ejecución secuencial en un solo proceso/hilo para un bloque de líneas."""
+        """Executes the graph evaluation pipeline deterministically in a single process or worker thread.
+
+        Processing Lifecycle:
+            1. Cache Management: Flushes particle and shape vector caches unless running a subordinate chunk.
+            2. Output Node Resolution: Filters active 'Output' sink nodes matching `self.target_output_id`
+               (supports numeric IDs, node titles, property keys, queue identifiers, or fallback 'all').
+            3. Queue Ordering: Sorts matched output nodes by 'queue_order' and node ID to ensure deterministic output.
+            4. Line Tokenisation & Metrics: Parses dialogue lines through `KaraokeProcessor`, injecting font
+               metrics, style references, and syllabic/character structures.
+            5. Workload Unit Aggregation: Computes total work units across selected lines and base loops to
+               initialise telemetry progress tracking.
+            6. Nested Loop Execution: Iterates through target lines and delegates execution to `execute_loops_recursive`.
+            7. Atomic Synchronization: Atomically synchronises locally buffered lines into `shared_line_counter`.
+
+        Args:
+            dialogue_items: List of raw subtitle dictionaries or pre-processed PyxisLine instances.
+            styles: Dictionary mapping ASS style names to style property dictionaries.
+            progress_callback: Optional callable receiving real-time progress update payloads.
+            check_cancel_callback: Optional callable returning True if processing should abort.
+            allow_fallback_select_all: Whether to process all lines if no lines are explicitly selected.
+            global_selected_styles: Optional set of style names to restrict execution scope.
+            chunk_indices: Optional set of line indices ('i') assigned to this worker chunk.
+
+        Returns:
+            List of generated ASS line dictionaries appended to `self.all_generated_lines`.
+        """
         self .all_generated_lines =[]
         self .is_cancelled =False 
         from particle_nodes import clear_particle_caches 
@@ -7138,6 +8188,44 @@ class GraphEngine :
         return self .all_generated_lines 
 
     def process (self ,dialogue_items ,styles ,progress_callback =None ,check_cancel_callback =None ,use_multiprocessing =True ):
+        """Master orchestrator for evaluating the node graph and compiling final ASS dialogue lines.
+
+        Execution Architecture and Multiprocessing Pipeline:
+            1. Particle & Shape Cache Pre-Warming:
+               - Flushes stale memory and pre-evaluates particle generator nodes on probe contexts
+                 to populate global point and image caches (`cached_particle_data`).
+            2. Dialogue Filtering & Style Scoping:
+               - Distinguishes dialogue events from comment lines.
+               - Determines selection states and scopes active lines based on output node 'apply_to' modes.
+            3. Workload Partitioning & Process Pool:
+               - When multiprocessing is active (`use_multiprocessing=True`, active lines > 1, CPU cores > 1):
+                 * Allocates atomic multiprocessing primitives: `shared_line_counter` and `shared_cancel_flag`.
+                 * Partitions active line indices across worker processes using interleaved round-robin slicing
+                   (`active_indices[w_idx::max_workers]`) to balance computational complexity evenly across cores.
+                 * Spawns a background telemetry monitor thread (`_monitor_progress_loop`) computing real-time
+                   throughput (lines/second) and throttling UI updates.
+                 * Submits chunk payloads to `concurrent.futures.ProcessPoolExecutor` with `_worker_init`.
+                 * Gathers generated line batches as futures complete, recording profiler telemetry if enabled.
+               - Automatic Fallback: Catches any multiprocessing initialisation error and falls back seamlessly
+                 to single-threaded execution via `process_single`.
+            4. Post-Processing Sorting & Queue Assembly:
+               - Dispatches 90% progress milestone ("Sorting deterministic layers...").
+               - Buckets all generated line records by `queue_id`.
+               - Sorts queues by minimum queue order and individual line records by `(queue_order, line_idx)`.
+               - Formats and serialises ASS dialogue strings: `Dialogue: Layer,Start,End,Style,Actor,...`.
+               - Records processed line indices into `self.used_line_indices`.
+               - Dispatches 100% completion telemetry and returns the final line collection.
+
+        Args:
+            dialogue_items: List of raw subtitle line dictionaries from Aegisub.
+            styles: Dictionary mapping style names to their ASS styling parameters.
+            progress_callback: Optional callable for streaming progress payloads to the UI.
+            check_cancel_callback: Optional callable returning True when the user requests cancellation.
+            use_multiprocessing: Boolean flag to enable or disable parallel ProcessPoolExecutor dispatch.
+
+        Returns:
+            List of formatted ASS dialogue lines ready for injection into Aegisub or preview rendering.
+        """
         self .all_generated_lines =[]
         self .is_cancelled =False 
 
@@ -7424,9 +8512,25 @@ class GraphEngine :
 
 
 def _process_line_chunk_worker (payload ):
-    """Module-level worker entrypoint for ProcessPoolExecutor parallel workers.
-Returns: list of generated line dictionaries for this chunk.
-"""
+    """Module-level entrypoint executed by ProcessPoolExecutor child worker processes.
+
+    Worker Execution Protocol:
+        1. Deserialises the worker payload tuple containing graph topology, project video/frame parameters,
+           dialogue items, styles, and cached particle data.
+        2. Restores global particle cache dictionaries (`_GLOBAL_PARTICLE_PTS_CACHE`, `_GLOBAL_PARTICLE_IMG_CACHE`).
+        3. Instantiates an isolated worker-local `GraphEngine`.
+        4. Binds shared multiprocessing atomic synchronization pointers (`_WORKER_LINE_COUNTER`, `_WORKER_CANCEL_FLAG`).
+        5. Executes `process_single` strictly over the assigned subset of line indices (`chunk_indices`).
+        6. Returns the list of locally generated ASS line dictionaries back to the parent process.
+
+    Args:
+        payload: Tuple containing `(graph_data, rx, ry, fd, default_audio_source, all_dialogue_items,
+            styles, particle_caches, target_output_id, allow_fallback_select_all, global_selected_styles,
+            chunk_indices)`.
+
+    Returns:
+        List of generated line dictionaries for this chunk, or empty list on exception.
+    """
     try :
         target_output_id =None 
         allow_fallback_select_all =True 

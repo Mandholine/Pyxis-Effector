@@ -29,6 +29,21 @@ _STATIC_STRING_GLOBALS: Optional[Dict[str, Any]] = None
 
 
 def _get_eval_globals() -> Dict[str, Any]:
+    """
+    Constructs and caches the secure global execution environment for string template evaluation.
+
+    Provides a sandboxed namespace containing:
+    1. Safe Python builtins (min, max, abs, round, math, etc.).
+    2. ASS color and alpha generators and sanitizers (ass_color, ass_alpha, random_color, random_alpha).
+    3. Kinematics, trajectory, and deformation helpers (move_tag, move_text).
+    4. Stochastic and deterministic PRNG generators (R, Rs, Rc, Rd, Rm, Rstep, R2d, Rbool, Rcolor, etc.).
+    5. Canonical ASS tag wrappers and easing curves (_pyxis_pos, _pyxis_move, ease_in, sine_wave, etc.).
+    6. Acoustic telemetry and FFT functions (audio_rms, audio_peak, audio_band, audio_fft).
+    7. Geometric shape presets catalog (shape.*, shape_circle, shape_star, resolve_shape).
+
+    Returns:
+        Dict[str, Any]: Static immutable shared dictionary reused across successive evaluations.
+    """
     global _STATIC_STRING_GLOBALS
     if _STATIC_STRING_GLOBALS is not None:
         return _STATIC_STRING_GLOBALS
@@ -199,7 +214,21 @@ def _get_eval_globals() -> Dict[str, Any]:
 
 
 def _format_ass_alpha(val: Any) -> str:
-    """Formats an alpha value into canonical ASS alpha hex &HXX& (00 to FF)."""
+    """
+    Formats an alpha value into canonical ASS alpha hex &HXX& (00 to FF).
+
+    Supports multiple input representations:
+    - Integers and floats (0 to 255), rounded and clamped.
+    - Full color hex strings (&HAABBGGRR& or AABBGGRR), extracting the alpha byte AA.
+    - Short hex strings (&HAA& or HAA).
+    - Decimal string representations.
+
+    Args:
+        val: Source alpha value (numeric or string).
+
+    Returns:
+        str: Canonical '&HXX&' formatted string (uppercase with 2-digit padding). Returns '&H00&' if None or empty.
+    """
     if val is None:
         return "&H00&"
     if isinstance(val, (int, float)):
@@ -232,7 +261,21 @@ def _format_ass_alpha(val: Any) -> str:
 
 
 def _clean_ass_color(col: Any) -> str:
-    """Formats a color value into canonical ASS color hex &HBBGGRR&."""
+    """
+    Normalises and formats any color representation into canonical ASS color hex &HBBGGRR&.
+
+    Accepts:
+    - Web hex strings (#RRGGBB or #RGB), transformed to ASS BGR order.
+    - Direct integer values (masked with 0xFFFFFF).
+    - RGB tuples or lists (r, g, b).
+    - Pre-existing ASS hex strings with or without ampersands (&HBBGGRR&).
+
+    Args:
+        col: Color representation in numeric, RGB tuple, or text format.
+
+    Returns:
+        str: Formatted string strictly matching '&HBBGGRR&' in uppercase BGR order.
+    """
     if col is None:
         return "&H00FFFFFF&"
     if isinstance(col, (int, float)):
@@ -271,7 +314,21 @@ def _clean_ass_color(col: Any) -> str:
 
 
 def _fmt_num(val: Any) -> str:
-    """Formats numbers cleanly for ASS tags (integers without .0, floats up to 3 decimals)."""
+    """
+    Formats integers and floating-point numbers cleanly for ASS tag insertion.
+
+    Serialisation rules:
+    - Booleans are converted to '1' or '0'.
+    - Integers are represented without decimals ('10').
+    - Floats with integer values are stripped of decimal points ('10.0' -> '10').
+    - Floats with fractional parts are rounded up to 3 decimal places without trailing zeros ('10.500' -> '10.5').
+
+    Args:
+        val: Numeric value to format.
+
+    Returns:
+        str: Clean string representation optimised for libass rendering.
+    """
     if val is None:
         return ""
     if isinstance(val, bool):
@@ -286,6 +343,30 @@ def _fmt_num(val: Any) -> str:
 
 
 def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Constructs and populates the local evaluation dictionary with DAG runtime context.
+
+    Binds all canonical context entities, proxies, and iterator namespaces:
+    1. Hierarchical text entities: 'syl', 'char', 'word', 'line'/'l' (wrapped in AttrDict for dot-access).
+    2. Loop counters and bounds: 'j' (default 1), 'maxj'/'maxloop' (default fx_n or 1).
+    3. Multidimensional subloop iterators: 's_i'/'slice_i', 'd_i'/'divide_i', 'b_i'/'ring_i',
+       'a_i'/'array_i', 'm_i'/'multi_i', 'p_i'/'particle_i', 'tp_i'/'text_p_i', 'ip_i'/'img_p_i',
+       'c_i'/'clip_i', 'an_i'/'anim_i', and their respective '*_n' and '*_max' counts.
+    4. Relative relational proxies: 'prev' and 'next' (wrapped in AdjacentUnitProxy), with boolean flags
+       'is_first', 'is_last', 'has_prev', 'has_next'.
+    5. Vector ink metrics: 'ink' (bound to InkNamespace).
+    6. Particle and transformation state: 'fx' (bound to FxContext).
+    7. Persistent cross-iteration memory: 'remember(key, val, cond)' and 'recall(key, default)'.
+    8. Dynamic time modifiers: 'li', 'lo', 'm1', 'm2', 'l1', 'l2' (PyxisTimeModifier).
+    9. Inter-line synchronisation helper: 'sync' (PyxisSyncHelper) and 'calculate_sync_gap'.
+    10. Stochastic dispatchers: 'by' (PyxisByDispatcher) and iterator-coupled PRNG callers ('R', 'Rs', 'Rc', etc.).
+
+    Args:
+        context: Raw runtime dictionary supplied by the active DAG graph iteration.
+
+    Returns:
+        Dict[str, Any]: Fully initialised locals dictionary ready for AST evaluation.
+    """
     eval_globals = _get_eval_globals()
     eval_locals: Dict[str, Any] = dict(context) if isinstance(context, dict) else {}
     eval_locals["context"] = eval_locals
@@ -550,7 +631,29 @@ _AST_EXPR_SENTINEL = object()
 
 
 def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, default: Any = "") -> Any:
-    """Safely evaluates a Python expression with AST cache and contextual variables."""
+    """
+    Safely compiles and evaluates an arbitrary Python expression with AST caching and contextual variables.
+
+    Execution Pipeline:
+    1. Top-level Lua ternary detection ('COND and A or B'): Evaluates the condition first to avoid
+       falsy fall-through (e.g. 0 or empty string) in ternary branches.
+    2. Lexical pre-processing outside quoted literals:
+       - Substitutes Lua inequality operator '~=' with Python '!='.
+       - Converts ASS hex literals '&H<hex>&' or '&h<hex>&' into Python hex integers '0x<hex>'.
+       - Expands frame time shortcuts '<num>f' into '(<num> * frame_dur)'.
+       - Expands resolution ratio shortcuts '<num>r' into '(<num> * ratio)'.
+       - Expands time modifier product syntax '<num>li', '<num>lo', '<num>m1', etc. into '<num> * li'.
+    3. Compilation and LRU AST Cache: Checks '_AST_EXPR_CACHE'; compiles with mode='eval' on miss.
+    4. Sandboxed execution: Invocates 'eval(code_obj, eval_globals, eval_locals)'.
+
+    Args:
+        expr_str: Raw expression string to evaluate.
+        context: Runtime DAG context dictionary.
+        default: Fallback return value if the expression fails or evaluates to None.
+
+    Returns:
+        Any: Evaluated result object (numeric, string, boolean, or fallback default).
+    """
     if not expr_str:
         return default
     expr_clean = expr_str.strip()
@@ -685,9 +788,21 @@ def _split_top_level_commas(s: str) -> list[str]:
 
 def _split_top_level_ternary(s: str) -> Optional[tuple[str, str, str, str]]:
     """
-    Checks if string 's' is a top-level ternary expression in Python ('A if COND else B')
-    or Lua ('COND and A or B') format.
-    Returns (format_type, val_true, cond, val_false) or None.
+    Detects whether string 's' contains a top-level ternary expression in Python or Lua syntax.
+
+    Supports:
+    - Python format: 'val_true if COND else val_false'
+    - Lua format: 'COND and val_true or val_false'
+
+    Uses depth tracking across parentheses, brackets, braces, and quotes to ignore
+    nested conditionals inside sub-expressions or function arguments.
+
+    Args:
+        s: Candidate conditional string.
+
+    Returns:
+        Optional[tuple[str, str, str, str]]: Tupled breakdown '(format_type, val_true, cond, val_false)'
+        where format_type is 'python' or 'lua', or None if no top-level ternary matches.
     """
     s_clean = s.strip()
     if not s_clean:
@@ -819,7 +934,23 @@ def _split_top_level_ternary(s: str) -> Optional[tuple[str, str, str, str]]:
 
 
 def _resolve_ternary_branch(branch_str: str, context: Optional[Dict[str, Any]] = None) -> str:
-    """Resolves the selected branch of a ternary: evaluates nested ternaries or expressions, or strips quotes."""
+    """
+    Recursively resolves the selected branch of an evaluated ternary expression.
+
+    Handles:
+    - Stripping enclosing single or double quotes for literal text outputs.
+    - Preserving ASS hexadecimal colour literals (&HBBGGRR&).
+    - Unrolling chained or nested ternaries without outer parentheses (e.g. '\\blur2 if i == 2 else \\blur0').
+    - Evaluating nested isolated parenthesised expressions via 'evaluate_isolated_ternaries'.
+    - Evaluating mathematical formulas or numeric variables in non-tag branches.
+
+    Args:
+        branch_str: The raw branch string chosen by condition evaluation.
+        context: Active DAG context dictionary.
+
+    Returns:
+        str: Fully evaluated and formatted string representation of the branch.
+    """
     b = branch_str.strip()
     if not b:
         return ""
@@ -864,12 +995,23 @@ def _resolve_ternary_branch(branch_str: str, context: Optional[Dict[str, Any]] =
 
 def _evaluate_single_ternary_expr(content: str, context: Optional[Dict[str, Any]]) -> Optional[str]:
     """
-    Evalúa una expresión aislada entre paréntesis (...) que no está precedida por un tag ASS:
-    1. Expresiones ternarias: ( A if COND else B ) / ( COND and A or B )
-    2. Llamadas a función y métodos: ( Func() )
-    3. Variables y atributos: (syl.text), (syl.dur), (fx.dur), (line.text), (j)
-    4. Expresiones matemáticas / lógicas: (syl.dur / 2), (j * 15), (10 + 20)
-    Preserva intacto el texto plano que no sea una expresión evaluable válida.
+    Evaluates an isolated parenthesised expression not preceded by an ASS tag name:
+    1. Ternary conditionals: '(A if COND else B)' or '(COND and A or B)'.
+    2. Function and method invocations: '(Func())'.
+    3. Context variables and attributes: '(syl.text)', '(syl.dur)', '(fx.dur)', '(line.text)', '(j)'.
+    4. Mathematical and logical expressions: '(syl.dur / 2)', '(j * 15)', '(10 + 20)'.
+
+    Safeguards:
+    - Ignores pure numeric literals and atomic quoted strings to preserve subtitle text like '(1999)' or '("word")'.
+    - Suppresses raw uninvoked callables, types, or modules (e.g. '(min)' or '(math)').
+    - Unpacks text-bearing objects (such as PyxisUnit) via 'text_stripped' or 'text'.
+
+    Args:
+        content: Inner string within the isolated parentheses.
+        context: Active DAG context dictionary.
+
+    Returns:
+        Optional[str]: Formatted string result, or None if content is not a valid evaluable expression.
     """
     c_clean = content.strip()
     if not c_clean:
@@ -932,10 +1074,23 @@ def _evaluate_single_ternary_expr(content: str, context: Optional[Dict[str, Any]
 
 def evaluate_isolated_ternaries(text: str, context: Optional[Dict[str, Any]] = None) -> str:
     """
-    Evaluates strictly isolated parenthesized ternary expressions and tag-returning calls:
-    - ( valor if cond else valor2 ) / ( cond and valor or valor2 )
-    - ( FuncReturningTags() )
-    Supports arbitrary nesting. Bare/un-delimited text is never modified.
+    Performs iterative reduction of strictly isolated parenthesised ternary expressions and calls.
+
+    Evaluates:
+    - '( value if cond else value2 )' / '( cond and value or value2 )'
+    - '( FuncReturningTags() )'
+    - Arbitrarily nested expressions evaluated from innermost to outermost (up to depth 25).
+
+    Invariants:
+    - Bare or un-parenthesised text is never modified.
+    - Parentheses preceded by ASS tag identifiers (e.g. '\\pos(...)', '\\t(...)') are strictly bypassed.
+
+    Args:
+        text: Subtitle text or template containing possible isolated parenthesised expressions.
+        context: Active DAG context dictionary.
+
+    Returns:
+        str: String with all isolated evaluable parenthesised expressions reduced to their computed values.
     """
     if not text or not isinstance(text, str) or "(" not in text:
         return text
@@ -1011,7 +1166,7 @@ def evaluate_isolated_ternaries(text: str, context: Optional[Dict[str, Any]] = N
 
 
 def _get_context_origin(context: Optional[Dict[str, Any]]) -> tuple[str, str]:
-    """Obtiene las coordenadas cartesianas (X, Y) del origen / pivote del contexto activo."""
+    """Retrieves Cartesian origin / pivot coordinates (X, Y) from the active context."""
     if not isinstance(context, dict):
         return ("0", "0")
     active_unit = context.get("active_unit") or context.get("syl") or context.get("char") or context.get("word")
@@ -1049,7 +1204,7 @@ def _get_context_origin(context: Optional[Dict[str, Any]]) -> tuple[str, str]:
 
 
 def _get_context_style_props(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Extrae de manera segura las propiedades métricas del estilo del contexto activo."""
+    """Safely extracts normalized metric and style properties from the active context."""
     if not isinstance(context, dict):
         context = {}
     active_unit = context.get("active_unit") or context.get("syl") or context.get("char") or context.get("word")
@@ -1133,8 +1288,8 @@ def _get_context_style_props(context: Optional[Dict[str, Any]]) -> Dict[str, Any
 
 def _replace_balanced_parens_tags(text: str, tag_start_re: re.Pattern, handler_fn) -> str:
     """
-    Localiza y sustituye de forma robusta etiquetas ASS con argumentos entre paréntesis,
-    soportando paréntesis anidados arbitrarios (llamadas de función, ternarias de Python y sub-expresiones).
+    Robustly locates and substitutes ASS tags with parenthesized arguments using balance depth tracking.
+    Supports arbitrary nested parentheses (function calls, Python ternaries, and sub-expressions).
     """
     out = []
     pos = 0
@@ -1183,8 +1338,8 @@ def _replace_balanced_parens_tags(text: str, tag_start_re: re.Pattern, handler_f
 
 def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None) -> str:
     """
-    Expande tags compuestos, tags de restauración (~), tags estocásticos (\\tagR)
-    y Dark Tags de rotación auto-origen y ratio al estándar ASS puro.
+    Expands composite tags, style restoration tags (~), stochastic tags (\\tagR),
+    auto-origin rotation Dark Tags, and style ratio tags to pure canonical ASS syntax.
     """
     if not text or "\\" not in text:
         return text
@@ -1401,9 +1556,34 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 
 def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None) -> str:
     """
-    Evalúa automáticamente cualquier expresión matemática, función o variable
-    dentro de paréntesis de tags ASS: \\pos(...), \\move(...), \\frz(...), \\fscxy(...), \\t(...), \\te(...), etc.
-    Soporta llamadas de función y expresiones con paréntesis anidados.
+    Evaluates dynamic expressions, formulas, and functions within ASS tag parentheses.
+
+    Handles specialised tag families:
+    1. Temporal context transforms:
+       - '\\te([st,] et, [accel,] \\tags)': End-relative transform calculating start/end times
+         relative to total duration ('total_dur - t2', 'total_dur - t1').
+       - '\\ts(...)', '\\tc(...)', '\\tw(...)': Relative transforms anchored to syllable start,
+         character start, or word start respectively.
+    2. Standard ASS transforms ('\\t(...)') and recursive Dark Tag evaluation:
+       - Supports both standard time keyframes ('\\t(t1, t2, \\tags)') and parameterless transforms ('\\t(\\tags)').
+    3. Rectangular and vector clipping tags ('\\clip(...)', '\\iclip(...)'):
+       - Substitutes the 'center' keyword with active unit coordinates ('center, middle').
+       - Preserves raw ASSdraw drawing commands ('m ...') intact.
+    4. Coordinate and positioning tags ('\\pos(...)', '\\move(...)', '\\org(...)', '\\fad(...)', '\\fade(...)'):
+       - Evaluates numeric expressions for each comma-separated argument.
+    5. Single and composite tags with embedded expressions:
+       - Symmetrical pairs: '\\fscxy(...)', '\\faxy(...)', '\\xybord(...)', '\\xyshad(...)', '\\bs(...)'.
+       - 3D rotations: '\\frxyz(...)', '\\frxy(...)', '\\frxz(...)', '\\fryz(...)'.
+       - Auto-origin rotations: '\\fro(...)', '\\frzo(...)', '\\frxyzo(...)'.
+       - Style ratio scaling: '\\fscxyr(...)', '\\fscxr(...)', '\\fscyr(...)', '\\fsr(...)'.
+       - Multi-channel colour and alpha: '\\134c(...)', '\\13a(...)'.
+
+    Args:
+        text: Subtitle string or tag block containing parenthesised ASS tags.
+        context: Active DAG context dictionary providing metrics, origins, and style properties.
+
+    Returns:
+        str: String with all parenthesised tag arguments evaluated to canonical ASS numeric or hex values.
     """
     if not text or "\\" not in text or "(" not in text:
         return text
@@ -1642,11 +1822,20 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
 
 def clean_tag_block_whitespace(block_str: str) -> str:
     """
-    Limpia los espacios en blanco innecesarios dentro de bloques de etiquetas ASS {...} o secuencias de tags:
-    1. Limpia espacios iniciales/finales tras '{' y antes de '}'.
-    2. Elimina espacios en blanco entre etiquetas continuas (ej. '\\pos(10,10)   \\blur2' -> '\\pos(10,10)\\blur2').
-    3. Limpia espacios dentro de paréntesis y alrededor de comas en tags no vectoriales (ej. '\\pos( 10 , 20 )' -> '\\pos(10,20)', '\\t( 0 , 150 , \\blur2 )' -> '\\t(0,150,\\blur2)').
-    4. Preserva intactos los espacios necesarios en dibujos vectoriales dentro de \\clip(m ...) o \\iclip(m ...).
+    Cleans redundant whitespace within ASS override tag blocks {...} or tag sequences.
+
+    Processing Rules:
+    1. Trims leading and trailing whitespace immediately following '{' and preceding '}'.
+    2. Removes whitespace separating contiguous tags (e.g. '\\pos(10,10)   \\blur2' -> '\\pos(10,10)\\blur2').
+    3. Collapses spaces around commas and inside parentheses for non-vector tags
+       (e.g. '\\pos( 10 , 20 )' -> '\\pos(10,20)', '\\t( 0 , 150 , \\blur2 )' -> '\\t(0,150,\\blur2)').
+    4. Strictly preserves required spatial whitespace in vector clipping paths within '\\clip(m ...)' or '\\iclip(m ...)'.
+
+    Args:
+        block_str: ASS tag block or segment to sanitise.
+
+    Returns:
+        str: Compacted ASS tag block optimising file size and libass parsing efficiency.
     """
     if not block_str or "\\" not in block_str:
         return block_str
@@ -1704,13 +1893,21 @@ def clean_tag_block_whitespace(block_str: str) -> str:
 
 def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = None) -> str:
     """
-    Función maestra de evaluación de plantillas y cadenas para Pyxis Nodes.
-    Ejecuta el pipeline completo:
-    1. Preprocesamiento de atajos de unidad (10f, 2r).
-    2. Evaluación de ternarios y llamadas aisladas en paréntesis ((...)).
-    3. Expansión de Dark Tags, Restauración (~) y Estocásticos (\\tagR).
-    4. Evaluación de expresiones directas en paréntesis ASS (\\pos(syl.center + 10, ...)).
-    5. Limpieza final de espacios en blanco entre tags y dentro de paréntesis.
+    Master pipeline evaluator for strings, expressions, and composite tags in Pyxis Nodes.
+
+    Executes the 5-stage canonical evaluation pipeline:
+    1. Unit shortcut expansion: Converts '10f' (frames to ms) and '2r' (resolution ratio scaling).
+    2. Isolated ternary and callable reduction: Evaluates '(...)' expressions not preceded by ASS tags.
+    3. Dark Tag expansion: Unrolls composite tags, style restoration ('~'), and stochastic calls ('\\tagR').
+    4. Parenthesised tag evaluation: Computes formulas inside '\\pos(...)', '\\t(...)', '\\te(...)', etc.
+    5. Tag block whitespace cleanup: Compacts whitespace between tags and within tag brackets.
+
+    Args:
+        template_str: Source template string or expression.
+        context: Active DAG runtime context dictionary.
+
+    Returns:
+        str: Fully evaluated and sanitised ASS override string ready for dialogue rendering.
     """
     if template_str is None:
         return ""
@@ -1736,10 +1933,19 @@ def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = 
 
 def evaluate_ass_line_tag_blocks(ass_text: Any, context: Optional[Dict[str, Any]] = None) -> str:
     """
-    Evalúa de forma segura y exclusiva el contenido de los bloques de etiquetas {...}
-    en una línea ASS final, resolviendo variables, expresiones y tags dinámicos,
-    limpiando espacios innecesarios y dejando el texto plano y los trazados
-    de ASSdraw fuera de las llaves 100% intactos.
+    Evaluates exclusively the contents of override blocks {...} within a full ASS line.
+
+    Features:
+    - Robust brace-depth parser ignoring braces embedded inside quotes or sub-expressions.
+    - Routes the interior of each '{...}' block through 'eval_string_template'.
+    - Leaves plain text, punctuation, and external ASSdraw vector commands outside braces 100% untouched.
+
+    Args:
+        ass_text: Full ASS dialogue line or text string containing override tag blocks.
+        context: Active DAG runtime context dictionary.
+
+    Returns:
+        str: Processed ASS line with evaluated override blocks and preserved dialogue text.
     """
     if ass_text is None:
         return ""

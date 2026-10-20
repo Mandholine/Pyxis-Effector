@@ -12,9 +12,34 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
-"""Particle engine nodes from text outlines (bord_to_pixels_v2) and raster images (Pillow/NumPy)."""
+"""
+Module: particle_nodes.py
+Architectural Role: Vector Contour and Raster Image Particle Emission Engine.
+
+This module provides the core particle generation and spatial distribution algorithms
+for subtitle VFX in Pyxis Effector:
+    - Text/Vector Particle Emission (`particle_text_node`): Discretises font outlines
+      or ASSdraw paths into particles along boundary perimeters or internal grid tessellations.
+    - Image Raster Particle Sampling (`particle_image_node`): Samples RGBA pixels from
+      static or animated image frames (PNG, JPG, WEBP, GIF), converting colour values
+      into ASS colour tags (`&HBBGGRR&`) and opacity channels (`&HAA&`).
+    - Numpad Spatial Sorting (`sort_particles`): High-performance vectorised C-level
+      ordering using NumPy lexicographical and radial angle transforms.
+    - In-Memory LRU Caching: Maintains global bounded caches for sampled points and
+      raster frames to optimise multi-pass rendering performance.
+
+Upstream Dependencies:
+    - font_vector_engine.py: FontVectorEngine for rasterising font glyphs to ASSdraw paths.
+    - clipper_engine.py: ClipperEngine for parsing ASSdraw commands into polygon contours.
+    - gpu_engine.py: GPUManager for hardware-accelerated 2D affine point transformations.
+    - img_tracer_engine.py: Helper functions for animated GIF frame extraction.
+
+Downstream Callers:
+    - node_engine.GraphEngine: Invokes `particle_text_node` for 'Functions/Particles'
+      and `particle_image_node` for 'Functions/IMG to pixels'.
+"""
 
 import os
 import re
@@ -40,6 +65,12 @@ _GLOBAL_PARTICLE_IMG_CACHE = OrderedDict()
 _MAX_PARTICLE_CACHE = 512
 
 def clear_particle_caches():
+    """
+    Clears all in-memory LRU point and image particle caches.
+
+    Invoked between timeline render passes or upon project reloading to release
+    cached coordinate buffers and prevent memory bloat.
+    """
     _GLOBAL_PARTICLE_PTS_CACHE.clear()
     _GLOBAL_PARTICLE_IMG_CACHE.clear()
 
@@ -47,6 +78,20 @@ def clear_particle_caches():
 _ASS_COLOR_CACHE = {}
 
 def rgb_to_ass_color(r, g, b):
+    """
+    Converts 8-bit RGB colour components to an ASS hexadecimal literal (&HBBGGRR&).
+
+    Utilises a bounded global lookup cache to avoid repetitive string formatting
+    for identical RGB triplets during dense pixel iterations.
+
+    Args:
+        r (int or float): Red channel intensity (0–255).
+        g (int or float): Green channel intensity (0–255).
+        b (int or float): Blue channel intensity (0–255).
+
+    Returns:
+        str: ASS-compatible colour string in BGR hexadecimal notation (e.g. '&HFFFFFF&').
+    """
     rgb_key = (int(r), int(g), int(b))
     val = _ASS_COLOR_CACHE.get(rgb_key)
     if val is None:
@@ -57,7 +102,20 @@ def rgb_to_ass_color(r, g, b):
 
 
 def _point_in_contour(x, y, poly):
-    """Prueba de inclusión Ray-Casting para determinar si (x, y) está dentro del polígono."""
+    """
+    Tests whether a 2D coordinate point (x, y) lies inside a closed polygon contour.
+
+    Implements the Ray-Casting parity algorithm. Casts a horizontal semi-infinite ray
+    towards positive infinity and counts boundary segment intersections.
+
+    Args:
+        x (float): Horizontal coordinate of the test point.
+        y (float): Vertical coordinate of the test point.
+        poly (list or np.ndarray): Sequence of (px, py) polygon vertices.
+
+    Returns:
+        bool: True if the point is strictly enclosed within the polygon; False otherwise.
+    """
     n = len(poly)
     if n < 3:
         return False
@@ -77,12 +135,41 @@ def _point_in_contour(x, y, poly):
 
 
 def sort_particles(items, order_code="79", get_xy=lambda item: (item[0], item[1])):
-    """Ordena una lista de partículas según la dirección del Numpad usando ordenamiento C vectorizado con NumPy."""
+    """
+    Sorts a collection of 2D particle coordinates according to canonical Numpad orders.
+
+    Utilises vectorised NumPy lexicographical sorting (`np.lexsort`) and polar angle
+    computations to achieve high performance across tens of thousands of coordinate points.
+
+    Supported Canonical Order Codes:
+        - Contour Trajectory: 'path' (preserves natural arc-length perimeter traversal without
+          lexicographical disruption), 'path_inv' (reverses contour trajectory direction).
+        - Numpad Directions: '79' (TL->BR), '97' (TR->BL), '13' (BL->TR), '31' (BR->TL),
+          '71' (TL->BL by column), '17' (BL->TL by column), '93' (TR->BR by column),
+          '39' (BR->TR by column).
+        - Radial / Angular: '5' (centre outwards), '-5' (edges inwards), 'cw' (clockwise),
+          'ccw' (counter-clockwise).
+        - Stochastic: 'rand' / 'random' (in-place pseudo-random shuffling).
+
+    Args:
+        items (list or np.ndarray): Collection of particle items or coordinate rows.
+        order_code (str): Canonical ordering enumeration code. Defaults to '79'.
+        get_xy (Callable): Extraction function returning (x, y) tuple for each item.
+
+    Returns:
+        list or np.ndarray: Reordered particle collection matching input container type.
+    """
     if items is None or len(items) == 0:
         return items
 
     order_str = str(order_code or "79").strip().lower()
-    
+
+    if order_str in ("path", "contour", "perimeter"):
+        return list(items) if not isinstance(items, np.ndarray) else items.copy()
+
+    if order_str in ("path_inv", "path_reverse", "contour_inv"):
+        return list(reversed(items)) if not isinstance(items, np.ndarray) else items[::-1]
+
     if "rand" in order_str or "random" in order_str:
         items_copy = list(items)
         np.random.shuffle(items_copy)
@@ -139,10 +226,37 @@ def sort_particles(items, order_code="79", get_xy=lambda item: (item[0], item[1]
     return items
 
 
-def particle_text_node(context, shape="", particle_shape="", density=10.0, redraw_dist=0.0, seed=1, scale=1.0, mode="Contorno v2", order="79"):
-    """Extrae coordenadas discretas de partículas desde contorno o forma ASSdraw con doble forma y ordenamiento Numpad."""
+def particle_text_node(context, shape="", particle_shape="", density=10.0, redraw_dist=0.0, seed=1, scale=1.0, mode="outline_v2", order="79", anchor="pieces"):
+    """
+    Generates discrete particle coordinates from an ASSdraw vector shape or text outline.
+
+    Samples points along continuous perimeter segments or inside polygon bounds,
+    applying optional jitter displacement (`redraw_dist`), spatial ordering,
+    canonical piece/particle anchor projection, and injecting loop counters (`p_i`, `p_n`, `p_max`)
+    into the execution context.
+
+    Args:
+        context (dict or FxContext): Active iteration context containing line/unit metrics.
+        shape (str): Inbound ASSdraw path or shape name. If empty, extracts from active text.
+        particle_shape (str): Custom ASSdraw shape representing individual particle geometry.
+        density (float or str): Step distance between sampled points in pixels.
+        redraw_dist (float or str): Maximum random displacement applied to each coordinate.
+        seed (int or str): Deterministic random number generator seed.
+        scale (float or str): Uniform scaling factor applied to coordinates.
+        mode (str): Generation mode: 'outline_v2'/'border' (perimeter) or 'inner_fill' (grid test).
+        order (str): 2D spatial ordering or contour trajectory code (e.g. 'path', 'path_inv', '79', '5', 'cw', 'rand').
+        anchor (str): Canonical anchor mode ('pieces', 'relative', 'parent_org', 'pos', 'absolute').
+
+    Returns:
+        tuple[float, float, str, int]:
+            - abs_x (float): Absolute horizontal screen coordinate for active particle index.
+            - abs_y (float): Absolute vertical screen coordinate for active particle index.
+            - p_shape_str (str): ASSdraw path of the resolved particle geometry.
+            - total_pts (int): Total number of discrete particles generated.
+    """
     from node_engine import _eval_num_expr
-    from nodes.shape_nodes import resolve_shape_value
+    from clipper_engine import ClipperEngine
+    from nodes.shape_nodes import resolve_shape_value, resolve_piece_anchor
     unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
     line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
     
@@ -273,8 +387,36 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
     idx = max(0, min(tp_val - 1, total_pts - 1))
     pt = sampled_pts[idx]
 
-    abs_x = round(parent_x + float(pt[0]), 2)
-    abs_y = round(parent_y + float(pt[1]), 2)
+    p_shape_clean = str(particle_shape or "").strip()
+    if p_shape_clean:
+        p_shape_str = resolve_shape_value(p_shape_clean, context)
+    else:
+        p_shape_str = "m 0 0 l 2 0 l 2 2 l 0 2"
+
+    if not p_shape_str or not (str(p_shape_str).strip().startswith("m ") or str(p_shape_str).strip().startswith("m-") or str(p_shape_str).strip().startswith("m0")):
+        p_shape_str = "m 0 0 l 2 0 l 2 2 l 0 2"
+
+    cx = float(pt[0])
+    cy = float(pt[1])
+
+    anc_res = resolve_piece_anchor(
+        piece_code="",
+        piece_cx=cx,
+        piece_cy=cy,
+        parent_x=parent_x,
+        parent_y=parent_y,
+        anchor=anchor,
+        context=context
+    )
+
+    anchor_str = str(anchor or "pieces").strip().lower()
+    if anchor_str == "absolute":
+        final_p_shape = ClipperEngine.transform_shape(p_shape_str, mode="Offset", offset_x=parent_x + cx, offset_y=parent_y + cy)
+    else:
+        final_p_shape = p_shape_str
+
+    abs_x = round(anc_res['pos_x'], 2)
+    abs_y = round(anc_res['pos_y'], 2)
 
     if isinstance(context, dict):
         context['p_i'] = tp_val
@@ -287,28 +429,42 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
         context['fx_pos_y'] = abs_y
         context['pos_x'] = abs_x
         context['pos_y'] = abs_y
-        context['pos_overridden'] = True
-        if context.get('has_org'):
-            context['org_x'] = abs_x
-            context['org_y'] = abs_y
 
-    p_shape_clean = str(particle_shape or "").strip()
-    if p_shape_clean:
-        p_shape_str = resolve_shape_value(p_shape_clean, context)
-    else:
-        p_shape_str = "m 0 0 l 2 0 l 2 2 l 0 2"
-
-    if not p_shape_str or not (str(p_shape_str).strip().startswith("m ") or str(p_shape_str).strip().startswith("m-") or str(p_shape_str).strip().startswith("m0")):
-        p_shape_str = "m 0 0 l 2 0 l 2 2 l 0 2"
-
-    return abs_x, abs_y, p_shape_str, total_pts
+    return abs_x, abs_y, final_p_shape, total_pts
 
 
 from decorators import pyxis_node, NODE_REGISTRY
 
 @pyxis_node("Functions", "IMG to pixels", ["Image Path", "Particle", "Frame", "Step", "Alpha", "Scale", "Anchor", "Order"])
 def particle_image_node(context, image_path="", particle_shape="", frame="1", step=2, alpha_threshold=128, scale=1.0, anchor="center", order="79", frame_idx=None, **kwargs):
-    """Muestrea archivos de imagen (PNG, JPG, WEBP, GIF) en partículas ASS coloreadas usando Pillow, NumPy y Numpad ordering."""
+    """
+    Samples image raster files into colourised ASS particles with hardware acceleration.
+
+    Parses static images (PNG, JPG, WEBP) or animated GIF frames, extracts pixel coordinates
+    meeting alpha thresholds, sorts them using 2D spatial matrices, and formats ASS colour tags.
+
+    Args:
+        context (dict or FxContext): Active iteration context holding line and layout metrics.
+        image_path (str): File system path to the target image or animated GIF.
+        particle_shape (str): Custom ASSdraw geometry used as the pixel particle glyph.
+        frame (str or int): 1-based frame index for animated image sources.
+        step (int or str): Pixel sampling stride (e.g. 2 samples every second pixel).
+        alpha_threshold (int or str): Opacity threshold (0–255) beneath which pixels are discarded.
+        scale (float or str): Spatial scaling factor applied to image dimensions.
+        anchor (str): Origin alignment mode ('center', 'topleft', 'topright', 'bottomleft', 'bottomright').
+        order (str): 2D spatial ordering code (e.g. '79', '13', '5', 'cw', 'rand').
+        frame_idx (int, optional): Explicit frame index override.
+        **kwargs: Additional keyword arguments forwarded from GraphEngine dispatch.
+
+    Returns:
+        tuple[float, float, str, str, str, int]:
+            - abs_x (float): Screen horizontal coordinate for active pixel particle.
+            - abs_y (float): Screen vertical coordinate for active pixel particle.
+            - col_ass (str): Hexadecimal primary colour tag formatted as &HBBGGRR&.
+            - alpha_ass (str): Hexadecimal alpha transparency tag formatted as &HAA&.
+            - p_shape_str (str): ASSdraw path of the individual pixel particle geometry.
+            - total_pixels (int): Total count of valid sampled pixel particles.
+    """
     from node_engine import _eval_num_expr
     unit = context.get('active_unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None)
     line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)

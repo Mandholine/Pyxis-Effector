@@ -28,11 +28,22 @@
 
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
 
- * For any question you can visit: https://discord.gg/rYsARc3fB9
+ * For any question you can visit: https://discord.gg/fsxRESeQZN
 
  */
 
 
+
+/**
+ * @file i18n.js
+ * @description Reactive internationalisation (i18n) engine for Pyxis Effector.
+ * Provides bidirectional translation dictionaries (Spanish/English) with strict 1:1 parity,
+ * runtime DOM localisation attributes, dynamic LiteGraph slot/node translation, reverse lookups,
+ * parameter interpolation, and event dispatching for reactive UI updates across the web interface and canvas.
+ * @module PyxisI18n
+ * @author Pyxis Effector Team
+ * @license GPL-3.0-or-later
+ */
 
 (function (window) {
 
@@ -249,6 +260,8 @@
             "nodes.modes.order_1d.center_to_edges": "Centro",
             "nodes.modes.order_1d.edges_to_center": "Extremos",
             "nodes.modes.order_1d.random": "Aleat.",
+            "nodes.modes.order_2d.path": "Trayectoria (Contorno)",
+            "nodes.modes.order_2d.path_inv": "Trayectoria Invertida",
             "nodes.modes.Reset": "Resetear",
             "nodes.modes.Extractor": "Extractor",
             "nodes.modes.Syl Active": "Sílaba Activa",
@@ -1471,14 +1484,16 @@
             "diagnostics.msg.undefined_var": "Variable '{name}' no definida en la expresión.",
             "diagnostics.sug.undefined_var_did_you_mean": "¿Quisiste decir '{suggestion}'?",
             "diagnostics.sug.undefined_var_general": "Verifica el nombre de la variable o defínela en 'Variables/Define Vars' o en un nodo Script.",
+            "diagnostics.msg.orphan_subloop_var": "Variable de sub-bucle '{var}' usada sin su nodo generador ('{gen}') en el grafo.",
+            "diagnostics.sug.orphan_subloop_var": "Agrega un nodo '{gen}' para suministrar valores a '{var}'. Valdrá neutro (0 o 1) si el generador no está activo.",
             "estimation.peak_simultaneous": "Pico simultáneo",
             "estimation.expansion_ratio": "Ratio expansión",
             "estimation.estimated_weight": "Peso estimado",
             "estimation.last_telemetry": "Última telemetría",
             "estimation.open_telemetry": "Abrir Telemetry",
-            "bug_report.button_tooltip": "Reportar un problema (Beta 1.1.4)",
+            "bug_report.button_tooltip": "Reportar un problema ({stage} {version})",
             "bug_report.title": "Reportar un problema",
-            "bug_report.subtitle": "Pyxis Effector Beta v1.1.4 — Canal de Feedback",
+            "bug_report.subtitle": "Pyxis Effector {stage} v{version} — Canal de Feedback",
             "bug_report.intent_label": "¿Qué intentabas hacer?",
             "bug_report.intent_placeholder": "Describe la acción, nodo o efecto que estabas configurando...",
             "bug_report.failure_label": "¿Qué te parece que falló?",
@@ -1494,7 +1509,7 @@
             "bug_report.cancel": "Cancelar",
             "bug_report.send": "Enviar Reporte",
             "bug_report.sending": "Enviando reporte...",
-            "bug_report.success": "¡Reporte enviado con éxito! Gracias por ayudarnos a pulir la versión 1.1.4.",
+            "bug_report.success": "¡Reporte enviado con éxito! Gracias por ayudarnos a pulir la versión {version}.",
             "bug_report.error_empty": "Por favor describe qué intentabas hacer y qué te parece que falló.",
             "bug_report.error_cooldown": "Por favor espera unos segundos antes de enviar otro reporte.",
             "bug_report.error_send": "Error al enviar el reporte: {err}",
@@ -1765,6 +1780,8 @@
             "nodes.modes.order_1d.center_to_edges": "Center",
             "nodes.modes.order_1d.edges_to_center": "Edges",
             "nodes.modes.order_1d.random": "Rand",
+            "nodes.modes.order_2d.path": "Path (Contour)",
+            "nodes.modes.order_2d.path_inv": "Inverted Path",
             "nodes.modes.Reset": "Reset",
             "nodes.modes.Extractor": "Extractor",
             "nodes.modes.Syl Active": "Syl Active",
@@ -2984,14 +3001,16 @@
             "diagnostics.msg.undefined_var": "Undefined variable '{name}' in expression.",
             "diagnostics.sug.undefined_var_did_you_mean": "Did you mean '{suggestion}'?",
             "diagnostics.sug.undefined_var_general": "Verify the variable name or define it in 'Variables/Define Vars' or a Script node.",
+            "diagnostics.msg.orphan_subloop_var": "Sub-loop variable '{var}' used without its generator node ('{gen}') in the graph.",
+            "diagnostics.sug.orphan_subloop_var": "Add a '{gen}' node to provide active values for '{var}'. It defaults to neutral (0 or 1) when inactive.",
             "estimation.peak_simultaneous": "Peak simultaneous",
             "estimation.expansion_ratio": "Expansion ratio",
             "estimation.estimated_weight": "Estimated weight",
             "estimation.last_telemetry": "Last telemetry",
             "estimation.open_telemetry": "Open Telemetry",
-            "bug_report.button_tooltip": "Report an issue (Beta 1.1.4)",
+            "bug_report.button_tooltip": "Report an issue ({stage} {version})",
             "bug_report.title": "Report an issue",
-            "bug_report.subtitle": "Pyxis Effector Beta v1.1.4 — Feedback Channel",
+            "bug_report.subtitle": "Pyxis Effector {stage} v{version} — Feedback Channel",
             "bug_report.intent_label": "What were you trying to do?",
             "bug_report.intent_placeholder": "Describe the action, node, or effect you were configuring...",
             "bug_report.failure_label": "What do you think failed?",
@@ -3007,7 +3026,7 @@
             "bug_report.cancel": "Cancel",
             "bug_report.send": "Send Report",
             "bug_report.sending": "Sending report...",
-            "bug_report.success": "Report sent successfully! Thank you for helping refine version 1.1.4.",
+            "bug_report.success": "Report sent successfully! Thank you for helping refine version {version}.",
             "bug_report.error_empty": "Please describe what you were trying to do and what you think failed.",
             "bug_report.error_cooldown": "Please wait a few seconds before submitting another report.",
             "bug_report.error_send": "Error sending report: {err}",
@@ -3080,6 +3099,15 @@
         }
     } catch (e) {}
 
+    /**
+     * Translates a dictionary key into the current language with optional parameter interpolation.
+     * Falls back to English, and subsequently to a provided fallback string or key itself if missing.
+     *
+     * @param {string} key - Hierarchical dot-separated dictionary key (e.g. "nodes.titles.Source").
+     * @param {Object.<string, string|number>} [params=null] - Dynamic key-value pairs for token interpolation `{token}`.
+     * @param {string} [fallback] - Explicit fallback string if the key cannot be resolved in current or English dictionary.
+     * @returns {string} The translated and interpolated string.
+     */
     function t(key, params, fallback) {
         const dict = TRANSLATIONS[currentLanguage] || TRANSLATIONS.en;
         let str = dict[key];
@@ -3103,6 +3131,13 @@
     const REVERSE_MODES = {};
     const REVERSE_CATEGORIES = {};
 
+    /**
+     * Initialises bidirectional reverse lookup maps from the translation dictionaries.
+     * Pre-indexes lowercase and raw forms of Spanish/English titles, slots, modes, and categories
+     * to enable fast O(1) canonical resolution and cross-language translation on the canvas.
+     *
+     * @returns {void}
+     */
     function initReverseLookups() {
         const es = TRANSLATIONS.es || {};
         const en = TRANSLATIONS.en || {};
@@ -3159,6 +3194,14 @@
     }
     initReverseLookups();
 
+    /**
+     * Translates a LiteGraph node type or title to the current language.
+     * Strips namespace prefixes (e.g. "basics/Source" -> "Source") and leverages reverse lookup
+     * tables to maintain stable bilingual titles regardless of creation origin.
+     *
+     * @param {Object|string} nodeOrType - LiteGraph node instance or node type/title string.
+     * @returns {string} The localized node title.
+     */
     function getNodeTitle(nodeOrType) {
         if (!nodeOrType) return "";
         let typeOrTitle = typeof nodeOrType === "string" ? nodeOrType : (nodeOrType.title || nodeOrType.type || "");
@@ -3183,6 +3226,14 @@
         return clean;
     }
 
+    /**
+     * Translates a LiteGraph node input/output slot label to the current language.
+     * Supports colon preservation, numbered generic slots ("Entrada 1" <-> "In 1", "Salida 2" <-> "Out 2"),
+     * and bidirectional dictionary fallbacks.
+     *
+     * @param {string} slotText - Slot label string to translate.
+     * @returns {string} The localized slot label.
+     */
     function translateSlot(slotText) {
         if (!slotText || typeof slotText !== "string" || slotText.trim() === "") return slotText;
         const clean = slotText.trim();
@@ -3236,6 +3287,12 @@
         return slotText;
     }
 
+    /**
+     * Translates an execution or node mode string (e.g. combo widget values) to the current language.
+     *
+     * @param {string} modeText - Mode identifier or label.
+     * @returns {string} The localized mode label.
+     */
     function translateMode(modeText) {
         if (!modeText || typeof modeText !== "string" || modeText.trim() === "") return modeText;
         const clean = modeText.trim();
@@ -3255,6 +3312,12 @@
         return modeText;
     }
 
+    /**
+     * Translates a node category identifier into the current language for menus and sidebars.
+     *
+     * @param {string} category - Category identifier or name.
+     * @returns {string} The localized category label.
+     */
     function getCategoryTitle(category) {
         if (!category) return "";
         const clean = String(category).trim();
@@ -3274,6 +3337,12 @@
         return category;
     }
 
+    /**
+     * Retrieves the localized description for an ASS override tag.
+     *
+     * @param {string} tagKey - ASS tag identifier (e.g. "\\pos", "\\fscx").
+     * @returns {string} The localized description or empty string.
+     */
     function getTagDesc(tagKey) {
         if (!tagKey) return "";
         const clean = tagKey.replace(/^\\+/, "").toLowerCase();
@@ -3281,6 +3350,12 @@
         return t(key, null, "");
     }
 
+    /**
+     * Retrieves the localized description for a randomisation distribution mode.
+     *
+     * @param {string} randomKey - Random distribution mode identifier (e.g. "uniform", "gaussian").
+     * @returns {string} The localized description or empty string.
+     */
     function getRandomDesc(randomKey) {
         if (!randomKey) return "";
         const clean = randomKey.toLowerCase();
@@ -3288,6 +3363,12 @@
         return t(key, null, "");
     }
 
+    /**
+     * Formats and returns the localized badge text representing line application targets.
+     *
+     * @param {string} applyTo - Target scope filter string ("sel", "style", or "all").
+     * @returns {string} Localized badge text for the canvas badge overlay.
+     */
     function getOutputBadgeText(applyTo) {
         const val = String(applyTo || "").toLowerCase();
         if (val.includes("sel")) {
@@ -3300,22 +3381,46 @@
     }
     const getSalidaBadgeText = getOutputBadgeText;
 
+    /**
+     * Formats and returns the localized badge text for empty/blank line handling.
+     *
+     * @param {boolean} isNoBlank - True if empty/blank units are skipped; false if retained.
+     * @returns {string} Localized badge indicator.
+     */
     function getBlankBadgeText(isNoBlank) {
         return isNoBlank ? t("nodes.badges.no_blank") : t("nodes.badges.with_blank");
     }
 
+    /**
+     * Retrieves the localized placeholder title for alignment controls.
+     *
+     * @returns {string} Localized alignment title string.
+     */
     function getAlignTitle() {
         return t("nodes.placeholders.align");
     }
 
+    /**
+     * Scans and updates all internationalised DOM elements within the specified root container.
+     * Processes `data-i18n`, `data-i18n-tooltip`, `data-i18n-title`, `data-i18n-placeholder`,
+     * `data-i18n-aria-label`, and `data-i18n-alt` attributes, updating text and attributes reactively.
+     *
+     * @param {HTMLElement|Document} [root=document] - Root DOM node to query and update.
+     * @returns {void}
+     */
     function applyToDOM(root) {
         const container = root || document;
+
+        const v = (typeof window !== "undefined" && window.PYXIS_VERSION) || "1.1.4";
+        const stage = (typeof window !== "undefined" && window.PYXIS_STAGE) || "Beta";
+        const full = (typeof window !== "undefined" && window.PYXIS_FULL_VERSION) || (stage + " v" + v);
+        const defaultParams = { version: v, stage: stage, full_version: full };
 
         // 1. Direct text
         container.querySelectorAll("[data-i18n]").forEach(el => {
             const key = el.getAttribute("data-i18n");
             if (key) {
-                el.textContent = t(key);
+                el.textContent = t(key, defaultParams);
             }
         });
 
@@ -3323,7 +3428,7 @@
         container.querySelectorAll("[data-i18n-tooltip]").forEach(el => {
             const key = el.getAttribute("data-i18n-tooltip");
             if (key) {
-                el.setAttribute("data-tooltip", t(key));
+                el.setAttribute("data-tooltip", t(key, defaultParams));
             }
         });
 
@@ -3331,7 +3436,7 @@
         container.querySelectorAll("[data-i18n-title]").forEach(el => {
             const key = el.getAttribute("data-i18n-title");
             if (key) {
-                el.setAttribute("title", t(key));
+                el.setAttribute("title", t(key, defaultParams));
             }
         });
 
@@ -3339,7 +3444,7 @@
         container.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
             const key = el.getAttribute("data-i18n-placeholder");
             if (key) {
-                el.setAttribute("placeholder", t(key));
+                el.setAttribute("placeholder", t(key, defaultParams));
             }
         });
 
@@ -3347,7 +3452,7 @@
         container.querySelectorAll("[data-i18n-aria-label]").forEach(el => {
             const key = el.getAttribute("data-i18n-aria-label");
             if (key) {
-                el.setAttribute("aria-label", t(key));
+                el.setAttribute("aria-label", t(key, defaultParams));
             }
         });
 
@@ -3355,8 +3460,22 @@
         container.querySelectorAll("[data-i18n-alt]").forEach(el => {
             const key = el.getAttribute("data-i18n-alt");
             if (key) {
-                el.setAttribute("alt", t(key));
+                el.setAttribute("alt", t(key, defaultParams));
             }
+        });
+
+        // 7. Dynamic version badges
+        container.querySelectorAll("[data-pyxis-v-string], .brand-badge").forEach(el => {
+            el.textContent = "v" + v;
+        });
+        container.querySelectorAll("[data-pyxis-full-version], .pyxis-bug-badge").forEach(el => {
+            el.textContent = full;
+        });
+        container.querySelectorAll("[data-pyxis-accent-badge], .pyxis-com-badge.pyxis-com-badge-accent").forEach(el => {
+            el.textContent = stage.toUpperCase() + " " + v;
+        });
+        container.querySelectorAll("[data-pyxis-protocol-badge], .pyxis-community-protocol").forEach(el => {
+            el.textContent = "SECURE LINK PROTOCOL // COMMUNITY & BETATESTING // V" + v;
         });
 
         // Update settings modal language toggle if exists
@@ -3374,6 +3493,17 @@
         }
     }
 
+    /**
+     * Switches the active application language between 'es' and 'en'.
+     * Updates HTML lang attribute, re-evaluates all DOM nodes, dispatches `pyxis:languageChanged`,
+     * flags LiteGraph canvas as dirty for immediate redraw, and synchronises choice with LocalStorage
+     * and Python pywebview configuration backend.
+     *
+     * @async
+     * @param {string} lang - Target ISO 639-1 language code ('es' or 'en').
+     * @param {boolean} [persist=true] - Whether to persist the selection in LocalStorage and user_config.
+     * @returns {Promise<void>}
+     */
     async function setLanguage(lang, persist = true) {
         if (lang !== "es" && lang !== "en") return;
         currentLanguage = lang;
@@ -3408,6 +3538,11 @@
         }
     }
 
+    /**
+     * Toggles the active language between Spanish ('es') and English ('en') with user feedback toast.
+     *
+     * @returns {void}
+     */
     function toggleLanguage() {
         const next = currentLanguage === "es" ? "en" : "es";
         setLanguage(next, true);
@@ -3417,6 +3552,10 @@
         }
     }
 
+    /**
+     * Public internationalisation API namespace exposed on `window.PyxisI18n`.
+     * @namespace PyxisI18n
+     */
     const PyxisI18n = {
         get currentLang() { return currentLanguage; },
         t: t,

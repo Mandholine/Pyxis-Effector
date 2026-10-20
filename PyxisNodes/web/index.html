@@ -45,6 +45,8 @@
     <link rel="stylesheet" type="text/css" href="pyxis_ui.css">
     <link rel="stylesheet" type="text/css" href="libs/katex/katex.min.css">
     <script type="text/javascript" src="litegraph.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='litegraph.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
+    <script type="text/javascript" src="command_manager.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='command_manager.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
+    <script type="text/javascript" src="version.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='version.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
     <script type="text/javascript" src="i18n.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='i18n.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
     <script type="text/javascript" src="theme_manager.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='theme_manager.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
     <script type="text/javascript" src="libs/artplayer/artplayer.js" onerror="this.onerror=null;setTimeout(()=>{const s=document.createElement('script');s.src='libs/artplayer/artplayer.js?r='+Date.now();document.head.appendChild(s);},150);"></script>
@@ -195,7 +197,7 @@
         </div>
     </div>
 
-    <!-- Pyxis Bug Report Modal (Beta 1.1.4) -->
+    <!-- Pyxis Bug Report Modal -->
     <div id="pyxis-bug-report-modal" class="pyxis-modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="pyxis-bug-title">
         <div class="pyxis-bug-card">
             <!-- Header -->
@@ -210,11 +212,11 @@
                     </div>
                     <div>
                         <div class="pyxis-bug-title" id="pyxis-bug-title" data-i18n="bug_report.title">Reportar un problema</div>
-                        <div class="pyxis-bug-subtitle" data-i18n="bug_report.subtitle">Pyxis Effector Beta v1.1.4 — Canal de Feedback</div>
+                        <div class="pyxis-bug-subtitle" data-i18n="bug_report.subtitle">Pyxis Effector — Canal de Feedback</div>
                     </div>
                 </div>
                 <div class="pyxis-bug-header-right">
-                    <span class="pyxis-bug-badge">Beta v1.1.4</span>
+                    <span class="pyxis-bug-badge" data-pyxis-full-version>Beta v1.1.4</span>
                     <button class="pyxis-bug-close-btn" type="button" onclick="if(window.PyxisBugReport) window.PyxisBugReport.close();" aria-label="Close">
                         <svg class="svg-icon" viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </button>
@@ -320,7 +322,7 @@
                 <h2 id="pyxis-com-title" class="pyxis-community-title" data-i18n="community.title">Pyxis Effector</h2>
                 <p class="pyxis-community-subtitle" data-i18n="community.subtitle">Visual Node-Based Karaoke Automation Engine for Aegisub</p>
                 <div class="pyxis-community-badges">
-                    <span class="pyxis-com-badge pyxis-com-badge-accent">BETA 1.1.4</span>
+                    <span class="pyxis-com-badge pyxis-com-badge-accent" data-pyxis-accent-badge>BETA 1.1.4</span>
                     <span class="pyxis-com-badge">AUTOMATION 4</span>
                     <span class="pyxis-com-badge">GPL-3.0</span>
                     <span class="pyxis-com-badge">PYTHON 3.11</span>
@@ -419,7 +421,7 @@
 
             <!-- Footer Strip -->
             <div class="pyxis-community-footer">
-                <span class="pyxis-community-protocol">SECURE LINK PROTOCOL // COMMUNITY & BETATESTING // V1.1.4</span>
+                <span class="pyxis-community-protocol" data-pyxis-protocol-badge>SECURE LINK PROTOCOL // COMMUNITY & BETATESTING // V1.1.4</span>
             </div>
         </div>
     </div>
@@ -641,7 +643,7 @@
                 <img src="icon.png" class="brand-icon" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover;">
                 <span>PYXIS EFFECTOR</span>
             </div>
-            <span class="brand-badge">v1.1.4</span>
+            <span class="brand-badge" data-pyxis-v-string>v1.1.4</span>
 
             
             <button class="pyxis-btn" id="btn-save-main" onclick="triggerSave()" data-i18n-tooltip="topbar.save_tooltip" data-tooltip="Save changes to active template">
@@ -670,7 +672,7 @@
                     <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
                 </svg>
             </button>
-            <button class="pyxis-btn pyxis-btn-icon" id="btn-bug-report" onclick="if(window.PyxisBugReport) window.PyxisBugReport.open();" data-i18n-tooltip="bug_report.button_tooltip" data-tooltip="Report an issue (Beta 1.1.4)" aria-label="Report Issue">
+            <button class="pyxis-btn pyxis-btn-icon" id="btn-bug-report" onclick="if(window.PyxisBugReport) window.PyxisBugReport.open();" data-i18n-tooltip="bug_report.button_tooltip" data-tooltip="Report an issue" aria-label="Report Issue">
                 <svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
                     <line x1="12" y1="9" x2="12" y2="13"/>
@@ -753,10 +755,10 @@
         <div id="pyxis-canvas-players-layer"></div>
         <canvas id="node_canvas_fg"></canvas>
         <div class="pyxis-canvas-toolbar">
-            <button class="pyxis-tb-btn disabled" id="btn-tb-undo" onclick="window.PyxisUndoManager && window.PyxisUndoManager.undo()" data-i18n-tooltip="toolbar.undo" data-tooltip="Undo (Ctrl+Z)" disabled>
+            <button class="pyxis-tb-btn disabled" id="btn-tb-undo" onmousedown="event.preventDefault();" onclick="window.PyxisUndoManager && window.PyxisUndoManager.undo()" data-i18n-tooltip="toolbar.undo" data-tooltip="Undo (Ctrl+Z)" disabled>
                 <svg class="svg-icon" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
             </button>
-            <button class="pyxis-tb-btn disabled" id="btn-tb-redo" onclick="window.PyxisUndoManager && window.PyxisUndoManager.redo()" data-i18n-tooltip="toolbar.redo" data-tooltip="Redo (Ctrl+Y)" disabled>
+            <button class="pyxis-tb-btn disabled" id="btn-tb-redo" onmousedown="event.preventDefault();" onclick="window.PyxisUndoManager && window.PyxisUndoManager.redo()" data-i18n-tooltip="toolbar.redo" data-tooltip="Redo (Ctrl+Y)" disabled>
                 <svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
             </button>
             <div class="pyxis-tb-divider"></div>
@@ -777,6 +779,16 @@
     </div>
 
     <script>
+        /**
+         * @file index.html (Main Frontend Controller & LiteGraph Canvas Integration)
+         * @description Core graphical orchestrator for Pyxis Effector.
+         * Integrates LiteGraph.js Canvas2D graph editor, WebSocket / PyWebView IPC bridge,
+         * Ace Editor with context-aware autocompleter (getPyxisCodeCompleter), syntax linter,
+         * inline node widgets, telemetric HUD, and high-performance WASM video previewing.
+         * @module PyxisFrontendCanvas
+         * @author Pyxis Effector Team
+         * @license GPL-3.0-or-later
+         */
         /* =============================================================================
            ESTÁNDAR DE CAPAS Y JERARQUÍA Z-INDEX (UI STACKING ARCHITECTURE)
            =============================================================================
@@ -1148,390 +1160,20 @@
         });
 
         (function () {
-            const DEFAULT_MAX_STEPS = 30;
-
-            function getMaxSteps() {
-                const stored = localStorage.getItem("pyxis_undo_max_steps");
-                if (stored) {
-                    const parsed = parseInt(stored, 10);
-                    if (!isNaN(parsed) && parsed >= 5 && parsed <= 200) {
-                        return parsed;
+            // Re-export canonicalize in window scope for compatibility and determinism
+            window.canonicalize = window.canonicalize || function(obj) {
+                if (obj === null || typeof obj !== "object") return obj;
+                if (Array.isArray(obj)) return obj.map(window.canonicalize);
+                const sortedKeys = Object.keys(obj).sort();
+                const result = {};
+                for (let i = 0; i < sortedKeys.length; i++) {
+                    const key = sortedKeys[i];
+                    if (key === "viewport_zoom" || key === "viewport_pan_x" || key === "viewport_pan_y" || key === "viewport_custom") {
+                        continue;
                     }
+                    result[key] = window.canonicalize(obj[key]);
                 }
-                return DEFAULT_MAX_STEPS;
-            }
-
-            function setMaxSteps(val) {
-                const num = Math.min(Math.max(parseInt(val, 10) || DEFAULT_MAX_STEPS, 5), 200);
-                localStorage.setItem("pyxis_undo_max_steps", num);
-                cleanHistory();
-                updateUI();
-                return num;
-            }
-
-            const history = [];
-            let pointer = -1;
-            let isExecuting = false;
-            let batchTimer = null;
-            let isDraggingCanvas = false;
-            let _cooldownUntil = 0;
-            let _sideEffectsTimer = null;
-            let _lastToastTime = 0;
-
-            function cleanHistory() {
-                const max = getMaxSteps();
-                while (history.length > max) {
-                    history.shift();
-                    pointer--;
-                }
-                if (pointer < 0 && history.length > 0) pointer = 0;
-            }
-
-            function sanitizeGraphForUndo(serialized) {
-                if (!serialized || !Array.isArray(serialized.nodes)) return serialized;
-                try {
-                    const cloned = JSON.parse(JSON.stringify(serialized));
-                    if (Array.isArray(cloned.nodes)) {
-                        for (let i = 0; i < cloned.nodes.length; i++) {
-                            const node = cloned.nodes[i];
-                            if (node && node.properties) {
-                                delete node.properties.viewport_zoom;
-                                delete node.properties.viewport_pan_x;
-                                delete node.properties.viewport_pan_y;
-                                delete node.properties.viewport_custom;
-                            }
-                        }
-                    }
-                    return cloned;
-                } catch (e) {
-                    return serialized;
-                }
-            }
-
-            function getSnapshot() {
-                if (!window.graph || typeof window.graph.serialize !== "function") return null;
-                if (typeof window.syncWidgetsToProperties === "function") {
-                    window.syncWidgetsToProperties();
-                }
-                try {
-                    const raw = window.graph.serialize();
-                    const sanitized = sanitizeGraphForUndo(raw);
-                    return JSON.stringify(sanitized);
-                } catch (e) {
-                    return null;
-                }
-            }
-
-            function updateUI() {
-                const btnUndo = document.getElementById("btn-tb-undo");
-                const btnRedo = document.getElementById("btn-tb-redo");
-
-                const undoPossible = canUndo();
-                const redoPossible = canRedo();
-
-                if (btnUndo) {
-                    btnUndo.disabled = !undoPossible;
-                    if (undoPossible) {
-                        btnUndo.classList.remove("disabled");
-                    } else {
-                        btnUndo.classList.add("disabled");
-                    }
-                }
-
-                if (btnRedo) {
-                    btnRedo.disabled = !redoPossible;
-                    if (redoPossible) {
-                        btnRedo.classList.remove("disabled");
-                    } else {
-                        btnRedo.classList.add("disabled");
-                    }
-                }
-            }
-
-            function canUndo() {
-                return pointer > 0;
-            }
-
-            function canRedo() {
-                return pointer >= 0 && pointer < history.length - 1;
-            }
-
-            function flushPendingState() {
-                if (batchTimer) {
-                    clearTimeout(batchTimer);
-                    batchTimer = null;
-                    if (pointer === history.length - 1) {
-                        const currentSnap = getSnapshot();
-                        if (currentSnap && (pointer < 0 || history[pointer] !== currentSnap)) {
-                            history.push(currentSnap);
-                            pointer = history.length - 1;
-                            cleanHistory();
-                        }
-                    }
-                }
-            }
-
-            function scheduleDeferredSideEffects(delayMs = 300) {
-                if (_sideEffectsTimer) {
-                    clearTimeout(_sideEffectsTimer);
-                    _sideEffectsTimer = null;
-                }
-                _sideEffectsTimer = setTimeout(() => {
-                    _sideEffectsTimer = null;
-                    if (typeof window.updateTemplateUIState === "function") {
-                        window.updateTemplateUIState();
-                    }
-                    if (typeof window.__pyxis_schedule_save === "function") {
-                        window.__pyxis_schedule_save(50);
-                    }
-                    if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.updateInNodePlayersPosition === "function") {
-                        window.PyxisNodePlayerManager.updateInNodePlayersPosition();
-                    }
-                }, delayMs);
-            }
-
-            function showThrottledToast(key, type = "success") {
-                const now = Date.now();
-                if (now - _lastToastTime > 300) {
-                    _lastToastTime = now;
-                    if (typeof window.showPyxisToast === "function") {
-                        window.showPyxisToast(key, type);
-                    }
-                }
-            }
-
-            function recordState(reason) {
-                if (isExecuting || window.__pyxis_is_loading_template || window.__pyxis_is_preview_or_hardsub_running || !window.graph) return;
-                if (Date.now() < _cooldownUntil) return;
-
-                const currentSnap = getSnapshot();
-                if (!currentSnap) return;
-
-                if (pointer >= 0 && history[pointer] === currentSnap) {
-                    updateUI();
-                    if (typeof window.updateTemplateUIState === "function") {
-                        window.updateTemplateUIState();
-                    }
-                    return;
-                }
-
-                if (pointer < history.length - 1) {
-                    history.splice(pointer + 1);
-                }
-
-                history.push(currentSnap);
-                pointer = history.length - 1;
-                cleanHistory();
-                updateUI();
-
-                if (typeof window.updateTemplateUIState === "function") {
-                    window.updateTemplateUIState();
-                }
-
-                if (typeof window.__pyxis_schedule_save === "function") {
-                    window.__pyxis_schedule_save(50);
-                }
-            }
-
-            function scheduleRecordState(delayMs = 120) {
-                if (isExecuting || window.__pyxis_is_loading_template || window.__pyxis_is_preview_or_hardsub_running) return;
-                if (isDraggingCanvas) return;
-                if (Date.now() < _cooldownUntil) return;
-
-                if (batchTimer) clearTimeout(batchTimer);
-                batchTimer = setTimeout(() => {
-                    batchTimer = null;
-                    recordState("coalesced");
-                }, delayMs);
-            }
-
-            function initInitialState() {
-                history.length = 0;
-                pointer = -1;
-                _cooldownUntil = 0;
-                if (batchTimer) {
-                    clearTimeout(batchTimer);
-                    batchTimer = null;
-                }
-                if (_sideEffectsTimer) {
-                    clearTimeout(_sideEffectsTimer);
-                    _sideEffectsTimer = null;
-                }
-                const initial = getSnapshot();
-                if (initial) {
-                    history.push(initial);
-                    pointer = 0;
-                }
-                updateUI();
-                if (typeof window.updateTemplateUIState === "function") {
-                    window.updateTemplateUIState();
-                }
-            }
-
-            function undo() {
-                if (isExecuting) return;
-
-                if (typeof closeAllActiveNodeEditors === "function") {
-                    try { closeAllActiveNodeEditors(false); } catch (e) {}
-                }
-
-                flushPendingState();
-
-                if (!canUndo()) {
-                    showThrottledToast("toast.nothing_to_undo", "warning");
-                    updateUI();
-                    return;
-                }
-
-                isExecuting = true;
-                try {
-                    // Capture current player viewport states before re-configuring graph on undo
-                    const currentViewports = {};
-                    if (window.graph && Array.isArray(window.graph._nodes)) {
-                        window.graph._nodes.forEach(n => {
-                            if (n && n.properties && (n.properties.viewport_zoom !== undefined || n.properties.viewport_pan_x !== undefined || n.properties.viewport_custom !== undefined)) {
-                                currentViewports[n.id] = {
-                                    viewport_zoom: n.properties.viewport_zoom,
-                                    viewport_pan_x: n.properties.viewport_pan_x,
-                                    viewport_pan_y: n.properties.viewport_pan_y,
-                                    viewport_custom: n.properties.viewport_custom
-                                };
-                            }
-                        });
-                    }
-
-                    pointer--;
-                    const targetSnap = history[pointer];
-                    const parsed = JSON.parse(targetSnap);
-                    if (window.canvas && typeof window.canvas.deselectAllNodes === "function") {
-                        window.canvas.deselectAllNodes();
-                    }
-                    window.graph.configure(parsed);
-
-                    // Re-apply viewport properties so undo does not alter user's current live zoom/pan
-                    if (window.graph && Array.isArray(window.graph._nodes)) {
-                        window.graph._nodes.forEach(n => {
-                            if (n && currentViewports[n.id]) {
-                                Object.assign(n.properties, currentViewports[n.id]);
-                            }
-                        });
-                    }
-
-                    if (typeof window.syncWidgetsToProperties === "function") {
-                        window.syncWidgetsToProperties();
-                    }
-                    if (window.canvas) window.canvas.setDirty(true, true);
-                    if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.updateInNodePlayersPosition === "function") {
-                        window.PyxisNodePlayerManager.updateInNodePlayersPosition();
-                    }
-
-                    _cooldownUntil = Date.now() + 500;
-                    scheduleDeferredSideEffects(300);
-                    showThrottledToast("toast.undone", "success");
-                } catch (e) {
-                    console.error("Pyxis: Error undoing", e);
-                } finally {
-                    isExecuting = false;
-                    updateUI();
-                }
-            }
-
-            function redo() {
-                if (isExecuting) return;
-
-                if (typeof closeAllActiveNodeEditors === "function") {
-                    try { closeAllActiveNodeEditors(false); } catch (e) {}
-                }
-
-                if (batchTimer) {
-                    clearTimeout(batchTimer);
-                    batchTimer = null;
-                }
-
-                if (!canRedo()) {
-                    showThrottledToast("toast.nothing_to_redo", "warning");
-                    updateUI();
-                    return;
-                }
-
-                isExecuting = true;
-                try {
-                    // Capture current player viewport states before re-configuring graph on redo
-                    const currentViewports = {};
-                    if (window.graph && Array.isArray(window.graph._nodes)) {
-                        window.graph._nodes.forEach(n => {
-                            if (n && n.properties && (n.properties.viewport_zoom !== undefined || n.properties.viewport_pan_x !== undefined || n.properties.viewport_custom !== undefined)) {
-                                currentViewports[n.id] = {
-                                    viewport_zoom: n.properties.viewport_zoom,
-                                    viewport_pan_x: n.properties.viewport_pan_x,
-                                    viewport_pan_y: n.properties.viewport_pan_y,
-                                    viewport_custom: n.properties.viewport_custom
-                                };
-                            }
-                        });
-                    }
-
-                    pointer++;
-                    const targetSnap = history[pointer];
-                    const parsed = JSON.parse(targetSnap);
-                    if (window.canvas && typeof window.canvas.deselectAllNodes === "function") {
-                        window.canvas.deselectAllNodes();
-                    }
-                    window.graph.configure(parsed);
-
-                    // Re-apply viewport properties so redo does not alter user's current live zoom/pan
-                    if (window.graph && Array.isArray(window.graph._nodes)) {
-                        window.graph._nodes.forEach(n => {
-                            if (n && currentViewports[n.id]) {
-                                Object.assign(n.properties, currentViewports[n.id]);
-                            }
-                        });
-                    }
-
-                    if (typeof window.syncWidgetsToProperties === "function") {
-                        window.syncWidgetsToProperties();
-                    }
-                    if (window.canvas) window.canvas.setDirty(true, true);
-                    if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.updateInNodePlayersPosition === "function") {
-                        window.PyxisNodePlayerManager.updateInNodePlayersPosition();
-                    }
-
-                    _cooldownUntil = Date.now() + 500;
-                    scheduleDeferredSideEffects(300);
-                    showThrottledToast("toast.redone", "success");
-                } catch (e) {
-                    console.error("Pyxis: Error redoing", e);
-                } finally {
-                    isExecuting = false;
-                    updateUI();
-                }
-            }
-
-            window.PyxisUndoManager = {
-                getMaxSteps: getMaxSteps,
-                setMaxSteps: setMaxSteps,
-                initInitialState: initInitialState,
-                flushPendingState: flushPendingState,
-                pushSnapshot: function(overrideSnap) {
-                    if (overrideSnap) {
-                        if (pointer < history.length - 1) history.splice(pointer + 1);
-                        history.push(overrideSnap);
-                        pointer = history.length - 1;
-                        cleanHistory();
-                        updateUI();
-                    } else {
-                        recordState("pushSnapshot");
-                    }
-                },
-                recordState: recordState,
-                scheduleRecordState: scheduleRecordState,
-                captureBeforeState: function() { /* Compatibility stub */ },
-                undo: undo,
-                redo: redo,
-                canUndo: canUndo,
-                canRedo: canRedo,
-                updateUI: updateUI,
-                clear: () => { history.length = 0; pointer = -1; _cooldownUntil = 0; if (_sideEffectsTimer) { clearTimeout(_sideEffectsTimer); _sideEffectsTimer = null; } updateUI(); }
+                return result;
             };
 
             const closeContextMenusIfOutside = (e) => {
@@ -1549,25 +1191,6 @@
                     window.LiteGraph.closeAllContextMenus();
                 }
             });
-
-            window.addEventListener("mousedown", (e) => {
-                const target = e.target;
-                if (target && target.tagName === "CANVAS") {
-                    isDraggingCanvas = true;
-                }
-            }, true);
-
-            window.addEventListener("mouseup", () => {
-                if (isDraggingCanvas) {
-                    isDraggingCanvas = false;
-                }
-            }, true);
-
-            window.addEventListener("touchend", () => {
-                if (isDraggingCanvas) {
-                    isDraggingCanvas = false;
-                }
-            }, true);
 
             window.addEventListener("keydown", function (e) {
                 const isCtrl = e.ctrlKey || e.metaKey;
@@ -1587,6 +1210,12 @@
                     (target.classList && target.classList.contains("ace_text-input"))
                 );
 
+                // If user is currently typing in an input/textarea, do NOT intercept graph undo/redo!
+                // Let the browser/input handle its native text editing undo.
+                if (isTyping) {
+                    return;
+                }
+
                 const isAnyModalOpen = () => {
                     const modals = document.querySelectorAll(".pyxis-template-overlay, .pyxis-settings-overlay, .pyxis-modal-overlay, .pyxis-theme-settings-overlay, .pyxis-mesh-picker-overlay");
                     for (let i = 0; i < modals.length; i++) {
@@ -1598,13 +1227,7 @@
                     return false;
                 };
 
-                const modalOpen = isAnyModalOpen();
-
-                if (isTyping && (modalOpen || (target.classList && target.classList.contains("ace_text-input")))) {
-                    return;
-                }
-
-                if (modalOpen) return;
+                if (isAnyModalOpen()) return;
 
                 e.preventDefault();
                 e.stopPropagation();
@@ -1612,20 +1235,61 @@
                     e.stopImmediatePropagation();
                 }
 
-                if (isZ) {
-                    if (e.shiftKey) {
-                        redo();
-                    } else {
-                        undo();
+                if (window.pyxisCommandManager) {
+                    if (isZ) {
+                        if (e.shiftKey) {
+                            window.pyxisCommandManager.redo();
+                        } else {
+                            window.pyxisCommandManager.undo();
+                        }
+                    } else if (isY) {
+                        window.pyxisCommandManager.redo();
                     }
-                } else if (isY) {
-                    redo();
                 }
             }, true);
         })();
 
+        // --- Hooking Granular Command Pattern with LiteGraph ---
+        const nodeDragStartPositions = new Map();
+
+        if (canvas && canvas.canvas) {
+            canvas.canvas.addEventListener("pointerdown", function(e) {
+                nodeDragStartPositions.clear();
+                if (graph && Array.isArray(graph._nodes)) {
+                    graph._nodes.forEach(n => {
+                        if (n && n.pos) {
+                            nodeDragStartPositions.set(n.id, [n.pos[0], n.pos[1]]);
+                        }
+                    });
+                }
+            }, true);
+        }
+
         canvas.onNodeMoved = function(node) {
-            if (window.PyxisUndoManager) window.PyxisUndoManager.scheduleRecordState(120);
+            if (window.__pyxis_is_restoring_state || (window.PyxisUndoManager && window.PyxisUndoManager.isExecuting())) return;
+            
+            const moves = [];
+            if (graph && Array.isArray(graph._nodes) && nodeDragStartPositions.size > 0) {
+                graph._nodes.forEach(n => {
+                    const startPos = nodeDragStartPositions.get(n.id);
+                    if (startPos && (startPos[0] !== n.pos[0] || startPos[1] !== n.pos[1])) {
+                        moves.push({
+                            id: n.id,
+                            from: [startPos[0], startPos[1]],
+                            to: [n.pos[0], n.pos[1]]
+                        });
+                        nodeDragStartPositions.set(n.id, [n.pos[0], n.pos[1]]);
+                    }
+                });
+            }
+
+            if (moves.length > 0 && window.pyxisCommandManager && window.MoveNodesCommand) {
+                const nodeDesc = node ? (node.title || node.type || `#${node.id}`) : "node";
+                const desc = moves.length === 1 ? `move-node: ${nodeDesc}` : `move ${moves.length} nodes`;
+                const cmd = new window.MoveNodesCommand(moves, desc);
+                window.pyxisCommandManager.execute(cmd, true);
+            }
+
             if (typeof window.updateTemplateUIState === "function") {
                 window.updateTemplateUIState();
             }
@@ -1638,7 +1302,8 @@
 
         const origGraphChange = graph.change;
         graph.change = function() {
-            if (window.PyxisUndoManager) window.PyxisUndoManager.scheduleRecordState(100);
+            // Note: Camera navigation, pan, and zoom trigger graph.change() internally in LiteGraph.
+            // We strictly DO NOT record undo states here to prevent viewport movements from polluting history!
             if (origGraphChange) origGraphChange.apply(this, arguments);
             if (typeof window.updateTemplateUIState === "function") {
                 window.updateTemplateUIState();
@@ -1648,44 +1313,126 @@
         const origOnNodeAdded = graph.onNodeAdded;
         graph.onNodeAdded = function(node) {
             if (origOnNodeAdded) origOnNodeAdded.apply(this, arguments);
-            if (window.PyxisUndoManager) window.PyxisUndoManager.scheduleRecordState(50);
+            if (!window.__pyxis_is_restoring_state && !window.__pyxis_is_loading_template && !window.__pyxis_is_pasting && !(window.PyxisUndoManager && window.PyxisUndoManager.isExecuting())) {
+                if (window.pyxisCommandManager && window.AddNodeCommand && node) {
+                    const nodeDesc = node.title || node.type || `#${node.id}`;
+                    const cmd = new window.AddNodeCommand(node, `add-node: ${nodeDesc}`);
+                    window.pyxisCommandManager.execute(cmd, true);
+                }
+                if (typeof window.updateTemplateUIState === "function") {
+                    setTimeout(window.updateTemplateUIState, 50);
+                }
+            }
+        };
+
+        const origDeleteSelectedNodes = canvas.deleteSelectedNodes;
+        canvas.deleteSelectedNodes = function() {
+            if (window.__pyxis_is_restoring_state || (window.PyxisUndoManager && window.PyxisUndoManager.isExecuting()) || window.__pyxis_is_loading_template) {
+                return origDeleteSelectedNodes.apply(this, arguments);
+            }
+
+            const nodesToDelete = [];
+            for (const id in this.selected_nodes) {
+                const n = this.selected_nodes[id];
+                if (n && !n.block_delete) {
+                    nodesToDelete.push(n);
+                }
+            }
+
+            if (nodesToDelete.length === 0) {
+                return origDeleteSelectedNodes.apply(this, arguments);
+            }
+
+            const cmd = (window.pyxisCommandManager && window.RemoveNodesCommand) ? new window.RemoveNodesCommand(nodesToDelete) : null;
+            window.__pyxis_batch_removing = true;
+            try {
+                origDeleteSelectedNodes.apply(this, arguments);
+            } finally {
+                window.__pyxis_batch_removing = false;
+            }
+
+            if (cmd && window.pyxisCommandManager) {
+                window.pyxisCommandManager.execute(cmd, true);
+            }
             if (typeof window.updateTemplateUIState === "function") {
                 setTimeout(window.updateTemplateUIState, 50);
             }
         };
 
-        const origOnNodeRemoved = graph.onNodeRemoved;
-        graph.onNodeRemoved = function(node) {
-            if (origOnNodeRemoved) origOnNodeRemoved.apply(this, arguments);
-            if (window.PyxisUndoManager) window.PyxisUndoManager.scheduleRecordState(50);
+        const origGraphRemove = graph.remove;
+        graph.remove = function(node) {
+            if (window.__pyxis_is_restoring_state || (window.PyxisUndoManager && window.PyxisUndoManager.isExecuting()) || window.__pyxis_is_loading_template || window.__pyxis_batch_removing) {
+                return origGraphRemove.apply(this, arguments);
+            }
+
+            const cmd = (node && window.pyxisCommandManager && window.RemoveNodesCommand) ? new window.RemoveNodesCommand(node) : null;
+            const res = origGraphRemove.apply(this, arguments);
+            if (cmd && window.pyxisCommandManager) {
+                window.pyxisCommandManager.execute(cmd, true);
+            }
             if (typeof window.updateTemplateUIState === "function") {
                 setTimeout(window.updateTemplateUIState, 50);
             }
+            return res;
         };
 
-        const origOnNodeConnectionChange = graph.onNodeConnectionChange;
-        graph.onNodeConnectionChange = function() {
-            if (origOnNodeConnectionChange) origOnNodeConnectionChange.apply(this, arguments);
-            if (window.PyxisUndoManager) window.PyxisUndoManager.scheduleRecordState(50);
-            if (typeof window.updateTemplateUIState === "function") {
-                setTimeout(window.updateTemplateUIState, 50);
+        const origNodeConnect = LiteGraph.LGraphNode.prototype.connect;
+        LiteGraph.LGraphNode.prototype.connect = function(slot, target_node, target_slot) {
+            const res = origNodeConnect.apply(this, arguments);
+            if (res && !window.__pyxis_is_restoring_state && !window.__pyxis_is_loading_template && !window.__pyxis_is_pasting && !(window.PyxisUndoManager && window.PyxisUndoManager.isExecuting())) {
+                const targetId = (typeof target_node === "object" && target_node) ? target_node.id : target_node;
+                if (window.pyxisCommandManager && window.ConnectLinkCommand) {
+                    const cmd = new window.ConnectLinkCommand(this.id, slot, targetId, target_slot, res.id);
+                    window.pyxisCommandManager.execute(cmd, true);
+                }
+                if (typeof window.updateTemplateUIState === "function") {
+                    setTimeout(window.updateTemplateUIState, 50);
+                }
             }
+            return res;
         };
 
-        const origOnConnectionChange = graph.onConnectionChange;
-        graph.onConnectionChange = function() {
-            if (origOnConnectionChange) origOnConnectionChange.apply(this, arguments);
-            if (window.PyxisUndoManager) window.PyxisUndoManager.scheduleRecordState(50);
-            if (typeof window.updateTemplateUIState === "function") {
-                setTimeout(window.updateTemplateUIState, 50);
+        const origNodeDisconnectInput = LiteGraph.LGraphNode.prototype.disconnectInput;
+        LiteGraph.LGraphNode.prototype.disconnectInput = function(slot) {
+            if (window.__pyxis_is_restoring_state || window.__pyxis_is_loading_template || (window.PyxisUndoManager && window.PyxisUndoManager.isExecuting()) || window.__pyxis_batch_removing) {
+                return origNodeDisconnectInput.apply(this, arguments);
             }
+
+            let linkInfo = null;
+            if (this.inputs && this.inputs[slot] && this.graph && this.graph.links) {
+                const lId = this.inputs[slot].link;
+                if (lId != null) {
+                    linkInfo = this.graph.links[lId];
+                }
+            }
+
+            const res = origNodeDisconnectInput.apply(this, arguments);
+            if (res && linkInfo && window.pyxisCommandManager && window.DisconnectLinkCommand) {
+                const cmd = new window.DisconnectLinkCommand(linkInfo.origin_id, linkInfo.origin_slot, linkInfo.target_id, linkInfo.target_slot, linkInfo.id);
+                window.pyxisCommandManager.execute(cmd, true);
+                if (typeof window.updateTemplateUIState === "function") {
+                    setTimeout(window.updateTemplateUIState, 50);
+                }
+            }
+            return res;
         };
 
         const origPasteFromClipboard = canvas.pasteFromClipboard;
         if (origPasteFromClipboard) {
             canvas.pasteFromClipboard = function() {
-                const res = origPasteFromClipboard.apply(this, arguments);
-                if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("paste");
+                const beforeSnap = (typeof window.getSafeSnapshot === "function") ? window.getSafeSnapshot() : null;
+                window.__pyxis_is_pasting = true;
+                let res;
+                try {
+                    res = origPasteFromClipboard.apply(this, arguments);
+                } finally {
+                    window.__pyxis_is_pasting = false;
+                }
+                const afterSnap = (typeof window.getSafeSnapshot === "function") ? window.getSafeSnapshot() : null;
+                if (beforeSnap && afterSnap && beforeSnap !== afterSnap && window.pyxisCommandManager && window.FallbackSnapshotCommand) {
+                    const cmd = new window.FallbackSnapshotCommand(beforeSnap, afterSnap, "paste");
+                    window.pyxisCommandManager.execute(cmd, true);
+                }
                 if (typeof window.updateTemplateUIState === "function") {
                     setTimeout(window.updateTemplateUIState, 50);
                 }
@@ -1711,25 +1458,35 @@
 
             const multiLine = document.getElementById("pyxis-inline-textarea-overlay");
             if (multiLine && multiLine.style.display !== "none") {
+                multiLine.onkeydown = null;
+                multiLine.onblur = null;
+                multiLine.oninput = null;
                 if (save && typeof multiLine._finish === "function") {
                     try { multiLine._finish(true); } catch(e) {}
                 } else {
                     multiLine.style.display = "none";
-                    multiLine.onkeydown = null;
-                    multiLine.onblur = null;
-                    multiLine.oninput = null;
                     multiLine._finish = null;
                 }
             }
 
             const singleLine = document.getElementById("pyxis-inline-text-editor");
             if (singleLine) {
+                singleLine.onblur = null;
+                singleLine.onkeydown = null;
+                singleLine.oninput = null;
                 if (save && typeof singleLine._saveAndClose === "function") {
                     try { singleLine._saveAndClose(); } catch(e) {}
-                } else if (save) {
-                    try { singleLine.blur(); } catch(e) {}
                 } else {
                     if (singleLine.parentNode) singleLine.parentNode.removeChild(singleLine);
+                }
+            }
+
+            const varsEditor = document.getElementById("pyxis-inline-vars-editor-container");
+            if (varsEditor) {
+                if (typeof varsEditor._saveAndClose === "function") {
+                    try { varsEditor._saveAndClose(); } catch(e) {}
+                } else if (varsEditor.parentNode) {
+                    varsEditor.parentNode.removeChild(varsEditor);
                 }
             }
 
@@ -2271,6 +2028,9 @@
         }
 
         window.addEventListener("wheel", function(e) {
+            if (e.target && (e.target.closest && (e.target.closest('#pyxis-inline-vars-editor-container') || e.target.closest('.ace_editor')))) {
+                return;
+            }
             if (typeof closeAllActiveNodeEditors === "function") {
                 closeAllActiveNodeEditors(true);
             }
@@ -6742,6 +6502,15 @@
 
         let __pyxis_ace_completer_registered = false;
 
+        /**
+         * Extracts the exact syntactic prefix preceding the cursor position in the code editor.
+         * Distinguishes numeric constants from identifiers, handling dot navigation (e.g. "syl.dur"),
+         * ASS escape slashes (e.g. "\\pos"), and variable sigils for context-aware autocompletion.
+         *
+         * @param {string} lineText - Entire line of text where the cursor is situated.
+         * @param {number} col - Zero-based column index of the cursor.
+         * @returns {string} The resolved token prefix to be matched against completion captions.
+         */
         function getExactPyxisPrefix(lineText, col) {
             const textBefore = lineText.slice(0, col);
             const numIdMatch = textBefore.match(/(?:^|[^a-zA-Z0-9_\$])(?:\d+(?:\.\d+)?)([a-zA-Z_\$\\\][a-zA-Z0-9_\.\\\$]*)$/);
@@ -6755,6 +6524,14 @@
             return "";
         }
 
+        /**
+         * Builds and returns the comprehensive Ace Editor code completer for Pyxis Effector.
+         * Registers context-aware autocomplete items covering syllable metrics (syl.*), line properties (line.*),
+         * character data (char.*), word data (word.*), easing functions, wave generators, ASS override tags,
+         * audio spectrum helpers, and dynamic script node input slots with HTML documentation tooltips.
+         *
+         * @returns {Object} Ace autocompleter object conforming to the ext-language_tools specification.
+         */
         function getPyxisCodeCompleter() {
             const completerObj = {
                 identifierRegexps: [/[a-zA-Z_0-9\.\\\$]/],
@@ -7625,6 +7402,15 @@
             }
         }
 
+        /**
+         * Validates script syntax in real time for Python and Lua code snippets.
+         * Detects unbalanced delimiters (brackets, braces, parentheses), unterminated string literals,
+         * missing colons in Python control structures, and unmatched block statements in Lua.
+         *
+         * @param {string} script - Source code to validate.
+         * @param {string} [language="Python"] - Programming language target ("Python" or "Lua").
+         * @returns {{valid: boolean, line?: number, error?: string}} Validation result object.
+         */
         function validatePyxisScriptSyntax(script, language) {
             const code = String(script || "").trim();
             if (!code) return { valid: true, error: null };
@@ -8293,7 +8079,7 @@
             const padRightPx = Math.max(0, 4.5 * scale);
             inputEl.style.padding = `0px ${padRightPx}px 0px ${padLeftPx}px`;
             inputEl.style.lineHeight = (screenH - 3 * scale) + "px";
-            inputEl.style.zIndex = "2000100";
+            inputEl.style.zIndex = "90000";
             inputEl.style.outline = "none";
             inputEl.style.boxShadow = "0 0 10px rgba(139, 92, 246, 0.6)";
 
@@ -8420,6 +8206,7 @@
                 if (canvas.draw) canvas.draw(true, true);
                 if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("inline-text-edit");
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                inputEl.onblur = null;
                 inputEl.remove();
             }
             inputEl._saveAndClose = saveAndClose;
@@ -8433,6 +8220,7 @@
                     e.preventDefault();
                     e.stopPropagation();
                     if (widget) delete widget._is_inline_editing;
+                    inputEl.onblur = null;
                     inputEl.remove();
                     if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
                 }
@@ -10907,7 +10695,9 @@
                     { name: "Density", default: "5.0", property: "density" },
                     { name: "RedrawDist", default: "0", property: "redraw_dist" },
                     { name: "Seed", default: "1", property: "seed" },
-                    { name: "Scale", default: "1.0", property: "scale" }
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "Outline v2": [
                     { name: "Path / Origin", default: "", property: "shape" },
@@ -10915,7 +10705,9 @@
                     { name: "Density", default: "5.0", property: "density" },
                     { name: "RedrawDist", default: "0", property: "redraw_dist" },
                     { name: "Seed", default: "1", property: "seed" },
-                    { name: "Scale", default: "1.0", property: "scale" }
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "Border (Outline)": [
                     { name: "Path / Origin", default: "", property: "shape" },
@@ -10923,7 +10715,9 @@
                     { name: "Density", default: "5.0", property: "density" },
                     { name: "RedrawDist", default: "0", property: "redraw_dist" },
                     { name: "Seed", default: "1", property: "seed" },
-                    { name: "Scale", default: "1.0", property: "scale" }
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "Inner Fill": [
                     { name: "Path / Origin", default: "", property: "shape" },
@@ -10931,7 +10725,51 @@
                     { name: "Density", default: "5.0", property: "density" },
                     { name: "RedrawDist", default: "0", property: "redraw_dist" },
                     { name: "Seed", default: "1", property: "seed" },
-                    { name: "Scale", default: "1.0", property: "scale" }
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
+                ]
+            },
+            "Functions/Particles": {
+                "Outline v2 (bord_to_pixels_v2)": [
+                    { name: "Path / Origin", default: "", property: "shape" },
+                    { name: "Particle", default: "", property: "particle_shape" },
+                    { name: "Density", default: "5.0", property: "density" },
+                    { name: "RedrawDist", default: "0", property: "redraw_dist" },
+                    { name: "Seed", default: "1", property: "seed" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
+                ],
+                "Outline v2": [
+                    { name: "Path / Origin", default: "", property: "shape" },
+                    { name: "Particle", default: "", property: "particle_shape" },
+                    { name: "Density", default: "5.0", property: "density" },
+                    { name: "RedrawDist", default: "0", property: "redraw_dist" },
+                    { name: "Seed", default: "1", property: "seed" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
+                ],
+                "Border (Outline)": [
+                    { name: "Path / Origin", default: "", property: "shape" },
+                    { name: "Particle", default: "", property: "particle_shape" },
+                    { name: "Density", default: "5.0", property: "density" },
+                    { name: "RedrawDist", default: "0", property: "redraw_dist" },
+                    { name: "Seed", default: "1", property: "seed" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
+                ],
+                "Inner Fill": [
+                    { name: "Path / Origin", default: "", property: "shape" },
+                    { name: "Particle", default: "", property: "particle_shape" },
+                    { name: "Density", default: "5.0", property: "density" },
+                    { name: "RedrawDist", default: "0", property: "redraw_dist" },
+                    { name: "Seed", default: "1", property: "seed" },
+                    { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ]
             },
             "IMG to pixels": {
@@ -12268,7 +12106,7 @@
                             if (t.includes("Move Tag") || t.includes("Move Text") || (targetNode.type && (String(targetNode.type).includes("Move Tag") || String(targetNode.type).includes("Move Text")))) {
                                 return { list: ANCHOR_PROFILES.trajectory, def: "center" };
                             }
-                            const isSlicerLike = t.includes("Slicer") || t.includes("Array") || t.includes("Union & Divide") || t.includes("Unir y Dividir") || t.includes("Concentric Borders") || (targetNode.type && (String(targetNode.type).includes("Slicer") || String(targetNode.type).includes("Array") || String(targetNode.type).includes("Union & Divide") || String(targetNode.type).includes("Unir y Dividir") || String(targetNode.type).includes("Concentric Borders")));
+                            const isSlicerLike = t.includes("Slicer") || t.includes("Array") || t.includes("Union & Divide") || t.includes("Unir y Dividir") || t.includes("Concentric Borders") || t.includes("Particles") || (targetNode.type && (String(targetNode.type).includes("Slicer") || String(targetNode.type).includes("Array") || String(targetNode.type).includes("Union & Divide") || String(targetNode.type).includes("Unir y Dividir") || String(targetNode.type).includes("Concentric Borders") || String(targetNode.type).includes("Particles")));
                             if (isSlicerLike) {
                                 return { list: ANCHOR_PROFILES.piece, def: t.includes("Concentric") ? "relative" : "pieces" };
                             }
@@ -12442,7 +12280,9 @@
                             { full: "-5", short: "-5 (Implos)" },
                             { full: "cw", short: "cw (CW)" },
                             { full: "ccw", short: "ccw (CCW)" },
-                            { full: "rand", short: "Rand" }
+                            { full: "rand", short: "Rand" },
+                            { full: "path", short: "Path" },
+                            { full: "path_inv", short: "PathInv" }
                         ];
 
                         function get1DOrderObj(val) {
@@ -16090,7 +15930,7 @@ function setupDynamicInlineNode(node) {
             container.style.top = screenY + "px";
             container.style.width = screenW + "px";
             container.style.height = screenH + "px";
-            container.style.zIndex = "2000100";
+            container.style.zIndex = "90000";
             container.style.background = "#12161f";
             container.style.border = (1.5 * scale) + "px solid #8b5cf6";
             container.style.borderRadius = (8 * scale) + "px";
@@ -16100,15 +15940,15 @@ function setupDynamicInlineNode(node) {
             const editorDiv = document.createElement("div");
             editorDiv.id = "pyxis-inline-vars-ace";
             editorDiv.style.position = "absolute";
-            editorDiv.style.left = (5 * scale) + "px";
+            editorDiv.style.left = "0px";
             editorDiv.style.top = (2 * scale) + "px";
-            editorDiv.style.width = `calc(100% - ${(7 * scale)}px)`;
-            editorDiv.style.height = `calc(100% - ${(4 * scale)}px)`;
+            editorDiv.style.width = "100%";
+            editorDiv.style.height = `calc(100% - ${(2 * scale)}px)`;
             editorDiv.style.background = "transparent";
             container.appendChild(editorDiv);
 
-            const fontSizePx = Math.max(10, Math.round(12 * scale));
-            const lineHeightPx = Math.max(16, Math.round(20 * scale));
+            const fontSizePx = Math.max(1, 12 * scale);
+            const lineHeightPx = Math.max(1, 20 * scale);
 
             let styleTag = document.getElementById("pyxis-inline-vars-ace-style");
             if (!styleTag) {
@@ -16119,6 +15959,7 @@ function setupDynamicInlineNode(node) {
             styleTag.textContent = `
                 #pyxis-inline-vars-ace {
                     font-family: Consolas, monospace !important;
+                    font-weight: bold !important;
                     font-size: ${fontSizePx}px !important;
                     line-height: ${lineHeightPx}px !important;
                     background: transparent !important;
@@ -16201,6 +16042,7 @@ function setupDynamicInlineNode(node) {
                 aceEditor.container.style.lineHeight = lineHeightPx + "px";
                 aceEditor.renderer.setShowGutter(false);
                 aceEditor.renderer.lineHeight = lineHeightPx;
+                aceEditor.renderer.setPadding(Math.round(9 * scale));
                 if (aceEditor.renderer.updateFontSize) aceEditor.renderer.updateFontSize();
 
                 window.__active_code_script_node = node;
@@ -16259,10 +16101,11 @@ function setupDynamicInlineNode(node) {
                         container.style.width = newScreenW + "px";
                         container.style.height = newScreenH + "px";
 
-                        editorDiv.style.left = (5 * curScale) + "px";
+                        editorDiv.style.left = "0px";
                         editorDiv.style.top = (2 * curScale) + "px";
-                        editorDiv.style.width = `calc(100% - ${(7 * curScale)}px)`;
-                        editorDiv.style.height = `calc(100% - ${(4 * curScale)}px)`;
+                        editorDiv.style.width = "100%";
+                        editorDiv.style.height = `calc(100% - ${(2 * curScale)}px)`;
+                        aceEditor.renderer.setPadding(Math.round(9 * curScale));
 
                         aceEditor.resize();
                     } finally {
@@ -19113,7 +18956,7 @@ function setupDynamicInlineNode(node) {
             inputEl.style.font = "bold " + Math.max(9, Math.round(11 * scale)) + "px Consolas, monospace";
             inputEl.style.padding = "0 " + initialPadRight + "px 0 " + initialPadLeft + "px";
             inputEl.style.lineHeight = (screenH - 3 * scale) + "px";
-            inputEl.style.zIndex = "2000100";
+            inputEl.style.zIndex = "90000";
             inputEl.style.outline = "none";
             inputEl.style.textIndent = "0px";
             inputEl.style.textAlign = "left";
@@ -19214,6 +19057,7 @@ function setupDynamicInlineNode(node) {
                 if (canvas.draw) canvas.draw(true, true);
                 if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("glitter-edit-" + colType);
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                inputEl.onblur = null;
                 if (inputEl.parentNode) inputEl.parentNode.removeChild(inputEl);
             }
             inputEl._saveAndClose = saveAndClose;
@@ -19244,6 +19088,7 @@ function setupDynamicInlineNode(node) {
                         node.properties.maxs[rowIndex] = curVal;
                         node.properties["max_" + rowIndex] = curVal;
                     }
+                    inputEl.onblur = null;
                     if (inputEl.parentNode) inputEl.parentNode.removeChild(inputEl);
                     if (node.computeSize) {
                         const minSz = node.computeSize();
@@ -19930,7 +19775,7 @@ function setupDynamicInlineNode(node) {
                 padding: "0 " + padRight + "px 0 " + padLeft + "px",
                 lineHeight: Math.round(screenH - 3 * scale) + "px",
                 boxSizing: "border-box",
-                zIndex: "2000100",
+                zIndex: "90000",
                 outline: "none",
                 textAlign: "left"
             });
@@ -19961,6 +19806,7 @@ function setupDynamicInlineNode(node) {
                 if (activeCanvas.draw) activeCanvas.draw(true, true);
                 if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("once-edit-iterator");
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                inputEl.onblur = null;
                 if (inputEl.parentNode) inputEl.parentNode.removeChild(inputEl);
             }
             inputEl._saveAndClose = saveAndClose;
@@ -19977,6 +19823,7 @@ function setupDynamicInlineNode(node) {
                     delete node._editing_iter;
                     node.properties.iterator = curVal;
                     if (node.properties.iterador !== undefined) delete node.properties.iterador;
+                    inputEl.onblur = null;
                     if (inputEl.parentNode) inputEl.parentNode.removeChild(inputEl);
                     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     if (activeCanvas.setDirty) activeCanvas.setDirty(true, true);
@@ -20626,7 +20473,7 @@ function setupDynamicInlineNode(node) {
                 padding: "0 " + padHoriz + "px",
                 lineHeight: Math.round(screenH - 2 * scale) + "px",
                 boxSizing: "border-box",
-                zIndex: "2000100",
+                zIndex: "90000",
                 outline: "none",
                 textAlign: "center"
             });
@@ -20696,6 +20543,7 @@ function setupDynamicInlineNode(node) {
                 if (activeCanvas.draw) activeCanvas.draw(true, true);
                 if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("only-edit-condicion");
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                inputEl.onblur = null;
                 if (inputEl.parentNode) inputEl.parentNode.removeChild(inputEl);
             }
             inputEl._saveAndClose = saveAndClose;
@@ -20716,6 +20564,7 @@ function setupDynamicInlineNode(node) {
                     if (typeof node.updateSocketPositions === "function") {
                         node.updateSocketPositions();
                     }
+                    inputEl.onblur = null;
                     if (inputEl.parentNode) inputEl.parentNode.removeChild(inputEl);
                     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     if (activeCanvas.setDirty) activeCanvas.setDirty(true, true);
@@ -21903,8 +21752,8 @@ function setupDynamicInlineNode(node) {
                     "widgets": []
                 },
                 "Particles": {
-                    "node_kind": "data", "inputs": ["Path / Origin", "Particle", "Density", "RedrawDist", "Seed", "Scale", "Numpad Order"], "outputs": ["Shp Out", "\\pos Tag", "X Arr", "Y Arr", "Total"], "color": "#8B5CF6",
-                    "properties": { "shape": "", "particle_shape": "", "density": "5.0", "redraw_dist": "0", "seed": "1", "scale": "1.0", "mode": "outline_v2", "order": "79" },
+                    "node_kind": "data", "inputs": ["Path / Origin", "Particle", "Density", "RedrawDist", "Seed", "Scale", "Anchor", "Order"], "outputs": ["Shp Out", "\\pos Tag", "X Arr", "Y Arr", "Total"], "color": "#8B5CF6",
+                    "properties": { "shape": "", "particle_shape": "", "density": "5.0", "redraw_dist": "0", "seed": "1", "scale": "1.0", "mode": "outline_v2", "anchor": "pieces", "order": "79" },
                     "widgets": []
                 },
                 "IMG to pixels": {
@@ -22210,6 +22059,9 @@ function setupDynamicInlineNode(node) {
                                         window.__pyxis_active_template_id = activeTplId;
                                         window.__pyxis_active_template_name = activeTplName;
                                     }
+                                    if (window.PyxisUndoManager && typeof window.PyxisUndoManager.initInitialState === "function") {
+                                        window.PyxisUndoManager.initInitialState();
+                                    }
                                     if (typeof window.sync_template_checkpoint === "function") {
                                         await window.sync_template_checkpoint(activeTplId, activeTplName);
                                     } else if (typeof window.update_checkpoint === "function") {
@@ -22218,9 +22070,6 @@ function setupDynamicInlineNode(node) {
                                         window.update_template_checkpoint();
                                     }
                                     if (typeof window.updateTemplateUIState === "function") window.updateTemplateUIState();
-                                    if (window.PyxisUndoManager && typeof window.PyxisUndoManager.initInitialState === "function") {
-                                        window.PyxisUndoManager.initInitialState();
-                                    }
                                     if (saved_graph.extra && typeof window.restoreGraphView === "function") {
                                         window.restoreGraphView(saved_graph.extra);
                                     }
@@ -22522,8 +22371,8 @@ function setupDynamicInlineNode(node) {
                             const valid_nodes = graph._nodes ? graph._nodes.filter(n => n && !n.has_errors && n.type) : [];
                             if (valid_nodes.length > 0) {
                                 loadedSuccessfully = true;
-                                const activeTplId = (saved_graph.extra && saved_graph.extra.active_template_id) ? saved_graph.extra.active_template_id : null;
-                                const activeTplName = (saved_graph.extra && saved_graph.extra.active_template_name) ? saved_graph.extra.active_template_name : null;
+                                const activeTplId = (saved_graph.extra && saved_graph.extra.active_template_id) ? saved_graph.extra.active_template_id : (localStorage.getItem("pyxis_active_template_id") || null);
+                                const activeTplName = (saved_graph.extra && saved_graph.extra.active_template_name) ? saved_graph.extra.active_template_name : (localStorage.getItem("pyxis_active_template_name") || null);
                                 window.__pyxis_active_template_id = activeTplId;
                                 window.__pyxis_active_template_name = activeTplName;
                                 if (!activeTplId) {
@@ -22570,6 +22419,11 @@ function setupDynamicInlineNode(node) {
                 if (window.PyxisUndoManager) {
                     window.PyxisUndoManager.initInitialState();
                 }
+                if (window.__pyxis_active_template_id && typeof window.sync_template_checkpoint === "function") {
+                    window.sync_template_checkpoint(window.__pyxis_active_template_id, window.__pyxis_active_template_name);
+                } else if (typeof window.updateTemplateUIState === "function") {
+                    window.updateTemplateUIState();
+                }
             } catch (err) {
                 console.error("Pyxis: Error durante inicialización del grafo:", err);
                 try { loadDefaultGraph(); } catch (e) {}
@@ -22593,6 +22447,19 @@ function setupDynamicInlineNode(node) {
                 }
 
                 initialization_started = true;
+                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.get_version_info === "function") {
+                    window.pywebview.api.get_version_info().then(function (info) {
+                        if (info && info.version) {
+                            window.PYXIS_VERSION = info.version;
+                            if (info.stage) window.PYXIS_STAGE = info.stage;
+                            if (info.full_version) window.PYXIS_FULL_VERSION = info.full_version;
+                            if (info.version_string) window.PYXIS_VERSION_STRING = info.version_string;
+                            if (window.i18n && typeof window.i18n.applyToDOM === "function") {
+                                window.i18n.applyToDOM();
+                            }
+                        }
+                    }).catch(function () {});
+                }
                 initDynamicNodes();
             }
 
@@ -22922,24 +22789,50 @@ function setupDynamicInlineNode(node) {
                     const activeP = (window.PyxisNodePlayerManager && window.PyxisNodePlayerManager.activePlayers)
                         ? window.PyxisNodePlayerManager.activePlayers[String(n.id)]
                         : null;
-                    if (activeP && activeP.isPinned) {
+
+                    // Si se está cargando un template y el reproductor aún no se ha instanciado por completo,
+                    // proteger las propiedades cargadas del JSON para que no se sobreescriban con valores por defecto.
+                    if (window.__pyxis_is_loading_template && (!activeP || !activeP.isInitialized)) {
+                        // Preservar propiedades cargadas del template
+                    } else if (activeP && activeP.isPinned) {
                         n.properties.is_pinned = true;
                         if (activeP.originalSize) {
                             n.properties.previewer_width = Math.round(activeP.originalSize[0]);
                             n.properties.previewer_height = Math.round(activeP.originalSize[1]);
                         }
+                        if (activeP.wrapper) {
+                            const fx = parseFloat(activeP.wrapper.style.left);
+                            const fy = parseFloat(activeP.wrapper.style.top);
+                            const fw = parseFloat(activeP.wrapper.style.width);
+                            const fh = parseFloat(activeP.wrapper.style.height);
+                            if (!isNaN(fx)) n.properties.floating_x = Math.round(fx);
+                            else if (activeP.savedFloatingLeft) n.properties.floating_x = Math.round(parseFloat(activeP.savedFloatingLeft));
+                            if (!isNaN(fy)) n.properties.floating_y = Math.round(fy);
+                            else if (activeP.savedFloatingTop) n.properties.floating_y = Math.round(parseFloat(activeP.savedFloatingTop));
+                            if (!isNaN(fw) && fw > 0) n.properties.floating_width = Math.round(fw);
+                            else if (activeP.savedFloatingWidth) n.properties.floating_width = Math.round(parseFloat(activeP.savedFloatingWidth));
+                            if (!isNaN(fh) && fh > 0) n.properties.floating_height = Math.round(fh);
+                            else if (activeP.savedFloatingHeight) n.properties.floating_height = Math.round(parseFloat(activeP.savedFloatingHeight));
+                        }
                     } else if (n.size && Array.isArray(n.size) && n.size[0] > 0 && n.size[1] >= 140) {
                         n.properties.is_pinned = false;
+                        delete n.properties.floating_x;
+                        delete n.properties.floating_y;
+                        delete n.properties.floating_width;
+                        delete n.properties.floating_height;
                         n.properties.previewer_width = Math.round(n.size[0]);
                         n.properties.previewer_height = Math.round(n.size[1]);
                     }
-                    if (activeP && activeP.transformState) {
-                        const ts = activeP.transformState;
-                        const isCust = Boolean(ts.isCustom);
-                        n.properties.viewport_zoom = isCust ? (ts.userZoom || 1.0) : 1.0;
-                        n.properties.viewport_pan_x = isCust ? Math.round((ts.panX || 0) * 100) / 100 : 0;
-                        n.properties.viewport_pan_y = isCust ? Math.round((ts.panY || 0) * 100) / 100 : 0;
-                        n.properties.viewport_custom = isCust;
+
+                    if (!window.__pyxis_is_loading_template || (activeP && activeP.isInitialized)) {
+                        if (activeP && activeP.transformState) {
+                            const ts = activeP.transformState;
+                            const isCust = Boolean(ts.isCustom);
+                            n.properties.viewport_zoom = isCust ? (ts.userZoom || 1.0) : 1.0;
+                            n.properties.viewport_pan_x = isCust ? Math.round((ts.panX || 0) * 100) / 100 : 0;
+                            n.properties.viewport_pan_y = isCust ? Math.round((ts.panY || 0) * 100) / 100 : 0;
+                            n.properties.viewport_custom = isCust;
+                        }
                     }
                 }
                 if (!n.widgets) return;
@@ -24620,7 +24513,7 @@ function setupDynamicInlineNode(node) {
                         const savedPanX = parseFloat(nodeProps.viewport_pan_x);
                         const savedPanY = parseFloat(nodeProps.viewport_pan_y);
                         const savedCustom = Boolean(nodeProps.viewport_custom);
-                        const isCustomInit = savedCustom && ((!isNaN(savedZoom) && savedZoom > 0 && Math.abs(savedZoom - 1.0) > 0.001) || (!isNaN(savedPanX) && savedPanX !== 0) || (!isNaN(savedPanY) && savedPanY !== 0));
+                        const isCustomInit = savedCustom || ((!isNaN(savedZoom) && savedZoom > 0 && Math.abs(savedZoom - 1.0) > 0.001) || (!isNaN(savedPanX) && savedPanX !== 0) || (!isNaN(savedPanY) && savedPanY !== 0));
 
                         const transformState = {
                             zoom: (!isNaN(savedZoom) && savedZoom > 0) ? savedZoom : 1.0,
@@ -24748,16 +24641,18 @@ function setupDynamicInlineNode(node) {
 
                             let actualScale;
                             if (transformState.isCustom) {
+                                const isResizingNow = Boolean(
+                                    !(pActiveObj && pActiveObj.isResettingAnim) && (
+                                        (window.canvas && window.canvas.resizing_node === node) ||
+                                        (pActiveObj && pActiveObj.isResizing) ||
+                                        window.__pyxisDraggingFloating
+                                    )
+                                );
+
                                 // Compensate panX and panY for viewport size changes using an Anchor Baseline
                                 // so that the content (landscape) remains completely stationary on screen
                                 // down to subpixel precision without accumulation drift while window borders move.
                                 if (!(pActiveObj && pActiveObj.isResettingAnim)) {
-                                    const isResizingNow = Boolean(
-                                        (window.canvas && window.canvas.resizing_node === node) ||
-                                        (pActiveObj && pActiveObj.isResizing) ||
-                                        window.__pyxisDraggingFloating
-                                    );
-
                                     if (isResizingNow) {
                                         let curLeft = 0;
                                         let curTop = 0;
@@ -24792,7 +24687,7 @@ function setupDynamicInlineNode(node) {
 
                                 // The scale of the video must stay FIXED during window resizing.
                                 // Resizing the window must NOT alter the magnification of the landscape.
-                                if (transformState.actualScale && transformState.actualScale > 0) {
+                                if (isResizingNow && transformState.actualScale && transformState.actualScale > 0) {
                                     actualScale = transformState.actualScale;
                                 } else {
                                     actualScale = baseScale * (transformState.userZoom || 1.0);
@@ -25327,6 +25222,7 @@ function setupDynamicInlineNode(node) {
                             activePlayers[nodeIdStr].cancelResetAnimation = cancelResetAnimation;
                             activePlayers[nodeIdStr].applyTransform = applyTransform;
                             activePlayers[nodeIdStr].getNativeResolution = getNativeResolution;
+                            activePlayers[nodeIdStr].isInitialized = true;
                             activePlayers[nodeIdStr].destroyZoomPan = () => {
                                 cancelResetAnimation();
                                 window.removeEventListener('keydown', onKeyDown);
@@ -26096,10 +25992,15 @@ function setupDynamicInlineNode(node) {
                         hasAegisub: hasAegi,
                         videoUrl: videoUrl,
                         isInitializing: false,
+                        isInitialized: true,
                         updateTimeUI: existingP.updateTimeUI || (box ? box._pyxisUpdateTimeUI : undefined)
                     });
                     updateSourceButtonUI(nodeIdStr, curSource, hasAegi);
                     updatePreviewMetadataBadges(nodeIdStr, previewInfo);
+
+                    if (node && node.properties && node.properties.is_pinned && !activePlayers[nodeIdStr].isPinned) {
+                        togglePinPreview(nodeIdStr);
+                    }
                 } finally {
                     delete creatingPlayers[nodeIdStr];
                 }
@@ -26915,8 +26816,12 @@ function setupDynamicInlineNode(node) {
                 const btnPin = p.headerActions ? p.headerActions.querySelector('#btn-pin-' + nodeIdStr) : null;
 
                 if (p.isPinned) {
-                    if (!p.originalSize && p.node && p.node.size) {
-                        p.originalSize = [p.node.size[0], p.node.size[1]];
+                    if (!p.originalSize && p.node) {
+                        if (p.node.properties && p.node.properties.previewer_width && p.node.properties.previewer_height && Number(p.node.properties.previewer_height) >= 100) {
+                            p.originalSize = [Number(p.node.properties.previewer_width), Number(p.node.properties.previewer_height)];
+                        } else if (p.node.size) {
+                            p.originalSize = [p.node.size[0], p.node.size[1]];
+                        }
                     }
                     if (!p.originalComputeSize && p.node) {
                         p.originalComputeSize = p.node.computeSize;
@@ -27167,22 +27072,69 @@ function setupDynamicInlineNode(node) {
                     const defaultTop = (topBarH + 16) + 'px';
                     const defaultLeft = '20px';
 
-                    const currentAspect = getNodePreviewAspectRatio(p.node);
+                    const currentAspect = getNodePreviewAspectRatio(p.node) || (16 / 9);
                     const initFloatingW = 560;
                     const initFloatingH = Math.round(initFloatingW / currentAspect) + 98;
-                    const curFloatingW = p.savedFloatingWidth ? Math.max(340, parseFloat(p.savedFloatingWidth)) : initFloatingW;
-                    const expectedFloatingH = Math.round(curFloatingW / currentAspect) + 98;
-                    const targetW = curFloatingW + 'px';
-                    let targetH = p.savedFloatingHeight;
-                    if (!targetH || Math.abs((parseFloat(targetH) || 0) - expectedFloatingH) > 8) {
-                        targetH = expectedFloatingH + 'px';
-                        p.savedFloatingHeight = targetH;
+
+                    const savedPropLeft = (p.node && p.node.properties && p.node.properties.floating_x !== undefined) ? (p.node.properties.floating_x + 'px') : null;
+                    const savedPropTop = (p.node && p.node.properties && p.node.properties.floating_y !== undefined) ? (p.node.properties.floating_y + 'px') : null;
+                    const savedPropWidth = (p.node && p.node.properties && p.node.properties.floating_width !== undefined) ? (p.node.properties.floating_width + 'px') : null;
+                    const savedPropHeight = (p.node && p.node.properties && p.node.properties.floating_height !== undefined) ? (p.node.properties.floating_height + 'px') : null;
+
+                    const userSavedRatio = (savedPropWidth && savedPropHeight && parseFloat(savedPropHeight) > 0)
+                        ? (parseFloat(savedPropWidth) / parseFloat(savedPropHeight))
+                        : (p.savedFloatingWidth && p.savedFloatingHeight && parseFloat(p.savedFloatingHeight) > 0
+                            ? (parseFloat(p.savedFloatingWidth) / parseFloat(p.savedFloatingHeight))
+                            : null);
+
+                    let curFloatingW = p.savedFloatingWidth 
+                        ? Math.max(340, parseFloat(p.savedFloatingWidth)) 
+                        : (savedPropWidth ? Math.max(340, parseFloat(savedPropWidth)) : initFloatingW);
+                    let expectedFloatingH = Math.round(curFloatingW / currentAspect) + 98;
+                    let targetWVal = curFloatingW;
+                    let targetHVal = p.savedFloatingHeight ? parseFloat(p.savedFloatingHeight) : (savedPropHeight ? parseFloat(savedPropHeight) : expectedFloatingH);
+                    if (!targetHVal || (!savedPropHeight && !p.savedFloatingHeight && Math.abs(targetHVal - expectedFloatingH) > 8)) {
+                        targetHVal = expectedFloatingH;
                     }
-                    const targetLeft = p.savedFloatingLeft || defaultLeft;
-                    let targetTop = p.savedFloatingTop || defaultTop;
-                    if (parseInt(targetTop, 10) < topBarH + 8) {
-                        targetTop = defaultTop;
+
+                    // Viewport-aware sizing limits: ensure the floating player box fits into the viewport
+                    // If scaling is needed, strictly preserve the user's custom saved aspect ratio (userSavedRatio)
+                    const maxAllowedW = Math.max(340, window.innerWidth - 20);
+                    const maxAllowedH = Math.max(200, window.innerHeight - topBarH - 20);
+                    if (targetWVal > maxAllowedW) {
+                        targetWVal = maxAllowedW;
+                        targetHVal = userSavedRatio ? Math.round(targetWVal / userSavedRatio) : (Math.round(targetWVal / currentAspect) + 98);
                     }
+                    if (targetHVal > maxAllowedH) {
+                        targetHVal = maxAllowedH;
+                        targetWVal = Math.max(340, userSavedRatio ? Math.round(targetHVal * userSavedRatio) : Math.round((targetHVal - 98) * currentAspect));
+                    }
+
+                    const rawTargetLeft = p.savedFloatingLeft || savedPropLeft || defaultLeft;
+                    const rawTargetTop = p.savedFloatingTop || savedPropTop || defaultTop;
+                    let parsedLeft = parseFloat(rawTargetLeft);
+                    let parsedTop = parseFloat(rawTargetTop);
+                    if (isNaN(parsedLeft)) parsedLeft = 20;
+                    if (isNaN(parsedTop)) parsedTop = topBarH + 16;
+
+                    // Clamping: ensure the entire player box (including bottom controls) remains completely visible within viewport
+                    const minLeft = 10;
+                    const maxLeft = Math.max(minLeft, window.innerWidth - targetWVal - 10);
+                    const minTop = topBarH + 8;
+                    const maxTop = Math.max(minTop, window.innerHeight - targetHVal - 10);
+
+                    const clampedLeft = Math.max(minLeft, Math.min(parsedLeft, maxLeft));
+                    const clampedTop = Math.max(minTop, Math.min(parsedTop, maxTop));
+
+                    const targetW = targetWVal + 'px';
+                    const targetH = targetHVal + 'px';
+                    const targetLeft = clampedLeft + 'px';
+                    const targetTop = clampedTop + 'px';
+
+                    p.savedFloatingLeft = targetLeft;
+                    p.savedFloatingTop = targetTop;
+                    p.savedFloatingWidth = targetW;
+                    p.savedFloatingHeight = targetH;
 
                     p.wrapper.style.width = targetW;
                     p.wrapper.style.height = targetH;
@@ -27569,6 +27521,11 @@ function setupDynamicInlineNode(node) {
 
                         p.node.size[0] = restoredW;
                         p.node.size[1] = restoredH;
+                        if (p.node.properties) {
+                            p.node.properties.is_pinned = false;
+                            p.node.properties.previewer_width = restoredW;
+                            p.node.properties.previewer_height = restoredH;
+                        }
                         if (typeof p.node.setDirtyCanvas === 'function') {
                             p.node.setDirtyCanvas(true, true);
                         }
@@ -27938,6 +27895,37 @@ function setupDynamicInlineNode(node) {
             }
             window.addEventListener('pointerup', onGlobalPointerRelease, { passive: true });
             window.addEventListener('mouseup', onGlobalPointerRelease, { passive: true });
+
+            function clampFloatingPlayersToViewport() {
+                const topBar = document.querySelector('.top-bar');
+                const topBarH = (topBar && topBar.offsetHeight) ? topBar.offsetHeight : 52;
+                Object.keys(activePlayers).forEach(nodeId => {
+                    const p = activePlayers[nodeId];
+                    if (!p || !p.isPinned || !p.wrapper) return;
+                    if (p.isResizing || window.__pyxisDraggingFloating) return;
+
+                    const curW = parseFloat(p.wrapper.style.width) || p.wrapper.offsetWidth || 560;
+                    const curH = parseFloat(p.wrapper.style.height) || p.wrapper.offsetHeight || 380;
+                    const curLeft = parseFloat(p.wrapper.style.left) || 20;
+                    const curTop = parseFloat(p.wrapper.style.top) || (topBarH + 16);
+
+                    const minLeft = 10;
+                    const maxLeft = Math.max(minLeft, window.innerWidth - curW - 10);
+                    const minTop = topBarH + 8;
+                    const maxTop = Math.max(minTop, window.innerHeight - curH - 10);
+
+                    const clampedLeft = Math.max(minLeft, Math.min(curLeft, maxLeft));
+                    const clampedTop = Math.max(minTop, Math.min(curTop, maxTop));
+
+                    if (Math.abs(clampedLeft - curLeft) > 1 || Math.abs(clampedTop - curTop) > 1) {
+                        p.wrapper.style.left = clampedLeft + 'px';
+                        p.wrapper.style.top = clampedTop + 'px';
+                        p.savedFloatingLeft = p.wrapper.style.left;
+                        p.savedFloatingTop = p.wrapper.style.top;
+                    }
+                });
+            }
+            window.addEventListener('resize', clampFloatingPlayersToViewport, { passive: true });
 
             window.PyxisNodePlayerManager = {
                 updateInNodePlayersPosition: updateInNodePlayersPosition,

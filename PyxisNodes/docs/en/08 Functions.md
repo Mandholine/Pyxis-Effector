@@ -1066,7 +1066,13 @@ Numeric values are emitted as clean integers if fractional parts are zero, or ro
 4. **`RedrawDist` (`redraw_dist`):** Uniform random jitter range $(\pm \Delta x, \pm \Delta y)$ in pixels applied to each particle. (Default: `0.0`).
 5. **`Seed` (`seed`):** Deterministic seed for jitter generation. (Default: `1`).
 6. **`Scale` (`scale`):** Multiplier applied to particle swarm coordinates. (Default: `1.0`).
-7. **`Numpad Order` (`order`):** Directional ordering sequence for particles:
+7. **`Anchor` (`anchor`):** Interactive cyclic button matching the standard *Piece Anchor* profile found across tessellation nodes (`Slicer`, `Array`, `Union & Divide`). Governs how local particle coordinates and the rotation origin `\org` are projected onto the subtitle canvas:
+   * **`pieces` (Canonical default):** Each micro-particle is positioned at its autonomous screen-space coordinates `\pos(x, y)` relative to its glyph or path centroid, while setting `\org(x, y)` precisely at its own geometric centre. This allows subsequent downstream transformations (such as `\frz` spins, `\fscx/\fscy` scaling, or shearing) to rotate each particle independently around its own pivot.
+   * **`relative`:** Preserves coordinates relative to the parent text or shape base centroid without asserting `pos_overridden`.
+   * **`parent_org`:** Positions the particle at its absolute screen coordinates `\pos(x, y)`, but pins `\org` to the parent text or line origin (`parent_x, parent_y`), enabling coordinated orbital rotations around the source glyph.
+   * **`pos`:** Positions the particle at its absolute screen coordinates `\pos(x, y)` without emitting an explicit `\org` override (`has_org = False`).
+   * **`absolute`:** Bakes screen coordinates directly into the vector path vertices (`m x y ...`), pinning `\pos` to parent origin and clearing `pos_overridden`.
+8. **`Order` (`order`):** Interactive cyclic button for 2D spatial sorting (*Numpad Order*) governing iteration index assignment (`p_i`):
    * `"79"`: Top-Left to Bottom-Right (*TL $\to$ BR*).
    * `"97"`: Top-Right to Bottom-Left (*TR $\to$ BL*).
    * `"13"`: Bottom-Left to Top-Right (*BL $\to$ TR*).
@@ -1080,6 +1086,8 @@ Numeric values are emitted as clean integers if fractional parts are zero, or ro
    * `"cw"`: Circular clockwise.
    * `"ccw"`: Circular counter-clockwise.
    * `"rand"`: Pseudo-random shuffle.
+   * `"path"`: **Continuous contour trajectory.** Preserves the monotonic arc-length parametrisation sequence ($s \in [0, L]$) evaluated along piecewise linear and Bézier boundary curves. Operates analogously to an embedded *Walker* engine, ensuring downstream tag cascades, reveals, or transformations trace the authentic calligraphic stroke.
+   * `"path_inv"`: **Inverted contour trajectory.** Traverses the perimeter in retrograde order ($s \in [L, 0]$).
 
 ---
 
@@ -1143,6 +1151,9 @@ For each closed contour $C = \{V_0, V_1, \dots, V_m, V_0\}$:
     The engine discovers `Particles` along the `Output.Return` dataflow, extracts $N=24$ perimeter points from the glyph, injects loop variables `p_i` ($1 \dots 24$) and `p_n` ($24$), and sorts coordinates radially according to distance from character centroid.
   * **ASS Line Emitted for First Particle ($p_i=1$, closest to centroid):**
     `Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\an5\pos(320.50,238.20)\p1}m 0 0 l 2 0 l 2 2 l 0 2{\p0}`
+
+* **Calligraphic Particle Write-On Workflow (Embedded Walker):**
+  When selecting `order="path"`, particles are not reordered into Cartesian or radial bins; rather, they are indexed progressively along the perimeter contour ($s = 0 \to L$). Modulating opacity or scale via `Tags` (e.g. `\alpha!by.p_i.ipol(0, 255, 0, fx.dur)!` or `\t((p_i/p_n)*syl.dur, ((p_i+1)/p_n)*syl.dur, \alpha&H00&)`), each micro-particle illuminates sequentially tracing the continuous glyph outline without needing a separate `Shape/Walker` node.
 
 ---
 

@@ -770,7 +770,7 @@ The node delegates path dilation to Clipper2's bilateral offset engine:
 * **`[2.2] Rule:` (`fill_type`):** Winding fill rule (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
 * **`[2.3] Clean:` (`clean_self_intersect`):** Auto-cleaning of self-intersecting edges (`Auto (1)`, `Off (0)`).
 * **`[2.4] Anchor` (`Pieces`):** Anchor selector (`Pieces`, `Relative`, `Parent Org`, `Pos`, `Absolute`).
-* **`[2.5] Order:` (`order`):** Spatial piece ordering (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`).
+* **`[2.5] Order:` (`order`):** Spatial piece ordering (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
 
 #### 2. `[UNION]` (Boolean Union) Mode
 * **`[2.1] Shape In (A)`:** First base vector shape (`shape`).
@@ -779,7 +779,7 @@ The node delegates path dilation to Clipper2's bilateral offset engine:
 
 #### 3. `[SUB-PATHS]` (Naive Sub-Paths) Mode
 * **`[2.1] Shape In`:** ASSdraw path with multiple `m` subpaths.
-* **`[2.2] Anchor` / `[2.3] Order:`:** Spatial parameters (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`).
+* **`[2.2] Anchor` / `[2.3] Order:`:** Spatial parameters (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
 
 #### 4. `[FUSION]` (Tag Fusion with Keyframes) Mode
 Packages multiple islands into a single ASS line, reducing line count:
@@ -788,7 +788,7 @@ Packages multiple islands into a single ASS line, reducing line count:
   * **`ipol` (Progressive Interpolated):** Treats tag list as *keyframes*, interpolating smoothly between start and end ($0.0 \to 1.0$) for colour gradients (`\1c`), rotations (`\frz`), alphas (`\alpha`), or blur (`\blur`).
   * **`line` (Strict 1:1 Linear):** Maps tag blocks 1-to-1 to each piece in order. Extra pieces receive `{\p1}`; excess tags are discarded.
 * **`[2.3] Tags` (`tags`):** Comma-separated ASS tags or hexadecimal colour list (e.g. `\1c&H0000FF&, \1c&H00FF00&, \1c&HFF0000&`).
-* **`[2.4] Anchor` / `[2.5] Order:`:** Spatial parameters (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`).
+* **`[2.4] Anchor` / `[2.5] Order:`:** Spatial parameters (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
 
 ---
 

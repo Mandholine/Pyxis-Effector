@@ -12,13 +12,38 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
-"""Karaskel Auto4 engine ported to pure Python.
+"""
+Module: karaskel_engine.py
+Architectural Role: Pure Python port of the Aegisub Karaskel Auto4 subtitle layout and font metric engine.
 
-Faithfully reproduces the logic of karaskel-auto4.lua by Niels Martin Hansen and Rodrigo Braz Monteiro.
+Faithfully reproduces the layout logic, coordinate geometry, and override parsing of karaskel-auto4.lua
+(originally authored by Niels Martin Hansen and Rodrigo Braz Monteiro) without requiring a Lua runtime
+or Aegisub C++ dependencies.
+
+Architectural Division:
+    - Part 1 (E06 - Initialisation, Styles, Metrics): Style resolution, override tag tracking (ActiveStyleState),
+      karaoke tokenisation (\\k, \\kf, \\ko, \\K), furigana splitting, and FontEngine metric binding.
+    - Part 2 (E07 - Spatial Layout, Alignment, Anchors): Bounding box layout (basic and furigana lgroups),
+      alignment coordinate computation (Numpad 1..9), margins, and \\pos/\\org overrides.
+
+Upstream Dependencies:
+    - dataclasses: Strongly typed structures for metadata, lines, syllables, and furigana.
+    - re: Regular expressions for ASS tag scanning and token splitting.
+    - font_engine.FontEngine: Low-level glyph metric extraction via DirectWrite, GDI, or FreeType.
+
+Downstream Callers:
+    - ass_parser.KaraokeProcessor: Preprocesses raw Dialogue lines into measured PyxisLine instances.
+    - node_engine.GraphEngine: Accesses layout coordinates, text bounds, and syllable metrics.
+    - models.PyxisLine / PyxisUnit: Ingests bounding boxes and advance metrics calculated here.
+
+Side Effects and State:
+    - In-place mutation of KaraskelLine, KaraskelSyllable, and KaraskelFurigana dataclass attributes.
+    - Zero global mutable state; all layout computations operate strictly on instances passed as arguments.
 """
 
+import platform
 import re
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any, Tuple
@@ -27,6 +52,15 @@ from font_engine import FontEngine
 
 @dataclass
 class KaraskelMeta:
+    """
+    Project-level video and script resolution metadata container.
+
+    Attributes:
+        res_x (int): Horizontal script resolution (PlayResX), default 1280.
+        res_y (int): Vertical script resolution (PlayResY), default 720.
+        video_x_correct_factor (float): Horizontal aspect ratio correction factor applied
+            when video display aspect ratio differs from script PlayRes aspect ratio.
+    """
     res_x: int = 1280
     res_y: int = 720
     video_x_correct_factor: float = 1.0
@@ -37,7 +71,14 @@ _STYLE_OVERRIDE_CHECK_RE = re.compile(r'\\(?!k\d|K\d|kf\d|ko\d|#)[a-zA-Z1-4]')
 
 @dataclass
 class ActiveStyleState:
-    """Stateful snapshot of active ASS style and kinematic overrides."""
+    """
+    Stateful snapshot of active ASS typographical style and kinematic overrides.
+
+    Tracks active values across sequential override tag blocks (`{...}`) along a dialogue line,
+    supporting style resets (`\\r[style]`), font alterations (`\\fn`, `\\fs`, `\\b`, `\\i`),
+    colour/alpha assignments (`\\c`, `\\alpha`), scaling/spacing (`\\fscx`, `\\fscy`, `\\fsp`),
+    and coordinate tags (`\\pos`, `\\org`, `\\move`, `\\an`).
+    """
     fontname: str = "Arial"
     fontsize: float = 40.0
     bold: bool = False
@@ -224,7 +265,20 @@ def parse_style_override_block(
     styles_map: Dict[str, Any],
     base_style: Dict[str, Any]
 ) -> None:
-    """Parses ASS override tags sequentially within a {...} block, updating active style state."""
+    """
+    Parses ASS override tags sequentially within an override block (`{...}`), updating the active state.
+
+    Handles:
+        - Style reset: `\\r[style_name]` resets to named style or base style.
+        - Positioning: `\\pos(x, y)` and `\\org(x, y)`.
+        - Trajectory motion: `\\move(x1, y1, x2, y2[, t1, t2])`.
+        - Alignment: `\\an1..9`.
+        - Font family, size, and styling: `\\fn`, `\\fs`, `\\b`, `\\i`, `\\u`, `\\s`.
+        - Scaling and spacing: `\\fscx`, `\\fscy`, `\\fsp`.
+        - Outline and shadow: `\\bord`, `\\shad`.
+        - Colours and alphas: `\\1c`..`\\4c`, `\\c`, `\\alpha`, `\\1a`..`\\4a`.
+        - 3D rotations and shearing: `\\frz`, `\\frx`, `\\fry`, `\\fax`, `\\fay`.
+    """
     # \r[style_name]
     for r_m in re.finditer(r'\\r([^\\}]*)', tag_content):
         r_arg = r_m.group(1).strip()
@@ -380,6 +434,14 @@ def parse_style_override_block(
 
 @dataclass
 class KaraskelHighlight:
+    """
+    Represents an individual timed karaoke highlight interval within a syllable.
+
+    Attributes:
+        start_time: Start offset in milliseconds relative to line start.
+        end_time: End offset in milliseconds relative to line start.
+        duration: Duration of the highlight interval in milliseconds.
+    """
     start_time: int
     end_time: int
     duration: int
@@ -387,6 +449,41 @@ class KaraskelHighlight:
 
 @dataclass
 class KaraskelFurigana:
+    """
+    Represents an individual furigana annotation ruby unit attached to a main syllable.
+
+    Attributes:
+        i: 1-based sequential index of the furigana unit within the line.
+        text: Raw text content of the furigana syllable.
+        text_stripped: Cleaned text without override tags.
+        text_spacestripped: Cleaned text without surrounding whitespace.
+        isbreak: True if this furigana syllable breaks ruby auto-clustering.
+        spillback: True if this furigana is permitted to spill backwards into preceding whitespace.
+        width: Rendered width of the furigana text in script pixels.
+        height: Rendered height of the furigana text in script pixels.
+        prespacewidth: Horizontal advance width of leading whitespace (typically 0.0 for furigana).
+        postspacewidth: Horizontal advance width of trailing whitespace (typically 0.0 for furigana).
+        left: Leftmost X bounding coordinate relative to the video frame.
+        center: Horizontal centre X coordinate.
+        right: Rightmost X bounding coordinate.
+        top: Topmost Y bounding coordinate.
+        middle: Vertical centre Y coordinate.
+        bottom: Bottommost Y bounding coordinate.
+        x: Alignment-dependent reference insertion X coordinate.
+        y: Alignment-dependent reference insertion Y coordinate.
+        start_time: Absolute line-relative start time in milliseconds.
+        end_time: Absolute line-relative end time in milliseconds.
+        duration: Active karaoke duration in milliseconds.
+        kdur: Karaoke duration in centiseconds (k-value).
+        tag: Karaoke tag type (e.g. 'k', 'kf', 'ko').
+        inline_fx: Optional inline effect identifier parsed from `\\-fx` tags.
+        highlights: List of child highlight intervals associated with this ruby element.
+        isfuri: Constant boolean flag identifying this unit as a furigana element.
+        syl: Reference to the parent KaraskelSyllable unit.
+        style: Effective resolved style dictionary or ActiveStyleState override for this unit.
+        line: Reference to the parent KaraskelLine instance.
+        style_override: Snapshot of active inline style overrides if local tags were present.
+    """
     i: int
     text: str = ""
     text_stripped: str = ""
@@ -421,6 +518,42 @@ class KaraskelFurigana:
 
 @dataclass
 class KaraskelSyllable:
+    """
+    Represents an individual timed karaoke syllable unit within an ASS dialogue line.
+
+    Attributes:
+        i: 0-based sequential index of the syllable within the line.
+        text: Raw text content including tags.
+        text_stripped: Text stripped of inline override tags.
+        text_spacestripped: Stripped text excluding leading and trailing whitespace.
+        prespace: Leading whitespace string.
+        postspace: Trailing whitespace string.
+        start_time: Absolute line-relative start time in milliseconds.
+        end_time: Absolute line-relative end time in milliseconds.
+        duration: Duration of the syllable in milliseconds.
+        kdur: Karaoke duration in centiseconds (k-value).
+        tag: Karaoke tag type (e.g. 'k', 'kf', 'ko').
+        inline_fx: Optional inline effect identifier parsed from `\\-fx` tags.
+        width: Rendered width of `text_spacestripped` in script pixels.
+        height: Rendered height of `text_spacestripped` in script pixels.
+        prespacewidth: Horizontal advance width of `prespace` in script pixels.
+        postspacewidth: Horizontal advance width of `postspace` in script pixels.
+        left: Leftmost X bounding coordinate.
+        center: Horizontal centre X coordinate.
+        right: Rightmost X bounding coordinate.
+        top: Topmost Y bounding coordinate.
+        middle: Vertical centre Y coordinate.
+        bottom: Bottommost Y bounding coordinate.
+        x: Alignment-dependent reference insertion X coordinate.
+        y: Alignment-dependent reference insertion Y coordinate.
+        prespace_left: Left coordinate of leading whitespace.
+        postspace_left: Left coordinate of trailing whitespace.
+        highlights: List of multi-highlight intervals for `#` compound tokens.
+        furi: List of child KaraskelFurigana units attached to this syllable.
+        style: Effective resolved style dictionary or ActiveStyleState override.
+        line: Reference to the parent KaraskelLine instance.
+        style_override: Snapshot of active inline style overrides if local tags were present.
+    """
     i: int
     text: str = ""
     text_stripped: str = ""
@@ -456,6 +589,61 @@ class KaraskelSyllable:
 
 @dataclass
 class KaraskelLine:
+    """
+    Represents a fully preprocessed ASS dialogue line with measured geometry and spatial layouts.
+
+    Attributes:
+        raw_text: Raw ASS dialogue line text.
+        text_stripped: Dialogue text stripped of all override tags.
+        start_time: Line start timestamp in milliseconds.
+        end_time: Line end timestamp in milliseconds.
+        duration: Line duration in milliseconds.
+        style: Base style name associated with this line.
+        styleref: Reference dictionary of the base ASS style.
+        furistyle: Optional reference dictionary of the synthesised or explicit furigana style.
+        width: Total rendered width of the stripped line in script pixels.
+        height: Maximum rendered font height in script pixels.
+        descent: Maximum font descent in script pixels.
+        extlead: External leading metric in script pixels.
+        margin_l: Left dialogue margin from ASS line.
+        margin_r: Right dialogue margin from ASS line.
+        margin_t: Top dialogue margin from ASS line.
+        margin_b: Bottom dialogue margin from ASS line.
+        margin_v: Vertical dialogue margin from ASS line.
+        eff_margin_l: Effective resolved left margin (fallback to style if line margin is 0).
+        eff_margin_r: Effective resolved right margin.
+        eff_margin_t: Effective resolved top margin.
+        eff_margin_b: Effective resolved bottom margin.
+        eff_margin_v: Effective resolved vertical margin.
+        left: Leftmost bounding coordinate of the line.
+        center: Horizontal centre coordinate of the line.
+        right: Rightmost bounding coordinate of the line.
+        top: Topmost bounding coordinate of the line.
+        middle: Vertical centre coordinate of the line.
+        bottom: Bottommost bounding coordinate of the line.
+        x: Target ASS insertion anchor coordinate X.
+        y: Target ASS insertion anchor coordinate Y.
+        halign: Horizontal alignment classification ('left', 'center', 'right').
+        valign: Vertical alignment classification ('top', 'middle', 'bottom').
+        kara: List of child KaraskelSyllable units.
+        furi: Flat list of all KaraskelFurigana units in the line.
+        has_style_override: True if non-karaoke ASS style override tags were detected.
+        has_pos: True if explicit `\\pos(x, y)` override was parsed.
+        pos_x: Explicit X anchor coordinate from `\\pos`.
+        pos_y: Explicit Y anchor coordinate from `\\pos`.
+        has_org: True if explicit `\\org(x, y)` rotation origin was parsed.
+        org_x: Explicit origin X coordinate from `\\org`.
+        org_y: Explicit origin Y coordinate from `\\org`.
+        has_move: True if explicit `\\move` vector was parsed.
+        move_x1: Initial X coordinate from `\\move`.
+        move_y1: Initial Y coordinate from `\\move`.
+        move_x2: Target X coordinate from `\\move`.
+        move_y2: Target Y coordinate from `\\move`.
+        move_t1: Optional start time offset for motion in milliseconds.
+        move_t2: Optional end time offset for motion in milliseconds.
+        align_override: Explicit alignment value parsed from inline `\\an` tags.
+        style_override: Final cumulative style state from inline overrides.
+    """
     raw_text: str = ""
     text_stripped: str = ""
     start_time: int = 0
@@ -540,6 +728,19 @@ class KaraskelEngine:
     def collect_head(cls, script_info: Dict[str, Any], styles: Dict[str, Any],
                      video_size: Optional[Tuple[int, int]] = None,
                      generate_furigana: bool = False) -> Tuple[KaraskelMeta, Dict[str, Any]]:
+        """
+        Initialises script metadata and styles map from ASS headers, optionally synthesising furigana styles.
+
+        Args:
+            script_info: Script Info dictionary containing PlayResX, PlayResY, etc.
+            styles: Raw styles dictionary mapping style names to attribute dictionaries.
+            video_size: Optional tuple of (width, height) in video pixels for aspect ratio correction.
+            generate_furigana: When True, automatically synthesises `<style>-furigana` styles
+                at half font size, outline, and shadow.
+
+        Returns:
+            A tuple of (initialised KaraskelMeta, styles mapping dictionary).
+        """
         meta = KaraskelMeta()
         meta.res_x = int(script_info.get("PlayResX") or script_info.get("playresx") or 1280)
         meta.res_y = int(script_info.get("PlayResY") or script_info.get("playresy") or 720)
@@ -777,7 +978,18 @@ class KaraskelEngine:
 
     @classmethod
     def preproc_line_size(cls, meta: KaraskelMeta, styles: Dict[str, Any], line: KaraskelLine) -> None:
-        """Pre-calcula las dimensiones de línea, sílabas y furigana usando FontEngine."""
+        """
+        Pre-computes geometric bounding dimensions for lines, syllables, and furigana units using FontEngine.
+
+        Measures text extents including font descent, external leading, rendered widths, heights,
+        and spacing/prespace/postspace advances. Bounding widths are scaled by the metadata aspect ratio
+        correction factor (`video_x_correct_factor`).
+
+        Args:
+            meta: Script and display metadata containing resolution and aspect ratio correction factors.
+            styles: Complete dictionary of available ASS style definitions.
+            line: KaraskelLine instance whose syllables, furigana, and overall text extents are measured.
+        """
         if not line.kara:
             cls.preproc_line_text(meta, styles, line)
 
@@ -815,7 +1027,18 @@ class KaraskelEngine:
 
     @classmethod
     def preproc_line_pos(cls, meta: KaraskelMeta, styles: Dict[str, Any], line: KaraskelLine) -> None:
-        """Calcula el posicionamiento y maquetación de la línea, sílabas y furigana."""
+        """
+        Computes 2D spatial layout, margin resolution, and anchor coordinates for lines, syllables, and furigana.
+
+        Coordinates are resolved based on ASS alignment rules (an1..an9), explicit position overrides (\\pos),
+        and layout group computations. When explicit positioning is omitted, standard margins and display
+        resolution from script metadata are used to calculate the line's bounding coordinates.
+
+        Args:
+            meta: Script metadata providing PlayResX, PlayResY, and aspect ratio correction factors.
+            styles: Complete dictionary of available ASS style definitions.
+            line: KaraskelLine instance whose 2D position and child unit coordinates are computed.
+        """
         if not line.styleref:
             cls.preproc_line_size(meta, styles, line)
 
@@ -964,7 +1187,109 @@ class KaraskelEngine:
 
     @classmethod
     def do_basic_layout(cls, meta: KaraskelMeta, styles: Dict[str, Any], line: KaraskelLine) -> None:
-        """Maquetación básica de sílabas preservando espaciado inter-componentes e inter-sílabas."""
+        """
+        Calculates 1D horizontal layout coordinates for syllables in lines without furigana.
+
+        Traverses syllables sequentially, accumulating effective character spacing (`\\fsp`),
+        leading whitespace (`prespace`), stripped text width, and trailing whitespace (`postspace`).
+        Calculates the cumulative bounding width and updates line dimensions when inline style
+        overrides alter font sizes or metrics across syllables.
+
+        Args:
+            meta: Script metadata containing resolution and aspect ratio correction factors.
+            styles: Complete dictionary of available ASS style definitions.
+            line: KaraskelLine instance whose child syllables are positioned.
+        """
+        if not line.has_style_override and len(line.kara) > 1 and line.text_stripped:
+            eff_line_style = line.style_override if line.style_override is not None else line.styleref
+            eff_sp = cls.get_effective_spacing(eff_line_style, meta)
+
+            if abs(eff_sp) < 1e-4 and platform.system() == "Windows":
+                fn = str(eff_line_style.get("fontname") or eff_line_style.get("Fontname") or "Arial")
+                fs = float(eff_line_style.get("fontsize") or eff_line_style.get("Fontsize") or 35.0)
+                b_val = eff_line_style.get("bold") if "bold" in eff_line_style else eff_line_style.get("Bold")
+                b = str(b_val).strip() in ['1', '-1', 'true', 'True'] if not isinstance(b_val, bool) else bool(b_val)
+                i_val = eff_line_style.get("italic") if "italic" in eff_line_style else eff_line_style.get("Italic")
+                it = str(i_val).strip() in ['1', '-1', 'true', 'True'] if not isinstance(i_val, bool) else bool(i_val)
+                u_val = eff_line_style.get("underline") if "underline" in eff_line_style else eff_line_style.get("Underline")
+                u = str(u_val).strip() in ['1', '-1', 'true', 'True'] if not isinstance(u_val, bool) else bool(u_val)
+                s_val = eff_line_style.get("strikeout") if "strikeout" in eff_line_style else eff_line_style.get("StrikeOut")
+                so = str(s_val).strip() in ['1', '-1', 'true', 'True'] if not isinstance(s_val, bool) else bool(s_val)
+
+                advs, has_liga = FontEngine.get_shaped_char_advances(fn, fs, b, it, u, so, line.text_stripped)
+                if has_liga and len(advs) == len(line.text_stripped):
+                    corr = meta.video_x_correct_factor
+                    c_idx = 0
+                    max_h = line.height
+                    for syl in line.kara:
+                        pre_len = len(syl.prespace)
+                        txt_len = len(syl.text_spacestripped)
+                        post_len = len(syl.postspace)
+
+                        syl.prespace_left = sum(advs[:c_idx]) * corr
+                        syl.prespacewidth = sum(advs[c_idx : c_idx + pre_len]) * corr
+                        c_idx += pre_len
+
+                        syl.left = sum(advs[:c_idx]) * corr
+                        syl.width = sum(advs[c_idx : c_idx + txt_len]) * corr
+                        syl.right = syl.left + syl.width
+                        syl.center = syl.left + syl.width / 2.0
+                        c_idx += txt_len
+
+                        syl.postspace_left = sum(advs[:c_idx]) * corr
+                        syl.postspacewidth = sum(advs[c_idx : c_idx + post_len]) * corr
+                        c_idx += post_len
+
+                        if syl.height > max_h:
+                            max_h = syl.height
+                    return
+
+            prefix = ""
+            max_h = line.height
+
+            for syl in line.kara:
+                if syl.prespace:
+                    pfx_pre = prefix + syl.prespace
+                    pre_start = FontEngine.get_text_extents(eff_line_style, prefix)[0] * meta.video_x_correct_factor if prefix else 0.0
+                    pre_end = FontEngine.get_text_extents(eff_line_style, pfx_pre)[0] * meta.video_x_correct_factor
+                    syl.prespace_left = pre_start
+                    syl.prespacewidth = pre_end - pre_start
+                    prefix = pfx_pre
+                else:
+                    pre_start = FontEngine.get_text_extents(eff_line_style, prefix)[0] * meta.video_x_correct_factor if prefix else 0.0
+                    syl.prespace_left = pre_start
+
+                if syl.text_spacestripped:
+                    pfx_txt = prefix + syl.text_spacestripped
+                    txt_start = FontEngine.get_text_extents(eff_line_style, prefix)[0] * meta.video_x_correct_factor if prefix else 0.0
+                    txt_end = FontEngine.get_text_extents(eff_line_style, pfx_txt)[0] * meta.video_x_correct_factor
+                    syl.left = txt_start
+                    syl.right = txt_end
+                    syl.width = txt_end - txt_start
+                    syl.center = syl.left + syl.width / 2.0
+                    prefix = pfx_txt
+                else:
+                    txt_start = FontEngine.get_text_extents(eff_line_style, prefix)[0] * meta.video_x_correct_factor if prefix else 0.0
+                    syl.left = txt_start
+                    syl.right = txt_start
+                    syl.center = txt_start
+                    syl.width = 0.0
+
+                if syl.postspace:
+                    pfx_post = prefix + syl.postspace
+                    post_start = FontEngine.get_text_extents(eff_line_style, prefix)[0] * meta.video_x_correct_factor if prefix else 0.0
+                    post_end = FontEngine.get_text_extents(eff_line_style, pfx_post)[0] * meta.video_x_correct_factor
+                    syl.postspace_left = post_start
+                    syl.postspacewidth = post_end - post_start
+                    prefix = pfx_post
+                else:
+                    post_start = FontEngine.get_text_extents(eff_line_style, prefix)[0] * meta.video_x_correct_factor if prefix else 0.0
+                    syl.postspace_left = post_start
+
+                if syl.height > max_h:
+                    max_h = syl.height
+            return
+
         curx = 0.0
         max_h = line.height
         has_prev_text = False
@@ -1011,7 +1336,19 @@ class KaraskelEngine:
 
     @classmethod
     def do_furigana_layout(cls, meta: KaraskelMeta, styles: Dict[str, Any], line: KaraskelLine) -> None:
-        """Algoritmo avanzado de maquetación de furigana por grupos de diseño (lgroups)."""
+        """
+        Executes advanced 2D Japanese ruby/furigana layout choreography via layout groups (lgroups).
+
+        Clusters base syllables and attached furigana into contiguous layout groups, resolving
+        ruby clustering, manual cluster breaks (`!`), backward spillover into preceding whitespace (`<`),
+        and centring over base text spans. Accurately adjusts cumulative line bounds when furigana
+        exceeds base text width.
+
+        Args:
+            meta: Script metadata containing resolution and aspect ratio correction factors.
+            styles: Complete dictionary of available ASS style definitions.
+            line: KaraskelLine instance whose syllables and furigana units are choreographed.
+        """
         lgroups = []
         lgsentinel = {
             "basewidth": 0.0,
@@ -1186,5 +1523,15 @@ class KaraskelEngine:
 
     @classmethod
     def preproc_line(cls, meta: KaraskelMeta, styles: Dict[str, Any], line: KaraskelLine) -> None:
-        """Main entry point to preprocess the complete line."""
+        """
+        Main entry point to preprocess an ASS dialogue line, extracting text, metrics, and spatial layouts.
+
+        Orchestrates the entire Karaskel pipeline: text tokenisation (`preproc_line_text`),
+        font metric calculations (`preproc_line_size`), and 2D spatial anchoring (`preproc_line_pos`).
+
+        Args:
+            meta: Script metadata containing resolution and aspect ratio correction factors.
+            styles: Complete dictionary of available ASS style definitions.
+            line: KaraskelLine instance to be processed and populated in-place.
+        """
         cls.preproc_line_pos(meta, styles, line)

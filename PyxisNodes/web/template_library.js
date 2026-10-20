@@ -13,7 +13,14 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- * For any question you can visit: https://discord.gg/rYsARc3fB9
+ * For any question you can visit: https://discord.gg/fsxRESeQZN
+ */
+
+/**
+ * @file template_library.js
+ * @description Frontend template library modal, graph checkpoint manager, and serialisation subsystem.
+ * Manages template persistence, dirty state detection, canonical graph signature generation,
+ * interactive template browsing, import/export operations, and unsaved changes confirmation flows.
  */
 
 (function () {
@@ -22,15 +29,27 @@
     var selected_template_id = null;
     var modal = null;
 
+    /**
+     * Checks whether the PyWebView IPC backend API bridge is initialised and accessible.
+     * @returns {boolean} True if window.pywebview.api is present.
+     */
     function api_ready() {
         return window.pywebview && window.pywebview.api;
     }
 
+    /**
+     * Verifies that the global LiteGraph instance is initialised and provides graph serialisation.
+     * @returns {boolean} True if the global graph object exists and can be serialised.
+     */
     function graph_ready() {
         var g = window.graph || (typeof graph !== "undefined" ? graph : null);
         return g && typeof g.serialize === "function";
     }
 
+    /**
+     * Synchronises DOM widget inputs and floating previewer coordinates to node properties.
+     * Guarantees 1:1 state parity before serialising the active LiteGraph canvas.
+     */
     function sync_graph_widgets() {
         if (typeof window.syncWidgetsToProperties === "function") {
             window.syncWidgetsToProperties();
@@ -43,12 +62,32 @@
             if (node.type === "System/Previewer" || node.type === "Previewer" || (node.title && node.title.includes("Previewer"))) {
                 var pMgr = window.PyxisNodePlayerManager;
                 var p = (pMgr && pMgr.activePlayers && node.id !== undefined) ? pMgr.activePlayers[String(node.id)] : null;
-                if (p && p.isPinned && p.originalSize) {
+                if (p && p.isPinned) {
                     node.properties.is_pinned = true;
-                    node.properties.previewer_width = Math.round(p.originalSize[0]);
-                    node.properties.previewer_height = Math.round(p.originalSize[1]);
+                    if (p.originalSize) {
+                        node.properties.previewer_width = Math.round(p.originalSize[0]);
+                        node.properties.previewer_height = Math.round(p.originalSize[1]);
+                    }
+                    if (p.wrapper) {
+                        var fx = parseFloat(p.wrapper.style.left);
+                        var fy = parseFloat(p.wrapper.style.top);
+                        var fw = parseFloat(p.wrapper.style.width);
+                        var fh = parseFloat(p.wrapper.style.height);
+                        if (!isNaN(fx)) node.properties.floating_x = Math.round(fx);
+                        else if (p.savedFloatingLeft) node.properties.floating_x = Math.round(parseFloat(p.savedFloatingLeft));
+                        if (!isNaN(fy)) node.properties.floating_y = Math.round(fy);
+                        else if (p.savedFloatingTop) node.properties.floating_y = Math.round(parseFloat(p.savedFloatingTop));
+                        if (!isNaN(fw) && fw > 0) node.properties.floating_width = Math.round(fw);
+                        else if (p.savedFloatingWidth) node.properties.floating_width = Math.round(parseFloat(p.savedFloatingWidth));
+                        if (!isNaN(fh) && fh > 0) node.properties.floating_height = Math.round(fh);
+                        else if (p.savedFloatingHeight) node.properties.floating_height = Math.round(parseFloat(p.savedFloatingHeight));
+                    }
                 } else if (node.size && Array.isArray(node.size) && node.size[0] > 0 && node.size[1] >= 140) {
                     node.properties.is_pinned = false;
+                    delete node.properties.floating_x;
+                    delete node.properties.floating_y;
+                    delete node.properties.floating_width;
+                    delete node.properties.floating_height;
                     node.properties.previewer_width = Math.round(node.size[0]);
                     node.properties.previewer_height = Math.round(node.size[1]);
                 }
@@ -62,6 +101,12 @@
         });
     }
 
+    /**
+     * Recursively canonicalises an object by sorting dictionary keys and rounding floating-point numbers.
+     * Used to produce deterministic, comparable JSON structures across graph revisions.
+     * @param {*} obj - Target primitive, array, or object to canonicalise.
+     * @returns {*} Canonicalised representation with sorted keys and normalised precision.
+     */
     function canonicalize(obj) {
         if (obj === null || obj === undefined) return null;
         if (typeof obj !== "object") {
@@ -85,6 +130,12 @@
         return result;
     }
 
+    /**
+     * Generates a deterministic content signature hash string for a graph object.
+     * Normalises node orders, link connections, group boundaries, and properties to eliminate cosmetic jitter.
+     * @param {object|string} graph_obj - LiteGraph instance, serialised dictionary, or JSON string.
+     * @returns {string} Canonical JSON signature string representing structural graph topology.
+     */
     function get_graph_content_signature(graph_obj) {
         if (!graph_obj) return "";
         var serialized = null;
@@ -175,7 +226,14 @@
         return JSON.stringify(canonicalize({ nodes: clean_nodes, links: clean_links, groups: clean_groups }));
     }
 
+    /**
+     * Updates the clean checkpoint signature for change tracking against disk state.
+     * @param {object|string|null} [custom_target] - Optional external graph target to derive signature from.
+     */
     function update_checkpoint(custom_target) {
+        if (window.pyxisCommandManager && typeof window.pyxisCommandManager.markSavedCheckpoint === "function") {
+            window.pyxisCommandManager.markSavedCheckpoint();
+        }
         if (custom_target) {
             window.__pyxis_template_checkpoint = get_graph_content_signature(custom_target);
             return;
@@ -188,22 +246,39 @@
         }
     }
 
+    /**
+     * Checks whether the current in-memory graph has unsaved modifications relative to its saved checkpoint.
+     * @returns {boolean} True if the active graph topology differs from its saved signature.
+     */
     function has_changes() {
         if (!graph_ready()) return false;
-        var current_sig = "";
-        try {
-            current_sig = get_graph_content_signature(graph);
-        } catch (e) {
-            console.error("Pyxis: error serializing graph to check changes", e);
-            return false;
+
+        // 1. If an active template is tracked and has a disk checkpoint
+        if (window.__pyxis_active_template_id && window.__pyxis_template_checkpoint !== undefined && window.__pyxis_template_checkpoint !== null) {
+            if (window.pyxisCommandManager && typeof window.pyxisCommandManager.hasUnsavedChanges === "function" && window.pyxisCommandManager.hasUnsavedChanges()) {
+                return true;
+            }
+            try {
+                var current_sig = get_graph_content_signature(graph);
+                return current_sig !== window.__pyxis_template_checkpoint;
+            } catch (e) {
+                console.error("Pyxis: error serializing graph to check changes", e);
+                return false;
+            }
         }
 
-        if (window.__pyxis_template_checkpoint === undefined || window.__pyxis_template_checkpoint === null) {
-            return false;
+        // 2. Default undo/redo stack check
+        if (window.pyxisCommandManager && typeof window.pyxisCommandManager.hasUnsavedChanges === "function") {
+            return window.pyxisCommandManager.hasUnsavedChanges();
         }
-        return current_sig !== window.__pyxis_template_checkpoint;
+        return false;
     }
 
+    /**
+     * Inspects a candidate graph document for empty contents or node types not registered in LiteGraph.
+     * @param {object} graph_data - Serialised graph object to validate.
+     * @returns {{valid: boolean, unknown?: Array<string>, message?: string}} Validation result payload.
+     */
     function check_unknown_nodes(graph_data) {
         if (!graph_data || !Array.isArray(graph_data.nodes)) {
             return { valid: false, message: (window.t ? window.t("templates.invalid_format") : "Template does not contain a valid graph format.") };
@@ -223,6 +298,14 @@
         return { valid: true, unknown: [] };
     }
 
+    /**
+     * Renders a generic modal confirmation dialogue.
+     * @param {string} title - Dialogue heading text.
+     * @param {string} text - Explanatory body HTML or plain text.
+     * @param {Function} [on_confirm] - Callback invoked when the user confirms the action.
+     * @param {Function} [on_cancel] - Callback invoked if the user cancels or dismisses the dialogue.
+     * @param {string} [confirm_btn_text] - Custom label for the affirmative action button.
+     */
     function show_confirm_dialog(title, text, on_confirm, on_cancel, confirm_btn_text) {
         var confirm_overlay = document.createElement("div");
         confirm_overlay.className = "pyxis-template-overlay";
@@ -251,6 +334,12 @@
         };
     }
 
+    /**
+     * Creates a styled standard button element with an attached click listener.
+     * @param {string} text - Button label text.
+     * @param {Function} handler - Click event listener function.
+     * @returns {HTMLButtonElement} Configured button DOM element.
+     */
     function create_button(text, handler) {
         var button = document.createElement("button");
         button.className = "pyxis-btn";
@@ -259,6 +348,9 @@
         return button;
     }
 
+    /**
+     * Injects CSS styling rules required by the template library dialogues into the document head if not present.
+     */
     function ensure_styles() {
         if (document.getElementById("pyxis-template-styles")) return;
         var style = document.createElement("style");
@@ -365,6 +457,10 @@
         document.head.appendChild(style);
     }
 
+    /**
+     * Closes and removes the active template dialogue overlay from the DOM.
+     * @param {Event|HTMLElement|null} [targetEl] - Originating click event or child element triggering closure.
+     */
     function close_modal(targetEl) {
         if (targetEl && targetEl.target) {
             targetEl = targetEl.target;
@@ -384,6 +480,12 @@
         selected_template_id = null;
     }
 
+    /**
+     * Displays a feedback or error notice within the template dialogue status element.
+     * @param {HTMLElement} container - Modal container element containing .pyxis-template-error.
+     * @param {string} message - Feedback message text to present.
+     * @param {"error"|"success"|"info"} [type="error"] - Visual severity category determining label colour.
+     */
     function show_message(container, message, type) {
         var error = container.querySelector(".pyxis-template-error");
         if (error) {
@@ -398,6 +500,14 @@
         }
     }
 
+    /**
+     * Persists the current graph state under a specified template identifier via backend IPC.
+     * Sychronises canvas zoom and pan offsets into the graph extra dictionary before saving.
+     * @param {string} name - Human-readable template display name.
+     * @param {string|null} comment - Optional descriptive remarks or notes.
+     * @param {string|null} template_id - Existing template ID for overwrite operations or null to create a new record.
+     * @returns {Promise<object>} Resolves with the saved template metadata record.
+     */
     function save_template_with_id(name, comment, template_id) {
         if (typeof window.syncWidgetsToProperties === "function") {
             window.syncWidgetsToProperties();
@@ -436,6 +546,13 @@
         });
     }
 
+    /**
+     * Renders a modal form dialogue prompting for template name and optional comment.
+     * @param {string} default_name - Initial value for the template name field.
+     * @param {string} default_comment - Initial value for the comment field.
+     * @param {string|null} target_template_id - Identifier if performing an overwrite, or null for a new preset.
+     * @param {Function} [on_save_success] - Callback invoked with saved metadata upon successful completion.
+     */
     function open_save_dialog_form(default_name, default_comment, target_template_id, on_save_success) {
         ensure_styles();
         var save_modal = document.createElement("div");
@@ -491,6 +608,14 @@
         save_modal.querySelector("#pyxis-save-name").focus();
     }
 
+    /**
+     * Renders a warning dialogue alerting the user of unsaved changes before loading another template.
+     * Offers choices to save changes to library, discard them, or cancel the navigation.
+     * @param {Function} on_save_library - Callback invoked when the user chooses to save to library.
+     * @param {Function} on_save_as - Callback invoked when the user opts to save as external file.
+     * @param {Function} on_discard - Callback invoked when the user confirms discarding changes.
+     * @param {Function} on_cancel - Callback invoked if the dialogue is dismissed without action.
+     */
     function show_unsaved_changes_dialog(on_save_library, on_save_as, on_discard, on_cancel) {
         var overlay = document.createElement("div");
         overlay.className = "pyxis-template-overlay";
@@ -555,6 +680,11 @@
         }
     }
 
+    /**
+     * Entry-point save dialogue for the active canvas graph.
+     * Dispatches to overwrite prompt if working on a known template, or opens a new preset dialogue.
+     * @param {Function} [on_save_success] - Callback invoked when save completes successfully.
+     */
     function open_save_dialog(on_save_success) {
         if (!graph_ready()) {
             alert(window.t ? window.t("library.canvas_not_ready") : "Node canvas is not ready.");
@@ -620,6 +750,13 @@
         }
     }
 
+    /**
+     * Renders filtered and sorted template items into the library modal container list.
+     * @param {HTMLElement} container - Modal container hosting .pyxis-template-list.
+     * @param {Array<object>} templates - Full list of template metadata records.
+     * @param {string} search_text - Query string to filter template names and comments.
+     * @param {string} sort_by - Criterion key for sorting ('updated_desc', 'name_asc', 'nodes_desc', etc.).
+     */
     function render_templates(container, templates, search_text, sort_by) {
         var list = container.querySelector(".pyxis-template-list");
         list.innerHTML = "";
@@ -723,6 +860,10 @@
         });
     }
 
+    /**
+     * Opens the interactive template library browsing dialogue modal.
+     * Fetches templates from backend IPC, wires search and sorting controls, and enables template loading.
+     */
     async function open_library() {
         if (window.LiteGraph && typeof window.LiteGraph.closeAllContextMenus === "function") {
             window.LiteGraph.closeAllContextMenus();
@@ -916,6 +1057,10 @@
                 }
             }
 
+            /**
+             * Configures LiteGraph with loaded template graph data, restores view zoom/pan, and resets history.
+             * @param {object} result - Loaded template document payload containing graph topology and metadata.
+             */
             function do_load_graph(result) {
                 window.__pyxis_is_loading_template = true;
                 const btnTop = document.getElementById("btn-quick-save-template");
@@ -987,13 +1132,16 @@
                     if (viewRestored && typeof window.restoreGraphView === "function") {
                         window.restoreGraphView(extra);
                     }
+                    if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.updateInNodePlayersPosition === "function") {
+                        window.PyxisNodePlayerManager.updateInNodePlayersPosition();
+                    }
                     update_checkpoint();
                     window.__pyxis_is_loading_template = false;
                     if (window.PyxisUndoManager) {
                         window.PyxisUndoManager.initInitialState();
                     }
                     if (typeof window.updateTemplateUIState === "function") window.updateTemplateUIState();
-                }, 150);
+                }, 250);
                 
                 close_modal();
             }
@@ -1031,6 +1179,10 @@
         await refresh();
     }
 
+    /**
+     * Prompts the user with a native file-save dialogue to export the graph as an external JSON preset file.
+     * @returns {Promise<boolean>} True if the file was saved successfully, false otherwise.
+     */
     async function open_save_as_dialog() {
         if (!graph_ready()) {
             alert(window.t ? window.t("library.canvas_not_ready") : "Node canvas is not ready.");
@@ -1083,12 +1235,20 @@
     window.open_save_dialog = open_save_dialog;
     window.open_save_as_dialog = open_save_as_dialog;
 
+    /**
+     * Exposes template dialogue functions to the top toolbar and global window namespace.
+     */
     function install_toolbar() {
         window.open_template_library_modal = open_library;
         window.open_save_dialog = open_save_dialog;
         window.open_save_as_dialog = open_save_as_dialog;
     }
 
+    /**
+     * Synchronises the internal change-detection checkpoint with the active template document on disk.
+     * @param {string|null} [activeId] - Template identifier override.
+     * @param {string|null} [activeName] - Template display name override.
+     */
     async function sync_checkpoint_with_active_template(activeId, activeName) {
         var tplId = (activeId !== undefined && activeId !== null) ? activeId : (window.__pyxis_active_template_id || localStorage.getItem("pyxis_active_template_id"));
         var tplName = (activeName !== undefined && activeName !== null) ? activeName : (window.__pyxis_active_template_name || localStorage.getItem("pyxis_active_template_name"));
@@ -1124,11 +1284,15 @@
         }
     }
 
+    /**
+     * Polls initialization state of the PyWebView bridge and LiteGraph canvas, then registers global hooks.
+     */
     async function wait_ready() {
         window.open_template_library_modal = open_library;
         window.open_save_dialog = open_save_dialog;
         window.open_save_as_dialog = open_save_as_dialog;
         window.has_template_changes = has_changes;
+        window.get_graph_content_signature = get_graph_content_signature;
         window.update_template_checkpoint = update_checkpoint;
         window.update_checkpoint = update_checkpoint;
         window.sync_template_checkpoint = sync_checkpoint_with_active_template;

@@ -13,7 +13,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- * For any question you can visit: https://discord.gg/rYsARc3fB9
+ * For any question you can visit: https://discord.gg/fsxRESeQZN
  */
 
 (function () {
@@ -26,20 +26,36 @@
     var last_saved_json = "";
     var started = false;
 
+    /**
+     * Verifies whether the PyWebView Python API bridge is ready to receive save requests.
+     * @returns {boolean} True if window.pywebview.api.save_session is callable.
+     */
     function api_ready() {
         return window.pywebview && window.pywebview.api &&
             typeof window.pywebview.api.save_session === "function";
     }
 
+    /**
+     * Verifies whether the LiteGraph canvas instance is initialised and serialisable.
+     * @returns {boolean} True if graph object supports serialization.
+     */
     function graph_ready() {
         var g = window.graph || (typeof graph !== "undefined" ? graph : null);
         return g && typeof g.serialize === "function";
     }
 
+    /**
+     * Checks if the initial graph layout and template loading cycle has completed.
+     * @returns {boolean} True if initialisation flag is strictly true.
+     */
     function initialization_finished() {
         return window.__pyxis_graph_initialized === true;
     }
 
+    /**
+     * Synchronises UI widget values to node properties prior to JSON serialisation.
+     * Extracts floating coordinates and viewport transform states for System/Previewer nodes.
+     */
     function sync_widgets() {
         if (typeof window.syncWidgetsToProperties === "function") {
             window.syncWidgetsToProperties();
@@ -60,8 +76,26 @@
                         node.properties.previewer_width = Math.round(p.originalSize[0]);
                         node.properties.previewer_height = Math.round(p.originalSize[1]);
                     }
+                    if (p.wrapper) {
+                        var fx = parseFloat(p.wrapper.style.left);
+                        var fy = parseFloat(p.wrapper.style.top);
+                        var fw = parseFloat(p.wrapper.style.width);
+                        var fh = parseFloat(p.wrapper.style.height);
+                        if (!isNaN(fx)) node.properties.floating_x = Math.round(fx);
+                        else if (p.savedFloatingLeft) node.properties.floating_x = Math.round(parseFloat(p.savedFloatingLeft));
+                        if (!isNaN(fy)) node.properties.floating_y = Math.round(fy);
+                        else if (p.savedFloatingTop) node.properties.floating_y = Math.round(parseFloat(p.savedFloatingTop));
+                        if (!isNaN(fw) && fw > 0) node.properties.floating_width = Math.round(fw);
+                        else if (p.savedFloatingWidth) node.properties.floating_width = Math.round(parseFloat(p.savedFloatingWidth));
+                        if (!isNaN(fh) && fh > 0) node.properties.floating_height = Math.round(fh);
+                        else if (p.savedFloatingHeight) node.properties.floating_height = Math.round(parseFloat(p.savedFloatingHeight));
+                    }
                 } else {
                     node.properties.is_pinned = false;
+                    delete node.properties.floating_x;
+                    delete node.properties.floating_y;
+                    delete node.properties.floating_width;
+                    delete node.properties.floating_height;
                     if (Array.isArray(node.size) && node.size[0] > 0 && node.size[1] >= 140) {
                         node.properties.previewer_width = Math.round(node.size[0]);
                         node.properties.previewer_height = Math.round(node.size[1]);
@@ -87,6 +121,10 @@
         });
     }
 
+    /**
+     * Serialises the current graph state into a JSON string with canvas viewport metadata.
+     * @returns {string} Serialised JSON string, or empty string on error or unready state.
+     */
     function graph_json() {
         if (!graph_ready()) return "";
         sync_widgets();
@@ -117,6 +155,10 @@
         }
     }
 
+    /**
+     * Immediately triggers an atomic session save transaction via the PyWebView API bridge.
+     * Handles in-flight request coalescing to prevent re-entrant concurrency conflicts.
+     */
     function save_now() {
         if (!api_ready() || !initialization_finished()) return;
         if (save_timer !== null) {
@@ -146,6 +188,10 @@
         });
     }
 
+    /**
+     * Debounces a session save request across a configurable timeout threshold.
+     * @param {number} [delay] - Millisecond delay before invoking save_now.
+     */
     function schedule_save(delay) {
         if (!initialization_finished()) return;
         if (save_timer !== null) clearTimeout(save_timer);
@@ -156,6 +202,9 @@
         }, timeout);
     }
 
+    /**
+     * Attaches change callbacks to all active node widgets to detect user edits.
+     */
     function hook_widgets() {
         if (!graph_ready()) return;
         var g = window.graph || (typeof graph !== "undefined" ? graph : null);
@@ -177,6 +226,9 @@
         });
     }
 
+    /**
+     * Handles graph mutation events, updates widget hooks, and schedules a debounced save.
+     */
     function on_graph_mutation() {
         hook_widgets();
         schedule_save(50);
@@ -185,6 +237,9 @@
         }
     }
 
+    /**
+     * Initialises listeners across graph lifecycle events, window visibility, and canvas interactions.
+     */
     function start() {
         if (started || !api_ready() || !initialization_finished()) return;
         var g = window.graph || (typeof graph !== "undefined" ? graph : null);
@@ -261,6 +316,9 @@
         }
     }
 
+    /**
+     * Polls readiness state until API bridge, graph engine, and layout are initialised.
+     */
     function wait_until_ready() {
         if (api_ready() && graph_ready() && initialization_finished()) {
             start();

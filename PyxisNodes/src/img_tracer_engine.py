@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
 """
 Image tracing engine to ASSDraw vector shapes (m, l, b) for PyxisNodes.
@@ -74,6 +74,11 @@ def _get_potrace_exe_path() -> str:
 
 
 def _get_ffmpeg_exe_path() -> str:
+    """Locate the FFmpeg binary in system paths or local bundled directories.
+
+    Returns:
+        str: Absolute path to the ffmpeg executable if found, or an empty string.
+    """
     try:
         from paths import get_bin_path
         cand = get_bin_path("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
@@ -98,6 +103,17 @@ def _get_ffmpeg_exe_path() -> str:
 
 
 def _get_or_create_inverted_webp(image_path: str) -> str:
+    """Retrieve or generate a colour-inverted WebP copy of an image, cached on disk.
+
+    Uses FFmpeg (negate filter) or PIL (ImageOps.invert) as fallback, storing the result
+    in the temporary cache directory with an MD5 hash key based on path and mtime.
+
+    Args:
+        image_path (str): Filesystem path to the source raster image.
+
+    Returns:
+        str: Filesystem path to the inverted WebP image or original path on failure.
+    """
     if not image_path or not os.path.isfile(image_path):
         return image_path
 
@@ -168,6 +184,14 @@ def _get_or_create_inverted_webp(image_path: str) -> str:
 
 
 def _is_animated_gif(image_path: str) -> bool:
+    """Determine whether an image file is an animated multi-frame sequence (GIF/WebP/APNG).
+
+    Args:
+        image_path (str): Filesystem path to the candidate image file.
+
+    Returns:
+        bool: True if the file contains more than one frame, False otherwise.
+    """
     if not image_path or not os.path.isfile(image_path):
         return False
     ext = os.path.splitext(image_path)[1].lower()
@@ -181,6 +205,17 @@ def _is_animated_gif(image_path: str) -> bool:
 
 
 def _get_or_extract_gif_frames(image_path: str) -> Tuple[List[str], int]:
+    """Extract all individual frames from an animated image into a temporary directory.
+
+    Employs FFmpeg or PIL.ImageSequence to unpack frames into PNGs, maintaining a disk
+    cache keyed by the file path and mtime to avoid redundant re-extraction.
+
+    Args:
+        image_path (str): Filesystem path to the animated GIF or multi-frame file.
+
+    Returns:
+        Tuple[List[str], int]: A tuple containing the list of frame file paths and total count.
+    """
     if not image_path or not os.path.isfile(image_path):
         return [], 0
 
@@ -396,7 +431,24 @@ def _trace_python_native(
     bin_mode: str = "Luminance",
     alphamax: float = 1.0
 ) -> str:
-    """Motor de trazado nativo en Python usando Pillow + Numpy."""
+    """Execute native Python raster image tracing into ASSDraw geometry using NumPy and Pillow.
+
+    Performs channel binarisation (Luminance, Silhouette, or Borders gradient), extracts boundary
+    contours, simplifies vertices via Ramer-Douglas-Peucker decimation, and fits cubic Bézier
+    splines or linear segments.
+
+    Args:
+        img (Image.Image): Source Pillow image instance.
+        mode (str): Tracing algorithm ('potrace' for Bézier, 'polygon' or 'borders' for lines).
+        threshold (int): Binarisation cut-off threshold (0 to 255).
+        invert (bool): Invert polarity of the binary mask.
+        tolerance (float): Simplification tolerance epsilon for RDP decimation.
+        bin_mode (str, optional): Binarisation mode ('Luminance', 'Silhouette', 'Borders'). Defaults to 'Luminance'.
+        alphamax (float, optional): Smoothness factor for Bézier spline fitting. Defaults to 1.0.
+
+    Returns:
+        str: Space-separated ASSDraw command string ('m ... l ... b ...').
+    """
     if img.mode != 'RGBA':
         img = img.convert('RGBA')
 
@@ -657,6 +709,33 @@ def _trace_single_image_file(
     opttoler: float = 0.2,
     turnpolicy: str = "minority"
 ) -> Dict[str, Any]:
+    """Trace a single raster image file into ASSDraw geometry using Potrace CLI or native fallback.
+
+    Checks the in-memory LRU cache (_TRACER_CACHE). If missing, binarises the image, generates
+    an intermediate PGM file, runs potrace.exe to produce an SVG path, parses the SVG into ASSDraw
+    commands, transforms the coordinates according to anchor/scale/offsets, and caches the result.
+
+    Args:
+        image_path (str): Filesystem path to the image file.
+        mode (str, optional): Tracing mode ('Potrace', 'Polygon', 'Borders'). Defaults to 'Potrace'.
+        threshold (int, optional): Binarisation threshold (0-255). Defaults to 128.
+        invert (bool, optional): Invert mask polarity. Defaults to False.
+        tolerance (float, optional): Simplification / turdsize threshold. Defaults to 1.0.
+        out_scale (float, optional): Output coordinate scaling factor. Defaults to 1.0.
+        out_w (float, optional): Target bounding box width in pixels. Defaults to 0.0.
+        out_h (float, optional): Target bounding box height in pixels. Defaults to 0.0.
+        anchor (str, optional): Coordinate origin anchor mode. Defaults to 'Center'.
+        offset_x (float, optional): Translation offset in X. Defaults to 0.0.
+        offset_y (float, optional): Translation offset in Y. Defaults to 0.0.
+        img_scale (float, optional): Input image downsampling scale factor. Defaults to 1.0.
+        bin_mode (str, optional): Binarisation method ('Luminance', 'Silhouette', 'Borders'). Defaults to 'Luminance'.
+        alphamax (float, optional): Potrace curve smoothness parameter. Defaults to 1.0.
+        opttoler (float, optional): Potrace curve optimisation tolerance. Defaults to 0.2.
+        turnpolicy (str, optional): Turn resolution policy for Potrace. Defaults to 'minority'.
+
+    Returns:
+        Dict[str, Any]: Dictionary containing 'shape', 'width', 'height', 'points', and 'error'.
+    """
     try:
         mtime = os.path.getmtime(image_path)
     except Exception:
@@ -806,8 +885,45 @@ def trace_image(
     frame_index: int = 1,
     invert_img: bool = False
 ) -> Dict[str, Any]:
-    """
-    Main function for tracing an image or GIF animation into an ASSDraw shape.
+    """Execute high-level raster image and animated GIF vector tracing into ASSDraw geometries.
+
+    Dispatches input bitmaps or animated frame sequences across specialised vectorisation engines
+    (Potrace Bézier splines, Douglas-Peucker polygonal decimation, or Sobel luminance edge gradients).
+    Handles dynamic GIF frame extraction, threshold binarisation, inversion, coordinate re-centring,
+    and returns a structured dictionary containing raw ASSDraw commands, bounding box dimensions,
+    vertex counts, and frame sequence metadata.
+
+    Args:
+        image_path (str): Absolute or relative filesystem path to the source raster image or GIF.
+        mode (str, optional): Vectorisation algorithm ('Potrace', 'Polygon', or 'Borders'). Defaults to 'Potrace'.
+        threshold (int, optional): Luminance or alpha binarisation cut-off level (0 to 255). Defaults to 128.
+        invert (bool, optional): Invert vector path polarity (foreground vs background). Defaults to False.
+        tolerance (float, optional): Polygon approximation tolerance (Douglas-Peucker epsilon). Defaults to 1.0.
+        out_scale (float, optional): Global multiplicative scale factor applied to output coordinates. Defaults to 1.0.
+        out_w (float, optional): Target bounding box width in pixels (0.0 preserves natural scale). Defaults to 0.0.
+        out_h (float, optional): Target bounding box height in pixels (0.0 preserves natural scale). Defaults to 0.0.
+        anchor (str, optional): Coordinate anchor mode ('Center', 'Origin', 'Relative', 'Absolute'). Defaults to 'Center'.
+        offset_x (float, optional): Cartesian X translation offset in pixels. Defaults to 0.0.
+        offset_y (float, optional): Cartesian Y translation offset in pixels. Defaults to 0.0.
+        img_scale (float, optional): Pre-rasterisation downsampling/upsampling factor. Defaults to 1.0.
+        bin_mode (str, optional): Channel binarisation method ('Luminance', 'Silhouette', 'Borders'). Defaults to 'Luminance'.
+        alphamax (float, optional): Potrace corner threshold parameter (smoothness). Defaults to 1.0.
+        opttoler (float, optional): Curve optimisation tolerance for Bézier segments. Defaults to 0.2.
+        turnpolicy (str, optional): Ambiguity resolution policy for pixel turns ('minority', 'majority'). Defaults to 'minority'.
+        frame_index (int, optional): 1-based index of the specific GIF frame to trace. Defaults to 1.
+        invert_img (bool, optional): Invert pixel colour channels prior to binarisation. Defaults to False.
+
+    Returns:
+        Dict[str, Any]: A dictionary containing:
+            - 'shape' (str): Primary ASSDraw vector command string ('m ... l ... b ...').
+            - 'width' (float): Calculated bounding box width in pixels.
+            - 'height' (float): Calculated bounding box height in pixels.
+            - 'points' (int): Total count of emitted control vertices.
+            - 'total_frames' (int): Total count of detected frames (>= 1).
+            - 'frame_index' (int): Active 1-based frame index evaluated.
+            - 'shapes_array' (str): Comma-separated list of shapes for animated sequences, or identical to 'shape'.
+            - 'preview_image_path' (str): Filesystem path to the evaluated frame image.
+            - 'error' (str, optional): Error message if tracing fails or path is invalid.
     """
     if not image_path or not os.path.isfile(image_path):
         return {"shape": "", "width": 0.0, "height": 0.0, "points": 0, "total_frames": 1, "frame_index": 1, "shapes_array": "", "error": "Invalid image path"}

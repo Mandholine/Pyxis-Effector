@@ -12,24 +12,13 @@
 --
 -- You should have received a copy of the GNU General Public License
 -- along with this program. If not, see <https://www.gnu.org/licenses/>.
--- For any question you can visit: https://discord.gg/rYsARc3fB9
+-- For any question you can visit: https://discord.gg/fsxRESeQZN
 
 script_name        = "Pyxis Node Engine"
 script_description = "Visual Node-Based Karaoke Automation"
 script_author      = "Pyxis Dev Team"
-script_version     = "1.1.4"
+script_version     = "1.1.5"
 script_namespace   = "pyxis.NodeEngine"
-
-local depctrl_ok, DependencyControl = pcall(require, "l0.DependencyControl")
-local version_record = nil
-
-if depctrl_ok and (type(DependencyControl) == "table" or type(DependencyControl) == "function") then
-    pcall(function()
-        version_record = DependencyControl{
-            feed = "https://raw.githubusercontent.com/Mandholine/Pyxis-Effector/master/DependencyControl.json"
-        }
-    end)
-end
 
 local ffi = require("ffi")
 local unicode = require("aegisub.unicode")
@@ -347,60 +336,6 @@ function launch_Pyxis(subs, sel, act)
         return
     end
 
-    local function download_and_extract_runtime(target_dir)
-        local btn, _ = aegisub.dialog.display({
-            {class="label", label="Pyxis Effector requiere el motor de ejecución (~370 MB).", x=0, y=0, width=2, height=1},
-            {class="label", label="Repositorio: https://github.com/Mandholine/Pyxis-Effector", x=0, y=1, width=2, height=1},
-            {class="label", label="¿Desea iniciar la descarga ahora?", x=0, y=2, width=2, height=1}
-        }, {"Descargar", "Cancelar"})
-
-        if btn ~= "Descargar" then
-            return nil
-        end
-
-        local temp_dir = os.getenv("TEMP") or target_dir
-        local zip_name = "PyxisEffector-v" .. script_version .. "-win64.zip"
-        local zip_path = join_path(temp_dir, zip_name)
-        local download_url = "https://github.com/Mandholine/Pyxis-Effector/releases/download/v" .. script_version .. "/" .. zip_name
-        local bat_file = join_path(temp_dir, "pyxis_installer.bat")
-
-        local f = io.open(bat_file, "w")
-        if f then
-            f:write(string.format([[@echo off
-title Descargando Pyxis Effector
-echo Descargando motor de Pyxis (~370 MB)...
-curl.exe -# -L -f -o "%s" "%s"
-if errorlevel 1 goto fallback
-echo Descomprimiendo archivos...
-tar.exe -xf "%s" -C "%s"
-if errorlevel 1 goto fallback
-del /f /q "%s" >nul 2>&1
-exit /b 0
-
-:fallback
-echo Reintentando con PowerShell...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'Continue'; (New-Object Net.WebClient).DownloadFile('%s', '%s'); Expand-Archive -Path '%s' -DestinationPath '%s' -Force; Remove-Item '%s' -Force"
-exit /b 0
-]], zip_path, download_url, zip_path, target_dir, zip_path, download_url, zip_path, zip_path, target_dir, zip_path))
-            f:close()
-            os.execute('cmd.exe /c "' .. bat_file .. '"')
-            pcall(os.remove, bat_file)
-        end
-
-        local extracted_pyxis = join_path(target_dir, "PyxisNodes")
-        local verify_file = io.open(join_path(extracted_pyxis, "main.py"), "r")
-        if verify_file then
-            verify_file:close()
-            return extracted_pyxis
-        end
-
-        aegisub.dialog.display({
-            {class="label", label="Error: No se pudo descargar o extraer el motor de Pyxis.", x=0, y=0, width=2, height=1},
-            {class="label", label="Verifique su conexión a internet o instálelo manualmente desde GitHub Releases.", x=0, y=1, width=2, height=1}
-        }, {"Cerrar"})
-        return nil
-    end
-
     local function find_pyxis_nodes_dir()
         local user_autoload = aegisub.decode_path("?user/automation/autoload")
         local p_user = join_path(user_autoload, "PyxisNodes")
@@ -418,7 +353,17 @@ exit /b 0
             return p_data
         end
 
-        return download_and_extract_runtime(user_autoload)
+        local btn, _ = aegisub.dialog.display({
+            {class="label", label="Pyxis Effector requiere el entorno completo de ejecucion (PyxisNodes).", x=0, y=0, width=2, height=1},
+            {class="label", label="No se encontraron los archivos del motor en tu carpeta de automatizaciones de Aegisub.", x=0, y=1, width=2, height=1},
+            {class="label", label="Descarga el paquete oficial desde GitHub Releases para instalarlo.", x=0, y=2, width=2, height=1}
+        }, {"Abrir GitHub Releases", "Cerrar"})
+
+        if btn == "Abrir GitHub Releases" and shell32 and shell32.ShellExecuteA then
+            shell32.ShellExecuteA(nil, "open", "https://github.com/Mandholine/Pyxis-Effector/releases/latest", nil, nil, 1)
+        end
+
+        return nil
     end
 
     local Pyxis_dir = find_pyxis_nodes_dir()
@@ -460,7 +405,7 @@ exit /b 0
     local exported_dialogue_subs_indices = {}
     for i = 1, #subs do
         local l = subs[i]
-        if l.class == "dialogue" and l.effect ~= "Pyxis_fx" then
+        if l.class == "dialogue" and l.effect ~= "pyxis_fx" then
             exported_dialogue_subs_indices[#exported_dialogue_subs_indices + 1] = i
             current_sub_state = current_sub_state .. l.raw .. (sel_map[i] and "1" or "0")
         end
@@ -516,7 +461,7 @@ exit /b 0
         local total_lines = #subs
         for i = 1, total_lines do
             local line = subs[i]
-            if line.class == "dialogue" and line.effect ~= "Pyxis_fx" then
+            if line.class == "dialogue" and line.effect ~= "pyxis_fx" then
                 if sel_map[i] then
                     file:write(string.format(
                         "Comment: %d,%s,%s,%s,%s,%d,%d,%d,PyxisMetrics,sel=1\n",
@@ -689,7 +634,7 @@ exit /b 0
     for idx, _ in pairs(used_subs_indices) do
         has_used_indices = true
         local line = subs[idx]
-        if line and line.class == "dialogue" and line.effect ~= "Pyxis_fx" then
+        if line and line.class == "dialogue" and line.effect ~= "pyxis_fx" then
             line.comment = true
             subs[idx] = line
         end
@@ -699,7 +644,7 @@ exit /b 0
     if not has_used_indices then
         for _, idx in ipairs(sel) do
             local line = subs[idx]
-            if line and line.class == "dialogue" and line.effect ~= "Pyxis_fx" then
+            if line and line.class == "dialogue" and line.effect ~= "pyxis_fx" then
                 line.comment = true
                 subs[idx] = line
             end
@@ -722,8 +667,4 @@ exit /b 0
     return sel, act
 end
 
-if version_record and version_record.registerMacro then
-    version_record:registerMacro(launch_Pyxis)
-else
-    aegisub.register_macro(script_name, script_description, launch_Pyxis)
-end
+aegisub.register_macro(script_name, script_description, launch_Pyxis)

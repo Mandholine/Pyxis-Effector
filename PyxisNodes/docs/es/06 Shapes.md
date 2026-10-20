@@ -819,7 +819,7 @@ Analiza la estructura anidada del trazado mediante el árbol de polígonos de Cl
 * **`[2.2] Rule:` (`fill_type`):** Regla de devanado y relleno booleano (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
 * **`[2.3] Clean:` (`clean_self_intersect`):** Limpieza automática de auto-intersecciones de bordes (`Auto (1)` activado, `Off (0)` desactivado).
 * **`[2.4] Anchor` (`Pieces`):** Botón selector de anclaje de referencia espacial (`Pieces` recentra cada pieza en su centroide local, `Relative`, `Parent Org` / `Org Padre`, `Pos`, `Absolute`).
-* **`[2.5] Order:` (`order`):** Criterio de ordenamiento espacial de las piezas para la secuencia de iteración (`79 (TL->BR)`, `97 (TR->BL)`, `13 (BL->TR)`, `31 (BR->TL)`, `71 (TL->BL)`, `17 (BL->TL)`, `93 (TR->BR)`, `39 (BR->TR)`, `5 (Centro)`, `-5 (Inverso)`, `cw` horario, `ccw` antihorario, `rand`).
+* **`[2.5] Order:` (`order`):** Criterio de ordenamiento espacial de las piezas para la secuencia de iteración (`79 (TL->BR)`, `97 (TR->BL)`, `13 (BL->TR)`, `31 (BR->TL)`, `71 (TL->BL)`, `17 (BL->TL)`, `93 (TR->BR)`, `39 (BR->TR)`, `5 (Centro)`, `-5 (Inverso)`, `cw` horario, `ccw` antihorario, `rand` aleatorio, `path` secuencia de dibujo original, `path_inv` secuencia invertida).
 
 #### 2. Modo `[UNION]` (Unir Boolean Union)
 Combina dos siluetas vectoriales superpuestas en un único trazado unificado, fusionando las masas y eliminando automáticamente cualquier línea perimetral o solapamiento interno.
@@ -833,7 +833,7 @@ Combina dos siluetas vectoriales superpuestas en un único trazado unificado, fu
 Descompone el dibujo dividiendo de manera directa por cada comando de inicio `m ...` sin realizar cálculos topológicos de agujeros. Es ideal para formas abiertas, siluetas sencillas o líneas de caligrafía.
 * **`[2.1] Shape In`:** Trazado ASSdraw con múltiples comandos `m`.
 * **`[2.2] Anchor` (`Pieces`):** Punto de anclaje de los subcaminos resultantes.
-* **`[2.3] Order:` (`order`):** Criterio de ordenamiento espacial de los subcaminos (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`).
+* **`[2.3] Order:` (`order`):** Criterio de ordenamiento espacial de los subcaminos (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
 
 #### 4. Modo `[FUSION]` (Fusión Tags con Keyframes)
 Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo ASS** (`{\tags1}m ... {\tags2}m ...`), eliminando la necesidad de generar múltiples líneas en el archivo subtítulo. Permite estilizar individualmente cada pieza mediante bloques de etiquetas y transiciones de color.
@@ -843,7 +843,7 @@ Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo
   * **`line` (Lineal 1:1 Estricto):** Asigna cada bloque de etiquetas de la lista uno a uno a su pieza correspondiente según el orden establecido. Si faltan etiquetas, el resto de piezas recibe `{\p1}`; si sobran, se descartan ordenadamente.
 * **`[2.3] Tags` (`tags`):** Lista de etiquetas ASS o colores hexadecimales separados por comas o bloques (ej. `\1c&H0000FF&, \1c&H00FF00&, \1c&HFF0000&` o `#87F337, #61FBC7, #AF6DF6`).
 * **`[2.4] Anchor` (`Pieces`):** Anclaje espacial de alineación.
-* **`[2.5] Order:` (`order`):** Orden espacial en que se asignan o interpolan los tags sobre las piezas (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`).
+* **`[2.5] Order:` (`order`):** Orden espacial en que se asignan o interpolan los tags sobre las piezas (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
 
 ---
 

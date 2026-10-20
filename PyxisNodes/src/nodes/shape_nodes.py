@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
 """Vector shape library and shape manipulation nodes."""
 
@@ -165,7 +165,25 @@ import math
 
 
 def get_shape_bbox_metrics(drawing: str):
-    """Calculates or retrieves cached bounding box metrics (min_x, min_y, max_x, max_y, cx, cy)."""
+    """
+    Calculates or retrieves cached 2D axis-aligned bounding box and centroid metrics.
+
+    Parses all numerical coordinate tokens in the ASSdraw drawing string and derives the
+    extremum coordinates (min_x, min_y, max_x, max_y) and the geometric centre (cx, cy).
+    Results are cached in `_SHAPE_BBOX_CACHE` using an LRU eviction policy (maximum 1024 entries).
+
+    Parameters:
+        drawing (str): ASSdraw command string containing coordinate tokens.
+
+    Returns:
+        tuple of float: (min_x, min_y, max_x, max_y, cx, cy)
+            - min_x (float): Minimum horizontal bound.
+            - min_y (float): Minimum vertical bound.
+            - max_x (float): Maximum horizontal bound.
+            - max_y (float): Maximum vertical bound.
+            - cx (float): Horizontal centroid coordinate ((min_x + max_x) / 2.0).
+            - cy (float): Vertical centroid coordinate ((min_y + max_y) / 2.0).
+    """
     shp_key = str(drawing or "").strip()
     if not shp_key:
         return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -203,11 +221,26 @@ def get_shape_bbox_metrics(drawing: str):
 
 
 def resolve_shape_anchor(drawing, anchor="center", context=None):
-    """Calculates canonical Shape Anchor reference and base offsets for monolithic shapes:
-    - 'center': Centers local bounding box around (0, 0) [ref = (cx, cy), base = (0, 0)].
+    """
+    Calculates canonical reference and base translation offsets for monolithic shapes.
+
+    Determines translation vectors to align a monolithic ASSdraw shape with standard coordinate frames:
+    - 'center': Centrally aligns bounding box around local (0, 0) [ref = (cx, cy), base = (0, 0)].
     - 'origin': Aligns top-left corner of ink bounding box to (0, 0) [ref = (min_x, min_y), base = (0, 0)].
-    - 'absolute': Translates shape to canvas context position (fx.pos_x, fx.pos_y) [ref = (cx, cy), base = (pos_x, pos_y)].
-    Returns (ref_x, ref_y, base_x, base_y, min_x, min_y, max_x, max_y, cx, cy).
+    - 'absolute': Translates shape directly to video canvas coordinates [ref = (0, 0), base = (pos_x, pos_y)].
+    - 'relative': Preserves native vertex coordinates without displacement [ref = (0, 0), base = (0, 0)].
+
+    Parameters:
+        drawing (str): Input ASSdraw vector command string.
+        anchor (str): Canonical anchor mode identifier ('center', 'origin', 'absolute', 'relative').
+        context (dict or None): Execution evaluation context providing active unit/line coordinates.
+
+    Returns:
+        tuple of float: (ref_x, ref_y, base_x, base_y, min_x, min_y, max_x, max_y, cx, cy)
+            - ref_x, ref_y (float): Reference coordinate to subtract from drawing vertices.
+            - base_x, base_y (float): Base coordinate to add to drawing vertices.
+            - min_x, min_y, max_x, max_y (float): Bounding box limits.
+            - cx, cy (float): Geometric centroid coordinates.
     """
     min_x, min_y, max_x, max_y, cx, cy = get_shape_bbox_metrics(drawing)
 
@@ -240,20 +273,54 @@ def resolve_shape_anchor(drawing, anchor="center", context=None):
 
 
 def resolve_piece_anchor(piece_code, piece_cx=0.0, piece_cy=0.0, parent_x=0.0, parent_y=0.0, anchor="pieces", context=None):
-    """Calculates canonical Piece Anchor coordinates and shape transformation for piece/slicer/array elements:
-    - 'pieces': Recenters piece to local (0, 0) [-cx, -cy], pos = (parent_x + cx, parent_y + cy), org = (pos_x, pos_y), has_org = True.
-    - 'relative': Keeps relative offset to parent center [code unmodified], pos = (parent_x, parent_y), org = (parent_x, parent_y), has_org = True.
-    - 'parent_org': Recenters piece to local (0, 0) [-cx, -cy], pos = (parent_x + cx, parent_y + cy), org = (parent_x, parent_y), has_org = True.
-    - 'pos': Recenters piece to local (0, 0) [-cx, -cy], pos = (parent_x + cx, parent_y + cy), org = None, has_org = False.
-    - 'absolute': Bakes absolute screen coordinates into shape [offset +parent_x, +parent_y], pos = (parent_x, parent_y), org = None, has_org = False.
-    Returns a dict with:
-        'formatted_code': str,
-        'pos_x': float,
-        'pos_y': float,
-        'org_x': float,
-        'org_y': float,
-        'has_org': bool,
-        'pos_overridden': bool
+    """Calculates canonical Piece Anchor coordinates and shape transformations for segmented vector elements.
+
+    This function governs the spatial projection and coordinate frame re-alignment of polygonal pieces
+    generated by `Shape/Slicer`, `Shape/Array`, and `Shape/Union & Divide`. It translates the local centroid
+    offset into absolute screen-space positioning while optionally recentring the vector path to origin (0, 0),
+    ensuring seamless interoperability with ASS `\\pos(x, y)` positioning and `\\org(x, y)` rotation centres.
+
+    Supported Canonical Anchor Modes:
+        - 'pieces' (Default Canonical):
+          Recentres the piece drawing to local (0, 0) by applying offset (-cx, -cy).
+          Sets pos = (parent_x + cx, parent_y + cy), org = (pos_x, pos_y), has_org = True, pos_overridden = True.
+          Each piece rotates and scales independently around its own geometric centroid.
+        - 'relative':
+          Keeps relative offsets to parent centre intact (drawing geometry remains unmodified).
+          Sets pos = (parent_x, parent_y), org = (parent_x, parent_y), has_org = True, pos_overridden = False.
+          Preserves global layout; rotation occurs around the parent unit centre.
+        - 'parent_org':
+          Recentres the piece drawing to local (0, 0) by applying offset (-cx, -cy).
+          Sets pos = (parent_x + cx, parent_y + cy), org = (parent_x, parent_y), has_org = True, pos_overridden = True.
+          The piece is positioned at its centroid but rotates around the common parent origin.
+        - 'pos':
+          Recentres the piece drawing to local (0, 0) by applying offset (-cx, -cy).
+          Sets pos = (parent_x + cx, parent_y + cy), org = None (0, 0), has_org = False, pos_overridden = True.
+          Omits the `\\org` tag, allowing default ASS origin inheritance.
+        - 'absolute':
+          Bakes absolute screen coordinates directly into the vector path via offset (+parent_x, +parent_y).
+          Sets pos = (parent_x, parent_y), org = None (0, 0), has_org = False, pos_overridden = False.
+          Drawings are rendered in absolute video canvas coordinates without requiring local translation.
+
+    Args:
+        piece_code (str): Raw ASSdraw command string of the individual polygonal segment.
+        piece_cx (float): Horizontal centroid displacement relative to parent drawing bounding box centre.
+        piece_cy (float): Vertical centroid displacement relative to parent drawing bounding box centre.
+        parent_x (float): Base screen-space horizontal anchor of the parent unit or line.
+        parent_y (float): Base screen-space vertical anchor of the parent unit or line.
+        anchor (str): Canonical anchor mode identifier ('pieces', 'relative', 'parent_org', 'pos', 'absolute').
+        context (dict | None): Active DAG evaluation context. If supplied, mutates spatial context keys in-place
+            (`pos_x`, `pos_y`, `pos_overridden`, `has_org`, `x`, `y`, `org_x`, `org_y`, `fx_pos_x`, `fx_pos_y`).
+
+    Returns:
+        dict: Spatial transformation payload containing:
+            - 'formatted_code' (str): Translated and transformed ASSdraw command string.
+            - 'pos_x' (float): Target horizontal screen coordinate for `\\pos`.
+            - 'pos_y' (float): Target vertical screen coordinate for `\\pos`.
+            - 'org_x' (float): Target horizontal origin coordinate for `\\org`.
+            - 'org_y' (float): Target vertical origin coordinate for `\\org`.
+            - 'has_org' (bool): Whether an explicit `\\org` override must be injected.
+            - 'pos_overridden' (bool): Whether local coordinates supersede unit defaults.
     """
     from clipper_engine import ClipperEngine
 
@@ -337,11 +404,51 @@ def resolve_piece_anchor(piece_code, piece_cx=0.0, piece_cy=0.0, parent_x=0.0, p
 
 
 def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, offset_x=0.0, offset_y=0.0, offset_border=0.0, mode="center", op_mode="scale", density=2.0, angle_x=0.0, angle_y=0.0, angle_z=0.0, axis=None, t=1.0, skew_x=0.0, skew_y=0.0, **kwargs):
-    """Applies advanced vector manipulations (Scale, Borders, Deform, Position, Redraw, 3D Rotation, Reflect, Matrix).
-    Canonical Shape Anchor modes:
-      - 'center': Centers shape around (0,0) [ref = (cx, cy), base = (0, 0)].
-      - 'origin': Aligns top-left corner of bounding box to (0,0) [ref = (min_x, min_y), base = (0, 0)].
-      - 'absolute': Translates shape to screen/canvas coordinates (pos_x, pos_y) [ref = (cx, cy), base = (pos_x, pos_y)].
+    """Executes high-level vector manipulation operations across 8 specialised transformation modes.
+
+    Acts as the primary geometric transformation dispatcher for `Shape/Manipulator`, routing
+    the input drawing to specialised matrix routines, Clipper2 offset dilation, De Casteljau spline
+    subdivision, 3D Euler rotation with perspective projection, or specular reflection.
+
+    Transformation Modes (`op_mode`):
+        - 'scale': Anamorphic or isotropic 2D scaling around the specified anchor.
+        - 'borders': Polygonal inflation/erosion via Clipper2 geometric offset (`offset_border`).
+        - 'deform': Coupled anisotropic scaling with Cartesian coordinate translation.
+        - 'position': Planar 2D translation (`offset_x`, `offset_y`).
+        - 'redraw': Adaptive chordal subdivision (factor > 0) or polyline simplification (factor < 0).
+        - '3d_rotate': 3D Euler angular rotations (angles X, Y, Z) with perspective division.
+        - 'reflect': Specular axis mirroring across designated pivot axes ('x', 'y', 'xy').
+        - 'matrix': Master composite transformation pipeline chaining offset, redraw, scale,
+          shear/skew, 3D rotation, reflection, and translation.
+
+    Canonical Anchor Modes (`mode`):
+        - 'center': Recentres shape around local (0, 0) [ref = (cx, cy), base = (0, 0)].
+        - 'origin': Aligns top-left bounding box corner to local (0, 0) [ref = (min_x, min_y), base = (0, 0)].
+        - 'absolute': Translates shape directly to screen/canvas coordinates [ref = (cx, cy), base = (pos_x, pos_y)].
+
+    Args:
+        context (dict | None): Active DAG evaluation context containing active unit and line metrics.
+        drawing (str): Input ASSdraw command string or canonical preset shape identifier.
+        scale_x (float): Horizontal scale factor (100.0 or 1.0 depending on input mode).
+        scale_y (float): Vertical scale factor (100.0 or 1.0 depending on input mode).
+        rot (float): 2D planar rotation angle in degrees.
+        offset_x (float): Horizontal translation offset in pixels.
+        offset_y (float): Vertical translation offset in pixels.
+        offset_border (float): Clipper geometric offset delta in pixels (inflation/erosion).
+        mode (str): Spatial anchor reference mode ('center', 'origin', 'absolute').
+        op_mode (str): Transformation operation identifier ('scale', 'borders', 'deform', etc.).
+        density (float): Spline subdivision density factor for redraw operations.
+        angle_x (float): 3D Euler pitch angle in degrees (frx rotation equivalent).
+        angle_y (float): 3D Euler yaw angle in degrees (fry rotation equivalent).
+        angle_z (float): 3D Euler roll angle in degrees (frz rotation equivalent).
+        axis (str | None): Reflection axis mode ('none', 'x', 'y', 'xy').
+        t (float): Parametric interpolation factor [0.0, 1.0] for progressive blending.
+        skew_x (float): Horizontal shear/skew coefficient.
+        skew_y (float): Vertical shear/skew coefficient.
+        **kwargs: Fallback property aliases for backwards-compatible parameter extraction.
+
+    Returns:
+        str: Transformed ASSdraw vector command string.
     """
     raw_shp = resolve_shape_value(drawing if drawing else kwargs.get("shape", ""), context)
     if not raw_shp:
@@ -455,15 +562,37 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
 def _shape_matrix_transform(drawing, scale_x=100.0, scale_y=100.0, skew_x=0.0, skew_y=0.0,
                            angle_x=0.0, angle_y=0.0, angle_z=0.0, offset_x=0.0, offset_y=0.0,
                            offset_border=0.0, axis="none", density=0.0, anchor="center", t=1.0, context=None):
-    """Applies a master spatial matrix pipeline combining:
-    1. Clipper geometric offset (offset_border) if offset_border != 0.0
-    2. Redraw / subdivision (density) if density > 0.0 or < 0.0
-    3. Anamorphic scale (scale_x, scale_y)
-    4. Shear / Skew (skew_x, skew_y)
-    5. 3D Euler rotation with perspective projection (angle_x, angle_y, angle_z)
-    6. Specular reflection (axis: 'none', 'x', 'y', 'xy')
-    7. Position offset / translation (offset_x, offset_y)
-    All modulated by interpolation parameter t in [0.0, 1.0] and anchored to anchor.
+    """Executes the master composite spatial matrix pipeline for ASSdraw vector paths.
+
+    Chains seven distinct geometric operations in a strictly ordered mathematical pipeline:
+        1. Clipper Geometric Offset: Dilates or erodes polygon contours by `offset_border * t` via Clipper2.
+        2. Redraw / Subdivision: Densifies (factor > 0) or simplifies (factor < 0) splines via `_shape_redraw_bezier`.
+        3. Anamorphic Scale & Shear: Applies linear transform [x0, y0] = [rx*sx + ry*sk_x, rx*sk_y + ry*sy].
+        4. 3D Euler Rotation: Computes sequential Tait-Bryan rotations around Z, X, and Y axes.
+        5. Perspective Projection: Maps 3D coordinates to 2D via fov = dist / (dist + z) with dist = 1000.0 px.
+        6. Specular Reflection: Inverts coordinates along designated axes ('none', 'x', 'y', 'xy') with t-blending.
+        7. Anchor & Translation: Translates resulting geometry to base anchor coordinates plus (offset_x, offset_y).
+
+    Args:
+        drawing (str): Raw ASSdraw command string or canonical preset identifier.
+        scale_x (float | str): Horizontal scale percentage or factor.
+        scale_y (float | str): Vertical scale percentage or factor.
+        skew_x (float | str): Horizontal shear/skew gradient.
+        skew_y (float | str): Vertical shear/skew gradient.
+        angle_x (float | str): Rotation around X axis (pitch) in degrees.
+        angle_y (float | str): Rotation around Y axis (yaw) in degrees.
+        angle_z (float | str): Rotation around Z axis (roll) in degrees.
+        offset_x (float | str): Linear horizontal translation offset in pixels.
+        offset_y (float | str): Linear vertical translation offset in pixels.
+        offset_border (float | str): Dilation delta in pixels for Clipper polygon offsetting.
+        axis (str): Specular reflection axis ('none', 'x', 'y', 'xy').
+        density (float | str): Spline resampling density factor.
+        anchor (str): Spatial anchor reference mode ('center', 'origin', 'absolute').
+        t (float): Parametric interpolation progression factor in [0.0, 1.0].
+        context (dict | None): Active DAG evaluation context.
+
+    Returns:
+        str: Fully transformed ASSdraw command string.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
@@ -631,9 +760,30 @@ def _shape_matrix_transform(drawing, scale_x=100.0, scale_y=100.0, skew_x=0.0, s
 
 
 def _shape_redraw_bezier(drawing, factor=2.0, anchor="center", t=1.0, context=None):
-    """Redraws a vector shape:
-    - factor > 0: Densifies / refines by subdividing Bézier curves and lines preserving C1 continuity.
-    - factor < 0: Simplifies / Low-Poly by converting curves into faceted polylines with fewer vertices.
+    """
+    Subdivides or simplifies an ASS vector drawing along Bézier curves and lines.
+
+    Modes of operation based on the sign of factor:
+    - factor > 0: Densifies and refines geometry by subdividing cubic Bézier curves
+      via De Casteljau's algorithm and line segments into smaller sub-segments,
+      preserving C1 parametric continuity and curvature fidelity.
+    - factor < 0: Low-poly simplification by flattening cubic curves into discrete
+      faceted polylines with fewer vertices according to the step threshold.
+
+    An internal Least-Recently-Used (LRU) cache (_SHAPE_REDRAW_CACHE) memoises up to
+    512 transformed drawings indexed by the shape string, factor, and interpolation value.
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        factor (float | str): Step distance threshold for subdivision or polygonisation.
+            Evaluated via mathematical AST parser when passed as an expression.
+        anchor (str): Reference anchor mode ('center' or 'origin').
+        t (float | str): Interpolation factor in [0.0, 1.0]. Scales subdivision density.
+        context (dict, optional): Node evaluation context containing active line, syllable,
+            and global timeline variables.
+
+    Returns:
+        str: Re-sampled ASS vector drawing string with modified segment commands.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
@@ -733,7 +883,46 @@ def _shape_redraw_bezier(drawing, factor=2.0, anchor="center", t=1.0, context=No
 
 
 def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="center", t=1.0, context=None):
-    """Applies 3D rotation (Euler X/Y/Z like frx, fry, and frz) to an ASS vector shape with perspective projection."""
+    """
+    Applies 3D spatial rotation to an ASS vector drawing using Euler angles and perspective projection.
+
+    Rotations match the intrinsic Tait-Bryan Z-X-Y order utilised by VSFilter ASS tags
+    (\\frz, \\frx, \\fry). The coordinates are rotated around an anchor pivot point in 3D
+    space, and projected onto the 2D plane via a pinhole perspective camera model:
+        fov = dist / (dist + z)   where dist = 1000.0 px
+
+    Mathematical formulation:
+        1. Translation to local pivot:
+           rx = x - ref_x,  ry = y - ref_y,  rz = 0
+        2. Yaw (frz around Z axis):
+           x0 = rx * cos(az) - ry * sin(az)
+           y0 = rx * sin(az) + ry * cos(az)
+        3. Pitch (frx around X axis):
+           x1 = x0
+           y1 = y0 * cos(ax)
+           z1 = y0 * sin(ax)
+        4. Roll (fry around Y axis):
+           x2 = x1 * cos(ay) + z1 * sin(ay)
+           y2 = y1
+           z2 = -x1 * sin(ay) + z1 * cos(ay)
+        5. Pinhole perspective projection:
+           fov = 1000.0 / (1000.0 + z2) if (1000.0 + z2) > 1.0 else 1.0
+           final_x = ref_x + x2 * fov
+           final_y = ref_y + y2 * fov
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        angle_x (float | str): Rotation angle around X axis (pitch / frx) in degrees.
+        angle_y (float | str): Rotation angle around Y axis (roll / fry) in degrees.
+        angle_z (float | str): Rotation angle around Z axis (yaw / frz) in degrees.
+        anchor (str): Spatial anchor reference ('center' or 'origin').
+        t (float | str): Interpolation factor in [0.0, 1.0]. Scales angular velocity.
+        context (dict, optional): Node evaluation context containing active line, syllable,
+            and global timeline variables.
+
+    Returns:
+        str: 3D perspective-transformed ASS vector drawing string.
+    """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
         return ""
@@ -846,7 +1035,40 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
 
 
 def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center", t=1.0, context=None):
-    """Applies specular reflection along X, Y, or XY axes with pivot offset and interpolation t."""
+    """
+    Applies specular symmetry reflection across Cartesian axes with optional pivot displacement.
+
+    Supports directional reflection along X, Y, or dual XY axes relative to a calculated
+    anchor reference (centre or origin) plus an arbitrary pivot offset (offset_x, offset_y).
+    The transformation can be smoothly interpolated between the identity drawing (t = 0.0)
+    and fully reflected geometry (t = 1.0).
+
+    Mathematical formulation:
+        1. Pivot calculation:
+           ref_x, ref_y = (cx, cy) if anchor == 'center' else (min_x, min_y)
+           piv_x = ref_x + offset_x
+           piv_y = ref_y + offset_y
+        2. Reflected coordinates (refl_x, refl_y):
+           axis == 'x':  refl_x = 2.0 * piv_x - x,  refl_y = y
+           axis == 'y':  refl_x = x,                refl_y = 2.0 * piv_y - y
+           axis == 'xy': refl_x = 2.0 * piv_x - x,  refl_y = 2.0 * piv_y - y
+        3. Linear interpolation with factor t:
+           final_x = x + t * (refl_x - x)
+           final_y = y + t * (refl_y - y)
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        axis (str): Symmetry reflection axis ('x', 'y', 'xy', or 'none').
+        offset_x (float | str): Horizontal displacement of the symmetry axis relative to anchor.
+        offset_y (float | str): Vertical displacement of the symmetry axis relative to anchor.
+        anchor (str): Spatial anchor reference ('center' or 'origin').
+        t (float | str): Interpolation factor in [0.0, 1.0]. Blends original and reflected coordinates.
+        context (dict, optional): Node evaluation context containing active line, syllable,
+            and global timeline variables.
+
+    Returns:
+        str: Reflected ASS vector drawing string.
+    """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
         return ""
@@ -942,9 +1164,38 @@ def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center
 
 
 def _shape_inflate(drawing, t=1.0, ratio=1.0, mode="circle", anchor="center", context=None):
-    """Applies radial morphological deformation (spherification/bulge) to an ASS drawing.
-    Mode 'circle': radially inflates toward a circumscribed circle.
-    Mode 'ellipse': radially inflates toward a circumscribed ellipse adapted to bounding box aspect.
+    """
+    Applies radial morphological deformation (spherification or bulging) to an ASS vector drawing.
+
+    Pushes vertices outwards or inwards along vectors originating from the shape's geometric
+    centre towards a circumscribed reference conic section (circle or aspect-adapted ellipse).
+    The deformation magnitude is governed by the product of interpolation factor t and ratio k = t * ratio.
+
+    Mathematical formulation:
+        1. Geometric centre and radii:
+           cx = (min_x + max_x) / 2.0,  cy = (min_y + max_y) / 2.0
+           r1 = max(w, h) / 2.0 (for circle mode) or w / 2.0 (for ellipse mode)
+           r2 = max(w, h) / 2.0 (for circle mode) or h / 2.0 (for ellipse mode)
+        2. Angular projection for each vertex (x, y):
+           dx = x - cx,  dy = y - cy,  dist = hypot(dx, dy)
+           angle = atan2(dy, dx)
+           denom = sqrt((r2 * cos(angle))^2 + (r1 * sin(angle))^2)
+           target_radius = (r1 * r2) / denom
+        3. Radial blending:
+           new_dist = dist * (1.0 - k) + target_radius * k
+           nx = cx + (dx / dist) * new_dist
+           ny = cy + (dy / dist) * new_dist
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        t (float | str): Interpolation factor in [0.0, 1.0]. Evaluated via math AST.
+        ratio (float | str): Bulge intensity multiplier.
+        mode (str): Radial target mode ('circle' for isotropic, 'ellipse' for anisotropic).
+        anchor (str): Spatial anchor reference ('center', 'origin', or 'absolute').
+        context (dict, optional): Node evaluation context containing active line/syllable metrics.
+
+    Returns:
+        str: Spherified or bulged ASS vector drawing string.
     """
     if not drawing or not isinstance(drawing, str):
         return ""
@@ -1098,10 +1349,35 @@ def _shape_inflate(drawing, t=1.0, ratio=1.0, mode="circle", anchor="center", co
 
 
 def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, context=None, **kwargs):
-    """Applies 2D skew / angular planar shear (Skew / Shear) to an ASS drawing with modulation t.
-    Clean planar affine transformation:
-      x' = base_x + rel_x + rel_y * tan(rad(angle_x * t))
-      y' = base_y + rel_y + rel_x * tan(rad(angle_y * t))
+    """
+    Applies 2D angular planar shear (skew) to an ASS vector drawing with time modulation.
+
+    Calculates non-orthogonal oblique projections across horizontal and vertical axes
+    relative to a spatial anchor point (e.g., center, origin, or absolute screen position).
+    Angles are clamped between -89.9° and +89.9° to prevent trigonometric singularities (tan(90°)).
+
+    Mathematical formulation:
+        1. Anchor resolution:
+           (ref_x, ref_y, base_x, base_y) derived via resolve_shape_anchor
+           rel_x = x - ref_x,  rel_y = y - ref_y
+        2. Angular tangents with interpolation factor t:
+           ax = max(-89.9, min(89.9, angle_x * t))
+           ay = max(-89.9, min(89.9, angle_y * t))
+           tan_x = tan(radians(ax)),  tan_y = tan(radians(ay))
+        3. Affine shear mapping:
+           nx = base_x + rel_x + rel_y * tan_x
+           ny = base_y + rel_y + rel_x * tan_y
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        angle_x (float | str): Horizontal shear angle in degrees.
+        angle_y (float | str): Vertical shear angle in degrees.
+        anchor (str): Spatial anchor reference ('center', 'origin', 'relative', 'absolute').
+        t (float | str): Interpolation factor in [0.0, 1.0]. Evaluated via math AST.
+        context (dict, optional): Node evaluation context containing active line/syllable metrics.
+
+    Returns:
+        str: Sheared ASS vector drawing string.
     """
     if not drawing or not isinstance(drawing, str):
         return ""
@@ -1214,7 +1490,40 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, conte
 
 
 def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=1.0, context=None, **kwargs):
-    """Rounds (Round with Bézier curves) or bevels (Bevel with lines) polyhedral corners of an ASS drawing with modulation t.
+    """
+    Rounds or bevels polyhedral vertices of an ASS vector drawing with time modulation.
+
+    Detects sharp corners between adjacent line segments and replaces the acute vertex
+    with smooth cubic Bézier fillets ('Round'), flat chamfers ('Bevel'), or truncated miters ('Miter').
+    Curvature arc length is clamped dynamically to avoid self-intersections when edges are shorter
+    than the requested corner radius.
+
+    Mathematical formulation:
+        1. Effective fillet radius:
+           effective_rad = radius * t
+        2. Fillet cut points along adjacent segment edges:
+           d0 = min(length_prev * 0.49, effective_rad)
+           d1 = min(length_next * 0.49, effective_rad)
+           p1 = ipol(p_curr, p_prev, d0 / length_prev)  (incoming fillet start)
+           p4 = ipol(p_curr, p_next, d1 / length_next)  (outgoing fillet end)
+        3. Spline / chamfer generation:
+           - 'Bevel': straight line segment connecting p1 to p4.
+           - 'Round': cubic Bézier fillet using control points at kappa ~ 0.42:
+             p2 = ipol(p_curr, p_prev, 0.42 * t0)
+             p3 = ipol(p_curr, p_next, 0.42 * t1)
+             cmd = ('b', [p2, p3, p4])
+           - 'Miter': bisector truncation midpoint.
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        radius (float | str): Fillet radius in pixels.
+        mode (str): Corner geometry ('Round', 'Bevel', or 'Miter').
+        anchor (str): Spatial anchor reference ('center', 'origin', 'relative', 'absolute').
+        t (float | str): Interpolation factor in [0.0, 1.0]. Blends fillet radius.
+        context (dict, optional): Node evaluation context containing active line/syllable metrics.
+
+    Returns:
+        str: Filleted or chamfered ASS vector drawing string.
     """
     if not drawing or not isinstance(drawing, str):
         return ""
@@ -1482,7 +1791,39 @@ def _shape_round_corners(drawing, radius=10.0, mode="Round", anchor="center", t=
 
 
 def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="center", context=None):
-    """Bends and curves an ASS vector shape along a guide spline or parametric arc."""
+    """
+    Deforms and bends an ASS vector drawing along an arbitrary guide spline or circular arc.
+
+    Maps normalized Cartesian coordinates (u in [0, 1] along the bending axis) onto a target
+    parametric trajectory sampled into uniform arc-length segments. Vertices are displaced
+    perpendicularly to the local trajectory tangent by their transverse coordinate (v).
+
+    Mathematical formulation:
+        1. Coordinate normalization:
+           u = (x - min_x) / width  (for axis == 'x')
+           v = y - cy
+        2. Trajectory evaluation at arc length s = u * total_length:
+           (px, py, tangent_angle) = eval_curve(u)
+        3. Orthogonal normal displacement:
+           norm_angle = tangent_angle + pi / 2.0
+           fx = px + v * cos(norm_angle)
+           fy = py + v * sin(norm_angle)
+        4. Temporal blend with factor t:
+           final_x = x + t * (fx - x)
+           final_y = y + t * (fy - y)
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        curve (str | float | None): Custom ASSdraw guide spline ('m ... b ...') or arc angle scalar in degrees.
+        t (float | str): Interpolation factor in [0.0, 1.0]. Blends original and bent geometry.
+        bend (float | str): Default arc bend angle when curve is a scalar value.
+        axis (str): Primary progression axis ('x' for horizontal bending, 'y' for vertical).
+        anchor (str): Spatial anchor reference ('center', 'origin', 'relative', 'absolute').
+        context (dict, optional): Node evaluation context containing active line/syllable metrics.
+
+    Returns:
+        str: Non-linearly bent ASS vector drawing string.
+    """
     if not drawing or not isinstance(drawing, str):
         return ""
 
@@ -1756,11 +2097,31 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
 _SHAPE_DISTORT_CONTOUR_CACHE = {}
 
 def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center", energy=0.35, context=None, **kwargs):
-    """Deforms an ASS vector drawing toward the morphological contour of a target shape (advanced vector morphing).
-    - If step_px == 0.0 (default): Continuous analytical morphing preserving native curves and lines ('b' and 'm') with C1 smoothness.
-    - If step_px >= 0.5: Normalizes both shapes into dense polylines ('l') resampled by arc length every ~step_px pixels.
-    - Topological and phrase support: Hierarchical Glyph Islands with Proportional Mapping (Mitosis and Fusion).
-    - Fluid modulation: During 0 < t < 1, Bézier handles modulate an elastic wave proportional to energy.
+    """
+    Deforms an ASS vector drawing toward the morphological contour of a target shape (vector morphing).
+
+    Modes of interpolation:
+    - Analytical C1 morphing (step_px == 0.0): Preserves native cubic Bézier segments ('b') and lines ('l'),
+      matching segments proportionally across contours while modulating control point handles.
+    - Arc-length resampled morphing (step_px >= 0.5): Discretises both shapes into dense polylines
+      with equidistant point spacing according to step_px, guaranteeing smooth transitions between
+      shapes with differing topologies or vertex counts.
+    - Multi-contour topology handling: Supports hierarchical contour islands with proportional mapping
+      (handling mitosis 1-to-many and fusion many-to-1).
+    - Fluid elastic wave modulation: During intermediate phases (0.0 < t < 1.0), Bézier tangent handles
+      modulate an elastic fluid displacement wave proportional to the energy parameter.
+
+    Args:
+        drawing (str | Any): Source ASS vector drawing string.
+        target_shape (str | Any): Target ASS vector drawing string to morph into.
+        t (float | str): Morphing progression factor in [0.0, 1.0].
+        step_px (float | str): Discretisation step size in pixels (0.0 for analytical, >= 0.5 for resampled).
+        anchor (str): Spatial anchor reference ('center', 'origin', 'relative', 'absolute').
+        energy (float | str): Fluid elastic perturbation wave intensity during intermediate morphing.
+        context (dict, optional): Node evaluation context containing active line/syllable metrics.
+
+    Returns:
+        str: Morphed ASS vector drawing string.
     """
     if not drawing or not isinstance(drawing, str):
         return ""
@@ -2337,14 +2698,39 @@ def _shape_distort(drawing, target_shape="", t=1.0, step_px=0.0, anchor="center"
 
 
 def shape_transform(context, drawing="", mode="inflate", t=None, ratio=1.0, inflate_mode="circle", anchor="center", angle_x=0.0, angle_y=0.0, radius=10.0, corner_mode="round", curve=None, bend_t=1.0, axis="x", target_shape="", mid_shape="", step_px=0.0, **kwargs):
-    """Applies advanced non-native ASS geometric transformations to an ASS vector drawing or text.
-    Modes:
-      - 'Inflate': Radial morphological deformation (spherification/bulge) toward circle or ellipse.
-      - 'Skew': 2D planar shear or tilt along X and Y.
-      - 'Round Corners': Rounding (Bézier arcs) or beveling (chamfer) of polyhedral corners.
-      - 'Flexor': Bending and deformation along a guide spline or parametric arc.
-      - 'Distort': Polar deformation toward target shape contour (2-shape morphing: t0 -> t1).
-      - 'Distort2': 3-stage morphological deformation (t0: source -> t0.5: intermediate -> t1: target).
+    """
+    Unified entry point for advanced non-native ASS geometric transformations.
+
+    Dispatches input drawings across 6 specialised geometric manipulation algorithms:
+    - 'Inflate': Radial spherification or bulging towards circular or elliptical bounds.
+    - 'Skew': 2D angular planar shearing along X and Y axes with singularity protection.
+    - 'Round Corners': Polyhedral vertex filleting via cubic Bézier curves, chamfers, or miters.
+    - 'Flexor': Non-linear bending along parametric circular arcs or arbitrary ASSdraw splines.
+    - 'Distort': Continuous 2-shape vector morphing with analytical C1 preservation or equidistant resampling.
+    - 'Distort2': 3-stage piecewise vector morphing traversing source -> intermediate -> target geometry.
+
+    Args:
+        context (dict): Node evaluation context containing active line/syllable metrics.
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        mode (str): Operational mode ('Inflate', 'Skew', 'Round Corners', 'Flexor', 'Distort', 'Distort2').
+        t (float | str, optional): Interpolation factor in [0.0, 1.0]. Evaluated via math AST.
+        ratio (float | str): Intensity ratio for radial inflation.
+        inflate_mode (str): Conic target geometry for inflation ('circle' or 'ellipse').
+        anchor (str): Spatial anchor reference ('center', 'origin', 'relative', 'absolute').
+        angle_x (float | str): Horizontal shear angle in degrees for Skew mode.
+        angle_y (float | str): Vertical shear angle in degrees for Skew mode.
+        radius (float | str): Fillet radius in pixels for Round Corners mode.
+        corner_mode (str): Corner style ('Round', 'Bevel', or 'Miter').
+        curve (str | float | None): Guide spline or arc angle in degrees for Flexor mode.
+        bend_t (float | str): Secondary bending factor for Flexor mode.
+        axis (str): Primary axis of progression for Flexor mode ('x' or 'y').
+        target_shape (str | Any): Target drawing for Distort/Distort2 morphing.
+        mid_shape (str | Any): Intermediate keyframe drawing for Distort2 morphing.
+        step_px (float | str): Equidistant arc-length resampling step in pixels for Distort.
+        **kwargs: Fallback parameters and legacy property aliases.
+
+    Returns:
+        str: Transformed ASS vector drawing string.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
@@ -2433,8 +2819,41 @@ def shape_concentric_borders_node(
     out_mode="shape",
     anchor="relative"
 ):
-    """Generates continuous concentric rings and outlines layer-by-layer using Clipper (shape.borders / shape.filled_borders).
-    Supports outputs as Shape (relative or absolute), \\clip(drawing), or \\iclip(drawing) for vector masks.
+    """
+    Generates continuous concentric rings and perimetral outlines layer-by-layer using Clipper2.
+
+    Evaluates sequential offset expansions, boolean difference operations between nested layers,
+    and cache-optimised ring geometry. Supports outputs as drawing primitives (relative or absolute),
+    inclusive vector clips (\\clip), or inverse vector clips (\\iclip).
+
+    Parameters:
+        context (dict or None): Execution evaluation context carrying active unit, line, and iteration state.
+        shape (str or drawing): Base ASS drawing or shape identifier to dilate into concentric rings.
+        separation (float or str): Radial distance between successive rings, supporting scalar values,
+            AST expressions, or comma-separated lists of step distances (e.g. "5.0, 2.5, 7.0").
+        overlap (float or str): Radial overlap margin ensuring watertight joints between adjacent layers.
+        scale (float or str): Global pre-scaling factor applied to the input shape before ring generation.
+        mode (str): Ring topology mode:
+            - 'hollow': Outer annular borders where each layer is subtracted from the inner contour.
+            - 'solid' / 'filled': Innermost base layer remains fully filled, surrounded by concentric bands.
+        loop_count (int or str): Total number of concentric rings to generate (bounds ring loop range).
+        out_mode (str): Output formatting mode:
+            - 'shape': Raw ASS drawing tokens.
+            - 'clip': ASS clip tag wrapping the drawing translated to absolute line/unit coordinates.
+            - 'iclip': ASS inverse clip tag wrapping the absolute drawing.
+        anchor (str): Spatial anchor reference mode ('relative', 'absolute', 'pieces', 'parent_org', 'pos').
+
+    Context State Mutations:
+        Injects iteration variables into `context`:
+        - `b_i`, `ring_i`: Current 1-based concentric ring index.
+        - `b_n`, `b_max`, `ring_n`, `ring_max`, `maxloop`: Total ring count.
+
+    Returns:
+        tuple: (final_output, pos_str, ring_idx, total_rings)
+            - final_output (str): ASS drawing string or clip tag.
+            - pos_str (str): Formatted ASS \\pos tag matching the centroid coordinates, or empty string.
+            - ring_idx (int): Active 1-based ring index.
+            - total_rings (int): Total generated ring count.
     """
     from node_engine import _eval_num_expr
     from clipper_engine import ClipperEngine
@@ -2642,14 +3061,33 @@ def sort_2d_grid_indices(cols: int, rows: int, order: str = "79", seed: int = 42
 
 @pyxis_node("Functions", "Clip Gradient", ["Cols", "Rows", "Angle", "Overlap", "Order"])
 def clip_gradient_node(context=None, cols="5", rows="1", angle="0", padding="0", pad_top="0", pad_bottom="0", pad_left="0", pad_right="0", overlap="0.5", order="79", out_mode="clip", **kwargs):
-    """
-    Nodo Clip Gradient:
-    Genera mallas y franjas escalonadas (1D/2D) para degradados continuos en libass.
-    - Cols / Rows: División en cuadrícula matricial (C x R). Si rows=1 opera como franjas verticales; si cols=1 como horizontales.
-    - Padding en cruceta: Expansión central uniforme (padding) sumada a cada dirección (pad_top, pad_bottom, pad_left, pad_right).
-    - Ángulo == 0°: Rectángulos ortogonales AABB \\clip(x1,y1,x2,y2).
-    - Ángulo != 0°: Cuadriláteros poligonales rotados \\clip(m x1 y1 l x2 y2 l x3 y3 l x4 y4).
-    - Emite: Output (clip/iclip/shape), Progress (0.0..1.0), Index (1..N), Total (N), Col (1..C), Row (1..R).
+    """Clip Gradient node: Staggered clipping mask generator for libass.
+
+    Generates 1D and 2D spatial grid strips and polygons for gradient fills,
+    wipe transitions, and staggered visual reveals in ASS subtitles.
+    - Cols / Rows: Matrix grid subdivision (C x R). If rows=1, operates as vertical strips; if cols=1, as horizontal strips.
+    - Cross padding: Uniform expansion padding added to directional offsets (pad_top, pad_bottom, pad_left, pad_right).
+    - Angle == 0°: Emits orthogonal axis-aligned bounding box (AABB) rectangles \\clip(x1, y1, x2, y2).
+    - Angle != 0°: Emits rotated polygonal vector paths \\clip(m x1 y1 l x2 y2 l x3 y3 l x4 y4).
+    - Emits tuple or connector payload: Output (clip/iclip/shape), Progress (0.0..1.0), Index (1..N), Total (N), Col (1..C), Row (1..R).
+
+    Args:
+        context (Optional[Dict[str, Any]]): Active DAG execution context and variable table.
+        cols (Any): Column subdivision count or expression. Defaults to "5".
+        rows (Any): Row subdivision count or expression. Defaults to "1".
+        angle (Any): Rotation angle in degrees for gradient bands. Defaults to "0".
+        padding (Any): Base boundary expansion margin. Defaults to "0".
+        pad_top (Any): Top directional padding offset. Defaults to "0".
+        pad_bottom (Any): Bottom directional padding offset. Defaults to "0".
+        pad_left (Any): Left directional padding offset. Defaults to "0".
+        pad_right (Any): Right directional padding offset. Defaults to "0".
+        overlap (Any): Overlap factor between adjacent slice strips. Defaults to "0.5".
+        order (str): 2D traversal order code (e.g. '79', '13', 'rand'). Defaults to "79".
+        out_mode (str): Output format ('clip', 'iclip', 'shape'). Defaults to "clip".
+        **kwargs: Additional parameters including 'an', 'align', 'output_slot_index'.
+
+    Returns:
+        Union[str, float, int, Tuple[Any, ...]]: Evaluated clip tag, progress fraction, or full attribute tuple.
     """
     from node_engine import _eval_num_expr
     import math
@@ -3110,7 +3548,23 @@ RAW_PRESET_SHAPES = {
 SHAPES_LIB_MAP = {k: (lambda ctx=None, p=v: p) for k, v in RAW_PRESET_SHAPES.items()}
 
 def resolve_shape_value(shp_val, context=None):
-    """Resuelve cualquier referencia a forma vectorial, incluyendo sintaxis 'shape.<nombre>' o nombres directos de la biblioteca."""
+    """Resolve any vector shape reference, including 'shape.<name>' syntax or direct library presets.
+
+    Inspects the input value and evaluates whether it references a canonical preset
+    from `RAW_PRESET_SHAPES`, a JSON-encoded array of shapes, raw ASSDraw commands,
+    or a text string to be vectorised via `FontVectorEngine`.
+
+    Args:
+        shp_val: A string, list, or JSON representation of one or more vector shapes.
+            May contain direct preset names (e.g. 'star', 'sakura'), prefixed identifiers
+            (e.g. 'shape.heart'), raw ASSDraw ('m 0 0 l 10 10...'), or text characters.
+        context: Active execution context dictionary providing `active_unit`, `syl`,
+            or `line` for fallback glyph extraction.
+
+    Returns:
+        str or list[str]: The resolved ASSDraw vector command string(s), or an empty string
+        if resolution fails.
+    """
     if isinstance(shp_val, (list, tuple)):
         return [resolve_shape_value(item, context) for item in shp_val if item is not None and str(item).strip() != ""]
 
@@ -3161,7 +3615,17 @@ def resolve_shape_value(shp_val, context=None):
 
 
 def get_drawing_bbox(drawing_or_list):
-    """Calculates (min_x, min_y, max_x, max_y) bounding box of one or more ASS vector drawings."""
+    """Calculate the aggregate axis-aligned bounding box of one or more ASSDraw vector strings.
+
+    Parses all numeric coordinate tokens and extracts the extreme bounds: (min_x, min_y, max_x, max_y).
+
+    Args:
+        drawing_or_list: An individual ASSDraw command string or a sequence/list of drawings.
+
+    Returns:
+        tuple[float, float, float, float] or None: A 4-tuple (min_x, min_y, max_x, max_y),
+        or None if no valid coordinate tokens exist.
+    """
     if not drawing_or_list:
         return None
     drawings = drawing_or_list if isinstance(drawing_or_list, (list, tuple)) else [drawing_or_list]
@@ -3186,12 +3650,28 @@ def get_drawing_bbox(drawing_or_list):
 
 
 def apply_geometric_anchor(drawing, anchor="center", context=None, ref_bbox=None):
-    """Relocates an ASS vector shape according to geometric anchor mode:
-      - 'center': Centra el shape alrededor de (0,0) [Center] (usando ref_bbox si se provee, preservando la posición relativa de sub-piezas).
-      - 'origin': Alinea la esquina superior izquierda del bounding box a (0,0) [Origin] (usando ref_bbox si se provee).
-      - 'zero': Traslada el shape a las coordenadas de pantalla/canvas (pos_x, pos_y) [0,0].
-      - 'pos': Hace el shape relativo a la posición (pos_x, pos_y) [Pos].
-      - 'piece' / 'pieza' / 'local': Centra individualmente la pieza en (0,0) ignorando ref_bbox [Pieza].
+    """Relocate an ASSDraw vector shape according to a canonical geometric anchor mode.
+
+    Translates all coordinate vertices in the drawing to align with standard coordinate frames:
+    - 'center': Centrally aligns the shape around (0, 0) relative to its bounding box centroid
+      (or `ref_bbox` if supplied to maintain spatial offsets across segmented puzzle pieces).
+    - 'origin': Aligns the top-left corner of the bounding box to (0, 0).
+    - 'absolute': Offsets the shape to absolute screen coordinates using `(fx_pos_x, fx_pos_y)`.
+    - 'pos': Translates the shape relative to the active line/syllable anchor position.
+    - 'relative': Retains existing coordinates without displacement.
+    - 'pieces': Centrally aligns each piece independently around (0, 0), ignoring parent `ref_bbox`.
+
+    Args:
+        drawing: ASSDraw command string to re-anchor.
+        anchor: Geometric anchor identifier ('center', 'origin', 'absolute', 'pos',
+            'relative', 'pieces').
+        context: Execution context dictionary supplying metric position variables (`fx_pos_x`,
+            `fx_pos_y`, syllable/character coordinates).
+        ref_bbox: Optional bounding box dictionary or 4-tuple (x1, y1, x2, y2) used as
+            macro-reference for multi-part shapes.
+
+    Returns:
+        str: The re-anchored ASSDraw command string with translated coordinates.
     """
     if not drawing or not str(drawing).strip():
         return ""
@@ -3283,7 +3763,21 @@ def apply_geometric_anchor(drawing, anchor="center", context=None, ref_bbox=None
 
 
 def eval_shapes_lib_node(context=None, **kwargs):
-    """Manejador unificado para Shape/Library con las 80 formas canónicas."""
+    """Execute evaluation for the Shape/Library node containing the 80 canonical vector presets.
+
+    Extracts the selected preset name from `kwargs['shape']` (supporting both raw names
+    like 'circle' and qualified names like 'shape.circle') and returns the canonical
+    ASSDraw geometry from `RAW_PRESET_SHAPES`.
+
+    Args:
+        context: Execution context dictionary (optional).
+        **kwargs: Node parameters containing `shape` (preset name, default: 'circle')
+            and `category` (UI filter category).
+
+    Returns:
+        str: The canonical ASSDraw command string representing the selected shape preset,
+        or an empty string if the identifier is unknown.
+    """
     shape_name = str(kwargs.get("shape", "circle")).strip()
     if shape_name.startswith("shape."):
         shape_name = shape_name[6:].strip()
@@ -3545,18 +4039,37 @@ def _format_num(val):
 
 
 def shape_walker_core(shape_str, progress=1.0, start_t=0.0, mode="Global", invert=False, subdivs=30, close_path=False):
-    """Parametric vector arc length traversal core for ASSdraw.
-    
-    Parámetros:
-      - shape_str: Código vectorial ASSdraw (m ...).
-      - progress: Progreso de finalización (0.0 a 1.0).
-      - start_t: Progreso de inicio (0.0 a 1.0).
-      - mode: 'Global' (Continuo en todos los contornos) o 'Por Contorno' (Paralelo por glifo/trazo).
-      - invert: Invierte el sentido del recorte.
-      - subdivs: Pasos de resolución para integración Bézier.
-      - close_path: Si es True, cierra automáticamente contornos abiertos añadiendo un segmento de retorno al inicio.
-    
-    Retorna: (ass_draw_out, tip_x, tip_y, angle_deg, current_length, total_length)
+    """Computes parametric arc-length vector path trimming and traversal for ASSdraw drawings.
+
+    Performs numerical integration of piecewise linear and cubic Bézier contours to calculate exact
+    cumulative arc lengths. Trims the trajectory to the parametric interval [start_t, progress],
+    computes the instantaneous leading tip coordinates, and derives the tangent orientation angle.
+
+    Mathematical Model:
+        - Segment arc-length is approximated via adaptive chordal subdivision of cubic Bézier splines:
+          B(u) = (1-u)^3*P0 + 3(1-u)^2*u*P1 + 3(1-u)*u^2*P2 + u^3*P3, for u in [0, 1].
+        - Normalised progress t in [0.0, 1.0] maps monotonically to arc length s = t * L_total.
+        - Tangent angle is evaluated at the cut boundary: theta = atan2(dy/du, dx/du) in degrees [0, 360).
+
+    Args:
+        shape_str (str): Raw ASSdraw command string ('m ... l ... b ...').
+        progress (float): Normalised termination progress [0.0, 1.0] along the trajectory.
+        start_t (float): Normalised inception progress [0.0, 1.0] along the trajectory.
+        mode (str): Traversal mode ('global' for unified path traversal across all contours;
+            'piece' or 'contour' for parallel independent traversal normalised per contour).
+        invert (bool): When True, reverses traversal direction by remapping intervals.
+        subdivs (int): Chordal subdivision density per cubic Bézier segment (minimum 5, default 30).
+        close_path (bool): When True, ensures unclosed contours are explicitly closed by appending
+            a straight return segment from the terminal vertex to the initial start vertex.
+
+    Returns:
+        tuple[str, float, float, float, float, float]:
+            - trimmed_shape (str): Trimmed ASSdraw drawing commands representing the visible path.
+            - tip_x (float): Local horizontal coordinate of the leading path tip.
+            - tip_y (float): Local vertical coordinate of the leading path tip.
+            - angle_deg (float): Tangent direction angle in degrees [0.0, 360.0) at the leading tip.
+            - current_cut_len (float): Computed Euclidean arc length of the trimmed output in pixels.
+            - total_shape_len (float): Total cumulative arc length of the source shape in pixels.
     """
     if not shape_str or not str(shape_str).strip():
         return "", 0.0, 0.0, 0.0, 0.0, 0.0
@@ -3762,9 +4275,34 @@ def shape_walker_node(
     subdivs=30,
     close_path=False
 ):
-    r"""Shape Walker Node (Parametric Arc-Length Trimming / Write-on).
-    Soporta entradas como Código ASSdraw o Texto plano auto-vectorizado.
-    Retorna tupla: (Shape Out, \pos Tag, Angle (\frz), Length, Tip X, Tip Y).
+    r"""Evaluates the Shape/Walker node for kinetic write-on animations and particle path following.
+
+    Acts as the high-level evaluation wrapper around `shape_walker_core`. Resolves input geometry
+    (accepting either ASSdraw commands or plain text strings via automated vectorisation),
+    evaluates dynamic expressions for progress, start_t, subdivs, invert, and close_path,
+    and projects the path's leading tip into absolute video screen space.
+
+    Outputs Generated:
+        1. Shape Out (str): Trimmed ASSdraw vector commands.
+        2. \pos Tag (str): Formatted ASS string `\pos(abs_x, abs_y)` placing objects at the path tip.
+        3. Angle (\frz) (float): Tangent angle in degrees aligned with curve direction.
+        4. Length (float): Euclidean pixel length of the active trimmed path.
+        5. Tip X (float): Absolute screen-space horizontal position of the path tip.
+        6. Tip Y (float): Absolute screen-space vertical position of the path tip.
+
+    Args:
+        context (dict | None): Active DAG evaluation context containing unit and line metrics.
+        shape (str): ASSdraw path string, canonical shape preset identifier, or plain text.
+        progress (float | str): End progress parameter (0.0 to 1.0), supporting numeric expressions.
+        start_t (float | str): Start progress parameter (0.0 to 1.0), supporting numeric expressions.
+        mode (str): Traversal mode ('global' across all contours, 'piece' normalised per contour).
+        invert (bool | str): Whether to invert the write-on direction.
+        subdivs (int | str): Numerical integration steps per Bézier segment (default 30).
+        close_path (bool | str): Whether to force closure of unclosed vector loops.
+
+    Returns:
+        tuple[str, str, float, float, float, float]:
+            (final_shp, pos_str, angle_deg, cut_len, abs_x, abs_y)
     """
     from node_engine import _eval_num_expr
 
@@ -3882,8 +4420,27 @@ def shape_stroke_node(
     cap_mode="bezier",
     miter_limit=2.0
 ):
-    """Shape Stroke Node / Outlined Stroke (Paridad 100% con ke.shape.line / shape:offset).
-    Convierte cualquier línea, spline abierta o contorno cerrado en un polígono ASSDraw cerrado con grosor real.
+    """Evaluates the Shape/Stroke node, converting open or closed paths into thickened polygonal contours.
+
+    Dispatches geometric polygon dilation to `ClipperEngine.stroke_shape` via Clipper2 native offset
+    routines. Replaces thin 1-pixel strokes and outline-less vector paths with closed, renderable
+    polygons possessing explicit geometric thickness, custom vertex joins, and terminal end caps.
+
+    Supported Styling Parameters:
+        - join_mode: Vertex corner styling ('round', 'miter', 'bevel').
+        - cap_mode: Line termination styling ('round', 'square', 'flat', 'bezier').
+        - miter_limit: Maximum miter spike ratio before bevel truncation (default 2.0).
+
+    Args:
+        context (dict | None): Active DAG evaluation context.
+        shape (str): Source ASSdraw command string or plain text to be stroked.
+        width (float | str): Stroke thickness in pixels (evaluated via `_eval_num_expr`).
+        join_mode (str): Canonical vertex corner joining mode ('round', 'miter', 'bevel').
+        cap_mode (str): Canonical line endpoint capping mode ('round', 'square', 'flat', 'bezier').
+        miter_limit (float | str): Miter threshold ratio for sharp corners.
+
+    Returns:
+        str: Closed ASSdraw command string representing the stroked polygon outline.
     """
     from node_engine import _eval_num_expr
     from clipper_engine import ClipperEngine
@@ -4016,9 +4573,56 @@ def shape_array_core(
     parent_y=0.0,
     context=None
 ):
-    """Geometric calculation and generation engine for Shape Array.
-    Soporta modos Grid, Formation, Rings, Spiral, Scatter y Hex,
-    con dimensionamiento previo, ordenamiento Numpad y anclaje local o relativo."""
+    """Geometric calculation and spatial layout engine for 2D vector arrays and formations.
+
+    Computes spatial item distributions across 6 mathematical layout topologies:
+    - Grid: Regular orthogonal 2D matrix (cols x rows) with independent horizontal and vertical spacing.
+    - Formation: Vector silhouette interior sampling via point-in-polygon ray-casting.
+    - Rings: Concentric radial shells with configurable per-ring count and angular rotation steps.
+    - Spiral: Parametric Archimedean spiral distributions with linear radius growth.
+    - Scatter: Deterministic pseudo-random 2D point distributions governed by a repeatable seed.
+    - Hex: Staggered hexagonal honeycomb packing with equilateral triangle pitch.
+
+    Applies spatial sorting based on 2D Numpad conventions, normalises particle geometries to target
+    dimensions, and caches generated layout items in `_GLOBAL_SHAPE_ARRAY_CACHE`.
+
+    Args:
+        particle: Input ASSDraw vector shape or list of shapes to replicate.
+        formation: Silhouette guide vector geometry for 'formation' mode.
+        width (float): Target bounding box width for normalised particle scaling.
+        height (float): Target bounding box height for normalised particle scaling.
+        scale (float): Global uniform scale multiplier applied to elements.
+        mode (str): Formation topology ('grid', 'hex', 'rings', 'spiral', 'scatter', 'formation').
+        cols (int): Number of matrix columns in grid and hex modes.
+        rows (int): Number of matrix rows in grid and hex modes.
+        spacing_x (float): Horizontal gap between particle centres in pixels.
+        spacing_y (float): Vertical gap between particle centres in pixels.
+        spacing (float): Unified isotropic spacing parameter for modes supporting a single distance.
+        rings (int): Number of concentric shells in radial ring mode.
+        count_per_ring (str): Comma-separated or scalar particle counts per radial ring.
+        radius (float): Inner ring base radius in pixels.
+        radius_step (float): Radial increment per successive concentric ring.
+        rotate_step (float): Angular rotation offset applied between successive rings (degrees).
+        count (int): Total particle count for spiral and scatter modes.
+        turns (float): Number of complete 360-degree revolutions in spiral mode.
+        max_radius (float): Maximum outer radial extent for spiral distributions.
+        angle_step (float): Explicit incremental angular step per spiral element.
+        area_width (float): Horizontal bounding width for pseudo-random scatter.
+        area_height (float): Vertical bounding height for pseudo-random scatter.
+        seed (int): Deterministic random seed for reproducible scatter distributions.
+        anchor (str): Coordinate anchoring mode ('pieces', 'relative', 'parent_org', 'pos', 'absolute').
+        order (str): 2D sorting order ('79', '97', '13', '31', '71', '17', '93', '39', '5', '-5', 'cw', 'ccw', 'rand').
+        out_mode (str): Target output mode ('loops' or 'shape').
+        active_index (int): Active 1-based piece index when called individually.
+        parent_x (float): Parent coordinate origin X.
+        parent_y (float): Parent coordinate origin Y.
+        context (dict, optional): Graph execution context.
+
+    Returns:
+        Tuple[List[Dict[str, Any]], str]: A tuple comprising:
+            - pieces: List of structured item dictionaries with transformed codes and local coordinates.
+            - unified_relative_shape: Consolidated monolithic ASSDraw string of all elements.
+    """
     if context is None:
         context = {}
 
@@ -4408,9 +5012,56 @@ def shape_array_node(
     tags="",
     **kwargs
 ):
-    r"""Shape Array Node: High-throughput vector formations and arrays.
-    Soporta modos Loops (con contadores a_i y a_n) y Shape (dibujo monolítico) con factor t de progreso y fusión de tags.
-    Retorna tupla: (Shape, \pos Tag, X, Y, Angle (\frz), Index (a_i), Total (a_n), Col/Ring, Row/IdxRing).
+    r"""Execute evaluation for the Shape/Array node in the DAG execution pipeline.
+
+    Orchestrates high-throughput 2D vector formations and particle arrays. Supports both
+    iterative sub-loop decomposition (emitting individual pieces with discrete \pos(x,y) coordinates
+    and a_i/a_n iterator indices) and monolithic shape unification (combining all items into a single
+    continuous ASSDraw drawing with optional tag fusion).
+
+    Args:
+        context (dict, optional): Graph execution context containing active units and metrics.
+        particle: Input particle ASSDraw string, shape name, or list of shapes.
+        formation: Silhouette guide vector geometry for 'formation' mode.
+        width (float): Target bounding box width in pixels.
+        height (float): Target bounding box height in pixels.
+        scale (float): Global uniform scale factor.
+        t (float): Progressive formation reveal factor (clamped to [0.0, 1.0]).
+        anchor (str): Spatial anchor mode ('pieces', 'relative', 'parent_org', 'pos', 'absolute').
+        order (str): 2D spatial sorting order (Numpad, radial, or random).
+        mode (str): Layout topology ('grid', 'hex', 'rings', 'spiral', 'scatter', 'formation').
+        out_mode (str): Output emission mode ('loops' or 'shape').
+        cols (int): Number of matrix columns.
+        rows (int): Number of matrix rows.
+        spacing_x (float): Horizontal spacing in pixels.
+        spacing_y (float): Vertical spacing in pixels.
+        spacing (float): Unified isotropic spacing in pixels.
+        rings (int): Concentric radial ring count.
+        count_per_ring: Particle count per ring.
+        radius (float): Base inner ring radius in pixels.
+        radius_step (float): Radius delta per ring.
+        rotate_step (float): Angular rotation delta per ring in degrees.
+        count (int): Particle count for spiral/scatter.
+        turns (float): Complete spiral revolutions.
+        max_radius (float): Maximum spiral radius extent.
+        angle_step (float): Angle increment per spiral particle.
+        area_width (float): Scatter bounding width.
+        area_height (float): Scatter bounding height.
+        seed (int): Deterministic random seed for scatter.
+        tags (str): ASS tags to fuse into monolithic shape outputs.
+        **kwargs: Additional dynamic properties passed from the graph evaluator.
+
+    Returns:
+        Tuple[str, str, float, float, float, int, int, int, int]:
+            - Shape: Active piece ASSDraw code or combined monolithic geometry.
+            - \pos Tag: Formatted '\pos(X,Y)' string.
+            - X: Cartesian horizontal position in screen space (px).
+            - Y: Cartesian vertical position in screen space (px).
+            - Angle (\frz): Orientation angle in degrees.
+            - Index (a_i): 1-based ordinal index of the active particle.
+            - Total (a_n): Total count of generated particles.
+            - Col / Ring: Column index or ring index (1-based).
+            - Row / IdxRing: Row index or ring-local item index (1-based).
     """
     if context is None:
         context = {}
@@ -4545,7 +5196,15 @@ NODE_REGISTRY["Array"] = shape_array_node
 
 
 def _split_shape_contours(raw_shp):
-    """Separa un dibujo ASS en sus subcontornos independientes (piezas que inician con 'm')."""
+    """
+    Splits an ASS vector drawing into individual sub-contours (pieces commencing with 'm').
+
+    Args:
+        raw_shp (str): ASS vector drawing string.
+
+    Returns:
+        list[str]: Discrete sub-contour drawing strings.
+    """
     if not raw_shp or not str(raw_shp).strip():
         return []
     tokens = str(raw_shp).strip().split()
@@ -4563,8 +5222,34 @@ def _split_shape_contours(raw_shp):
 
 
 def _shape_filter_vertices(drawing, expr_x="x", expr_y="y", t=1.0, subdivs=0, context=None):
-    """Vertices Mode: Evaluates analytical mathematical expressions for each vertex.
-    Soporta Factor (t) para interpolación progresiva y subdivisión previa.
+    """
+    Evaluates analytical mathematical expressions independently for each vertex in an ASS drawing.
+
+    Exposes geometric metrics and trigonometric/algebraic functions in an isolated evaluation
+    environment, blending original and evaluated coordinates with interpolation factor t.
+    Supports prior curve subdivision via De Casteljau's algorithm to densify vertex distribution.
+
+    Evaluation environment per vertex:
+        - Coordinates: x, y (current vertex), cx, cy (bounding box centre),
+          minx, miny, maxx, maxy (bounding box limits), width, height.
+        - Indices: i (0-based vertex index), n / Pn (total vertices), t (progress factor).
+        - Trigonometric / Math: sin, cos, tan, asin, acos, atan2, rad, deg, pi, sqrt,
+          abs, min, max, exp, log, rand(seed, min, max).
+
+    Mathematical formulation:
+        final_x = x + t * (eval(expr_x) - x)
+        final_y = y + t * (eval(expr_y) - y)
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        expr_x (str): Mathematical expression for horizontal coordinate.
+        expr_y (str): Mathematical expression for vertical coordinate.
+        t (float | str): Interpolation factor in [0.0, 1.0]. Evaluated via math AST.
+        subdivs (float | str): Prior subdivision step threshold (0.0 to bypass).
+        context (dict, optional): Node evaluation context containing active line/syllable metrics.
+
+    Returns:
+        str: Transformed ASS vector drawing string.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
@@ -4693,8 +5378,28 @@ def _shape_filter_vertices(drawing, expr_x="x", expr_y="y", t=1.0, subdivs=0, co
 
 
 def _shape_filter_group(drawing, rot_step=0.0, scale_step=100.0, offset_x=0.0, offset_y=0.0, t=1.0, anchor="center", context=None):
-    """Group Mode: Iterates over sub-contours ('m ...') of a multi-contour shape
-    aplicando rotación, escala y offset acumulados por pieza, modulados por Factor (t).
+    """
+    Iterates over discrete sub-contours of a multi-contour shape applying cumulative transformations.
+
+    Each contour island (delineated by 'm ...') is indexed sequentially (i = 0, 1, 2, ...).
+    Transformations compound linearly per piece and are modulated by interpolation factor t:
+        cur_rot = i * rot_step * t
+        scale_factor = 1.0 + i * ((scale_step - 100.0) / 100.0) * t
+        cur_off_x = i * offset_x * t
+        cur_off_y = i * offset_y * t
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        rot_step (float | str): Cumulative angular rotation increment per sub-contour in degrees.
+        scale_step (float | str): Cumulative scale percentage increment per sub-contour (100% = neutral).
+        offset_x (float | str): Cumulative horizontal translation increment per sub-contour.
+        offset_y (float | str): Cumulative vertical translation increment per sub-contour.
+        t (float | str): Interpolation factor in [0.0, 1.0]. Blends cumulative transformations.
+        anchor (str): Spatial anchor reference ('center', 'origin', 'relative', 'absolute').
+        context (dict, optional): Node evaluation context containing active line/syllable metrics.
+
+    Returns:
+        str: Transformed multi-contour ASS vector drawing string.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
@@ -4752,8 +5457,29 @@ def _shape_filter_group(drawing, rot_step=0.0, scale_step=100.0, offset_x=0.0, o
 
 
 def _shape_filter_noise(drawing, radius_x=5.0, radius_y=5.0, subdivs=2.0, seed=0, context=None):
-    """Noise Mode: Pseudo-randomly perturbs vertices dentro de [-rx, +rx] y [-ry, +ry].
-    Soporta subdivisión previa y semilla determinista.
+    """
+    Applies pseudo-random spatial jitter and displacement to vertices in an ASS vector drawing.
+
+    Displaces each coordinate independently within uniform bounds [-radius_x, +radius_x]
+    and [-radius_y, +radius_y] using a repeatable pseudo-random number generator (PRNG)
+    initialised with an explicit integer seed. Supports prior Bézier curve subdivision.
+
+    Mathematical formulation:
+        dx ~ Uniform(-radius_x, +radius_x)
+        dy ~ Uniform(-radius_y, +radius_y)
+        final_x = x + dx
+        final_y = y + dy
+
+    Args:
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        radius_x (float | str): Maximum horizontal displacement radius.
+        radius_y (float | str): Maximum vertical displacement radius.
+        subdivs (float | str): Prior curve subdivision threshold in pixels (0.0 to bypass).
+        seed (int | float | str): Deterministic PRNG seed.
+        context (dict, optional): Node evaluation context containing active line/syllable metrics.
+
+    Returns:
+        str: Perturbed ASS vector drawing string.
     """
     raw_shp = resolve_shape_value(drawing, context)
     if not raw_shp:
@@ -4836,10 +5562,36 @@ def shape_filter(
     seed=0,
     **kwargs
 ):
-    """Unified entry point for Shape Filter node with 3 operational modes:
-    - Vértices: Expresiones analíticas por vértice con interpolación progresiva (t) y subdivisión.
-    - Grupo: Iterador de transformaciones por subcontorno/pieza ('m ...') modulado por Factor (t).
-    - Ruido: Perturbación aleatoria por vértice dentro de radio X/Y con semilla determinista.
+    """
+    Unified entry point for the Shape Filter node across 3 distinct operational modes:
+
+    - 'Vertices': Evaluates per-vertex analytical mathematical expressions (expr_x, expr_y)
+      in an isolated context exposing geometry bounds and trigonometric helpers, with time interpolation (t).
+    - 'Group': Iterates over independent sub-contours ('m ...'), compounding linear rotation,
+      scaling, and translation per piece, modulated by interpolation factor t.
+    - 'Noise': Injects pseudo-random displacement within [-radius_x, +radius_x] and
+      [-radius_y, +radius_y] using a seeded deterministic pseudo-random generator.
+
+    Args:
+        context (dict): Node evaluation context containing active line/syllable metrics.
+        drawing (str | Any): ASS vector drawing string, variable reference, or node output.
+        mode (str): Operational mode ('Vertices', 'Group', 'Noise').
+        expr_x (str): Mathematical expression for horizontal coordinate (Vertices mode).
+        expr_y (str): Mathematical expression for vertical coordinate (Vertices mode).
+        t (float | str): Interpolation factor in [0.0, 1.0]. Evaluated via math AST.
+        subdivs (float | str): Prior curve subdivision threshold in pixels (Vertices & Noise modes).
+        rot_step (float | str): Cumulative angular rotation step in degrees (Group mode).
+        scale_step (float | str): Cumulative scale percentage step (Group mode).
+        offset_x (float | str): Cumulative horizontal offset step (Group mode).
+        offset_y (float | str): Cumulative vertical offset step (Group mode).
+        anchor (str): Spatial anchor reference ('center', 'origin', 'relative', 'absolute').
+        radius_x (float | str): Maximum horizontal displacement radius (Noise mode).
+        radius_y (float | str): Maximum vertical displacement radius (Noise mode).
+        seed (int | float | str): Deterministic PRNG seed (Noise mode).
+        **kwargs: Fallback parameters and legacy property aliases.
+
+    Returns:
+        str: Filtered ASS vector drawing string.
     """
     mode_clean = str(mode or "Vértices").strip().lower().replace("é", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u")
 
@@ -4887,12 +5639,20 @@ NODE_REGISTRY["Filter"] = shape_filter
 
 def _parse_multi_pattern(val, default_val=4.0):
     """
-    Parsea patrones de números, listas o cadenas para generadores de franjas y bordes.
-    Soporta números directos, listas, tuplas y cadenas con sintaxis de Effector 2:
+    Parses numerical patterns, sequences, or token strings for stripe and border generators.
+
+    Supports direct scalar numbers, lists, tuples, and strings formatted with delimiter syntax:
     - "8, 2, 4, 3" -> [(8.0, False), (2.0, False), (4.0, False), (3.0, False)]
     - "8, {2}, 4, {3}" -> [(8.0, False), (2.0, True), (4.0, False), (3.0, True)]
     - "8, -2, 4, -3" -> [(8.0, False), (2.0, True), (4.0, False), (3.0, True)]
-    Donde True en la tupla (val, is_gap) indica un espacio/hueco vacío (gap).
+
+    Parameters:
+        val (int, float, list, tuple, or str): Raw input pattern specification.
+        default_val (float): Fallback thickness dimension when parsing empty or invalid tokens.
+
+    Returns:
+        list of tuple: List of `(dimension: float, is_gap: bool)` pairs, where `is_gap=True`
+        denotes an empty spacer gap rather than solid geometry.
     """
     if val is None or val == "":
         return [(float(default_val), False)]
@@ -4944,7 +5704,15 @@ def _parse_multi_pattern(val, default_val=4.0):
 
 
 def _get_drawing_bbox(drawing):
-    """Calculates bounding box (min_x, max_x, min_y, max_y) of an ASS drawing."""
+    """
+    Calculates 2D axis-aligned bounding box (min_x, max_x, min_y, max_y) of an ASS drawing.
+
+    Parameters:
+        drawing (str): ASSdraw command string containing coordinate tokens.
+
+    Returns:
+        tuple of float: (min_x, max_x, min_y, max_y) bounding coordinates.
+    """
     tokens = str(drawing).split()
     coords = []
     for tok in tokens:
@@ -4960,7 +5728,15 @@ def _get_drawing_bbox(drawing):
 
 
 def _invert_shape_contour(raw_shp):
-    """Inverts contour orientation for subtraction in ASS (empezando con nuevo subcamino m)."""
+    """
+    Reverses contour segment traversal direction for negative/hole subtraction in ASSdraw.
+
+    Parameters:
+        raw_shp (str): ASSdraw command string to invert.
+
+    Returns:
+        str: ASSdraw string with reversed segment order starting with a new 'm' command.
+    """
     contours = parse_assdraw_segments(raw_shp)
     if not contours:
         return ""
@@ -4984,6 +5760,25 @@ def _invert_shape_contour(raw_shp):
 
 
 def _finish_multi_pieces(pieces, anchor="center", tags="", context=None, return_list=False, canonical_center=None, t=1.0):
+    """
+    Anchors, aligns, and finalises a collection of procedural shape pieces.
+
+    Translates coordinates based on the selected anchor ('origin', 'absolute', 'center'),
+    optionally merges ASS style override tags across pieces via ClipperEngine, and formats
+    output as either a list of individual piece strings or a concatenated drawing string.
+
+    Parameters:
+        pieces (list of str): List of ASSdraw piece drawings.
+        anchor (str): Spatial anchor alignment mode ('center', 'origin', 'absolute').
+        tags (str): ASS style tags to embed or interpolate across pieces.
+        context (dict or None): Execution evaluation context.
+        return_list (bool): If True, returns a Python list of pieces; otherwise concatenates.
+        canonical_center (tuple of float or None): Explicit reference center coordinates (cx, cy).
+        t (float): Normalized animation progress factor [0.0, 1.0].
+
+    Returns:
+        list of str or str: Final anchored shape drawing(s).
+    """
     if not pieces:
         return [] if return_list else ""
     valid_pieces = [p for p in pieces if p and str(p).strip()]
@@ -6255,9 +7050,75 @@ def shape_multi(
     order="normal",
     **kwargs
 ):
-    r"""Shape Multi master node: multi-purpose shape generators (multi1 to multi8, banner, gear) with spacing/overlap, anchor, and tag merging.
-    Supports 'Shape' mode (monolithic single-line unified drawing) and 'Loops' mode (piece-by-piece using counter m_i and setting m_n).
-    Supports 'Shape', '\clip', and '\iclip' formats at both individual piece and monolithic levels.
+    r"""
+    Master procedural shape generator dispatching specialized multi-pattern algorithms.
+
+    Constructs procedural composite geometries, tessellations, banners, and mechanical profiles
+    across 10 specialized generators (multi1 to multi8, banner, and gear), with support for
+    parametric expansion (factor t), per-piece spacing, coordinate anchoring, and ASS style tag merging.
+
+    Operational Modes:
+        - 'concentric_squares' (multi1): Concentric nested square frames with alternating thicknesses,
+          gaps, and spacing patterns.
+        - 'diagonal_stripes' (multi2): 45° diagonal stripes clipped to bounding rectangle dimensions.
+        - 'concentric_rings' (multi3): Concentric rings with smooth Bézier scaling for presets, or
+          Clipper2 contour offset rings for arbitrary text and vector inputs.
+        - 'polygonal_mosaic' / 'honeycomb' (multi4): Regular polygon partitioned into angular sectors
+          and concentric radial shells with centroidal shrinking.
+        - 'multi_shape_mosaic' (multi5): Latin-square periodic permutation grid combining multiple vector shapes.
+        - 'segmented_border' (multi6): Dashed/segmented perimeter frame along rectangles or arbitrary contours.
+        - 'radial_rosette' (multi7): Radial rosette pie segments with inner and outer radii and angular separation.
+        - 'tunnel_cascade' (multi8): Directional progressive scaling tunnel cascade with angular orientation.
+        - 'banner': Procedural ribbon banner with 23 terminal tip styles, side fold tabs, and perimetral borders.
+        - 'gear': Parametric spur gear / sprocket with trapezoidal teeth, axle bore hole, and tooth slant.
+
+    Parameters:
+        context (dict or None): Execution evaluation context.
+        drawing (str): Input base shape used by modes requiring an underlying contour (multi3, multi5, multi6, multi8).
+        mode (str): Generator mode name identifier.
+        size (float or str): Primary dimension parameter (outer diameter, bounding dimension).
+        width (float or str): Width dimension for rectangular modes (multi2, multi5, multi6, banner).
+        height (float or str): Height dimension for rectangular modes (multi2, multi5, multi6, banner).
+        px (str): Alternating thickness and gap pattern string for stripe/square generators.
+        bord (str): Border thickness or perimetral offset width.
+        space (float): Spacer distance between pieces.
+        length (float): Segment dash length in perimeter tracers (multi6).
+        sides (int): Number of polygon edges in regular mosaic generators (multi4).
+        rings (int): Number of concentric radial shells (multi4).
+        n_layers (int): Maximum tessellation subdivision layer count.
+        dx (float): Horizontal spacing between adjacent mosaic cells (multi5).
+        dy (float): Vertical spacing between adjacent mosaic cells (multi5).
+        parts (int): Number of angular sectors (multi7) or gear teeth (gear).
+        r_out (float): Outer radius for radial modes.
+        r_in (float): Inner root radius for radial modes.
+        size1 (float): Initial cascade dimension (multi8).
+        size2 (float): Final cascade dimension (multi8).
+        loop (int): Total loop iteration / cascade step count.
+        separation (float or str): Inter-element spacer margin.
+        angle (float or str): Rotation or orientation angle in degrees or cardinal direction names.
+        t (float or str): Normalized progressive construction factor [0.0, 1.0].
+        anchor (str): Spatial anchor alignment mode ('center', 'origin', 'relative', 'absolute', 'pieces', 'pos').
+        tags (str): ASS style tags to embed or interpolate across pieces.
+        out_mode (str): Output formatting mode ('shape', 'clip', 'iclip').
+        loop_mode (str): Sub-loop emission mode:
+            - 'shape': Monolithic unified single-line ASSdraw string.
+            - 'loop' / 'loops': Piece-by-piece discrete emission via `m_i` iteration.
+        tip_style (str): Banner terminal shape style name (23 variants).
+        fold_w (float): Banner 3D folding tab width.
+        slant (float): Gear tooth flank slant ratio [0.0, 0.9].
+        r_hole (float): Central axle bore radius for gear generator.
+        order (str): Spatial traversal ordering for multi-piece collections (1D/2D canonical orders).
+
+    Context State Mutations:
+        When `loop_mode='loop'`, injects iteration variables into `context`:
+        - `m_i`, `multi_i`: Active 1-based piece index.
+        - `m_n`, `m_max`, `multi_n`, `multi_max`, `maxloop`: Total piece count.
+        - `pos_x`, `pos_y`, `org_x`, `org_y`, `pos_overridden`: Piece anchor coordinates.
+
+    Returns:
+        str or tuple:
+            - If `loop_mode='shape'`: Unified ASSdraw string (or clip tag).
+            - If `loop_mode='loop'`: (final_piece, pos_str, abs_x, abs_y, 0.0, m_i_val, total_pieces, 1, 1).
     """
     from node_engine import _eval_num_expr
     mode_str = str(mode or "concentric_squares").strip()
@@ -6558,10 +7419,38 @@ NODE_REGISTRY["Multi"] = shape_multi
 
 
 def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=None, fill_type=None, clean_self_intersect=None, index_j=None, index_d=None, tags=None, tagmode=None, order=None, **kwargs):
-    """Shape Union & Divide node: Decomposes complex vector shapes into real islands (PolyTree),
-    merges multiple shapes using boolean Clipper, divides into naive subpaths or fuses with tags,
-    with support for geometric anchor modes ('pieces', 'relative', 'origin', 'pos', 'zero')
-    and numerical Numpad, radial and circular piece ordering (Order).
+    """
+    Decomposes, merges, or fuses complex vector shapes via Clipper2 topological PolyTree.
+
+    Operational modes:
+    - 'divide': Decomposes vector shapes into true topological islands using Clipper2 PolyTree,
+      correctly associating outer parent boundaries with internal hole contours, resolving
+      self-intersections and sorting resulting islands according to spatial 2D ordering.
+    - 'union': Merges multiple shapes (primary drawing and secondary shape_b, or lists of shapes)
+      into a single unified polygon using boolean union with configurable fill winding rules.
+    - 'subpaths': Naive decomposition separating raw contours by ASSdraw move ('m') commands
+      without full topological hierarchy reconstruction.
+    - 'fusion': Re-assembles or combines separated pieces while embedding style override tags
+      interpolated across pieces or formatted per line.
+
+    Args:
+        context (dict): Node evaluation context containing active line, syllable, and loop iterators.
+        drawing (str | list[str] | Any): Primary ASS vector drawing, shape list, or variable reference.
+        shape_b (str | list[str] | Any): Secondary clipping/subject shape for union operations.
+        mode (str): Operational mode ('divide', 'union', 'subpaths', 'fusion').
+        anchor (str): Spatial anchor reference ('pieces', 'relative', 'parent_org', 'pos', 'absolute').
+        fill_type (str): Polygon winding fill rule ('evenodd', 'nonzero', 'positive', 'negative').
+        clean_self_intersect (bool | int | str): Whether to pre-clean self-intersecting polygon loops.
+        index_j (int | str, optional): Legacy 1-based piece index selector.
+        index_d (int | str, optional): Canonical 1-based piece index selector (d_i / divide_i).
+        tags (str): ASS tag template string for fusion mode.
+        tagmode (str): Tag formatting mode for fusion ('ipol' for interpolation, 'line' for static).
+        order (str): 2D spatial sorting order (Numpad: '79','97','13','31','71','17','93','39',
+            Radials: '5','-5','cw','ccw', or stochastic 'rand').
+        **kwargs: Extended parameters (return_all_pieces, return_list, etc.).
+
+    Returns:
+        str | list[str]: Evaluated ASS drawing piece, unified shape, or list of anchored fragments.
     """
     from clipper_engine import ClipperEngine
     from node_engine import _eval_num_expr
@@ -6699,10 +7588,47 @@ def shape_clipper_node(
     arc_tolerance=0.25,
     **kwargs
 ):
-    """Shape Clipper node: Dedicated advanced 2D vector boolean, offset, and Minkowski operations.
-    Supports Difference, Intersection, Union, XOR, Offset/Inflate, Minkowski Sum and Difference,
-    post-boolean offset dilation/contraction, independent fill rules (evenodd, nonzero, positive, negative),
-    clean distance, strictly simple topology, path reversal, custom geometric anchors and ASS clip/iclip generation.
+    """
+    Dedicated advanced 2D vector boolean, morphological offset, and Minkowski engine.
+
+    Interfaces with Clipper2 via fixed-point coordinate scaling (default 10,000x),
+    supporting constructive solid geometry (CSG), polygon inflation/deflation,
+    independent winding fill rules, and ASS \\clip/\\iclip tag compilation.
+
+    Operational modes:
+    - 'difference': Boolean subtraction of clip shape B from subject shape A (A \\ B).
+    - 'intersection': Boolean mutual overlap between shape A and shape B (A ∩ B).
+    - 'union': Boolean merge combining areas of shape A and shape B (A ∪ B).
+    - 'xor': Boolean symmetric difference omitting mutual overlaps ((A ∪ B) \\ (A ∩ B)).
+    - 'offset': Perimeter dilation (delta > 0) or deflation (delta < 0) on shape A.
+    - 'minkowski_sum': Sweeps kernel pattern shape B along the trajectory of shape A (A ⊕ B).
+    - 'minkowski_diff': Morphological erosion using kernel pattern shape B (A ⊖ B).
+
+    Args:
+        context (dict): Node evaluation context containing active line/syllable metrics.
+        shape_a (str | Any): Primary subject ASS vector drawing or text string.
+        shape_b (str | Any): Secondary clipping mask, operator, or Minkowski kernel pattern.
+        mode (str): Boolean/offset operation mode ('difference', 'intersection', 'union',
+            'xor', 'offset', 'minkowski_sum', 'minkowski_diff').
+        delta (float | str): Offset displacement distance in pixels for offset mode.
+        subj_fill (str): Winding fill rule for subject A ('evenodd', 'nonzero', 'positive', 'negative').
+        clip_fill (str): Winding fill rule for clip B ('evenodd', 'nonzero', 'positive', 'negative').
+        join_type (str): Corner join style ('round', 'miter', 'square').
+        end_type (str): Line end cap style ('closed_polygon', 'closed_line', 'open_round', 'open_square', 'open_butt').
+        miter_limit (float | str): Miter corner truncation limit ratio (default 2.0).
+        post_offset (float | str): Secondary dilation/erosion applied after boolean operation.
+        clean_dist (float | str): Minimum vertex distance threshold for polygon simplification.
+        strictly_simple (int | bool | str): Enforces strictly simple polygons (no self-tangencies).
+        reverse_subj (int | bool | str): Reverses path winding order for subject shape A.
+        reverse_clip (int | bool | str): Reverses path winding order for clip shape B.
+        anchor (str): Spatial anchor reference ('center', 'origin', 'relative', 'absolute').
+        out_mode (str): Output rendering format ('shape', 'clip' for ASS \\clip, 'iclip' for ASS \\iclip).
+        scale (float): Internal Clipper2 fixed-point integer scaling multiplier (default 10000.0).
+        arc_tolerance (float | str): Arc approximation tolerance for curved corners.
+        **kwargs: Extended output flags ('return_all_pieces', 'return_list', 'return_bbox').
+
+    Returns:
+        str | list[str] | dict: Resulting ASS vector drawing, list of pieces, or bounding box dictionary.
     """
     from clipper_engine import ClipperEngine
     from node_engine import _eval_num_expr

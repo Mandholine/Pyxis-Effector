@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
 """Acoustic analysis and audio modulation nodes."""
 
@@ -27,19 +27,19 @@ from decorators import pyxis_node
 
 
 def _is_alpha_tag(tag_name: str) -> bool:
-    """Verifica si un tag ASS corresponde a transparencia/alpha (\\alpha, \\1a, \\2a, \\3a, \\4a)."""
+    """Determine whether an ASS tag corresponds to transparency or alpha (\\alpha, \\1a, \\2a, \\3a, \\4a)."""
     t = str(tag_name or "").strip().lower().lstrip('\\')
     return t in ["alpha", "1a", "2a", "3a", "4a", "a", "alpha1", "alpha2", "alpha3", "alpha4"]
 
 
 def _is_color_tag(tag_name: str) -> bool:
-    """Verifica si un tag ASS corresponde a color (\\c, \\1c, \\2c, \\3c, \\4c)."""
+    """Determine whether an ASS tag corresponds to colour (\\c, \\1c, \\2c, \\3c, \\4c)."""
     t = str(tag_name or "").strip().lower().lstrip('\\')
     return t in ["c", "1c", "2c", "3c", "4c", "color", "colour", "primary_color", "secondary_color", "outline_color", "shadow_color"]
 
 
 def _parse_color_list(val_min: Any, val_max: Any) -> List[Tuple[int, int, int]]:
-    """Parsea una lista de colores desde min_val y max_val soportando ASS hex (&HBBGGRR&), Web hex (#RRGGBB) o listas."""
+    """Parse a multi-colour palette from min_val and max_val supporting ASS hex (&HBBGGRR&), Web hex (#RRGGBB), or lists."""
     from utils import parse_color_to_rgb
     raw_list: List[str] = []
 
@@ -333,7 +333,32 @@ def audio_modulator_master(
     output_slot_index: int = 0,
     **kwargs
 ) -> Union[str, float, List[float], List[str]]:
-    """Master generator of continuous ASS \\t transformations based on audio with gain support and time window control."""
+    """Generate continuous ASS \\t transitions, instantaneous values, or arrays driven by audio telemetry.
+
+    Samples audio amplitude or spectral energy over the active unit interval or custom window,
+    applies gain amplification, temporal smoothing, and maps the resulting intensity into
+    numeric, alpha (&HAA&), or interpolated colour palettes (&HBBGGRR&).
+
+    Args:
+        context (Optional[dict]): Execution graph context providing active unit, timestamps, and audio source.
+        audio_path (str): Explicit filesystem path to audio file, or empty string to use context defaults.
+        tag_name (str): Target ASS override tag without leading slash (e.g. 'fscy', 'fscx', 'alpha', '1c').
+        min_val (Any): Baseline value or colour corresponding to silence (intensity = 0.0).
+        max_val (Any): Peak value or colour corresponding to maximum audio energy (intensity = 1.0).
+        gain (Any): Linear amplitude multiplier applied prior to normalisation. Defaults to 1.0.
+        step_ms (Any): Temporal sampling resolution in milliseconds (e.g. 41.7 ms for 24 fps).
+        smoothing (Any): Exponential moving average smoothing factor [0.0, 0.95].
+        mode (str): Acoustic analysis mode ('rms', 'peak', 'bass', 'mid', 'high', 'custom').
+        min_hz (Any): Lower bound frequency in Hz for 'custom' bandpass mode.
+        max_hz (Any): Upper bound frequency in Hz for 'custom' bandpass mode.
+        start_time (Any): Optional explicit window start timestamp in milliseconds.
+        end_time (Any): Optional explicit window end timestamp in milliseconds.
+        output_slot_index (int): Output slot selector (0: continuous \\t string, 1: instantaneous value, 2: value list, 3: average RMS).
+        **kwargs: Additional fallback keyword arguments.
+
+    Returns:
+        Union[str, float, List[float], List[str]]: Formatted ASS tag string, instantaneous numeric/colour value, or array of samples.
+    """
     gain_val = kwargs.get("gain", gain)
     modo_val = kwargs.get("mode", mode)
     ctx = context if isinstance(context, dict) else {}
@@ -493,7 +518,31 @@ def audio_waveform_master(
     output_slot_index: int = 0,
     **kwargs
 ) -> Union[str, List[float]]:
-    """Master generator of ASSDraw audio waveforms with gain support and time window control."""
+    """Generate ASSDraw vector waveforms or spectral visualisations driven by audio telemetry.
+
+    Extracts time-domain audio samples or logarithmic FFT spectral bands and constructs
+    vector geometries (oscilloscope, equalizer bars, radial circular meter, filled wave, or point clouds).
+
+    Args:
+        context (Optional[dict]): Execution graph context providing unit, timestamps, and position coordinates.
+        audio_path (str): Explicit audio file path or empty string to use context defaults.
+        mode (str): Visualisation mode ('oscilloscope', 'bars'/'fftbars', 'radial', 'filled'/'filledwave', 'points').
+        width (Any): Bounding box canvas width in pixels.
+        height (Any): Bounding box canvas height in pixels.
+        samples (Any): Number of discrete points or equalizer bands to evaluate (4 to 512).
+        gain (Any): Amplitude gain factor applied to audio samples.
+        thickness (Any): Stroke thickness in pixels for oscilloscope and point radii.
+        min_hz (Any): Lower frequency threshold in Hz for FFT spectrum analysis.
+        max_hz (Any): Upper frequency threshold in Hz for FFT spectrum analysis.
+        scale (Any): Vertical or radial amplitude scaling multiplier.
+        start_time (Any): Optional explicit window start timestamp in milliseconds.
+        end_time (Any): Optional explicit window end timestamp in milliseconds.
+        output_slot_index (int): Output slot selector (0: ASSDraw shape string, 1: \\pos tag, 2: X-coords, 3: Y-coords, 4: raw values).
+        **kwargs: Additional fallback keyword arguments.
+
+    Returns:
+        Union[str, List[float]]: ASSDraw drawing string, \\pos string, coordinate list, or raw sample array.
+    """
     w_val = kwargs.get("width", kwargs.get("ancho", width))
     h_val = kwargs.get("height", kwargs.get("alto", height))
     samples_val = kwargs.get("samples", kwargs.get("muestras", samples))
@@ -692,7 +741,7 @@ def audio_modulator_node(
     output_slot_index=0,
     **kwargs
 ):
-    """Audio Modulator node registration wrapper."""
+    """Pyxis registry wrapper for the Audio/Modulator node."""
     return audio_modulator_master(
         context=context,
         audio_path=audio_path,
@@ -730,7 +779,7 @@ def audio_waveform_node(
     output_slot_index=0,
     **kwargs
 ):
-    """Audio Waveform node registration wrapper."""
+    """Pyxis registry wrapper for the Audio/Waveform node."""
     return audio_waveform_master(
         context=context,
         audio_path=audio_path,

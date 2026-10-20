@@ -12,7 +12,11 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
+
+"""
+High-resolution performance profiling, phase breakdown, and diagnostics for PyxisNodes generation.
+"""
 
 import time
 import os
@@ -20,9 +24,12 @@ import sys
 from typing import Dict, List, Any, Optional
 
 class PyxisProfiler:
+    """Performance profiler recording execution phase breakdowns, worker load balance, and node bottlenecks."""
+
     _ACTIVE_INSTANCE: Optional['PyxisProfiler'] = None
 
     def __init__(self, enabled: bool = True):
+        """Initialise profiler instance with internal tracking structures."""
         self.enabled = enabled
         self.phase_times: Dict[str, float] = {}
         self.phase_starts: Dict[str, float] = {}
@@ -35,9 +42,11 @@ class PyxisProfiler:
 
     @classmethod
     def get_active(cls) -> Optional['PyxisProfiler']:
+        """Retrieve the currently active profiler instance if one is running."""
         return cls._ACTIVE_INSTANCE
 
     def start(self):
+        """Activate this profiler as the global active instance and begin timer."""
         PyxisProfiler._ACTIVE_INSTANCE = self
         self.start_time = time.perf_counter()
         try:
@@ -47,6 +56,7 @@ class PyxisProfiler:
             pass
 
     def stop(self):
+        """Stop timing and deactivate global profiler instance."""
         self.end_time = time.perf_counter()
         if PyxisProfiler._ACTIVE_INSTANCE is self:
             PyxisProfiler._ACTIVE_INSTANCE = None
@@ -57,11 +67,13 @@ class PyxisProfiler:
             pass
 
     def start_phase(self, phase_name: str):
+        """Mark the beginning timestamp of a specific execution phase."""
         if not self.enabled:
             return
         self.phase_starts[phase_name] = time.perf_counter()
 
     def end_phase(self, phase_name: str):
+        """Record the elapsed duration of an execution phase."""
         if not self.enabled:
             return
         if phase_name in self.phase_starts:
@@ -69,6 +81,7 @@ class PyxisProfiler:
             self.phase_times[phase_name] = self.phase_times.get(phase_name, 0.0) + elapsed
 
     def record_node_eval(self, node_id: int, node_type: str, elapsed_sec: float):
+        """Record execution duration and call count for an individual graph node."""
         if not self.enabled:
             return
         if node_id not in self.node_stats:
@@ -82,6 +95,7 @@ class PyxisProfiler:
         st['total_time'] += elapsed_sec
 
     def record_worker_chunk(self, worker_id: int, lines_count: int, duration_sec: float, start_t: float, end_t: float):
+        """Record chunk processing metrics for a parallel worker process."""
         if not self.enabled:
             return
         self.worker_stats[worker_id] = {
@@ -92,6 +106,7 @@ class PyxisProfiler:
         }
 
     def generate_report(self) -> str:
+        """Compile a formatted diagnostic performance report text covering phases, bottlenecks, and load balance."""
         total_wall_time = (self.end_time or time.perf_counter()) - self.start_time
         lines_out = []
         lines_out.append('=' * 80)
@@ -207,6 +222,7 @@ class PyxisProfiler:
         return '\n'.join(lines_out)
 
     def save_report(self, file_path: str = 'pyxis_performance_report.txt'):
+        """Generate and save the diagnostic performance report to a text file on disk."""
         report_text = self.generate_report()
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(report_text)

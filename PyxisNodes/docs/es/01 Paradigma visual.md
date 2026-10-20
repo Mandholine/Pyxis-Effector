@@ -119,74 +119,131 @@ Pyxis permite registrar, transferir y acumular estados a lo largo de las distint
 ## 4. Tabla de Variables y Métricas del Contexto ASS
 
 Pyxis Effector organiza las variables de tiempo y espacio de forma **jerárquica y modular**:
-* **`line` / `l`:** Tiempos **globales / absolutos** del vídeo ($ms$).
+* **`line` / `l`:** Tiempos **globales / absolutos** del vídeo ($ms$), métricas del *bounding box* y atributos del estilo original de Aegisub.
 * **`syl` / `word`:** Tiempos **locales relativos** al inicio de la línea base ($[0, \text{line.dur}]$).
 * **`char`:** Tiempos **locales relativos** al inicio de su sílaba contenedora ($[0, \text{syl.dur}]$).
 * **`fx`:** Rango temporal de la línea generada en ASS ($[0, \text{fx.dur}]$). Permite evaluar transformaciones `\t(...)` en el tiempo del efecto mediante el offset $\text{ini} = \text{line.start\_time} - \text{fx.start\_time}$.
 
-En cualquier campo de expresión, condición o script de Pyxis, las siguientes variables contextuales están disponibles de forma nativa:
+En cualquier campo de expresión, condición o script de Pyxis, las siguientes variables contextuales están disponibles de forma nativa organizadas por dominio:
+
+### 4.1. Dominio de Línea de Origen (`line.` o `l.`)
+Representa la línea de diálogo activa leída de Aegisub. Proporciona sus marcas de tiempo absolutas, texto, metadatos de cabecera ASS, coordenadas métricas de pantalla y márgenes:
+
+| Variable | Tipo | Descripción y Unidad | Ejemplo de Uso |
+| :--- | :---: | :--- | :--- |
+| `line.start_time` / `l.start_time` | `int` | Tiempo de inicio absoluto de la línea en el vídeo ($ms$). | `line.start_time - 500` |
+| `line.end_time` / `l.end_time` | `int` | Tiempo de fin absoluto de la línea en el vídeo ($ms$). | `line.end_time + 300` |
+| `line.dur` / `line.duration` / `l.dur` | `int` | Duración neta de la línea ($ms$): $t_{\text{end}} - t_{\text{start}}$. | `line.dur / 2` |
+| `line.mid_time` / `l.mid_time` | `float` | Instante temporal medio de la línea: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. | `line.mid_time` |
+| `line_start_time`, `line_end_time`, `line_dur` | `int` | Alias globales planos sin prefijo para los tiempos de la línea ($ms$). | `line_start_time` |
+| `line.i` / `l.i` | `int` | Índice ordinal de la línea activa en el lote procesado ($1 \dots N$). | `line.i == 1` |
+| `line.n` / `l.n` | `int` | Cantidad total de líneas seleccionadas en el lote. | `line.i / line.n` |
+| `line.text` / `l.text` | `string` | Texto de la línea despojado de etiquetas de estilo y marcas de karaoke. | `len(line.text)` |
+| `line.raw_text` / `l.raw_text` | `string` | Texto original de la línea conservando etiquetas `{\...}` y marcas `\k`. | `line.raw_text` |
+| `line.style` / `line.style_name` | `string` | Nombre canónico del estilo ASS asignado a la línea en Aegisub. | `line.style == "Default"` |
+| `line.actor` / `l.actor` | `string` | Campo de actor o personaje de la línea ASS. | `line.actor` |
+| `line.effect` / `l.effect` | `string` | Campo descriptor de efecto especial de la línea ASS. | `line.effect` |
+| `line.layer` / `l.layer` | `int` | Número de capa ASS asignado a la línea (profundidad $Z$). | `line.layer + 1` |
+| `line.center`, `line.middle` / `l.x`, `l.y` | `float` | Centro horizontal ($X$) y vertical ($Y$) del *bounding box* de la línea (px). | `line.center, line.middle` |
+| `line.left`, `line.right` | `float` | Borde delimitador horizontal izquierdo y derecho de la línea (px). | `line.right - line.left` |
+| `line.top`, `line.bottom` | `float` | Borde delimitador vertical superior e inferior de la línea (px). | `line.bottom` |
+| `line.width`, `line.height` | `float` | Anchura y altura calculadas del texto de la línea completa (px). | `line.width` |
+| `line.descent` (o `l.descend`), `line.extlead` | `float` | Altura de descenso tipográfico e interlineado adicional externo (px). | `line.bottom + line.descent` |
+| `line.pos_x`, `line.pos_y` | `float` | Posición horizontal y vertical absoluta de la línea (`\pos` explícito o calculado). | `line.pos_x, line.pos_y` |
+| `line.org_x`, `line.org_y` | `float` | Coordenadas de pivote o anclaje de rotación de la línea (`\org` o centro métrico). | `line.org_x, line.org_y` |
+| `line.margin_l`, `line.margin_r`, `line.margin_v` | `int` | Márgenes izquierdo, derecho y vertical configurados en la línea o estilo (px). | `line.margin_l` |
+| `line.margin_t`, `line.margin_b` | `int` | Márgenes superior e inferior individuales desglosados (px). | `line.margin_t` |
+
+### 4.2. Estilo de Origen (`line.<style_prop>`)
+Propiedades tipográficas, cromáticas, de contorno y de alineación heredadas del encabezado `[V4+ Styles]` del archivo ASS o sobreescritas en la línea:
+
+| Variable | Tipo | Descripción y Formato | Ejemplo de Uso |
+| :--- | :---: | :--- | :--- |
+| `line.fontname` | `string` | Familia tipográfica configurada en el estilo original (ej. `"Arial"`, `"Montserrat"`). | `line.fontname` |
+| `line.fontsize` | `float` | Tamaño de fuente del estilo base en puntos/píxeles ($pt$). | `line.fontsize * 1.5` |
+| `line.bold` | `bool` | Indicador booleano de peso negrita definido en el estilo (`True` / `False`). | `line.bold` |
+| `line.italic` | `bool` | Indicador booleano de estilo cursiva definido en el estilo (`True` / `False`). | `line.italic` |
+| `line.underline` | `bool` | Indicador booleano de subrayado definido en el estilo (`True` / `False`). | `line.underline` |
+| `line.strikeout` | `bool` | Indicador booleano de texto tachado definido en el estilo (`True` / `False`). | `line.strikeout` |
+| `line.align` | `int` | Alineación Numpad configurada en el estilo de origen ($1 \dots 9$). | `line.align` |
+| `line.scale_x`, `line.scale_y` | `float` | Escalas porcentuales horizontal y vertical del estilo base ($100.0 = 100\%$). | `line.scale_x` |
+| `line.spacing` | `float` | Espaciado o interletreado (*tracking*) entre caracteres en píxeles (`\fsp`). | `line.spacing` |
+| `line.outline` / `line.bord` | `float` | Grosor del contorno o borde tipográfico del estilo en píxeles (`\bord`). | `line.outline` |
+| `line.shadow` / `line.shad` | `float` | Distancia o profundidad de sombra arrojada del estilo en píxeles (`\shad`). | `line.shadow` |
+| `line.color1` | `string` | Color primario del estilo (`\1c`) en formato ASS `&HBBGGRR&`. | `line.color1` |
+| `line.color2` | `string` | Color secundario o de karaoke del estilo (`\2c`) en formato ASS `&HBBGGRR&`. | `line.color2` |
+| `line.color3` | `string` | Color del contorno o borde del estilo (`\3c`) en formato ASS `&HBBGGRR&`. | `line.color3` |
+| `line.color4` | `string` | Color de la sombra del estilo (`\4c`) en formato ASS `&HBBGGRR&`. | `line.color4` |
+| `line.alpha1` .. `line.alpha4` | `string` | Canales alfa individuales (1: primario, 2: karaoke, 3: borde, 4: sombra) en ASS `&HAA&`. | `line.alpha1` |
+| `line.angle` / `line.frz` | `float` | Ángulo nominal de rotación $Z$ configurado en el estilo en grados sexagesimales. | `line.frz` |
+| `line.frx`, `line.fry` | `float` | Ángulos de rotación 3D intrínsecos de la línea en grados sexagesimales. | `line.frx` |
+| `line.fax`, `line.fay` | `float` | Factores de deformación tipográfica por cizallamiento oblicuo (*shear*). | `line.fax` |
+
+### 4.3. Unidades Derivadas: Sílabas (`syl`), Caracteres (`char`) y Palabras (`word`)
+Unidades generadas al iterar con `Main Loop` en modo `syl`, `char` o `word`. Cada unidad hereda automáticamente las propiedades tipográficas del estilo base (`syl.fontname`, `syl.color1`..`4`, `syl.fontsize`, `char.fontname`, etc.):
+
+| Unidad | Variable | Descripción y Unidad | Ejemplo de Uso |
+| :--- | :--- | :--- | :--- |
+| **Sílaba (`syl`)** | `syl.start_time`, `syl.end_time` | Tiempos de inicio y fin relativos al comienzo de la línea ($ms$). | `syl.start_time` |
+| | `syl.dur` / `syl.duration` | Duración del karaoke de la sílaba en milisegundos ($ms$). | `syl.dur` |
+| | `syl.mid_time` | Instante medio relativo de la sílaba: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. | `syl.mid_time` |
+| | `syl.syl_start`, `syl.syl_end`, `syl.syl_mid` | Rango temporal de la sílaba relativo al efecto `fx` ($\text{ini} + \text{syl.start\_time}$). | `\t(syl.syl_start, syl.syl_end, \tags)` |
+| | `syl.i` / `syl.n` | Índice de la sílaba en la línea ($1 \dots N$) y total de sílabas. | `syl.i / syl.n` |
+| | `syl.text`, `syl.text_stripped` | Texto de la sílaba sin etiquetas ni marcas de karaoke. | `syl.text` |
+| | `syl.center`, `syl.middle` / `syl.x`, `syl.y` | Centro horizontal ($X$) y vertical ($Y$) del *bounding box* de la sílaba (px). | `syl.center, syl.middle` |
+| | `syl.left`, `syl.right`, `syl.top`, `syl.bottom` | Borde izquierdo, derecho, superior e inferior de la sílaba (px). | `syl.right - syl.left` |
+| | `syl.width`, `syl.height` | Anchura y altura métricas calculadas de la sílaba (px). | `syl.width` |
+| | `syl.descent`, `syl.extlead` | Altura de descenso tipográfico y espaciado de línea en la sílaba (px). | `syl.descent` |
+| | `syl.prespace`, `syl.postspace` | Espacios en blanco precedentes o posteriores de la sílaba. | `syl.prespace` |
+| | `syl.pos_x`, `syl.pos_y`, `syl.org_x`, `syl.org_y` | Coordenadas de anclaje de posición y centro de rotación de la sílaba. | `syl.pos_x, syl.pos_y` |
+| **Carácter (`char`)** | `char.start_time`, `char.end_time` | Tiempos de inicio y fin relativos al comienzo de su **sílaba contenedora** ($ms$). | `char.start_time` |
+| | `char.dur` / `char.duration` | Duración temporal calculada del carácter individual ($ms$). | `char.dur` |
+| | `char.mid_time` | Instante medio relativo del carácter dentro de su sílaba. | `char.mid_time` |
+| | `char.char_start`, `char.char_end`, `char.char_mid` | Rango temporal del carácter relativo al efecto `fx` ($ms$). | `\t(char.char_start, char.char_end, \tags)` |
+| | `char.syl_start`, `char.syl_end`, `char.syl_mid` | Rango temporal de la sílaba contenedora relativo al efecto `fx` ($ms$). | `\t(char.syl_start, char.syl_end, \tags)` |
+| | `char.i` / `char.n` | Índice del carácter en la línea ($1 \dots N$) y total de caracteres. | `char.i` |
+| | `char.syl_i`, `char.word_i` | Índice posicional del carácter dentro de su sílaba y dentro de su palabra. | `char.syl_i` |
+| | `char.text` | Glifo del carácter activo. | `char.text` |
+| | `char.center`, `char.middle` / `char.x`, `char.y` | Coordenadas centrales del carácter en pantalla (px). | `char.center, char.middle` |
+| | `char.left`, `char.right`, `char.top`, `char.bottom` | Límites del cuadro delimitador del glifo del carácter (px). | `char.left` |
+| | `char.width`, `char.height` | Dimensiones métricas del glifo del carácter (px). | `char.width` |
+| | `char.descent`, `char.extlead` | Métricas tipográficas de descenso y espaciado del glifo (px). | `char.descent` |
+| **Palabra (`word`)** | `word.start_time`, `word.end_time`, `word.dur`, `word.mid_time` | Tiempos de inicio, fin, duración y punto medio relativos a la línea ($ms$). | `word.start_time` |
+| | `word.word_start`, `word.word_end`, `word.word_mid` | Tiempos de inicio, fin y punto medio relativos al efecto `fx` ($ms$). | `word.word_start` |
+| | `word.i` / `word.n` | Índice de la palabra en la línea ($1 \dots N$) y total de palabras. | `word.i` |
+| | `word.text` | Texto de la palabra completa despojado de etiquetas. | `word.text` |
+| | `word.center`, `word.middle` / `word.x`, `word.y` | Centro horizontal ($X$) y vertical ($Y$) de la palabra en pantalla (px). | `word.center, word.middle` |
+| | `word.left`, `word.right`, `word.top`, `word.bottom` | Bounding box delimitador de la palabra completa (px). | `word.right` |
+| | `word.width`, `word.height` | Anchura y altura de la palabra completa (px). | `word.width` |
+| | `word.descent`, `word.extlead` | Métricas tipográficas de descenso y espaciado de la palabra (px). | `word.descent` |
+
+### 4.4. Métricas de Tinta Real (`ink`) y Unidades Vecinas (`prev` / `next`)
 
 | Categoría | Variable | Descripción | Ejemplo de Uso |
 | :--- | :--- | :--- | :--- |
-| **Línea (`line` / `l`)** | `line.start_time` / `l.start_time` | Tiempo de inicio absoluto de la línea en el vídeo (ms). | `line.start_time - 500` |
-| | `line.end_time` / `l.end_time` | Tiempo de fin absoluto de la línea en el vídeo (ms). | `line.end_time + 300` |
-| | `line.dur` / `line.duration` | Duración total de la línea (ms): $t_{\text{end}} - t_{\text{start}}$. | `line.dur / 2` |
-| | `line.mid_time` | Instante medio de la línea en el vídeo: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. | `line.mid_time` |
-| | `line.i` / `line.n` | Índice de la línea actual y total de líneas seleccionadas. | `line.i == 1` |
-| | `line.text` / `l.raw_text` | Texto original de la línea (limpio o con tags originales). | `len(line.text)` |
-| | `line.style` / `line.actor` / `line.effect` / `line.layer` | Atributos de cabecera ASS de la línea. | `line.style == "Default"` |
-| | `line.center`, `line.middle` / `l.x`, `l.y` | Centro horizontal ($X$) y vertical ($Y$) del bounding box de la línea. | `line.center, line.middle` |
-| | `line.left`, `line.right`, `line.top`, `line.bottom` | Coordenadas de los cuatro bordes delimitadores de la línea (px). | `line.right - line.left` |
-| | `line.width`, `line.height` | Anchura y altura calculadas del texto de la línea (px). | `line.width` |
-| | `line.descent` (o `l.descend`), `line.extlead` | Métricas tipográficas de descenso y espaciado vertical externo (px). | `line.bottom + line.descent` |
-| | `line.margin_l`, `line.margin_r`, `line.margin_v` | Márgenes izquierdo, derecho y vertical configurados en el subtítulo. | `line.margin_l` |
-| | `line.color1..4`, `line.alpha1..4` | Colores primario/secundario/borde/sombra y transparencias de estilo. | `line.color1` |
-| | `line.outline`, `line.shadow` | Grosor del borde de contorno y profundidad de sombra del estilo. | `line.outline` |
-| | `line.fontname`, `line.fontsize`, `line.bold`, `line.italic` | Propiedades tipográficas activas del estilo del subtítulo. | `line.fontsize` |
-| | `line.scale_x`, `line.scale_y`, `line.spacing` | Escalas porcentuales y espaciado entre caracteres del estilo. | `line.scale_x` |
-| **Sílaba (`syl`)** | `syl.start_time` | Tiempo de inicio relativo al comienzo de la línea (ms). | `l.start_time + syl.start_time` |
-| | `syl.end_time` | Tiempo de fin relativo al comienzo de la línea (ms). | `syl.end_time` |
-| | `syl.dur` / `syl.duration` | Duración del karaoke de la sílaba (ms). | `syl.dur` |
-| | `syl.mid_time` | Instante medio relativo de la sílaba: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. | `syl.mid_time` |
-| | `syl.syl_start`, `syl.syl_end`, `syl.syl_mid` | Rango temporal de la sílaba relativo al efecto `fx` ($\text{ini} + \text{syl.start\_time}$). | `\t(syl.syl_start, syl.syl_end, \tags)` |
-| | `syl.i` / `syl.n` | Índice de la sílaba en la línea (1..N) y total de sílabas. | `syl.i / syl.n` |
-| | `syl.text` | Texto o glifo de la sílaba sin tags. | `syl.text` |
-| | `syl.center`, `syl.middle` / `syl.x`, `syl.y` | Centro horizontal ($X$) y vertical ($Y$) del bounding box de la sílaba. | `syl.center, syl.middle` |
-| | `syl.left`, `syl.right`, `syl.top`, `syl.bottom` | Coordenadas de los bordes izquierdo, derecho, superior e inferior de la sílaba. | `syl.right - syl.left` |
-| | `syl.width`, `syl.height` | Anchura y altura métricas de la sílaba (px). | `syl.width` |
-| | `syl.descent` (o `syl.descend`), `syl.extlead` | Altura de descenso tipográfico y espaciado de la línea en la sílaba. | `syl.descent` |
-| | `syl.prespace`, `syl.postspace` | Espacios en blanco precedentes o posteriores de la sílaba. | `syl.prespace` |
-| **Carácter (`char`)** | `char.start_time` | Tiempo de inicio relativo al comienzo de su **sílaba** (ms). | `char.start_time` |
-| | `char.end_time` | Tiempo de fin relativo a su sílaba: $\text{char.start\_time} + \text{char.dur}$. | `char.end_time` |
-| | `char.dur` / `char.duration` | Duración calculada del carácter (ms). | `char.dur` |
-| | `char.mid_time` | Instante medio relativo del carácter dentro de su sílaba. | `char.mid_time` |
-| | `char.char_start`, `char.char_end`, `char.char_mid` | Rango temporal del carácter relativo al efecto `fx` (ms). | `\t(char.char_start, char.char_end, \tags)` |
-| | `char.syl_start`, `char.syl_end`, `char.syl_mid` | Rango temporal de la sílaba contenedora relativo al efecto `fx` (ms). | `\t(char.syl_start, char.syl_end, \tags)` |
-| | `char.i` / `char.n` | Índice del carácter en la línea y total de caracteres. | `char.i` |
-| | `char.syl_i`, `char.word_i` | Índice posicional del carácter dentro de su sílaba y palabra. | `char.syl_i` |
-| | `char.text` | Glifo del carácter actual. | `char.text` |
-| | `char.center`, `char.middle` / `char.x`, `char.y` | Coordenadas centrales del carácter en pantalla. | `char.center, char.middle` |
-| | `char.left`, `char.right`, `char.top`, `char.bottom` | Coordenadas de los cuatro bordes del glifo del carácter. | `char.left` |
-| | `char.width`, `char.height` | Dimensiones métricas del glifo del carácter. | `char.width` |
-| | `char.descent` (o `char.descend`), `char.extlead` | Métricas tipográficas de descenso y espaciado del glifo. | `char.descent` |
-| **Palabra (`word`)** | `word.start_time`, `word.end_time`, `word.dur`, `word.mid_time` | Tiempos de inicio, fin, duración y punto medio relativos a la línea (ms). | `word.start_time` |
-| | `word.word_start`, `word.word_end`, `word.word_mid` | Tiempos de inicio, fin y punto medio relativos al efecto `fx` (ms). | `word.word_start` |
-| | `word.i` / `word.n` | Índice de la palabra en la línea y total de palabras. | `word.i` |
-| | `word.text` | Texto de la palabra completa. | `word.text` |
-| | `word.center`, `word.middle` / `word.x`, `word.y` | Centro horizontal ($X$) y vertical ($Y$) de la palabra. | `word.center, word.middle` |
-| | `word.left`, `word.right`, `word.top`, `word.bottom` | Coordenadas de los bordes delimitadores de la palabra. | `word.right` |
-| | `word.width`, `word.height` | Anchura y altura de la palabra completa (px). | `word.width` |
-| | `word.descent` (o `word.descend`), `word.extlead` | Métricas tipográficas de descenso y espaciado de la palabra. | `word.descent` |
-| **Métricas de Tinta (`ink`)** | `ink.width`, `ink.height` (o `l.ink.width`, `syl.ink.width`, etc.) | Anchura y altura del trazado/glifo real renderizado (sin márgenes tipográficos de caja). | `ink.width` |
+| **Tinta Real (`ink`)** | `ink.width`, `ink.height` | Anchura y altura del trazado/glifo real renderizado (sin márgenes de caja tipográfica). | `ink.width` |
 | | `ink.center`, `ink.middle` / `ink.x`, `ink.y` | Centro horizontal ($X$) y vertical ($Y$) basado en los contornos reales de tinta. | `ink.center, ink.middle` |
 | | `ink.left`, `ink.right`, `ink.top`, `ink.bottom` | Bounding box exacto de los píxeles de tinta proyectados en coordenadas de pantalla. | `ink.left` |
 | | `ink.l.*`, `ink.syl.*`, `ink.char.*`, `ink.word.*` | Acceso explícito por ámbito a las métricas de tinta de la línea, sílaba, carácter o palabra. | `ink.syl.center` |
+| **Vecinos (`prev` / `next`)** | `prev.*` / `next.*` | Introspección sobre la unidad anterior o siguiente (`text`, `dur`, `start_time`, `x`, `y`, `width`, etc.). | `prev.width` |
+| | `is_first`, `is_last` | Banderas booleanas que indican si la unidad es la primera o la última de la secuencia. | `is_first` |
+| | `has_prev`, `has_next` | `True` si existe una unidad precedente o sucesora válida en la cadena. | `has_prev` |
+
+### 4.5. Sub-bucles (`MaxLoop`), Efecto (`fx`) y Variables Globales de Entorno
+
+| Categoría | Variable | Descripción y Fórmula | Ejemplo de Uso |
+| :--- | :--- | :--- | :--- |
 | **Sub-bucle (`MaxLoop`)**| `j` | Índice de la sub-iteración activa ($1 \dots N$). | `j` |
 | | `maxj` / `maxloop` | Total de repeticiones configuradas en el sub-bucle. | `maxj` |
-| | `module` / `m` | Progreso normalizado de la sub-iteración: $\frac{j - 1}{\text{maxj} - 1} \in [0.0, 1.0]$. | `module` |
-| **Efecto (`fx`)** | `fx.pos_x`, `fx.pos_y` | Posición de anclaje resuelta para el elemento activo. | `fx.pos_x, fx.pos_y` |
-| | `fx.start_time`, `fx.end_time` | Tiempos de inicio y fin de la línea ASS generada (ms). | `fx.start_time` |
-| | `fx.dur` | Duración efectiva de la línea generada en ASS. | `fx.dur` |
+| | `module` / `m` / `ratio` | Progreso normalizado de la sub-iteración: $\frac{j - 1}{\text{maxj} - 1} \in [0.0, 1.0]$. | `module` |
+| **Efecto (`fx`)** | `fx.pos_x`, `fx.pos_y` | Coordenadas de posición de anclaje resuelta para el elemento activo en pantalla. | `fx.pos_x, fx.pos_y` |
+| | `fx.start_time`, `fx.end_time` | Tiempos de inicio y fin de la línea ASS generada ($ms$). | `fx.start_time` |
+| | `fx.dur` | Duración efectiva de la línea generada en ASS ($ms$). | `fx.dur` |
+| **Entorno Global** | `fps` | Tasa de fotogramas por segundo del vídeo activo en Aegisub (ej. `23.976`, `60.0`). | `fps` |
+| | `frame_dur` / `fd` | Duración de un fotograma en milisegundos: $\frac{1000}{\text{fps}}$ (ej. $41.708$ ms a $23.976$ fps). | `3 * fd` |
+| | `ini` | Desfase temporal relativo: $\text{ini} = \text{line.start\_time} - \text{fx.start\_time}$ ($ms$). | `ini + syl.start_time` |
+| | `st`, `et`, `dur` | Tiempos de inicio, fin y duración activos del elemento procesado ($ms$). | `st, et` |
+| | `maxgap` | Techo temporal máximo para mediciones inter-línea con `sync()` ($ms$, por defecto `2000.0`). | `maxgap` |
 
 ---
 

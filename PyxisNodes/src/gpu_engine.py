@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
 """
 GPU Acceleration Engine for PyxisNodes.
@@ -42,6 +42,7 @@ class GpuEngineManager:
 
     @classmethod
     def get_instance(cls):
+        """Retrieve or initialize the singleton instance of GpuEngineManager."""
         if cls._instance is None:
             cls._instance = GpuEngineManager()
         return cls._instance
@@ -262,5 +263,6 @@ class GpuEngineManager:
         return out
 
 
-def get_gpu_manager():
+def get_gpu_manager() -> GpuEngineManager:
+    """Retrieve the global GpuEngineManager singleton instance."""
     return GpuEngineManager.get_instance()

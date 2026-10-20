@@ -12,9 +12,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
-"""Master ASS tag generation node (MultiTag)."""
+"""Master ASS tag generation, modulation, and manipulation nodes.
+
+This module provides the core tag manipulation architecture of Pyxis Effector,
+enabling multi-tag generation, continuous periodic oscillation, stochastic glitter
+and pulses, and algebraic tag inversion and introspection for ASS subtitle workflows.
+"""
 
 import re
 import math
@@ -22,6 +27,20 @@ import random
 from utils import parse_color_to_rgb, rgb_to_ass_color
 
 def _clean_num(val, default=0.0, decimals=2, context=None):
+    """Safely coerces and rounds an arbitrary input into an integer or float scalar.
+
+    Evaluates expressions dynamically within the execution context if direct
+    scalar parsing fails.
+
+    Args:
+        val (Any): Input expression or numeric value.
+        default (float): Fallback value on failure. Defaults to 0.0.
+        decimals (int): Maximum decimal precision to retain. Defaults to 2.
+        context (dict, optional): Active DAG execution context.
+
+    Returns:
+        int | float: Clean numeric representation.
+    """
     if val is None or str(val).strip() == "":
         return default
     try:
@@ -42,6 +61,18 @@ def _clean_num(val, default=0.0, decimals=2, context=None):
         return default
 
 def _clean_alpha(val, default=0, context=None):
+    """Parses and formats an alpha transparency value into canonical ASS format '&HAA&'.
+
+    Supports decimal integers [0, 255], hex strings, and mathematical expressions.
+
+    Args:
+        val (Any): Alpha value expression or string.
+        default (int): Default fallback opacity byte (0-255). Defaults to 0.
+        context (dict, optional): Active DAG execution context.
+
+    Returns:
+        str: Canonical ASS alpha override tag value '&HAA&'.
+    """
     v_str = str(val).strip()
     if not v_str:
         return f"&H{default:02X}&"
@@ -70,6 +101,17 @@ def _clean_alpha(val, default=0, context=None):
         return "&H00&"
 
 def _clean_color(val, default="&HFFFFFF&"):
+    """Parses and normalises an arbitrary colour input into canonical ASS hex '&HBBGGRR&'.
+
+    Accepts hex strings, CSS-style hex, and RGB colour definitions.
+
+    Args:
+        val (Any): Colour string or hex code.
+        default (str): Fallback colour in ASS format. Defaults to '&HFFFFFF&'.
+
+    Returns:
+        str: Uppercase ASS colour override code '&HBBGGRR&'.
+    """
     v_str = str(val).strip()
     if not v_str:
         return default
@@ -80,6 +122,20 @@ def _clean_color(val, default="&HFFFFFF&"):
 
 
 def tag_master(context, tag_type="pos", **kwargs):
+    """Universal dispatcher for atomic ASS tag generation (MultiTag node).
+
+    Generates formatted ASS override tags for positional (pos, org), transformation
+    (fscx, fscy, frz, frx, fry, fax, fay), styling (c, 1c, 2c, 3c, 4c, alpha, 1a,
+    2a, 3a, 4a, bord, shad, blur), clip masks, and vector drawings.
+
+    Args:
+        context (dict): DAG execution context containing active units and styles.
+        tag_type (str): Canonical ASS tag identifier (e.g. 'pos', 'fscx', 'frz', '1c').
+        **kwargs: Parameter dictionary supplying widget and socket inputs.
+
+    Returns:
+        str: Formatted ASS tag string (e.g. '\\pos(100, 200)').
+    """
     tag = str(tag_type or "pos").strip().lower().lstrip("\\")
     
     def clean_n(v, d=0.0, dec=2):
@@ -217,7 +273,19 @@ def tag_master(context, tag_type="pos", **kwargs):
 from decorators import pyxis_node
 
 def eval_condition_bool(condition, context=None) -> bool:
-    """Safely evaluates a boolean conditional expression in the Pyxis context."""
+    """Safely evaluates a boolean or conditional expression in the Pyxis DAG context.
+
+    Resolves literal booleans, numerical truth values, string truth tokens
+    ('true', 'false', 'yes', 'no', '1', '0', 'nil', etc.), or evaluates Python
+    expressions dynamically via the string evaluator engine with syntax sanitisation.
+
+    Args:
+        condition (Any): Condition value, boolean token, or Python expression string.
+        context (Optional[Dict[str, Any]]): Active DAG execution context and variable table.
+
+    Returns:
+        bool: Evaluated boolean truth value.
+    """
     if isinstance(condition, bool):
         return condition
     if isinstance(condition, (int, float)):
@@ -244,8 +312,21 @@ def eval_condition_bool(condition, context=None) -> bool:
 
 @pyxis_node("Functions", "Conditioner", ["Condition", "If True", "If False"])
 def node_conditioner(context, condition=True, if_true="", if_false="", **kwargs):
-    """Evaluates the condition and returns the corresponding complete item ('If True' or 'If False').
-    Supports single strings, lists, or full sequences.
+    """Evaluates a conditional expression and routes either the true or false branch.
+
+    Acts as a ternary logic branch node in the Pyxis DAG pipeline. Evaluates
+    arbitrary expressions (AST/comparison) against the context and emits the
+    matching payload. Supports scalar strings, numerical values, lists, or tuples.
+
+    Args:
+        context (Optional[Dict[str, Any]]): Active DAG execution context and variable table.
+        condition (Any): Boolean flag, expression string, or variable resolving to truth value. Defaults to True.
+        if_true (Any): Payload returned when condition evaluates to True. Defaults to "".
+        if_false (Any): Payload returned when condition evaluates to False. Defaults to "".
+        **kwargs: Fallback keyword aliases (e.g. 'condicion', 'si_verdadero', 'si_falso').
+
+    Returns:
+        str: String representation or comma-joined sequence of the selected branch.
     """
     cond = kwargs.get("condition", kwargs.get("condicion", condition))
     t_val = kwargs.get("if_true", kwargs.get("si_verdadero", if_true))
@@ -262,7 +343,29 @@ node_condicionador = node_conditioner
 
 @pyxis_node("Functions", "Color Gradient", ["Progress (0-1)", "Color List", "Total (N)", "Accel"])
 def node_color_gradient(context, prog="char.i / char.n", colors_str="#95E648,#3E750C,#ED38CA", total=1, accel=1.0, tag_type="\\1c", output_slot_index=0, **kwargs):
-    """Multi-stop color interpolator (Effector color.gradient style) with batch list outputs."""
+    """Multi-stop colour interpolator and gradient generator with batch list outputs.
+
+    Interpolates smoothly across an arbitrary sequence of colour stops (RGB hex or ASS format)
+    using non-linear power-law acceleration/easing. Supports single-step colour sampling,
+    complete comma-separated batch lists for N particles/characters, and fully formatted
+    ASS override tag sequences (e.g. '\\1c&H95E648&').
+
+    Args:
+        context (Optional[Dict[str, Any]]): Active DAG execution context and variable table.
+        prog (Any): Normalised progress fraction [0.0, 1.0] or mathematical expression string. Defaults to 'char.i / char.n'.
+        colors_str (str): Comma-separated or whitespace-separated list of hex or ASS colour tokens.
+        total (Any): Total number of interpolation points (N) for batch outputs. Defaults to 1.
+        accel (Any): Exponential acceleration factor (power law) applied to progress fraction. Defaults to 1.0.
+        tag_type (str): ASS colour override tag prefix (e.g. '\\1c', '\\2c', '\\3c', '\\4c'). Defaults to '\\1c'.
+        output_slot_index (int): Output connector slot:
+            - 0: Evaluated ASS colour string at current progress fraction.
+            - 1: Batch comma-separated colour sequence across N subdivisions.
+            - 2: Batch comma-separated ASS override tag sequence (e.g. '\\1c&H...').
+        **kwargs: Additional configuration parameters, including 'colors', 'progress', 'tag', 'return_batch', 'return_tags'.
+
+    Returns:
+        str: Interpolated ASS colour hexadecimal string or comma-separated batch sequence.
+    """
     from node_engine import _eval_num_expr
 
     raw_str = str(colors_str if (colors_str is not None and str(colors_str).strip() != "") else kwargs.get("colors", "#95E648,#3E750C,#ED38CA")).strip()
@@ -380,7 +483,34 @@ def tag_oscillator_node(
     output_slot_index=0,
     **kwargs
 ):
-    """Master continuous ASS oscillation generator (Standard Polars)."""
+    """Continuous periodic ASS tag oscillation generator (Standard Polars).
+
+    Generates recurring modulated transition blocks \\t(t1, t2, [accel], tags)
+    cycling between discrete polar states or multi-state sequences across a duration.
+    Supports step/transition dilation, sequence offsets, duty cycle adjustments,
+    and discrete rhythm patterns.
+
+    Args:
+        context (dict, optional): Active DAG execution context.
+        start_time (float | str, optional): Starting timestamp in milliseconds. Defaults to 0.0.
+        end_time (float | str, optional): Ending timestamp in milliseconds. Defaults to effect duration.
+        step_ms (float | str, optional): Steady-state duration per oscillation step. Defaults to 200.0.
+        trans_ms (float | str, optional): Interpolation transition time between states. Defaults to 50.0.
+        duty_cycle (float | str, optional): Relative proportion of step duration in [0.0, 1.0].
+        tags (str | list, optional): Comma-separated or list of target state ASS tags.
+        accel (float | str, optional): Exponential acceleration factor for \\t blocks. Defaults to 1.0.
+        dilat_step_ms (float | str, optional): Progressive dilation delta applied to step intervals.
+        dilat_trans_ms (float | str, optional): Progressive dilation delta applied to transition intervals.
+        offset_seq_ms (float | str, optional): Phase shift offset applied to the oscillation sequence.
+        rhythm_pattern (str, optional): Custom rhythm pattern descriptor string.
+        oscillation_mode (str, optional): Oscillation cycle profile (e.g. 'cycle', 'pingpong', 'random').
+        order_mode (str, optional): Order direction for sequencing.
+        output_slot_index (int, optional): Output port index (0: generated tags string).
+        **kwargs: Additional parameters and legacy socket inputs.
+
+    Returns:
+        str: Continuous sequence of ASS \\t(...) blocks modulating the specified tags.
+    """
     from node_engine import _eval_num_expr
 
     ctx = context if isinstance(context, dict) else {}
@@ -557,7 +687,28 @@ def glitter_node(
     output_slot_index=0,
     **kwargs
 ):
-    """Dynamic stochastic generator for flashes (Glitter), waves, and pulses for ASS tags."""
+    """Dynamic stochastic generator for flashes (Glitter), sparks, waves, and tag pulses.
+
+    Synthesises pseudo-random or rhythmic bursts of ASS tag modulations (e.g. \\fscx,
+    \\fscy, \\alpha, \\blur, \\c) across an active time interval based on a density threshold,
+    stochastic distribution profiles, and customizable value bounds.
+
+    Args:
+        context (dict, optional): Active DAG execution context.
+        start_time (float | str, optional): Burst initiation timestamp in milliseconds. Defaults to 0.0.
+        end_time (float | str, optional): Burst completion timestamp in milliseconds. Defaults to effect duration.
+        density (float | str, optional): Frequency density threshold regulating pulse occurrence. Defaults to 1.0.
+        random_profile (str, optional): Probability profile ('uniform', 'gaussian', 'burst', 'wave').
+        seed (int, optional): Deterministic pseudo-random generator seed. Defaults to 0.
+        tags (list | str, optional): Collection of ASS tags targeted for stochastic variation.
+        mins (list | str, optional): Lower parameter bounds corresponding to each target tag.
+        maxs (list | str, optional): Upper parameter bounds corresponding to each target tag.
+        output_slot_index (int, optional): Port index (0: generated ASS \\t blocks string).
+        **kwargs: Dynamic tag and bound socket parameters (tag_0, min_0, max_0, etc.).
+
+    Returns:
+        str: Formatted ASS override tags containing scheduled \\t(...) spark pulses.
+    """
     from node_engine import _eval_num_expr
     from utils import parse_color_to_rgb, rgb_to_ass_color
 
@@ -951,6 +1102,24 @@ NODE_REGISTRY["Glitter"] = glitter_node
 
 
 def _resample_shape_arc_length(shape_str, step_px=7.5):
+    """Resamples an ASSdraw vector drawing into equidistant spatial waypoints.
+
+    Tokenises ASSdraw drawing commands ('m', 'l', 'b', 's', 'p', 'c') and
+    decomposes continuous geometry into discrete coordinates. Straight lines
+    ('l') and cubic Bézier splines ('b') are parameterised along their arc length:
+    cubic Bézier segments are evaluated using Bernstein polynomials:
+    B(t) = (1-t)³ P₀ + 3(1-t)² t P₁ + 3(1-t) t² P₂ + t³ P₃,
+    accumulating exact Euclidean travel distance to yield a uniform spatial progression.
+
+    Args:
+        shape_str (str): Raw ASSdraw drawing command string.
+        step_px (float): Target spatial interval distance in pixels between
+            consecutive waypoints. Clamped to a minimum of 0.5 px. Defaults to 7.5.
+
+    Returns:
+        list[tuple[float, float, float]]: List of waypoints represented as
+            (x, y, cumulative_distance) tuples. If parsing fails, returns an empty list.
+    """
     if not shape_str or not isinstance(shape_str, str):
         return []
 
@@ -1047,6 +1216,23 @@ def _resample_shape_arc_length(shape_str, step_px=7.5):
 
 
 def _parse_points_input(points_raw, step_px=7.5):
+    """Parses heterogeneous coordinate inputs into a normalised trajectory list.
+
+    Supports diverse coordinate formats:
+    1. Vector drawing commands (ASSdraw 'm ...', 'b ...', 'l ...').
+    2. Python iterables of 2D coordinates: [(x, y), ...] or [{'x': ..., 'y': ...}].
+    3. Delimited coordinate strings: 'x1,y1; x2,y2' or newline-separated values.
+    
+    Line segments between consecutive discrete waypoints are resampled at
+    equidistant intervals of `step_px` pixels with accumulated Euclidean distances.
+
+    Args:
+        points_raw (Union[str, list, tuple]): Input waypoint specification.
+        step_px (float): Spatial distance between resampled points. Defaults to 7.5.
+
+    Returns:
+        list[tuple[float, float, float]]: Uniform list of (x, y, cumulative_distance) tuples.
+    """
     if isinstance(points_raw, str):
         cleaned = points_raw.strip()
         if cleaned.lower().startswith('m ') or re.search(r'\b[mlbc]\s+[-?\d]', cleaned, re.IGNORECASE):
@@ -1110,8 +1296,19 @@ def _parse_points_input(points_raw, step_px=7.5):
 
 
 def _get_shape_add_y(shape_str):
-    """Calculates vertical compensation required to align shape center
-    with ASS drawing baseline: add_y = (max_y - min_y) - cy."""
+    """Calculates vertical baseline compensation for vector shape drawing alignment.
+
+    Evaluates the vertical bounding box bounds [min_y, max_y] of an ASSdraw shape
+    to calculate the vertical offset needed to align the geometric centroid
+    (cy = (min_y + max_y) / 2) with the ASS drawing baseline:
+    add_y = (max_y - min_y) - cy.
+
+    Args:
+        shape_str (str): ASSdraw drawing commands containing 2D coordinates.
+
+    Returns:
+        float: Vertical compensation offset in pixels.
+    """
     if not shape_str or not isinstance(shape_str, str):
         return 0.0
     tokens = shape_str.replace(",", " ").split()
@@ -1141,6 +1338,27 @@ def _get_shape_add_y(shape_str):
 
 
 def _relocate_points(points, anchor="center", context=None, is_text_vector=False):
+    """Translates spatial trajectory coordinates relative to a target reference anchor.
+
+    Adjusts trajectory waypoints so that the motion is rooted at the active unit's
+    typographical position (center, middle, pos_x, pos_y) according to the chosen anchor mode:
+    - 'origin': Retains absolute raw coordinate values without translation.
+    - 'first_point': Aligns the first waypoint P₀ with the target unit centroid.
+    - 'center': Aligns the geometric bounding box centre of all waypoints with the centroid.
+
+    For text vectors extracted via FontVectorEngine, coordinates are already centred
+    at (0, 0), directly matching the unit's typographical origin.
+
+    Args:
+        points (list[tuple[float, float, float]]): List of (x, y, cum_dist) waypoints.
+        anchor (str): Reference anchor mode ('center', 'origin', 'first_point').
+            Defaults to 'center'.
+        context (dict, optional): Active DAG execution context containing 'active_unit'.
+        is_text_vector (bool): Indicates whether waypoints represent pre-centred text vectors.
+
+    Returns:
+        list[tuple[float, float, float]]: Transformed list of relocated waypoints.
+    """
     if not points:
         return []
 
@@ -1156,7 +1374,7 @@ def _relocate_points(points, anchor="center", context=None, is_text_vector=False
             cy = float(getattr(active_unit, "middle", 0.0) or getattr(active_unit, "pos_y", 0.0) or getattr(active_unit, "y", 0.0) or 0.0)
 
     if is_text_vector:
-        # FontVectorEngine typographical vectors are already centered at (0, 0)
+        # FontVectorEngine typographical vectors are already centred at (0, 0)
         # in direct alignment with the typographical bounding box (center, middle).
         return [(p[0] + cx, p[1] + cy, p[2]) for p in points]
 
@@ -1176,6 +1394,18 @@ def _relocate_points(points, anchor="center", context=None, is_text_vector=False
 
 
 def _get_default_dur(context, default_val=300.0):
+    """Extracts fallback effect duration from the active execution context.
+
+    Inspects context['fx']['dur'], context['fx.dur'], or evaluates 'fx.dur'
+    via expression parsing.
+
+    Args:
+        context (dict, optional): Active DAG execution context.
+        default_val (float): Fallback value in milliseconds if duration is absent. Defaults to 300.0.
+
+    Returns:
+        float: Duration in milliseconds.
+    """
     if context:
         fx = getattr(context, "fx", None) or (context.get("fx") if isinstance(context, dict) else None)
         if fx:
@@ -1195,6 +1425,19 @@ def _get_default_dur(context, default_val=300.0):
 
 
 def _get_style_prop(context, prop_name, default_val=0.0):
+    """Retrieves a numerical font or style metric from the active context style descriptor.
+
+    Inspects context['style'] or context['active_style'] for attributes matching
+    `prop_name` (e.g. 'descent', 'fontsize', 'spacing').
+
+    Args:
+        context (dict, optional): Active execution context.
+        prop_name (str): Style attribute name to query.
+        default_val (float): Fallback value if attribute is absent. Defaults to 0.0.
+
+    Returns:
+        float: Resolved numerical metric value.
+    """
     if context and isinstance(context, dict):
         style = context.get('style') or context.get('active_style')
         if style:
@@ -1211,6 +1454,31 @@ def _get_style_prop(context, prop_name, default_val=0.0):
 
 
 def _format_single_line_scale_trajectory(pts, t1, t2, accel=1.0, tags="", context=None, is_shape=None):
+    """Encodes a 2D spatial trajectory into a compact ASS tag sequence.
+
+    Implements the classical layout shift technique from Effector 2 (`ke.text.move`):
+    anchors the line at \\an7\\q2 with an origin \\pos(x0, y0), applies the initial position
+    via scale tags \\fscx / \\fscy, and animates each subsequent waypoint across time
+    using piecewise \\t(st, et, [accel,] \\fscx...\\fscy...) transforms.
+    Concludes with the drawing toggle sequence `\\p1}m 0 0 m 100 100 {\\p0\\r...` to neutralise
+    drawing modes and inject trailing ASS override tags.
+
+    Supports dual rendering paths:
+    1. Vector Shape Trajectory: Compensates for baseline offset using `_get_shape_add_y`.
+    2. Typographical Text Trajectory: Compensates for typographic width and descent metrics.
+
+    Args:
+        pts (list[tuple[float, float, float]]): Relocated waypoint list (x, y, cum_dist).
+        t1 (float): Start time in milliseconds.
+        t2 (float): End time in milliseconds.
+        accel (float): Acceleration exponent modulating interpolation between points. Defaults to 1.0.
+        tags (str): Trailing ASS override tags injected after the trajectory sequence.
+        context (dict, optional): Active DAG execution context for typographic and line metrics.
+        is_shape (bool, optional): Explicit flag indicating whether the rendered payload is a drawing.
+
+    Returns:
+        str: Continuous ASS tag string encoding the kinetic trajectory.
+    """
     clean_tags = str(tags or "").strip()
     if clean_tags.startswith("{") and clean_tags.endswith("}"):
         clean_tags = clean_tags[1:-1].strip()
@@ -1320,10 +1588,40 @@ def _format_single_line_scale_trajectory(pts, t1, t2, accel=1.0, tags="", contex
 
 
 def move_tag_node(context=None, mode="Trajectory", tags=None, **kwargs):
-    r"""
-    Genera tags ASS de movimiento o trayectoria (\pos, \fscx, \fscy, \t).
-    Soporta modos Trajectory, Waypoints y Jitter, e inyecta tags ASS adicionales
-    especificados por el usuario (parámetro 'tags').
+    """Generates continuous kinetic motion and trajectory ASS override tags.
+
+    Supports three primary spatial kinematics modes:
+    1. 'Trajectory' ('SMOVE'): Extracts continuous path waypoints from an ASSdraw
+       vector drawing (or text vector fallback from FontVectorEngine), parameterises
+       arc length, aligns coordinates against the chosen anchor mode, and generates
+       a multi-segment piecewise \\t(...) scale trajectory.
+    2. 'Waypoints' ('PMOVE'): Ingests discrete coordinate points, resamples intermediate
+       spatial segments at uniform intervals, and animates the object along the sequence.
+    3. 'Jitter' ('RANDOM', 'RMOVE'): Generates stochastic spatial jitter displacements
+       within [-dx, +dx] and [-dy, +dy] using a deterministic pseudo-random seed,
+       interpolating across discrete steps of duration `dur`.
+
+    Applies the classical layout shift technique (`\\an7\\q2\\pos...\\fscx...\\fscy...\\t(...)`),
+    preserving typographic baseline alignment and appending user-specified trailing ASS tags.
+
+    Args:
+        context (dict, optional): Active DAG execution context containing unit and line metrics.
+        mode (str): Motion mode ('Trajectory', 'Waypoints', 'Jitter'). Defaults to 'Trajectory'.
+        tags (str, optional): Trailing ASS tags injected at the tail of the trajectory sequence.
+        **kwargs: Dynamic node parameters:
+            - shape / drawing / points (str): ASSdraw drawing commands or coordinate pairs.
+            - step_px (float): Spatial distance in pixels between trajectory waypoints (def: 7.5).
+            - anchor (str): Reference anchor mode ('center', 'origin', 'first_point') (def: 'center').
+            - accel (float): Exponential acceleration factor for time interpolation (def: 1.0).
+            - t1 / time_start (float): Trajectory start time in milliseconds (def: 0.0).
+            - t2 / time_end (float): Trajectory end time in milliseconds (def: fx.dur).
+            - dx / delta_x (float): Maximum horizontal jitter displacement in pixels (def: 10.0).
+            - dy / delta_y (float): Maximum vertical jitter displacement in pixels (def: 10.0).
+            - dur / step_dur (float): Jitter sample step duration in milliseconds (def: 50.0).
+            - seed (int): Deterministic PRNG seed for reproducible jitter motion (def: 0).
+
+    Returns:
+        str: Continuous ASS override tag sequence modulating position and scale over time.
     """
     raw_tags = tags if tags is not None else kwargs.get("tags") or kwargs.get("add_tags") or ""
     if not raw_tags and context and isinstance(context, dict):
@@ -1423,7 +1721,16 @@ def move_tag_node(context=None, mode="Trajectory", tags=None, **kwargs):
 # ==============================================================================
 
 def _get_context_style_ref(context):
-    """Safely retrieves the active style reference from context."""
+    """Safely retrieves the active style reference object from the DAG execution context.
+
+    Inspects active unit styleref, line styleref, or top-level style objects in the context.
+
+    Args:
+        context (dict, optional): Active DAG execution context.
+
+    Returns:
+        StyleRef | dict | None: Active style reference or None if unresolvable.
+    """
     if not isinstance(context, dict):
         return None
     unit = context.get('active_unit')
@@ -1441,6 +1748,14 @@ def _get_context_style_ref(context):
 
 
 def _format_clean_scalar(val):
+    """Formats a numeric scalar cleanly without trailing decimal zeros.
+
+    Args:
+        val (int | float | str): Input numeric value.
+
+    Returns:
+        str: Clean string representation (e.g. '100' instead of '100.0').
+    """
     try:
         f = float(val)
         if f.is_integer():
@@ -1451,6 +1766,14 @@ def _format_clean_scalar(val):
 
 
 def _clean_ass_hex_color(val):
+    """Normalises an arbitrary colour input into canonical 6-digit ASS format '&HBBGGRR&'.
+
+    Args:
+        val (str): Raw colour string, ASS hex, or CSS hex.
+
+    Returns:
+        str: Canonical uppercase ASS colour string '&HBBGGRR&'.
+    """
     c = str(val).strip().upper()
     clean = c.replace("&H", "").replace("&", "").strip()
     if len(clean) == 8:
@@ -1464,7 +1787,24 @@ def _clean_ass_hex_color(val):
 
 
 def _invert_single_tag(tag_name, tag_val, styleref=None):
-    """Inverts an individual ASS tag according to its algebraic rules."""
+    """Inverts an individual ASS tag according to its algebraic transformation rules.
+
+    Transformation rules:
+        - Colours (\\c, \\1c, \\2c, \\3c, \\4c): Bitwise negative RGB (255-R, 255-G, 255-B).
+        - Alpha channels (\\alpha, \\1a, \\2a, \\3a, \\4a): Hex complement (255 - alpha).
+        - Rotations and shears (\\frz, \\frx, \\fry, \\fax, \\fay, \\fsp, \\xshad, \\yshad): Algebraic sign negation (-x).
+        - Borders, blur, and scalar shadow (\\bord, \\blur, \\be, \\shad): Reset to zero.
+        - Scaling factors (\\fscx, \\fscy): Reversion to style baseline scale or 100%.
+        - Clip masks (\\clip <-> \\iclip): Logical inversion between positive and negative clips.
+
+    Args:
+        tag_name (str): The ASS tag identifier (e.g. '\\frz', '\\1c', '\\clip').
+        tag_val (str): The current tag argument string.
+        styleref (StyleRef, optional): Baseline style reference for scale and color queries.
+
+    Returns:
+        str: Algebrically inverted ASS tag string.
+    """
     tn = tag_name.lower()
     tv = str(tag_val).strip()
 
@@ -1520,7 +1860,15 @@ def _invert_single_tag(tag_name, tag_val, styleref=None):
 
 
 def _invert_ass_tags(tag_str, styleref=None):
-    """Recursively inverts an ASS tag string, including nested \\t(...) blocks."""
+    """Recursively inverts an ASS tag string, including nested \\t(...) animation blocks.
+
+    Args:
+        tag_str (str): Input ASS override tags string.
+        styleref (StyleRef, optional): Active style reference for baseline queries.
+
+    Returns:
+        str: Transformed string where each constituent tag is algebraically inverted.
+    """
     if not tag_str:
         return ""
     str_val = str(tag_str)
@@ -1546,7 +1894,6 @@ def _invert_ass_tags(tag_str, styleref=None):
     str_no_t = t_pattern.sub(_save_t, str_val)
 
     # 2. Process remaining atomic tags
-    # Regex to capture tags with parenthesized arguments or scalar values
     tag_regex = re.compile(r'(\\[0-9]*[a-zA-Z]+)(\([^)]*\)|-?[0-9&]+[0-9a-zA-Z.&]*)?')
 
     def _replace_atomic_tag(m):
@@ -1564,7 +1911,18 @@ def _invert_ass_tags(tag_str, styleref=None):
 
 
 def _default_style_tags(tags_filter="", styleref=None):
-    """Genera tags de reseteo al estilo base para los tags especificados o el conjunto completo."""
+    """Generates baseline style reset tags for filtered tags or the complete style specification.
+
+    Constructs explicit override tags resetting font size, scales, spacing, border,
+    shadow, colours, and alphas back to the style definition.
+
+    Args:
+        tags_filter (str, optional): Tag filter string or 'all' to generate full baseline reset.
+        styleref (StyleRef, optional): Active style reference object.
+
+    Returns:
+        str: Formatted ASS tag string representing baseline resets.
+    """
     c1 = getattr(styleref, 'color1', '&H00FFFFFF&') if styleref else '&H00FFFFFF&'
     c2 = getattr(styleref, 'color2', '&H000000FF&') if styleref else '&H000000FF&'
     c3 = getattr(styleref, 'color3', '&H00000000&') if styleref else '&H00000000&'
@@ -1626,7 +1984,6 @@ def _default_style_tags(tags_filter="", styleref=None):
 
     tf = str(tags_filter or "").strip()
     if not tf or tf.lower() == "all" or tf.lower() == "todo":
-        # Returns the full default set
         return (
             f"\\1c{c1_ass}\\2c{c2_ass}\\3c{c3_ass}\\4c{c4_ass}"
             f"\\1a{a1_ass}\\2a{a2_ass}\\3a{a3_ass}\\4a{a4_ass}\\alpha&H00&"
@@ -1650,7 +2007,16 @@ def _default_style_tags(tags_filter="", styleref=None):
 
 
 def _get_kwarg(kwargs, *keys, default=""):
-    """Extracts first non-empty value from kwargs matching given keys."""
+    """Extracts the first non-empty value from kwargs matching the given candidate keys.
+
+    Args:
+        kwargs (dict): Arguments dictionary.
+        *keys: Candidate key names in order of preference.
+        default (str, optional): Fallback value. Defaults to ''.
+
+    Returns:
+        str: Found string value or default.
+    """
     for k in keys:
         if k in kwargs and kwargs[k] is not None and str(kwargs[k]).strip() != "":
             return str(kwargs[k]).strip()
@@ -1658,7 +2024,15 @@ def _get_kwarg(kwargs, *keys, default=""):
 
 
 def _extract_tag_value(tag_str, target_tag):
-    """Extracts numeric and text values of the specified ASS tag within string."""
+    """Extracts clean string, numeric, and full literal representation of a target tag.
+
+    Args:
+        tag_str (str): Source ASS override tag string.
+        target_tag (str): Target tag identifier (e.g. 'frz', '1c', 'pos').
+
+    Returns:
+        tuple[str, float, str]: Triple containing (clean_string_val, numeric_scalar_val, full_literal_tag).
+    """
     if not tag_str or not target_tag:
         return "", 0.0, ""
 
@@ -1693,7 +2067,6 @@ def _extract_tag_value(tag_str, target_tag):
     num_val = 0.0
     # Attempt numeric conversion
     if clean_val.startswith("&H") or clean_val.startswith("&h"):
-        # Color or alpha
         hex_clean = clean_val.replace("&H", "").replace("&h", "").replace("&", "").strip()
         if len(hex_clean) <= 2:
             try:
@@ -1704,7 +2077,6 @@ def _extract_tag_value(tag_str, target_tag):
             num_val = 0.0
     else:
         try:
-            # If comma-separated (e.g., coordinates pos x, y), take the first number
             if "," in clean_val:
                 first_part = clean_val.split(",")[0].strip()
                 num_val = float(first_part)
@@ -1717,7 +2089,21 @@ def _extract_tag_value(tag_str, target_tag):
 
 
 def eval_tag_manipulator_node(context=None, *args, **kwargs):
-    """Evaluates master Tag Manipulator node in Invert, Reset, or Extractor modes."""
+    """Evaluates the master Tag Manipulator node across Invert, Reset, and Extractor modes.
+
+    Modes ('mode'):
+        - 'Invert': Algebraically inverts signs, negative colours, and complementary alphas.
+        - 'Reset': Emits baseline style reset tags to restore un-animated typography.
+        - 'Extractor': Inspects input tags to extract numeric or text values of a target tag.
+
+    Args:
+        context (dict, optional): Active DAG execution context.
+        *args: Positional node arguments.
+        **kwargs: Keyword arguments containing 'mode', 'tags', 'target_tag', etc.
+
+    Returns:
+        str | float: Inverted tags string, reset tags, or extracted scalar/string value.
+    """
     if len(args) > 0 and isinstance(args[0], dict) and context is None:
         context = args[0]
 
@@ -1760,9 +2146,41 @@ def node_animation(
     output_slot_index=0,
     **kwargs
 ):
-    """Animation node supporting Frame-by-Frame (FBF) and Synchronized Alpha Transformation modes.
-    Accepts lists, Lua tables, JSON arrays, or strings of shapes and texts (converted via FontVectorEngine).
-    Injects internal loop iterators ({var_name}_i, {var_name}_n) and returns appropriate outputs per mode.
+    """Animation node supporting Frame-by-Frame (FBF) and Synchronised Alpha Transformation modes.
+
+    Accepts lists, Lua tables, JSON arrays, or delimited strings of vector shapes
+    or typographic glyphs (converted to vector outlines via FontVectorEngine).
+    Manages loop cycle registration and context injection ({var_name}_i, {var_name}_n,
+    {var_name}_max, an_loop_count, maxloop, anim_step_ms) and returns appropriate
+    outputs per slot and mode:
+
+    Modes:
+    1. 'FBF' (Frame-by-Frame):
+       - Slot 0: Active frame vector shape (with \\an7 alignment prefix if absent).
+       - Slot 1: Active 1-based frame index number.
+       - Slot 2: Full list of processed vector shape frames.
+    2. 'Alpha' (Synchronised Transparency Transform):
+       - Generates cyclical stroboscopic \\t(...) blocks toggling between opaque (&H00&)
+         and transparent (&HFF&) states across the timeline using the target `alpha_tag`.
+       - Slot 0: Composite shape tagged with inline visibility transforms: {\\an7...\\p1}m...
+       - Slot 1: ASS visibility override tags alone.
+       - Slot 2: Active frame index.
+       - Slot 3: Full list of processed vector shape frames.
+
+    Args:
+        context (dict, optional): Active DAG execution context.
+        frames (Union[str, list, tuple, dict]): Frame sequence input.
+        step_ms (Union[float, str]): Duration per frame in milliseconds. Defaults to 41.7 (24 FPS).
+        start_time (Union[float, str]): Custom animation start timestamp. Defaults to effect_st.
+        end_time (Union[float, str]): Custom animation end timestamp. Defaults to effect_st + effect_dur.
+        mode (str): Animation mode ('FBF' or 'Alpha'). Defaults to 'FBF'.
+        alpha_tag (str): Transparency tag to modulate in Alpha mode ('\\alpha', '\\1a', etc.). Defaults to '\\alpha'.
+        var_name (str): Iterator and loop counter context prefix. Defaults to 'an'.
+        output_slot_index (int): Output connector pin index (0 to 3). Defaults to 0.
+        **kwargs: Additional fallback parameters (shape, text, st, et, modo).
+
+    Returns:
+        Union[str, int, list]: Active shape string, ASS tag block, frame index, or frame list.
     """
     from node_engine import _eval_num_expr
     from font_vector_engine import FontVectorEngine
@@ -2025,6 +2443,19 @@ from decorators import pyxis_node, NODE_REGISTRY
 
 @pyxis_node("Functions", "Move Tag", [])
 def MoveTagNode(context=None, *args, **kwargs):
+    """Bridge node wrapper for Functions/Move Tag registration.
+
+    Forwarding gateway to `move_tag_node` for spatial kinetic motion,
+    arc-length parameterised trajectory tracking, and stochastic jitter displacement.
+
+    Args:
+        context (Optional[Dict[str, Any]]): Active DAG execution context.
+        *args: Variable positional arguments forwarded to `move_tag_node`.
+        **kwargs: Configuration dictionary containing trajectory parameters.
+
+    Returns:
+        str: Continuous ASS override tag sequence modulating position and scale over time.
+    """
     return move_tag_node(context=context, *args, **kwargs)
 
 NODE_REGISTRY["Functions/Move Tag"] = MoveTagNode
@@ -2032,6 +2463,20 @@ NODE_REGISTRY["Move Tag"] = MoveTagNode
 
 @pyxis_node("Functions", "Tag Manipulator", ["Tags In"])
 def TagManipulatorNode(context=None, *args, **kwargs):
+    """Bridge node wrapper for the Tag Manipulator node registry.
+
+    Dispatches input ASS override tags and configuration parameters to
+    `eval_tag_manipulator_node` for algebraic inversion, typographic style
+    reset, or tag property extraction.
+
+    Args:
+        context (Optional[Dict[str, Any]]): DAG execution state and variables.
+        *args: Variable positional arguments forwarded to evaluator.
+        **kwargs: Configuration dictionary containing mode, tags, and parameters.
+
+    Returns:
+        Union[str, float, int]: Processed ASS tag string or extracted scalar value.
+    """
     return eval_tag_manipulator_node(context=context, *args, **kwargs)
 
 NODE_REGISTRY["Functions/Tag Manipulator"] = TagManipulatorNode
@@ -2039,6 +2484,19 @@ NODE_REGISTRY["Tag Manipulator"] = TagManipulatorNode
 
 @pyxis_node("Functions", "Animation", ["Frames / Text", "Step ms", "Start Time", "End Time"])
 def AnimationNode(context=None, *args, **kwargs):
+    """Bridge node wrapper for Functions/Animation registration.
+
+    Forwarding gateway to `node_animation` for cyclic frame-by-frame (FBF) vector animation
+    and synchronised stroboscopic alpha transparency modulation.
+
+    Args:
+        context (Optional[Dict[str, Any]]): Active DAG execution context.
+        *args: Variable positional arguments forwarded to `node_animation`.
+        **kwargs: Configuration dictionary containing animation parameters and timing.
+
+    Returns:
+        Union[str, int, list]: Active shape string, ASS tag block, frame index, or frame list.
+    """
     return node_animation(context=context, *args, **kwargs)
 
 NODE_REGISTRY["Functions/Animation"] = AnimationNode

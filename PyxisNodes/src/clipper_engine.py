@@ -12,10 +12,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
-"""1D/2D slicing engine, 22 mesh generators, and ASSdraw polygon transformations.
-Utilizes NumPy and PyClipper for native C-speed mathematical acceleration.
+"""1D/2D slicing engine, 28 mesh generators, and ASSdraw polygon transformations.
+Utilises NumPy and PyClipper for native C-speed mathematical acceleration.
 """
 
 import math
@@ -177,8 +177,9 @@ class ClipperEngine:
 
     @staticmethod
     def get_bbox(contours):
-        """Calcula el Bounding Box (min_x, min_y, max_x, max_y, cx, cy, w, h).
-        Acepta tanto una lista de contornos numpy como una cadena ASSDraw.
+        """Computes the 2D axis-aligned bounding box (min_x, min_y, max_x, max_y, cx, cy, w, h).
+
+        Accepts either a list of NumPy coordinate contours or an ASSdraw command string.
         """
         if isinstance(contours, str):
             contours = ClipperEngine.parse_assdraw(contours)
@@ -201,7 +202,7 @@ class ClipperEngine:
 
     @staticmethod
     def calc_bbox_raw(shape_or_contours):
-        """Devuelve diccionario con x1, y1, x2, y2, cx, cy, w, h."""
+        """Calculates bounding box metrics and returns them formatted as a dictionary."""
         min_x, min_y, max_x, max_y, cx, cy, w, h = ClipperEngine.get_bbox(shape_or_contours)
         return {
             "x1": min_x, "y1": min_y,
@@ -212,7 +213,31 @@ class ClipperEngine:
 
     @staticmethod
     def boolean_intersection(subject_shape: str, clip_shape: str, scale: float = 10000.0) -> str:
-        """Performs real boolean vector intersection between subject_shape and clip_shape using Clipper/pyclipper."""
+        """Execute a 2D geometric boolean intersection between two ASSDraw vector shapes.
+
+        Computes the shared overlapping spatial regions (A ∩ B) of the subject
+        and clipping polygons using ClipperLib via fixed-point integer arithmetic.
+
+        Args:
+            subject_shape: ASSDraw string defining the primary subject polygon(s).
+            clip_shape: ASSDraw string defining the clipping aperture polygon(s).
+            scale: Integer coordinate scaling multiplier (default: 10000.0) to
+                prevent floating-point roundoff degeneracy.
+
+        Returns:
+            A consolidated ASSDraw string consisting of 'm ... l ...' contour
+            commands representing the intersection geometry, or an empty string
+            if no overlap exists or an input is malformed.
+
+        Notes:
+            - Both subject and clip contours are parsed via `parse_assdraw` with
+              cubic Bézier splines flattened to polyline segments.
+            - Both polygon sets are filled using the EvenOdd winding rule
+              (`pyclipper.PFT_EVENODD`).
+            - Upstream callers include procedural slicing patterns (e.g. discrete
+              stripes in `shape_nodes.py`), Voronoi/Delaunay mesh clippers, and
+              vector masking pipelines.
+        """
         subj_contours = ClipperEngine.parse_assdraw(subject_shape)
         clip_contours = ClipperEngine.parse_assdraw(clip_shape)
 
@@ -246,7 +271,29 @@ class ClipperEngine:
 
     @staticmethod
     def boolean_difference(subject_shape: str, clip_shape: str, scale: float = 10000.0) -> str:
-        """Realiza la diferencia booleana vectorial real entre subject_shape y clip_shape usando Clipper/pyclipper."""
+        """Execute a 2D geometric boolean difference (subtraction) between two ASSDraw shapes.
+
+        Subtracts the volume of the clipping polygon from the subject polygon (A \\ B),
+        carving holes, notches, or split partitions into the underlying shape.
+
+        Args:
+            subject_shape: ASSDraw string defining the primary geometry to be cut.
+            clip_shape: ASSDraw string defining the cutting tool geometry to subtract.
+            scale: Integer coordinate scaling multiplier (default: 10000.0) for
+                sub-pixel precision.
+
+        Returns:
+            A consolidated ASSDraw string containing the remaining geometry after
+            subtraction, or the original `subject_shape` if `clip_shape` is empty
+            or `pyclipper` is unavailable.
+
+        Notes:
+            - Employs `pyclipper.CT_DIFFERENCE` with `pyclipper.PFT_EVENODD` fill rule.
+            - Widely utilised across `Shape/Slicer`, concentric border generation,
+              hollow letterform carving, and matrix grid masks.
+            - Degenerate sub-contours (< 3 vertices) are safely discarded during
+              polygon reconstruction.
+        """
         subj_contours = ClipperEngine.parse_assdraw(subject_shape)
         clip_contours = ClipperEngine.parse_assdraw(clip_shape)
 
@@ -279,7 +326,28 @@ class ClipperEngine:
 
     @staticmethod
     def boolean_union(shape_a: str, shape_b: str, scale: float = 10000.0) -> str:
-        """Performs real boolean vector union between shape_a and shape_b using Clipper/pyclipper."""
+        """Execute a 2D geometric boolean union (fusion) of two ASSDraw vector shapes.
+
+        Fuses two polygon sets into a single continuous or multi-island polygon (A ∪ B),
+        dissolving shared interior boundaries and merging collinear overlapping edges.
+
+        Args:
+            shape_a: ASSDraw string defining the first geometry component.
+            shape_b: ASSDraw string defining the second geometry component.
+            scale: Integer coordinate scaling multiplier (default: 10000.0).
+
+        Returns:
+            A consolidated ASSDraw string representing the unified vector contour(s).
+            If either shape is empty, the non-empty shape is returned directly. If
+            `pyclipper` is unavailable, performs a fallback string concatenation.
+
+        Notes:
+            - Operates under the `pyclipper.PFT_NONZERO` winding rule for both operand
+              sets, ensuring that nested and contiguous contours fuse smoothly
+              without internal void generation.
+            - Used extensively by `Shape/Union & Divide` in FUSION mode, font glyph
+              amalgamation, and procedural shape synthesizers.
+        """
         a_contours = ClipperEngine.parse_assdraw(shape_a)
         b_contours = ClipperEngine.parse_assdraw(shape_b)
 
@@ -318,7 +386,28 @@ class ClipperEngine:
 
     @staticmethod
     def boolean_xor(shape_a: str, shape_b: str, subj_fill="evenodd", clip_fill="evenodd", strictly_simple: bool = False, reverse_subj: bool = False, reverse_clip: bool = False, clean_dist: float = 0.0, scale: float = 10000.0) -> str:
-        """Performs real boolean vector XOR between shape_a and shape_b using Clipper/pyclipper."""
+        """Execute a 2D geometric symmetric difference (exclusive OR) between two shapes.
+
+        Computes regions belonging to either shape_a or shape_b, but strictly excluding
+        regions where both overlap (A ⊕ B = (A ∪ B) \\ (A ∩ B)).
+
+        Args:
+            shape_a: ASSDraw string defining the subject geometry.
+            shape_b: ASSDraw string defining the clipping geometry.
+            subj_fill: Polygon fill winding rule for shape_a ('evenodd', 'nonzero',
+                'positive', 'negative').
+            clip_fill: Polygon fill winding rule for shape_b.
+            strictly_simple: If True, forces Clipper to return strictly simple
+                polygons without self-intersecting or touching vertices.
+            reverse_subj: If True, reverses the vertex winding order of shape_a.
+            reverse_clip: If True, reverses the vertex winding order of shape_b.
+            clean_dist: Minimum distance threshold (in pixels) for `CleanPolygons`
+                simplification post-processing (0.0 disables cleaning).
+            scale: Coordinate scaling factor (default: 10000.0).
+
+        Returns:
+            A consolidated ASSDraw string representing the XOR geometric result.
+        """
         res, _ = ClipperEngine.execute_clipper_advanced(
             subject_shape=shape_a, clip_shape=shape_b, mode="xor",
             subj_fill=subj_fill, clip_fill=clip_fill, strictly_simple=strictly_simple,
@@ -328,7 +417,23 @@ class ClipperEngine:
 
     @staticmethod
     def minkowski_sum(shape_a: str, pattern_shape: str, is_closed: bool = True, clean_dist: float = 0.0, scale: float = 10000.0) -> str:
-        """Performs Minkowski Sum between shape_a and pattern_shape."""
+        """Execute a 2D Minkowski addition between a subject shape and a pattern polygon.
+
+        Sweeps the polygonal brush defined by `pattern_shape` across every vertex and
+        edge of `shape_a` (A ⊕ B = {a + b | a ∈ A, b ∈ B}), effectively applying a
+        custom geometric pen/stroke or spatial morphological dilation.
+
+        Args:
+            shape_a: ASSDraw string representing the primary trajectory or path.
+            pattern_shape: ASSDraw string defining the brush footprint or kernel polygon.
+                If empty or fewer than 3 vertices, defaults to a 5x5 px square kernel.
+            is_closed: Whether the path geometry in `shape_a` should be treated as closed.
+            clean_dist: Vertex simplification distance in pixels (0.0 disables).
+            scale: Integer coordinate scaling multiplier (default: 10000.0).
+
+        Returns:
+            A consolidated ASSDraw string with the dilated Minkowski sum envelope.
+        """
         res, _ = ClipperEngine.execute_clipper_advanced(
             subject_shape=shape_a, clip_shape=pattern_shape, mode="minkowski_sum",
             clean_dist=clean_dist, scale=scale
@@ -337,7 +442,21 @@ class ClipperEngine:
 
     @staticmethod
     def minkowski_diff(shape_a: str, pattern_shape: str, clean_dist: float = 0.0, scale: float = 10000.0) -> str:
-        """Performs Minkowski Difference between shape_a and pattern_shape."""
+        """Execute a 2D Minkowski difference between a subject shape and a pattern polygon.
+
+        Erodes or carves the subject shape by sweeping the inverted footprint of
+        `pattern_shape` (A ⊖ B = {x | B + x ⊆ A}).
+
+        Args:
+            shape_a: ASSDraw string representing the target geometry to erode.
+            pattern_shape: ASSDraw string defining the brush footprint or kernel.
+                If empty or fewer than 3 vertices, defaults to a 5x5 px square kernel.
+            clean_dist: Vertex simplification distance in pixels (0.0 disables).
+            scale: Integer coordinate scaling multiplier (default: 10000.0).
+
+        Returns:
+            A consolidated ASSDraw string containing the eroded Minkowski difference result.
+        """
         res, _ = ClipperEngine.execute_clipper_advanced(
             subject_shape=shape_a, clip_shape=pattern_shape, mode="minkowski_diff",
             clean_dist=clean_dist, scale=scale
@@ -363,8 +482,53 @@ class ClipperEngine:
         reverse_clip: bool = False,
         scale: float = 10000.0
     ):
-        """Advanced PyClipper executor for Boolean, Offset, and Minkowski vector operations.
-        Returns a tuple of (combined_assdraw_string, list_of_individual_pieces).
+        """Execute an advanced multi-mode PyClipper pipeline for vector boolean and offset geometry.
+
+        Serves as the centralised dispatch gateway for all high-complexity geometric
+        manipulations within Pyxis Effector, unifying Boolean clipping, morphological
+        dilation/contraction, Minkowski operations, vertex cleaning, and optional
+        post-offset processing in a single pipeline.
+
+        Args:
+            subject_shape: ASSDraw string defining the primary subject polygon(s).
+            clip_shape: ASSDraw string defining the clipping tool, secondary operand,
+                or Minkowski pattern polygon. Optional for unary offset operations.
+            mode: Operation mode identifier. Supported options include:
+                - Boolean: 'difference' ('diff'), 'intersection' ('inter'),
+                  'union' ('merge'), 'xor'.
+                - Offset: 'offset', 'inflate', 'expand'.
+                - Minkowski: 'minkowski_sum' ('minkowski+'), 'minkowski_diff' ('minkowski-').
+            delta: Primary offset distance in pixels for offset modes (positive expands,
+                negative contracts).
+            post_offset: Secondary offset distance in pixels applied to the boolean or
+                Minkowski solution prior to polygon emission.
+            subj_fill: Winding fill rule for subject polygons ('evenodd', 'nonzero',
+                'positive', 'negative').
+            clip_fill: Winding fill rule for clip polygons.
+            join_type: Vertex join style for offset corners ('round', 'miter', 'square').
+            end_type: Topology of path terminations ('closed_polygon', 'closed_line',
+                'open_round', 'open_square', 'open_butt').
+            miter_limit: Maximum miter ratio (miter length to stroke width) before
+                squaring off sharp vertices (default: 2.0).
+            arc_tolerance: Maximum allowable chord error when approximating rounded arcs.
+            clean_dist: Distance threshold in pixels for `CleanPolygons` vertex decimation.
+            strictly_simple: If True, enforces strictly simple polygons without duplicate
+                or collinear vertices touching at a single point.
+            reverse_subj: If True, inverts the orientation of subject contour paths.
+            reverse_clip: If True, inverts the orientation of clipping contour paths.
+            scale: Integer coordinate scaling multiplier (default: 10000.0).
+
+        Returns:
+            tuple[str, list[str]]: A 2-tuple containing:
+                - `combined_assdraw_string`: All resulting closed polygon paths joined
+                  with whitespace into a single ASSDraw string.
+                - `pieces_list`: A list of individual ASSDraw strings, where each
+                  element represents an isolated closed polygon island or contour.
+
+        Raises:
+            Catches all internal runtime exceptions and returns safe fallbacks:
+            `(subject_shape, [subject_shape])` on catastrophic failure, or `("", [])`
+            when geometry dissolves entirely.
         """
         if pyclipper is None:
             return str(subject_shape or ""), [str(subject_shape or "")] if subject_shape else []
@@ -536,7 +700,32 @@ class ClipperEngine:
 
     @staticmethod
     def offset_shape(shape_str: str, delta: float, join_type=None, scale: float = 10000.0) -> str:
-        """Expande (delta > 0) o contrae (delta < 0) el contorno de un ASSdraw shape usando PyClipperOffset."""
+        """Execute geometric morphological offset (dilation or erosion) on an ASSDraw shape.
+
+        Expands (delta > 0) or contracts (delta < 0) polygon contours by a normal distance
+        using `pyclipper.PyclipperOffset`, followed by vertex simplification via `CleanPolygons`.
+
+        Args:
+            shape_str: ASSDraw string defining the input polygon(s).
+            delta: Offset distance in pixels. Positive values inflate/dilate the contour
+                outward; negative values erode/deflate inward.
+            join_type: Corner join style (`pyclipper.JT_ROUND`, `JT_MITER`, or `JT_SQUARE`).
+                Defaults to `JT_ROUND`.
+            scale: Integer coordinate scaling multiplier (default: 10000.0) for fixed-point
+                precision.
+
+        Returns:
+            A consolidated ASSDraw string containing the offset polygon(s), or the
+            unmodified `shape_str` if delta is near zero (< 0.0001 px), contours are empty,
+            or `pyclipper` is unavailable. Returns an empty string if complete erosion occurs.
+
+        Notes:
+            - Operates on closed polygons (`pyclipper.ET_CLOSEDPOLYGON`).
+            - Performs post-execution decimation with `CleanPolygons` at 0.1 px distance to
+                eliminate collinear vertices and micro-spikes generated during corner beveling.
+            - Consumed by `Shape/Stroke`, `Shape/Concentric Borders`, procedural slicer padding,
+              and inline text inflation.
+        """
         if not shape_str or not str(shape_str).strip() or pyclipper is None:
             return shape_str
         if abs(float(delta)) < 0.0001:
@@ -578,7 +767,24 @@ class ClipperEngine:
 
     @staticmethod
     def contours_to_assdraw(contours) -> str:
-        """Convierte una lista de contornos numpy / arrays de puntos a comandos ASSDraw (m x y l x y...)."""
+        """Serialise a collection of NumPy contour coordinate arrays into an ASSDraw string.
+
+        Translates discrete point sequences into standard Aegisub vector drawing tokens
+        (`m x y l x y...`), with coordinates rounded to 2 decimal places.
+
+        Args:
+            contours: An iterable of point arrays or sequences, where each contour is
+                represented as an (N, 2) array or a list of [x, y] coordinates.
+
+        Returns:
+            A consolidated ASSDraw command string formatted with move (`m`) and line (`l`)
+            tokens separated by spaces, or an empty string if `contours` is empty.
+
+        Notes:
+            - Discards degenerate empty contours.
+            - Formats floating-point coordinates with standard round-half-to-even to 2 decimal
+              places for compact and legible subtitle scripts.
+        """
         if not contours:
             return ""
         parts = []
@@ -595,9 +801,33 @@ class ClipperEngine:
 
     @staticmethod
     def stroke_shape(shape_str: str, width: float = 4.0, join_mode: str = "Round", cap_mode: str = "Round", miter_limit: float = 2.0, scale: float = 10000.0) -> str:
-        """Converts open lines or closed contours into closed ASSDraw polygons with uniform thickness.
-        - For open lines/splines: generates a continuous strip with terminations (Round, Square, Flat/Butt).
-        - For closed polygons: generates a hollow outline (boolean difference between outer and inner offset).
+        """Convert open paths or closed polygons into closed ASSDraw stroke outlines of uniform thickness.
+
+        Generates constant-width vector strokes:
+        - For open lines and splines: sweeps a thick ribbon along the path with configurable
+          line terminations (Round, Square, Flat/Butt).
+        - For closed polygons: synthesises a hollow border outline via the boolean difference
+          between an outer dilation and an inner erosion (P_{w/2} \\ P_{-w/2}).
+
+        Args:
+            shape_str: ASSDraw string defining the input geometry.
+            width: Stroke thickness in pixels (minimum: 0.01 px, default: 4.0 px).
+            join_mode: Corner join style ('Round', 'Miter', 'Bevel' / 'Square').
+            cap_mode: Termination cap style for open paths ('Round' / 'Bezier',
+                'Square', 'Flat' / 'Butt').
+            miter_limit: Maximum miter length ratio before clamping acute corners (default: 2.0).
+            scale: Integer coordinate scaling multiplier (default: 10000.0).
+
+        Returns:
+            A consolidated ASSDraw string representing the closed stroke geometry, or
+            the original `shape_str` if input is invalid or `pyclipper` is unavailable.
+
+        Notes:
+            - Distinguishes open vs. closed contours by testing coincidence of the first
+              and last vertices within a 0.0001 px tolerance.
+            - Utilises `ET_OPENROUND`, `ET_OPENSQUARE`, or `ET_OPENBUTT` for open paths,
+              and `PyclipperOffset` + `boolean_difference` for closed contours.
+            - Consumed by the `Shape/Stroke` node and kinetic line animations.
         """
         if not shape_str or not str(shape_str).strip() or pyclipper is None:
             return shape_str
@@ -675,10 +905,72 @@ class ClipperEngine:
                    angle: float = 0.0, overlap: float = 0.0, accel: float = 1.0, order: int = 79,
                    text_scale: float = 1.0, pre_offset: float = 0.0, engine_mode: str = "grid",
                    accel_x: float = 1.0, accel_y: float = 1.0, pattern_shape: str = ""):
-        """Universal 1D/2D slicer and 22 mesh engines.
-        Supports dual scaling (scale_x, scale_y), custom sizes (size_x, size_y), offsetting (offset_x, offset_y),
-        and text pre-scaling (text_scale) along with original contour pre-offsetting (pre_offset).
-        Returns a list of dictionaries with {code, cx, cy, col, row}.
+        """Execute universal 1D/2D spatial segmentation and procedural mesh tessellation.
+
+        Slices an input ASSDraw vector shape into discrete polygonal puzzle pieces or
+        cellular fragments using a comprehensive suite of 23+ procedural mesh generators,
+        adaptive tessellation algorithms, and fixed-point Clipper boolean intersections.
+
+        Args:
+            shape_str: ASSDraw string defining the subject polygon to segment.
+            cols: Number of column divisions or horizontal cell frequency (default: 2).
+            rows: Number of row divisions or vertical cell frequency (default: 2).
+            size_x: Explicit cell width in pixels. If 0.0, dynamically calculated from
+                bounding box dimensions and column count.
+            size_y: Explicit cell height in pixels. If 0.0, dynamically calculated from
+                bounding box dimensions and row count.
+            scale_x: Horizontal scale factor applied to the tessellation lattice.
+            scale_y: Vertical scale factor applied to the tessellation lattice.
+            offset_x: Horizontal spatial shift in pixels applied to the cutting grid.
+            offset_y: Vertical spatial shift in pixels applied to the cutting grid.
+            angle: Rotational orientation in degrees applied to the lattice around the
+                shape's centroid.
+            overlap: Normal offset distance in pixels applied to each individual cutting mask
+                (positive expands pieces to overlap; negative creates inter-piece gaps/gutters).
+            accel: Global non-linear power distribution exponent for grid intervals.
+            order: Canonical 2D spatial traversal ordering code (Numpad e.g. '79', '97',
+                '13', '31', or radial '5', '-5', 'cw', 'ccw', 'rand').
+            text_scale: Pre-scaling factor applied to the subject geometry prior to slicing.
+            pre_offset: Pre-dilation or erosion distance in pixels applied to the subject
+                geometry prior to slicing.
+            engine_mode: Tessellation algorithm identifier. Supported modes include:
+                - Standard 1D/2D: 'grid' (cartesian grid), 'horizontal' (1D bands),
+                  'vertical' (1D columns).
+                - Regular & Semiregular Tilings: 'hex' / 'hexagonal' (honeycomb),
+                  'tri' / 'triangular' (equilateral triangles), 'dia' / 'diamond' (rhombic),
+                  'octagon' (octagonal-square mosaic), 'kagome' (trihexagonal weave),
+                  'rhombille' / 'cubes' (3D isometric cubes).
+                - Curvilinear & Natural: 'ring' / 'rings' (concentric circular bands),
+                  'ray' / 'rays' (radial wedges), 'bez' / 'bezier' (sinusoidal/bezier waves),
+                  'scallop' (fish scale arches), 'web' / 'spiderweb' (radial cobweb).
+                - Stochastic & Cellular: 'vor' / 'voronoi' (crystallographic cells),
+                  'delaunay' / 'lowpoly' (low-poly triangulations).
+                - Architectural & Structural: 'brick' (staggered 50% running bond),
+                  'herringbone' (orthogonal zigzag weave), 'ashlar' (multicellular masonry),
+                  'mondrian' (neoplasticist hierarchical rectangles).
+                - Algorithmic & Generative: 'quad' / 'quadtree' (deterministic spatial quadtree),
+                  'jigsaw' / 'puzzle' (interlocking tabs with cubic bezier keys),
+                  'truchet' (curved tile mazes), 'circuit' (printed circuit board traces),
+                  'pattern' / 'modular' (custom repetitive template from `pattern_shape`).
+            accel_x: Non-linear spacing power exponent along the horizontal axis.
+            accel_y: Non-linear spacing power exponent along the vertical axis.
+            pattern_shape: ASSDraw template shape used as custom modular cutting mask when
+                `engine_mode='pattern'`.
+
+        Returns:
+            list[dict]: A list of segmented piece dictionaries sorted according to `order`,
+            where each dictionary contains:
+                - 'code' (str): The resulting ASSDraw geometry of the intersecting piece.
+                - 'cx' (float): The horizontal centroid coordinate of the piece.
+                - 'cy' (float): The vertical centroid coordinate of the piece.
+                - 'col' (int): Logical column index in the tessellation lattice.
+                - 'row' (int): Logical row index in the tessellation lattice.
+
+        Notes:
+            - Results are memoised in the high-performance LRU cache `_SLICE_GRID_CACHE`
+              (1024 slots) to prevent redundant C-extension clipping across frames.
+            - Consumed centrally by the `Shape/Slicer` node, sub-loop generators, and
+              particle/mesh dispersion graphs.
         """
         if accel != 1.0:
             if accel_x == 1.0: accel_x = accel
@@ -1439,7 +1731,30 @@ class ClipperEngine:
 
     @staticmethod
     def transform_shape(shape_str: str, mode: str = "Escalar", factor: float = 1.0, offset_x: float = 0.0, offset_y: float = 0.0) -> str:
-        """Applies scale, rotation, and path offset (movevc) transformations to an ASSDraw code."""
+        """Apply 2D affine spatial transformations (scaling, rotation, translation) to an ASSDraw shape.
+
+        Evaluates geometric transformations relative to the shape's axis-aligned bounding
+        box centroid (c_x, c_y) using vectorised NumPy operations.
+
+        Args:
+            shape_str: ASSDraw string defining the input geometry.
+            mode: Transformation mode identifier ('Escalar' / 'scale', 'Rotar' / 'rotate',
+                'Offset' / 'bordes' / 'translate').
+            factor: Scaling factor (multiplier, where 1.0 is identity) or rotation angle
+                in degrees (clockwise).
+            offset_x: Horizontal cartesian displacement in pixels (for offset modes).
+            offset_y: Vertical cartesian displacement in pixels (for offset modes).
+
+        Returns:
+            A consolidated ASSDraw string with transformed coordinates rounded to 2 decimal places,
+            or the original `shape_str` if contours cannot be parsed.
+
+        Notes:
+            - Scaling computes: P' = (P - C) * factor + C.
+            - Rotation computes: P' = R(theta) * (P - C) + C.
+            - Translation computes: P' = P + (offset_x, offset_y).
+            - Consumed by `Shape/Transform`, `Shape/Manipulator`, and procedural slicers.
+        """
         contours = ClipperEngine.parse_assdraw(shape_str)
         if not contours:
             return shape_str
@@ -1471,7 +1786,21 @@ class ClipperEngine:
 
     @staticmethod
     def translate_shape(shape_str: str, dx: float, dy: float) -> str:
-        """Displaces all coordinates of an ASSDraw code by (dx, dy)."""
+        """Displace all numerical coordinates in an ASSDraw string by a cartesian offset (dx, dy).
+
+        Performs an ultra-fast in-place translation by applying regex coordinate extraction
+        and substitution directly on numerical coordinate pairs without requiring full
+        polygon parsing or Bézier spline flattening.
+
+        Args:
+            shape_str: ASSDraw string to translate.
+            dx: Horizontal displacement in pixels.
+            dy: Vertical displacement in pixels.
+
+        Returns:
+            The translated ASSDraw string with updated coordinates, or the original
+            string if `dx == 0` and `dy == 0`.
+        """
         if not shape_str or (dx == 0 and dy == 0):
             return shape_str or ""
         
@@ -1484,7 +1813,25 @@ class ClipperEngine:
 
     @staticmethod
     def clean_self_intersections(shape_str: str, fill_rule=None, scale: float = 10000.0) -> str:
-        """Planariza y limpia auto-intersecciones de una forma vectorial usando Clipper CT_UNION."""
+        """Planarise and eliminate self-intersections from a vector shape using Clipper union.
+
+        Resolves complex, twisted, or self-overlapping vector contours into a topologically
+        sound set of non-self-intersecting simple polygons via `CT_UNION`.
+
+        Args:
+            shape_str: ASSDraw string containing potentially self-intersecting contours.
+            fill_rule: Winding rule for interior resolution (`pyclipper.PFT_EVENODD` or
+                `pyclipper.PFT_NONZERO`). If None, defaults to EvenOdd.
+            scale: Integer coordinate scaling multiplier (default: 10000.0).
+
+        Returns:
+            A consolidated ASSDraw string consisting of clean, non-intersecting closed
+            polygons, or the original `shape_str` upon failure or empty contours.
+
+        Notes:
+            - Used by vector import pipelines, font outline normalisers, and `Shape/Filter`
+              to rectify malformed or self-crossing bezier discretisations.
+        """
         if not shape_str or pyclipper is None:
             return shape_str or ""
         contours = ClipperEngine.parse_assdraw(shape_str)
@@ -1520,7 +1867,38 @@ class ClipperEngine:
 
     @staticmethod
     def sort_islands_by_order(island_entries, order="79"):
-        """Sorts a list of island dictionaries with bounding boxes according to the ordering code (Numpad, Radial, Circular cw/ccw)."""
+        """Sort segmented polygonal islands or cellular pieces according to a 2D spatial traversal order.
+
+        Reorders pieces based on their grid coordinates (row, col) or bounding box centroids
+        (cx, cy) to establish kinetic sequencing, delay stagger, or visual emission choreography.
+
+        Args:
+            island_entries: List of dictionaries representing geometric pieces. Each dictionary
+                must contain either spatial coordinates ('cx', 'cy') or grid indices ('row', 'col').
+            order: Canonical 2D traversal order code. Supported schemes include:
+                - Natural/Inverted: 'normal' / '0', 'reverse' / 'invert'.
+                - Random: 'rand' / 'random' (shuffles elements pseudo-randomly).
+                - Cartesian Numpad (8 directional vectors):
+                  '79' (top-left to bottom-right, standard row-major),
+                  '97' (top-right to bottom-left, inverted row-major),
+                  '13' (bottom-left to top-right, upward row-major),
+                  '31' (bottom-right to top-left),
+                  '71' (top-left to bottom-left, column-major),
+                  '17' (bottom-left to top-left, upward column-major),
+                  '93' (top-right to bottom-right, column-major),
+                  '39' (bottom-right to top-right).
+                - Radial & Circular:
+                  '5' (centre outwards, Euclidean distance from centroid),
+                  '-5' (exterior/perimeter inwards towards centre),
+                  'cw' / 'radial' (clockwise angular progression from 12 o'clock),
+                  'ccw' (counter-clockwise angular progression).
+                - Vector Trajectory:
+                  'path' / 'contour' (preserves original drawing sequence of subpaths/islands),
+                  'path_inv' (reversed vector drawing sequence).
+
+        Returns:
+            list: The reordered list of island dictionaries.
+        """
         if not island_entries or len(island_entries) <= 1:
             return island_entries
 
@@ -1528,10 +1906,10 @@ class ClipperEngine:
         if "(" in order_str:
             order_str = order_str.split("(")[0].strip()
 
-        if order_str in ("raw", "none", "0", "normal"):
+        if order_str in ("raw", "none", "0", "normal", "path", "contour", "natural"):
             return island_entries
 
-        if order_str in ("invertido", "inv", "reverse", "invert", "-1"):
+        if order_str in ("invertido", "inv", "reverse", "invert", "-1", "path_inv", "contour_inv"):
             return list(reversed(island_entries))
 
         if "rand" in order_str or "random" in order_str or "aleator" in order_str:

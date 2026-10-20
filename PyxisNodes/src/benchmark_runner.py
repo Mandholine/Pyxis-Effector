@@ -12,7 +12,32 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
+
+"""
+Pyxis Effector - Synthetic Performance Diagnostic & Benchmarking Runner.
+
+This module provides an end-to-end benchmarking utility to measure the latency,
+throughput, and scalability of the graph evaluation engine (GraphEngine) under controlled workloads.
+
+Architecture and Pipeline:
+1. Synthetic or real ASS file parsing via `ASSParser`.
+2. Preparation of a representative canonical test DAG (Main Loop + MaxLoop + Math + Tags + Output).
+3. Graph compilation and dependency optimisation via `GraphEngine`.
+4. Execution in sequential or parallel worker mode (`use_multiprocessing`).
+5. Granular phase timing instrumentation (`parse_ass`, `graph_prep`, `workers_exec`)
+   utilising `PyxisProfiler`.
+6. Generation and export of diagnostic metrics report to disk (`pyxis_performance_report.txt`).
+
+Upstream Dependencies:
+    - `ass_parser.ASSParser`: Parsing and extraction of dialogues, styles, and resolution headers.
+    - `node_engine.GraphEngine`: Execution engine and topological evaluation.
+    - `pyxis_profiler.PyxisProfiler`: Profiling telemetry and metrics aggregation manager.
+
+Downstream Callers:
+    - Used by developers, CI/benchmarks, and profiling diagnostics to detect bottlenecks
+      in multiprocessing versus sequential evaluation.
+"""
 
 import os
 import sys
@@ -22,6 +47,33 @@ from node_engine import GraphEngine
 from pyxis_profiler import PyxisProfiler
 
 def run_performance_diagnostic(ass_path=None, custom_graph=None, use_mp=False, num_lines=10):
+    """
+    Executes a comprehensive performance diagnostic of the graph engine and exports a metrics report.
+
+    Measures execution latency across three critical lifecycle phases:
+    1. 'parse_ass': Reads the ASS file and clones dialogue data structures in memory.
+    2. 'graph_prep': Instantiates `GraphEngine`, validates topology, and compiles dependencies.
+    3. 'workers_exec': Complete processing of dialogue lines against the DAG (`engine.process`).
+
+    Parameters:
+        ass_path (str | None): Absolute or relative path to input ASS file. If None,
+                               defaults to 'preview_base.ass' in the `src/` directory.
+        custom_graph (dict | None): Serialised graph structure (nodes and links). If None,
+                                    constructs an intensive synthetic stress graph (Main Loop with
+                                    MaxLoop of 30 iterations, trigonometric calculations, and positioning).
+        use_mp (bool): If True, enables multi-worker parallel processing in `GraphEngine`.
+                       If False, evaluates sequentially on the main thread.
+        num_lines (int): Number of synthetic dialogue lines to process (cyclically repeats
+                         parsed lines). Defaults to 10.
+
+    Returns:
+        PyxisProfiler: Active profiler instance with recorded timestamps, input/output line counts,
+                       and calculated throughput (lines/sec).
+
+    Side Effects:
+        - Prints detailed telemetry to `sys.stdout`.
+        - Writes the generated textual diagnostic report to `pyxis_performance_report.txt` in the base directory.
+    """
     base_dir = os.path.dirname(os.path.abspath(__file__))
     if ass_path is None:
         ass_path = os.path.join(base_dir, "preview_base.ass")

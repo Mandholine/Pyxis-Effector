@@ -125,69 +125,126 @@ Pyxis Effector organises timing and spatial variables in a **hierarchical and mo
 * **`char`:** **Local relative** offsets from the start of its parent syllable ($[0, \text{syl.dur}]$).
 * **`fx`:** Temporal lifespan of the generated ASS dialogue line ($[0, \text{fx.dur}]$). Enables evaluating ASS transform blocks `\t(...)` accurately using the offset $\text{ini} = \text{line.start\_time} - \text{fx.start\_time}$.
 
-Across any expression field, condition, or script within Pyxis, the following contextual variables are natively available:
+Across any expression field, condition, or script within Pyxis, the following contextual variables are natively available organised by domain:
+
+### 4.1. Original Line Domain (`line.` or `l.`)
+Represents the active dialogue line ingested from Aegisub. Provides its absolute timestamps, text, ASS header metadata, metric screen coordinates, and margins:
+
+| Variable | Type | Description and Unit | Usage Example |
+| :--- | :---: | :--- | :--- |
+| `line.start_time` / `l.start_time` | `int` | Absolute start timestamp of the line in the video timeline ($ms$). | `line.start_time - 500` |
+| `line.end_time` / `l.end_time` | `int` | Absolute end timestamp of the line in the video timeline ($ms$). | `line.end_time + 300` |
+| `line.dur` / `line.duration` / `l.dur` | `int` | Net duration of the line ($ms$): $t_{\text{end}} - t_{\text{start}}$. | `line.dur / 2` |
+| `line.mid_time` / `l.mid_time` | `float` | Midpoint timestamp of the line: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. | `line.mid_time` |
+| `line_start_time`, `line_end_time`, `line_dur` | `int` | Flat global aliases without prefixes for line timestamps ($ms$). | `line_start_time` |
+| `line.i` / `l.i` | `int` | Ordinal index of the active line in the processed batch ($1 \dots N$). | `line.i == 1` |
+| `line.n` / `l.n` | `int` | Total count of selected lines in the batch. | `line.i / line.n` |
+| `line.text` / `l.text` | `string` | Dialogue text stripped of styling tags and karaoke markup. | `len(line.text)` |
+| `line.raw_text` / `l.raw_text` | `string` | Original dialogue text preserving tags `{\...}` and `\k` markup. | `line.raw_text` |
+| `line.style` / `line.style_name` | `string` | Canonical name of the ASS style assigned to the line in Aegisub. | `line.style == "Default"` |
+| `line.actor` / `l.actor` | `string` | Actor or character field of the ASS line. | `line.actor` |
+| `line.effect` / `l.effect` | `string` | Special effect descriptor field of the ASS line. | `line.effect` |
+| `line.layer` / `l.layer` | `int` | ASS layer index assigned to the line ($Z$-ordering depth). | `line.layer + 1` |
+| `line.center`, `line.middle` / `l.x`, `l.y` | `float` | Horizontal ($X$) and vertical ($Y$) centre of the line bounding box (px). | `line.center, line.middle` |
+| `line.left`, `line.right` | `float` | Left and right horizontal boundary coordinates of the line (px). | `line.right - line.left` |
+| `line.top`, `line.bottom` | `float` | Top and bottom vertical boundary coordinates of the line (px). | `line.bottom` |
+| `line.width`, `line.height` | `float` | Metric width and height of the complete line text (px). | `line.width` |
+| `line.descent` (or `l.descend`), `line.extlead` | `float` | Typographical font descent and external leading metrics (px). | `line.bottom + line.descent` |
+| `line.pos_x`, `line.pos_y` | `float` | Absolute horizontal and vertical position of the line (explicit `\pos` or calculated). | `line.pos_x, line.pos_y` |
+| `line.org_x`, `line.org_y` | `float` | Rotation pivot or origin coordinates of the line (`\org` or metric centre). | `line.org_x, line.org_y` |
+| `line.margin_l`, `line.margin_r`, `line.margin_v` | `int` | Left, right, and vertical subtitle margins configured on the line or style (px). | `line.margin_l` |
+| `line.margin_t`, `line.margin_b` | `int` | Granular individual top and bottom margins (px). | `line.margin_t` |
+
+### 4.2. Original Style Domain (`line.<style_prop>`)
+Typographical, colour, outline, and alignment properties inherited from the ASS file `[V4+ Styles]` header or overridden on the line:
+
+| Variable | Type | Description and Format | Usage Example |
+| :--- | :---: | :--- | :--- |
+| `line.fontname` | `string` | Font family configured in the original style (e.g. `"Arial"`, `"Montserrat"`). | `line.fontname` |
+| `line.fontsize` | `float` | Base style font size in typographical points/pixels ($pt$). | `line.fontsize * 1.5` |
+| `line.bold` | `bool` | Boolean flag for bold weight in the style (`True` / `False`). | `line.bold` |
+| `line.italic` | `bool` | Boolean flag for italic posture in the style (`True` / `False`). | `line.italic` |
+| `line.underline` | `bool` | Boolean flag for underline formatting in the style (`True` / `False`). | `line.underline` |
+| `line.strikeout` | `bool` | Boolean flag for strikeout formatting in the style (`True` / `False`). | `line.strikeout` |
+| `line.align` | `int` | Original Numpad alignment defined in the style ($1 \dots 9$). | `line.align` |
+| `line.scale_x`, `line.scale_y` | `float` | Horizontal and vertical scale percentage factors of the base style ($100.0 = 100\%$). | `line.scale_x` |
+| `line.spacing` | `float` | Letter-spacing or character tracking in pixels (`\fsp`). | `line.spacing` |
+| `line.outline` / `line.bord` | `float` | Stroke outline width of the style in pixels (`\bord`). | `line.outline` |
+| `line.shadow` / `line.shad` | `float` | Drop shadow depth/distance of the style in pixels (`\shad`). | `line.shadow` |
+| `line.color1` | `string` | Primary colour of the style (`\1c`) in ASS format `&HBBGGRR&`. | `line.color1` |
+| `line.color2` | `string` | Secondary / karaoke colour of the style (`\2c`) in ASS format `&HBBGGRR&`. | `line.color2` |
+| `line.color3` | `string` | Outline / border colour of the style (`\3c`) in ASS format `&HBBGGRR&`. | `line.color3` |
+| `line.color4` | `string` | Shadow colour of the style (`\4c`) in ASS format `&HBBGGRR&`. | `line.color4` |
+| `line.alpha1` .. `line.alpha4` | `string` | Individual alpha channels (1: primary, 2: karaoke, 3: outline, 4: shadow) in ASS `&HAA&`. | `line.alpha1` |
+| `line.angle` / `line.frz` | `float` | Nominal $Z$-rotation angle defined in the style in sexagesimal degrees. | `line.frz` |
+| `line.frx`, `line.fry` | `float` | Intrinsic 3D rotation angles of the line in sexagesimal degrees. | `line.frx` |
+| `line.fax`, `line.fay` | `float` | Typographical shear deformation factors along $X$ and $Y$. | `line.fax` |
+
+### 4.3. Derived Units: Syllables (`syl`), Characters (`char`), and Words (`word`)
+Units decomposed during `Main Loop` iteration in `syl`, `char`, or `word` mode. Each unit automatically inherits typographical properties from the base style (`syl.fontname`, `syl.color1`..`4`, `syl.fontsize`, `char.fontname`, etc.):
+
+| Unit | Variable | Description and Unit | Usage Example |
+| :--- | :--- | :--- | :--- |
+| **Syllable (`syl`)** | `syl.start_time`, `syl.end_time` | Start and end timestamps relative to the dialogue line start ($ms$). | `syl.start_time` |
+| | `syl.dur` / `syl.duration` | Karaoke duration of the syllable in milliseconds ($ms$). | `syl.dur` |
+| | `syl.mid_time` | Relative midpoint timestamp of the syllable: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. | `syl.mid_time` |
+| | `syl.syl_start`, `syl.syl_end`, `syl.syl_mid` | Syllable temporal window relative to generated `fx` line ($\text{ini} + \text{syl.start\_time}$). | `\t(syl.syl_start, syl.syl_end, \tags)` |
+| | `syl.i` / `syl.n` | Syllable index within line ($1 \dots N$) and total syllables. | `syl.i / syl.n` |
+| | `syl.text`, `syl.text_stripped` | Text or glyph of the syllable stripped of tags and karaoke marks. | `syl.text` |
+| | `syl.center`, `syl.middle` / `syl.x`, `syl.y` | Horizontal ($X$) and vertical ($Y$) centre of the syllable bounding box (px). | `syl.center, syl.middle` |
+| | `syl.left`, `syl.right`, `syl.top`, `syl.bottom` | Left, right, top, and bottom boundary coordinates of the syllable (px). | `syl.right - syl.left` |
+| | `syl.width`, `syl.height` | Calculated metric dimensions of the syllable (px). | `syl.width` |
+| | `syl.descent`, `syl.extlead` | Typographical descent height and line spacing for the syllable (px). | `syl.descent` |
+| | `syl.prespace`, `syl.postspace` | Preceding and trailing whitespace of the syllable. | `syl.prespace` |
+| | `syl.pos_x`, `syl.pos_y`, `syl.org_x`, `syl.org_y` | Position anchor and rotation centre coordinates of the syllable. | `syl.pos_x, syl.pos_y` |
+| **Character (`char`)** | `char.start_time`, `char.end_time` | Start and end timestamps relative to its **parent syllable** start ($ms$). | `char.start_time` |
+| | `char.dur` / `char.duration` | Calculated duration of the individual character glyph ($ms$). | `char.dur` |
+| | `char.mid_time` | Relative midpoint timestamp of the character within its syllable. | `char.mid_time` |
+| | `char.char_start`, `char.char_end`, `char.char_mid` | Character temporal window relative to generated `fx` line ($ms$). | `\t(char.char_start, char.char_end, \tags)` |
+| | `char.syl_start`, `char.syl_end`, `char.syl_mid` | Parent syllable temporal window relative to generated `fx` line ($ms$). | `\t(char.syl_start, char.syl_end, \tags)` |
+| | `char.i` / `char.n` | Character index within the line ($1 \dots N$) and total characters. | `char.i` |
+| | `char.syl_i`, `char.word_i` | Positional index of the character within its syllable and word. | `char.syl_i` |
+| | `char.text` | Glyph of the active character. | `char.text` |
+| | `char.center`, `char.middle` / `char.x`, `char.y` | Screen centre coordinates of the character glyph (px). | `char.center, char.middle` |
+| | `char.left`, `char.right`, `char.top`, `char.bottom` | Boundary coordinates of the character glyph bounding box (px). | `char.left` |
+| | `char.width`, `char.height` | Metric dimensions of the character glyph (px). | `char.width` |
+| | `char.descent`, `char.extlead` | Typographical descent and spacing metrics of the character glyph (px). | `char.descent` |
+| **Word (`word`)** | `word.start_time`, `word.end_time`, `word.dur`, `word.mid_time` | Start, end, duration, and midpoint timestamps relative to the line ($ms$). | `word.start_time` |
+| | `word.word_start`, `word.word_end`, `word.word_mid` | Start, end, and midpoint timestamps relative to generated `fx` line ($ms$). | `word.word_start` |
+| | `word.i` / `word.n` | Word index within line ($1 \dots N$) and total words. | `word.i` |
+| | `word.text` | Text of the complete word stripped of tags. | `word.text` |
+| | `word.center`, `word.middle` / `word.x`, `word.y` | Horizontal ($X$) and vertical ($Y$) centre of the word on screen (px). | `word.center, word.middle` |
+| | `word.left`, `word.right`, `word.top`, `word.bottom` | Bounding box boundary coordinates of the complete word (px). | `word.right` |
+| | `word.width`, `word.height` | Metric dimensions of the complete word (px). | `word.width` |
+| | `word.descent`, `word.extlead` | Typographical descent and spacing metrics of the word (px). | `word.descent` |
+
+### 4.4. Real Ink Metrics (`ink`) and Neighbouring Units (`prev` / `next`)
 
 | Category | Variable | Description | Usage Example |
 | :--- | :--- | :--- | :--- |
-| **Line (`line` / `l`)** | `line.start_time` / `l.start_time` | Absolute start timestamp of the line in the video timeline (ms). | `line.start_time - 500` |
-| | `line.end_time` / `l.end_time` | Absolute end timestamp of the line in the video timeline (ms). | `line.end_time + 300` |
-| | `line.dur` / `line.duration` | Total line duration (ms): $t_{\text{end}} - t_{\text{start}}$. | `line.dur / 2` |
-| | `line.mid_time` | Midpoint timestamp of the line: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. | `line.mid_time` |
-| | `line.i` / `line.n` | Current line index (1..N) and total selected lines. | `line.i == 1` |
-| | `line.text` / `l.raw_text` | Stripped text or raw text of the dialogue line. | `len(line.text)` |
-| | `line.style` / `line.actor` / `line.effect` / `line.layer` | ASS dialogue line header attributes. | `line.style == "Default"` |
-| | `line.center`, `line.middle` / `l.x`, `l.y` | Horizontal ($X$) and vertical ($Y$) centre of the line bounding box. | `line.center, line.middle` |
-| | `line.left`, `line.right`, `line.top`, `line.bottom` | Bounding box boundary coordinates of the line (px). | `line.right - line.left` |
-| | `line.width`, `line.height` | Calculated metric width and height of the line (px). | `line.width` |
-| | `line.descent` (or `l.descend`), `line.extlead` | Typographical font descent and external leading metrics (px). | `line.bottom + line.descent` |
-| | `line.margin_l`, `line.margin_r`, `line.margin_v` | Left, right, and vertical subtitle margins. | `line.margin_l` |
-| | `line.color1..4`, `line.alpha1..4` | Primary/secondary/outline/shadow colours and alpha transparencies. | `line.color1` |
-| | `line.outline`, `line.shadow` | Style outline stroke width and drop shadow depth. | `line.outline` |
-| | `line.fontname`, `line.fontsize`, `line.bold`, `line.italic` | Active font typographical properties of the subtitle style. | `line.fontsize` |
-| | `line.scale_x`, `line.scale_y`, `line.spacing` | Percentage scale factors and letter-spacing of the style. | `line.scale_x` |
-| **Syllable (`syl`)** | `syl.start_time` | Relative start time offset from the dialogue line start (ms). | `l.start_time + syl.start_time` |
-| | `syl.end_time` | Relative end time offset from the dialogue line start (ms). | `syl.end_time` |
-| | `syl.dur` / `syl.duration` | Karaoke duration of the syllable (ms). | `syl.dur` |
-| | `syl.mid_time` | Relative midpoint timestamp of the syllable: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. | `syl.mid_time` |
-| | `syl.syl_start`, `syl.syl_end`, `syl.syl_mid` | Syllable temporal window relative to generated `fx` line. | `\t(syl.syl_start, syl.syl_end, \tags)` |
-| | `syl.i` / `syl.n` | Syllable index within line (1..N) and total syllables. | `syl.i / syl.n` |
-| | `syl.text` | Text or glyph of the syllable stripped of tags. | `syl.text` |
-| | `syl.center`, `syl.middle` / `syl.x`, `syl.y` | Horizontal ($X$) and vertical ($Y$) centre of the syllable bounding box. | `syl.center, syl.middle` |
-| | `syl.left`, `syl.right`, `syl.top`, `syl.bottom` | Left, right, top, and bottom boundary coordinates of the syllable. | `syl.right - syl.left` |
-| | `syl.width`, `syl.height` | Calculated metric dimensions of the syllable (px). | `syl.width` |
-| | `syl.descent` (or `syl.descend`), `syl.extlead` | Typographical descent height and line spacing for the syllable. | `syl.descent` |
-| | `syl.prespace`, `syl.postspace` | Preceding and trailing whitespace of the syllable. | `syl.prespace` |
-| **Character (`char`)** | `char.start_time` | Relative start time offset from its **parent syllable** start (ms). | `char.start_time` |
-| | `char.end_time` | Relative end time offset from its parent syllable: $\text{char.start\_time} + \text{char.dur}$. | `char.end_time` |
-| | `char.dur` / `char.duration` | Calculated duration of the character glyph (ms). | `char.dur` |
-| | `char.mid_time` | Relative midpoint timestamp of the character within its syllable. | `char.mid_time` |
-| | `char.char_start`, `char.char_end`, `char.char_mid` | Character temporal window relative to `fx` line (ms). | `\t(char.char_start, char.char_end, \tags)` |
-| | `char.syl_start`, `char.syl_end`, `char.syl_mid` | Parent syllable temporal window relative to `fx` line (ms). | `\t(char.syl_start, char.syl_end, \tags)` |
-| | `char.i` / `char.n` | Character index within the line and total characters. | `char.i` |
-| | `char.syl_i`, `char.word_i` | Positional index of the character within its syllable and word. | `char.syl_i` |
-| | `char.text` | Glyph of the current character. | `char.text` |
-| | `char.center`, `char.middle` / `char.x`, `char.y` | Screen centre coordinates of the character. | `char.center, char.middle` |
-| | `char.left`, `char.right`, `char.top`, `char.bottom` | Boundary coordinates of the character glyph. | `char.left` |
-| | `char.width`, `char.height` | Metric dimensions of the character glyph. | `char.width` |
-| | `char.descent` (or `char.descend`), `char.extlead` | Typographical descent and spacing metrics of the character glyph. | `char.descent` |
-| **Word (`word`)** | `word.start_time`, `word.end_time`, `word.dur`, `word.mid_time` | Relative start, end, duration and midpoint timestamps (ms). | `word.start_time` |
-| | `word.word_start`, `word.word_end`, `word.word_mid` | Start, end and midpoint timestamps relative to generated `fx` line (ms). | `word.word_start` |
-| | `word.i` / `word.n` | Word index within line and total words. | `word.i` |
-| | `word.text` | Text of the entire word. | `word.text` |
-| | `word.center`, `word.middle` / `word.x`, `word.y` | Horizontal ($X$) and vertical ($Y$) centre of the word. | `word.center, word.middle` |
-| | `word.left`, `word.right`, `word.top`, `word.bottom` | Boundary coordinates of the word bounding box. | `word.right` |
-| | `word.width`, `word.height` | Metric dimensions of the word (px). | `word.width` |
-| | `word.descent` (or `word.descend`), `word.extlead` | Typographical descent and spacing metrics of the word. | `word.descent` |
-| **Ink Metrics (`ink`)** | `ink.width`, `ink.height` (or `l.ink.width`, `syl.ink.width`, etc.) | Width and height of the actual rendered contour/glyph (excluding typographical bounding box padding). | `ink.width` |
+| **Real Ink (`ink`)** | `ink.width`, `ink.height` | Width and height of the actual rendered contour/glyph (excluding font box padding). | `ink.width` |
 | | `ink.center`, `ink.middle` / `ink.x`, `ink.y` | Horizontal ($X$) and vertical ($Y$) centre based on actual rendered ink contours. | `ink.center, ink.middle` |
 | | `ink.left`, `ink.right`, `ink.top`, `ink.bottom` | Exact bounding box of the rendered ink pixels in screen coordinates. | `ink.left` |
 | | `ink.l.*`, `ink.syl.*`, `ink.char.*`, `ink.word.*` | Explicit scope-based access to the ink metrics of the line, syllable, character, or word. | `ink.syl.center` |
+| **Neighbours (`prev` / `next`)** | `prev.*` / `next.*` | Introspection over the preceding or subsequent unit (`text`, `dur`, `start_time`, `x`, `y`, `width`, etc.). | `prev.width` |
+| | `is_first`, `is_last` | Boolean flags indicating whether the unit is the first or last in the sequence. | `is_first` |
+| | `has_prev`, `has_next` | `True` if a valid predecessor or successor unit exists in the chain. | `has_prev` |
+
+### 4.5. Sub-loops (`MaxLoop`), Generated Effect (`fx`), and Global Environment
+
+| Category | Variable | Description and Formula | Usage Example |
+| :--- | :--- | :--- | :--- |
 | **Sub-loop (`MaxLoop`)**| `j` | Active sub-iteration index ($1 \dots N$). | `j` |
 | | `maxj` / `maxloop` | Total configured repetitions in the sub-loop. | `maxj` |
-| | `module` / `m` | Normalised sub-loop progress: $\frac{j - 1}{\text{maxj} - 1} \in [0.0, 1.0]$. | `module` |
-| **Effect (`fx`)** | `fx.pos_x`, `fx.pos_y` | Resolved anchor position for the active element. | `fx.pos_x, fx.pos_y` |
-| | `fx.start_time`, `fx.end_time` | Absolute start and end timestamps of the generated ASS dialogue line (ms). | `fx.start_time` |
-| | `fx.dur` | Effective duration of the generated ASS line. | `fx.dur` |
+| | `module` / `m` / `ratio` | Normalised sub-loop progress: $\frac{j - 1}{\text{maxj} - 1} \in [0.0, 1.0]$. | `module` |
+| **Effect (`fx`)** | `fx.pos_x`, `fx.pos_y` | Resolved anchor position coordinates for the active element on screen. | `fx.pos_x, fx.pos_y` |
+| | `fx.start_time`, `fx.end_time` | Absolute start and end timestamps of the generated ASS dialogue line ($ms$). | `fx.start_time` |
+| | `fx.dur` | Effective duration of the generated ASS line ($ms$). | `fx.dur` |
+| **Global Environment** | `fps` | Frames per second rate of the active video in Aegisub (e.g. `23.976`, `60.0`). | `fps` |
+| | `frame_dur` / `fd` | Duration of one video frame in milliseconds: $\frac{1000}{\text{fps}}$ (e.g. $41.708$ ms at $23.976$ fps). | `3 * fd` |
+| | `ini` | Relative temporal offset: $\text{ini} = \text{line.start\_time} - \text{fx.start\_time}$ ($ms$). | `ini + syl.start_time` |
+| | `st`, `et`, `dur` | Active start, end, and duration times of the processed element ($ms$). | `st, et` |
+| | `maxgap` | Upper threshold for inter-line measurements with `sync()` ($ms$, default `2000.0`). | `maxgap` |
 
 ---
 

@@ -12,11 +12,75 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
+
+"""
+Pyxis Effector - Core Subtitle & Graphical Data Models.
+
+This module defines the canonical data entities that structure ASS dialogue lines,
+their decomposed typographic and syllabic elements, spatial metrics, and styles.
+
+Architectural Structure:
+- `PyxisUnit`: Canonical base entity for any typographic fragment or timing unit (syllable,
+  word, character). Encapsulates geometric metrics, timestamps, neighbour relations, and
+  cascading style resolution (override -> line -> defaults).
+- `InkMetrics`: Lazy evaluation and caching engine for true visual contour metrics (ink bbox)
+  generated from Bézier vector paths (FontVectorEngine / ClipperEngine).
+- `InkNamespace`: Context resolution facade for dynamic expressions (ink.syl, ink.char, ink.l).
+- `StyleRef`: Parser and normaliser for ASS styles [V4+ Styles], managing numeric types,
+  legacy booleans (-1/1), ASS colours (&H00BBGGRR&), and alpha channels.
+- `PyxisLine`: Subclass of PyxisUnit representing a complete dialogue line, managing child
+  collections (syls, words), margins, inline tag overrides, and global alignment.
+- `AdjacentUnitProxy`: Hybrid string/object proxy for canonical directional navigation ('prev', 'next').
+
+Upstream Dependencies:
+    - `font_vector_engine.FontVectorEngine`: Vector glyph metrics extraction.
+    - `clipper_engine.ClipperEngine`: Geometric bounding box calculation on ASSdraw paths.
+
+Downstream Callers:
+    - `ass_parser.py`: Instantiation and population of structures during ASS reading.
+    - `karaskel_engine.py`: Spatial layout computation, anchor positioning, and font metrics.
+    - `node_engine.GraphEngine`: Injects execution context into the DAG (`line.*`, `syl.*`, `char.*`).
+    - `string_evaluator.py`: Resolves variables and attributes in expressions and templates.
+    - `node_validator.py`: Validates types and attribute existence at design time.
+"""
 
 from typing import Optional
 
 class PyxisUnit:
+    """
+    Canonical base entity for any typographic, syllabic, or character unit.
+
+    Represents syllables (`syl`), words (`word`), and individual characters (`char`)
+    within the structural hierarchy of an ASS subtitle line. Provides transparent access
+    to absolute on-screen coordinates, absolute and relative timing intervals,
+    and cascading style property resolution.
+
+    Main Attributes:
+        i (int): 1-based index of the unit within its container collection.
+        n (int): Total count of sibling units in the collection.
+        syl_i (int): Parent syllable index (when the unit represents a character).
+        word_i (int): Parent word index.
+        text (str): Unit text (may contain original ASS tags if not yet stripped).
+        text_stripped (str): Plain text stripped of ASS tags and delimiters.
+        duration (int): Duration of the unit in milliseconds.
+        start_time (int): Absolute start timestamp in milliseconds (referenced to video).
+        end_time (int): Absolute end timestamp in milliseconds.
+        width (float): Typographic advance width in pixels.
+        height (float): Nominal typographic height in pixels.
+        descent (float): Font descent metric in pixels.
+        extlead (float): External leading metric in pixels.
+        left, center, right (float): Absolute horizontal coordinates in screen pixels.
+        top, middle, bottom (float): Absolute vertical coordinates in screen pixels.
+        x, y (float): Rendering anchor coordinates in pixels.
+        prespace, postspace (str): Leading and trailing whitespace characters.
+        line (PyxisLine | None): Reference to parent dialogue line.
+        word (PyxisUnit | None): Reference to parent word unit.
+        chars (list[PyxisUnit]): List of child character units when unit is syllable or word.
+        prev (PyxisUnit | None): Previous sibling unit in sequence.
+        next (PyxisUnit | None): Next sibling unit in sequence.
+        style_override (StyleRef | None): Local style overrides applied by inline tags on the unit.
+    """
     def __init__(self):
         self.i, self.n = 1, 1
         self.syl_i, self.word_i = 1, 1
@@ -315,7 +379,30 @@ class PyxisUnit:
         self._org_y = float(val) if val is not None else None
 
 class InkMetrics:
-    """Computes and caches true glyph contour ink metrics (visual path bounding box) in screen space."""
+    """
+    Lazy evaluation and caching engine for true visual contour ink bounding box metrics.
+
+    Unlike standard typographic metrics in `PyxisUnit` (which represent font advance bounding boxes
+    and may include empty ascender/descender whitespace), `InkMetrics` calculates the exact bounding box
+    occupied by the rendered glyph ink strokes on screen.
+
+    Evaluation Mechanism:
+        - On-demand lazy computation: Vector path processing is deferred until the first access
+          to any geometric property (`left`, `top`, `width`, etc.).
+        - Internal caching: Once computed (`_computed = True`), values are stored in memory.
+        - Vectorisation: Invokes `FontVectorEngine.extract_font_params()` and `FontVectorEngine.get_metrics()`.
+          If the vector engine provides a Bézier path without precomputed ink metrics, falls back
+          to `ClipperEngine.get_bbox()` to measure the clip contour.
+        - Typographic fallback: If vectorisation fails (e.g. invisible whitespace, unsupported glyphs,
+          or backend error), logs a warning and safely falls back to typographic coordinates
+          of the enclosing unit (`u.left`, `u.top`, `u.width`, etc.).
+
+    Exposed Properties:
+        left, right, top, bottom (float): Extreme pixel ink boundaries on screen.
+        width, height (float): Net visual stroke dimensions.
+        center, middle (float): Net visual centroid of the glyph.
+        x, y (float): Direct aliases for center and middle.
+    """
     def __init__(self, unit=None):
         self._unit = unit
         self._computed = False
@@ -436,7 +523,7 @@ class InkMetrics:
             else:
                 raise ValueError("Empty vector shape")
         except Exception as e:
-            print(f"[Pyxis InkMetrics Warning] Error computing glyph ink contour for text '{text}': {e}. Recurriendo a bounding box tipográfica.", flush=True)
+            print(f"[Pyxis InkMetrics Warning] Error computing glyph ink contour for text '{text}': {e}. Falling back to typographic bounding box.", flush=True)
             self._left = u_left
             self._right = u_right
             self._top = u_top
@@ -484,7 +571,20 @@ class InkMetrics:
 
 
 class InkNamespace:
-    """Namespace for ink metrics allowing ink.l.width, ink.syl.center, ink.char.height, or ink.width."""
+    """
+    Context resolution facade for ink metrics (InkMetrics) in dynamic expressions and templates.
+
+    Enables both AST mathematical formulae (`_eval_num_expr`) and macros evaluated by `string_evaluator.py`
+    to access visual glyph metrics transparently across hierarchies:
+        - `ink.width`, `ink.center`, `ink.top`: Resolves on the active unit in context.
+        - `ink.syl.*`: Forces resolution on the active syllable (or parent syllable if unit is a character).
+        - `ink.char.*`: Forces resolution on the active character.
+        - `ink.word.*`: Forces resolution on the active word.
+        - `ink.line.*` or `ink.l.*`: Forces resolution on the complete line.
+
+    If a requested hierarchy does not exist or has no visible strokes, returns an empty `InkMetrics(None)`
+    with neutral numeric values (0.0), preventing attribute access exceptions.
+    """
     def __init__(self, context=None):
         self._context = context or {}
 
@@ -564,6 +664,21 @@ class InkNamespace:
         return default
 
 class StyleRef:
+    """
+    Canonical parser and encapsulator for ASS styles (`[V4+ Styles]`).
+
+    Translates style formatting definitions from the ASS file into strongly typed Python properties,
+    homogenising canonical field names (CamelCase / lowercase) and managing safe defaults.
+
+    Conversions Performed:
+        - Booleans: Maps legacy ASS flags ('-1', '1', 'true', 'True') to Python booleans
+          for `bold`, `italic`, `underline`, `strikeout`.
+        - Numerics: Performs safe casting with fallback upon corrupted or missing fields
+          for `fontsize` (default 40.0), `scale_x`/`scale_y` (default 100.0), `spacing` (0.0),
+          `angle`/`frz` (0.0), `outline`/`bord` (2.0), `shadow`/`shad` (0.0), and `align` (2).
+        - Colours and Alphas: Retains canonical ASS `&HAABBGGRR&` representation for `color1` (primary),
+          `color2` (secondary/karaoke), `color3` (outline), and `color4` (shadow), alongside individual channels `alpha1..4`.
+    """
     def __init__(self, style_dict: Optional[dict] = None):
         if not style_dict:
             style_dict = {}
@@ -624,6 +739,38 @@ class StyleRef:
         self.shad = self.shadow
 
 class PyxisLine(PyxisUnit):
+    """
+    Subclass of PyxisUnit representing a complete ASS dialogue event line.
+
+    Encapsulates line-level metadata, timing intervals, layout bounding boxes, and collections
+    of child syllabic and word units (`syls`, `words`). Provides cascading style resolution,
+    managing inline overrides (`style_override`) against the line's base stylesheet (`styleref`).
+
+    Architectural Responsibilities:
+        - Serves as the root container in the Karaskel layout hierarchy.
+        - Manages ASS event header fields (layer, actor, effect, margins, comment state).
+        - Holds explicit tag overrides parsed from line prefixes (\\pos, \\org, \\move, \\an).
+        - Acts as polymorphic target (`self.line = self`) for uniform attribute access.
+
+    Attributes:
+        layer (int): ASS rendering layer order (0..N).
+        style_name (str): Canonical style identifier matching [V4+ Styles].
+        actor (str): Speaker or character identifier string.
+        effect (str): Custom effect descriptor field.
+        raw_text (str): Complete unstripped dialogue text including all inline ASS tags.
+        margin_l, margin_r, margin_v (int): Explicit margins in screen pixels (left, right, vertical).
+        margin_t, margin_b (int): Granular top and bottom margins.
+        is_selected (bool): Selection flag within the host subtitle editor (Aegisub).
+        is_comment (bool): True if the event is a non-rendered comment line.
+        syls (list[PyxisUnit]): Decomposed syllabic units parsed by `ass_parser.py`.
+        words (list[PyxisUnit]): Decomposed lexical word units.
+        styleref (StyleRef): Base typographic style definition assigned to this line.
+        style_override (StyleRef | None): Local override containing inline tag overrides.
+        has_pos (bool): True if line has explicit \\pos(x, y) coordinates.
+        has_org (bool): True if line has explicit \\org(x, y) pivot coordinates.
+        has_move (bool): True if line specifies trajectory motion via \\move.
+        align_override (int | None): Explicit alignment override from \\an or \\a tags.
+    """
     def __init__(self):
         super().__init__()
         self.layer, self.style_name, self.actor, self.effect, self.raw_text = 0, "Default", "", "", ""
@@ -775,10 +922,21 @@ class PyxisLine(PyxisUnit):
 
 
 class AdjacentUnitProxy(str):
-    """Hybrid canonical string identifier and unit proxy.
-    Acts as the canonical lowercase string identifier ('prev' / 'next') in functions
-    like sync(prev, ...) or equality comparisons, while proxying attribute access
-    to the underlying PyxisUnit (or raising standard AttributeError if None).
+    """
+    Hybrid canonical string identifier and transparent proxy for neighbouring units.
+
+    Acts simultaneously as a native lowercase string identifier ('prev' / 'next') for comparisons
+    and function arguments (e.g. `sync(prev, ...)`), while dynamically proxying attribute
+    access towards the wrapped `PyxisUnit` instance.
+
+    Key Behaviours:
+        - Transparent Proxying: Accessing `prev.left` delegates directly to `unit.left`.
+        - Strict None Safety: If no neighbour exists, accessing attributes raises a clear `AttributeError`
+          stating that the directional unit is None.
+        - Boolean Truthiness: Evaluates to True if the underlying unit is present, and False otherwise,
+          allowing idiomatic checks such as `if prev: ...`.
+        - Introspection & Autocompletion: `__dir__` unions native string methods with all unit properties,
+          enabling full code completion in the script editor.
     """
     def __new__(cls, name: str, unit=None):
         clean_name = str(name).strip().lower()
@@ -809,4 +967,4 @@ class AdjacentUnitProxy(str):
         base_dir = set(super().__dir__())
         if self._unit is not None:
             base_dir.update(dir(self._unit))
-        return sorted(base_dir)
+        return sorted(base_dir)

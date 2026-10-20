@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
 """Universal audio preprocessing, extraction, and caching module via FFmpeg."""
 
@@ -164,7 +164,7 @@ class AudioPreprocessor:
 
             if result.returncode != 0:
                 err_msg = result.stderr.decode("utf-8", errors="replace").strip()
-                raise RuntimeError(f"FFmpeg falló al procesar el audio (código {result.returncode}): {err_msg}")
+                raise RuntimeError(f"FFmpeg failed to process audio (exit code {result.returncode}): {err_msg}")
 
             if not os.path.isfile(temp_target) or os.path.getsize(temp_target) <= 44:
                 raise RuntimeError("FFmpeg did not generate a valid WAV file or audio track is empty.")

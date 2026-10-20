@@ -1041,7 +1041,13 @@ Los valores numéricos se formatean como enteros limpios si no presentan parte f
 4. **`RedrawDist` (`redraw_dist`):** Rango de dispersión o fluctuación aleatoria uniforme $(\pm \Delta x, \pm \Delta y)$ aplicada a cada partícula en píxeles. (Defecto: `0.0`).
 5. **`Seed` (`seed`):** Semilla determinista para la generación pseudoaleatoria de dispersión. (Defecto: `1`).
 6. **`Scale` (`scale`):** Factor multiplicador de escala aplicado a las coordenadas del conjunto de partículas. (Defecto: `1.0`).
-7. **`Numpad Order` (`order`):** Ordenamiento direccional de las partículas en la lista de iteración:
+7. **`Anchor` (`anchor`):** Selector cíclico interactivo de perfil *Piece Anchor* idéntico a los nodos de fragmentación (`Slicer`, `Array`, `Union & Divide`). Determina cómo se proyectan las coordenadas locales de cada partícula y el centroide de rotación `\org` sobre el sistema de coordenadas de pantalla del subtítulo:
+   * **`pieces` (Defecto canónico):** Cada micro-partícula se posiciona en sus coordenadas absolutas independientes `\pos(x, y)` calculadas a partir del centroide de su glifo o contorno base, y establece `\org(x, y)` exactamente en su propio baricentro. Esto permite que transformaciones posteriores (como giros `\frz`, escalados `\fscx/\fscy` o deformaciones angulares) roten cada partícula de forma autónoma sobre su propio eje.
+   * **`relative`:** Conserva el origen de coordenadas relativo al centroide base del texto o forma padre, sin sobreescribir `pos_overridden`.
+   * **`parent_org`:** Posiciona la partícula en sus coordenadas absolutas `\pos(x, y)`, pero ancla el centro de rotación `\org` en el origen global del texto o línea padre (`parent_x, parent_y`), permitiendo giros orbitales coordinados alrededor del elemento origen.
+   * **`pos`:** Posiciona la partícula en sus coordenadas absolutas `\pos(x, y)` sin forzar una etiqueta `\org` explícita (`has_org = False`).
+   * **`absolute`:** Integra las coordenadas absolutas directamente horneadas en los vértices del trazado vectorial (`m x y ...`), situando `\pos` en el origen padre y desactivando `pos_overridden`.
+8. **`Order` (`order`):** Selector cíclico interactivo de perfil 2D (*Numpad Order*) para la secuencia de recorrido y asignación de índices iterativos (`p_i`):
    * `"79"`: Arriba-Izquierda $\to$ Abajo-Derecha (*Top-Left to Bottom-Right*).
    * `"97"`: Arriba-Derecha $\to$ Abajo-Izquierda (*Top-Right to Bottom-Left*).
    * `"13"`: Abajo-Izquierda $\to$ Arriba-Derecha (*Bottom-Left to Top-Right*).
@@ -1055,6 +1061,8 @@ Los valores numéricos se formatean como enteros limpios si no presentan parte f
    * `"cw"`: Radial circular en sentido horario (*Clockwise*).
    * `"ccw"`: Radial circular en sentido antihorario (*Counter-Clockwise*).
    * `"rand"`: Desorden pseudoaleatorio (*Shuffle*).
+   * `"path"`: **Trayectoria perimetral continua.** Preserva el orden secuencial de arco en que se calculan los vértices del contorno vectorial ($s \in [0, L]$). Actúa de forma análoga a un nodo *Walker* integrado, permitiendo que cascadas de tags, apariciones y desvanecimientos sigan fielmente el trazo caligráfico o la silueta original.
+   * `"path_inv"`: **Trayectoria perimetral invertida.** Recorre el contorno en sentido retrógrado ($s \in [L, 0]$).
 
 ---
 
@@ -1118,6 +1126,9 @@ Para cada contorno vectorial cerrado $C = \{V_0, V_1, \dots, V_m, V_0\}$:
     El motor detecta `Particles` en la cadena de `Output.Return`, extrae $N=24$ puntos a lo largo del perímetro del glifo, inyecta las variables de iteración `p_i` ($1 \dots 24$) y `p_n` ($24$) y ordena las coordenadas radialmente según su distancia al centroide del carácter.
   * **Línea ASS Emitida para la Primera Partícula ($p_i=1$, baricentro más cercano):**
     `Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\an5\pos(320.50,238.20)\p1}m 0 0 l 2 0 l 2 2 l 0 2{\p0}`
+
+* **Efecto Caligráfico de Escritura con Partículas (Walker Integrado):**
+  Al seleccionar `order="path"`, las partículas no se reordenan cartesiana ni radialmente, sino que se indexan progresivamente a lo largo del trazo perimetral ($s = 0 \to L$). Modulando la aparición con una fórmula en `Tags` (ej. `\alpha!by.p_i.ipol(0, 255, 0, fx.dur)!` o `\t((p_i/p_n)*syl.dur, ((p_i+1)/p_n)*syl.dur, \alpha&H00&)`), cada micro-partícula se ilumina secuencialmente siguiendo la silueta continua de la fuente o figura sin requerir el nodo `Shape/Walker`.
 
 ---
 

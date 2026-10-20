@@ -12,7 +12,15 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
+
+"""Pyxis Effector Daemon — Local IPC Micro-Server and Background Session Service.
+
+Coordinates inter-process communication between Aegisub automation scripts (Lua/C++)
+and the active PyWebView graphical user interface over a dedicated loopback HTTP socket.
+Provides media byte-range streaming for WebAssembly playback engines (JASSUB/ArtPlayer),
+session state persistence, parent process lifecycle tracking, and graceful termination.
+"""
 
 import json
 import os
@@ -24,16 +32,37 @@ try:
 except ImportError:
     from http.server import HTTPServer, BaseHTTPRequestHandler
 
+try:
+    from version import PYXIS_VERSION
+except ImportError:
+    PYXIS_VERSION = "1.1.4"
+
 PYXIS_DAEMON_PORT = 28723
 
 
 class PyxisDaemonHandler(BaseHTTPRequestHandler):
+    """HTTP request handler for the Pyxis Effector IPC daemon micro-service.
+
+    Endpoints:
+        - GET /status: Returns JSON payload with PID, version, and daemon operational state.
+        - GET /media_file, /bg_media/: Streams local video and audio files supporting HTTP 206
+          Partial Content byte-range requests for canvas media players.
+        - POST /reopen: Restores and foregrounds the graphical session with updated Aegisub state.
+        - POST /shutdown: Triggers asynchronous graceful shutdown of daemon and webview processes.
+        - OPTIONS: Handles CORS pre-flight validation.
+    """
     daemon_context = None
 
     def log_message(self, format, *args):
         pass
 
     def _send_json(self, data, code=200):
+        """Serialise and transmit a JSON response with permissive loopback CORS headers.
+
+        Args:
+            data: Python dictionary or serialisable object to send as JSON.
+            code: HTTP response status code (default 200).
+        """
         try:
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
@@ -46,6 +75,7 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
             pass
 
     def do_OPTIONS(self):
+        """Handle CORS pre-flight requests from browser canvas and WebAssembly players."""
         try:
             self.send_response(200)
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -56,10 +86,20 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):
+        """Handle HTTP GET endpoints for daemon status, diagnostic probes, and media streaming.
+
+        Media Streaming Pipeline:
+            - Extracts file path from query parameters ('/media_file?path=...') or background media
+              cache directory ('/bg_media/<filename>').
+            - Inspects incoming 'Range' HTTP header (e.g. 'bytes=0-1048575').
+            - If range is specified, responds with HTTP 206 Partial Content, writing the requested
+              slice using a 64 KB buffer to enable low-latency scrubbing in ArtPlayer.
+            - If no range is requested, responds with HTTP 200 Full Content.
+        """
         if self.path == "/status":
             self._send_json({
                 "status": "ok",
-                "version": "1.1.4",
+                "version": PYXIS_VERSION,
                 "pid": os.getpid(),
                 "daemon_mode": getattr(self.daemon_context, "daemon_mode", True)
             })
@@ -157,6 +197,7 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "not_found"}, 404)
 
     def do_POST(self):
+        """Handle HTTP POST control commands (/reopen, /shutdown) issued by Aegisub automation."""
         content_length = int(self.headers.get("Content-Length", 0))
         body_bytes = self.rfile.read(content_length) if content_length > 0 else b"{}"
         try:
@@ -186,7 +227,20 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
 
 
 class PyxisDaemonServer:
+    """Daemon server manager maintaining the background HTTP listener and IPC lifecycle.
+
+    Maintains session persistence when the PyWebView window is minimised or hidden,
+    supervises the parent Aegisub process to prevent orphan background instances,
+    and handles native Win32 window restoration and foreground activation.
+    """
+
     def __init__(self, main_api=None, window=None):
+        """Initialise the daemon server with references to the PyWebView API bridge and window.
+
+        Args:
+            main_api: PyxisMainApi instance exposing JavaScript-Python bridge endpoints.
+            window: PyWebView Window instance hosting the LiteGraph frontend canvas.
+        """
         self.main_api = main_api
         self.window = window
         self.server = None
@@ -197,6 +251,11 @@ class PyxisDaemonServer:
         self._is_shutting_down = False
 
     def start(self, port=PYXIS_DAEMON_PORT):
+        """Bind and start the multi-threaded HTTP server thread on localhost.
+
+        Args:
+            port: Port integer to bind (default PYXIS_DAEMON_PORT = 28723).
+        """
         if self.running:
             return
         PyxisDaemonHandler.daemon_context = self
@@ -212,7 +271,11 @@ class PyxisDaemonServer:
             print(f"[Pyxis Daemon Warning] Could not bind port {port}: {e}", flush=True)
 
     def _monitor_aegisub_pid(self):
-        """If Aegisub closes, the daemon shuts down automatically to prevent orphan processes."""
+        """Background watchdog thread monitoring the parent Aegisub process liveness.
+
+        If Aegisub terminates or crashes, triggers automatic daemon shutdown to prevent
+        lingering background processes.
+        """
         while self.running:
             time.sleep(1.0)
             if self.aegisub_pid:
@@ -223,6 +286,17 @@ class PyxisDaemonServer:
 
     @staticmethod
     def is_pid_alive(pid):
+        """Determine whether a specific process identifier is currently running on Windows.
+
+        Employs psutil inspection if available, falling back to Win32 kernel32.OpenProcess
+        and kernel32.GetExitCodeProcess with STILL_ACTIVE (259) status verification.
+
+        Args:
+            pid: Numeric process identifier.
+
+        Returns:
+            True if process is alive and active, False otherwise.
+        """
         if not pid:
             return True
         try:
@@ -254,6 +328,22 @@ class PyxisDaemonServer:
             return False
 
     def reopen_session(self, payload):
+        """Restores and synchronises a Pyxis session when reopened from Aegisub.
+
+        Updates file paths, session references, and Aegisub metadata inside
+        the active `main_api` instance, invalidates caches, restores window
+        dimensions and visibility, brings the window to the foreground via
+        Win32 API calls, and triggers client-side JavaScript reload routines.
+
+        Args:
+            payload (dict): Serialised session payload containing paths to
+                temporary ASS scripts, output result files, lock files,
+                session data, Aegisub version, and calling process ID.
+
+        Returns:
+            bool: True if the session was successfully reopened and resumed,
+                False otherwise.
+        """
         if not self.window:
             return False
 
@@ -337,6 +427,23 @@ class PyxisDaemonServer:
 
     @classmethod
     def bring_to_foreground(cls, title=None, is_maximized=False):
+        """Forces the Pyxis window to the foreground using Win32 API calls.
+
+        Enumerates top-level windows matching the current process ID and window
+        title, sets appropriate high-resolution and low-resolution window icons,
+        attaches thread input to bypass Windows focus-stealing restrictions,
+        restores/maximises the window, and flashes z-order positioning
+        via HWND_TOPMOST / HWND_NOTOPMOST toggling.
+
+        Args:
+            title (str, optional): Target window title to match. Defaults to None.
+            is_maximized (bool, optional): Whether the window should be maximised
+                instead of normally shown/restored. Defaults to False.
+
+        Returns:
+            bool: True if the window was located and successfully brought to the
+                foreground, False otherwise.
+        """
         try:
             import ctypes
             user32 = ctypes.windll.user32
@@ -449,6 +556,12 @@ class PyxisDaemonServer:
             return False
 
     def shutdown(self):
+        """Terminates the daemon server and safely shuts down Pyxis.
+
+        Releases file locks held by the API, stops the underlying HTTP server,
+        destroys webview windows, and schedules a deferred hard termination
+        (`os._exit(0)`) to cleanly release OS handles.
+        """
         if self._is_shutting_down:
             return
         self._is_shutting_down = True
@@ -480,6 +593,19 @@ class PyxisDaemonServer:
 
 
 def check_daemon_running(port=PYXIS_DAEMON_PORT):
+    """Probes the loopback daemon port to verify if an active daemon is running.
+
+    Issues an HTTP GET request to `http://127.0.0.1:<port>/status` with a strict
+    0.5-second timeout.
+
+    Args:
+        port (int, optional): Loopback TCP port to check. Defaults to
+            PYXIS_DAEMON_PORT (28723).
+
+    Returns:
+        dict | None: The status dictionary returned by the daemon if reachable
+            and healthy, or None if the server is offline or times out.
+    """
     try:
         url = f"http://127.0.0.1:{port}/status"
         req = urllib.request.Request(url, method="GET")
@@ -493,6 +619,21 @@ def check_daemon_running(port=PYXIS_DAEMON_PORT):
 
 
 def notify_daemon_reopen(payload, port=PYXIS_DAEMON_PORT):
+    """Sends a reopen payload to a running daemon instance via HTTP POST.
+
+    Communicates with `http://127.0.0.1:<port>/reopen` to restore and focus
+    the existing Pyxis window with new session parameters from Aegisub.
+
+    Args:
+        payload (dict): Serialised session parameters including script paths,
+            result destinations, and calling Aegisub PID.
+        port (int, optional): Loopback TCP port of the daemon. Defaults to
+            PYXIS_DAEMON_PORT (28723).
+
+    Returns:
+        bool: True if the daemon acknowledged and restored the session,
+            False on connection failure or error response.
+    """
     try:
         url = f"http://127.0.0.1:{port}/reopen"
         data_bytes = json.dumps(payload).encode("utf-8")

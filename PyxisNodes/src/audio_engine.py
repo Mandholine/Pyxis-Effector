@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
 """High-performance acoustic analysis engine, C-level PCM WAV decoding, and FFT/RMS computation for PyxisNodes."""
 
@@ -67,13 +67,13 @@ class AudioData:
         return max(0, min(self.num_samples, idx))
 
     def ms_from_sample(self, sample_idx: int) -> float:
-        """Convierte índice de muestra a milisegundos."""
+        """Convert sample index to milliseconds."""
         if self.sample_rate <= 0:
             return 0.0
         return (sample_idx / float(self.sample_rate)) * 1000.0
 
     def get_chunk(self, start_ms: float, end_ms: float) -> np.ndarray:
-        """Extrae el segmento de audio (view slice) entre start_ms y end_ms."""
+        """Extract the audio segment slice between start_ms and end_ms."""
         idx_start = self.sample_from_ms(start_ms)
         idx_end = self.sample_from_ms(end_ms)
         if idx_start >= self.num_samples:
@@ -83,7 +83,7 @@ class AudioData:
         return self.samples[idx_start:idx_end]
 
     def get_rms(self, start_ms: float, end_ms: float, gain: float = 1.0) -> float:
-        """Calcula la energía acústica cuadrática media (RMS) en O(1) constante mediante Prefix Sums."""
+        """Compute root mean square (RMS) acoustic energy in O(1) time using prefix sums."""
         idx_start = self.sample_from_ms(start_ms)
         idx_end = self.sample_from_ms(end_ms)
         if idx_start >= idx_end:
@@ -98,7 +98,7 @@ class AudioData:
         return min(1.0, raw_rms * max(0.0, float(gain)))
 
     def get_peak(self, start_ms: float, end_ms: float, gain: float = 1.0) -> float:
-        """Calcula la amplitud pico absoluta máxima entre 0.0 y 1.0 con ganancia."""
+        """Compute maximum absolute peak amplitude normalised between 0.0 and 1.0 with gain."""
         chunk = self.get_chunk(start_ms, end_ms)
         if len(chunk) == 0:
             return 0.0
@@ -107,7 +107,7 @@ class AudioData:
         return min(1.0, p * max(0.0, float(gain)))
 
     def get_samples(self, start_ms: float, end_ms: float, num_points: int = 32, gain: float = 1.0) -> List[float]:
-        """Submuestrea el intervalo temporal de manera vectorizada en N puntos equidistantes."""
+        """Subsample the temporal interval in a vectorised manner into N equidistant points."""
         chunk = self.get_chunk(start_ms, end_ms)
         n = len(chunk)
         if n == 0 or num_points <= 0:
@@ -127,7 +127,7 @@ class AudioData:
         return sampled.tolist()
 
     def get_fft(self, start_ms: float, end_ms: float, n_fft: int = 2048) -> Tuple[np.ndarray, float]:
-        """Calcula la FFT real optimizada con ventana de Hann precalculada y caché LRU por intervalo."""
+        """Compute real FFT using precalculated Hann window and interval LRU cache."""
         idx_start = self.sample_from_ms(start_ms)
         idx_end = self.sample_from_ms(end_ms)
         if idx_start >= idx_end:
@@ -171,7 +171,7 @@ class AudioData:
         return magnitudes, freq_step
 
     def get_band_weight(self, start_ms: float, end_ms: float, min_hz: float, max_hz: float, gain: float = 1.0) -> float:
-        """Calcula la energía de frecuencia normalizada en una banda [min_hz, max_hz] con compensación espectral."""
+        """Compute normalised frequency energy within a band [min_hz, max_hz] with spectral tilt compensation."""
         mags, freq_step = self.get_fft(start_ms, end_ms, n_fft=2048)
         num_mags = len(mags)
         if num_mags == 0 or freq_step <= 0:
@@ -218,7 +218,7 @@ class AudioData:
         max_hz: float = 16000.0,
         gain: float = 1.0
     ) -> List[float]:
-        """Divide el espectro en N bandas de frecuencia con escala logarítmica, interpolación y compensación espectral."""
+        """Divide the frequency spectrum into N logarithmic bands with interpolation and spectral tilt compensation."""
         if num_bands <= 0:
             return []
 
@@ -268,13 +268,13 @@ class AudioData:
 
 
 class AudioEngine:
-    """Caché y decodificador central en memoria para archivos de audio en PyxisNodes."""
+    """Central in-memory audio decoding and caching engine for PyxisNodes."""
 
     _audio_cache: Dict[str, AudioData] = {}
 
     @classmethod
     def load_wav(cls, file_path: str) -> AudioData:
-        """Carga y decodifica un archivo PCM WAV directamente a memoria RAM con vectorización en C."""
+        """Load and decode a PCM WAV file directly into RAM with vectorised NumPy decoding."""
         clean_path = os.path.abspath(file_path).lower()
         if clean_path in cls._audio_cache:
             return cls._audio_cache[clean_path]
@@ -332,7 +332,7 @@ class AudioEngine:
 
     @classmethod
     def clear_cache(cls):
-        """Limpia la caché de audio en memoria."""
+        """Clear the central in-memory audio buffer cache."""
         cls._audio_cache.clear()
         try:
             from nodes.audio_nodes import clear_resolved_audio_cache

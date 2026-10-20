@@ -12,9 +12,84 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
 
-"""Core library and registration of fundamental system nodes for Pyxis Nodes Engine."""
+"""
+Module: nodes_library.py
+Architectural Role: Formal System Node Registration, Visual Catalogue, and Port/Enum Subsystem.
+
+This module serves as the primary declarative catalogue for all structural, topological,
+and functional system nodes in the Pyxis Effector ecosystem. It invokes `system_node(...)`
+to build the static metadata registry (`SYSTEM_NODE_DB` in `decorators.py`), supplying the
+frontend visual canvas (LiteGraph via `web/index.html`) with exhaustive node schemas,
+thematic colouring, input/output connection slots, inline property defaults, and interactive widgets.
+
+Architectural Division of Responsibilities:
+    1. Functional Evaluator Registry (`NODE_REGISTRY`): Populated by `@pyxis_node` across
+       the `nodes/<category>_nodes.py` sub-modules, mapping 'Category/NodeName' to Python
+       callable functions for runtime evaluation.
+    2. Visual Topology Registry (`SYSTEM_NODE_DB`): Populated by `system_node(...)` in this
+       module, defining UI-facing node blueprints: category, canonical naming, node kind,
+       thematic colour, input/output ports, inline properties, and widget configurations.
+
+System Node Metadata Schema:
+    - category (str): Canonical classification ('Loops', 'System', 'Variables', 'Basics',
+      'Functions', 'Time', 'Shape', 'Audio').
+    - name (str): Strict canonical English node identifier.
+    - node_kind (str): Functional role classification ('main_loop', 'max_loop', 'output',
+      'preview', 'step', 'variable_master', 'set_vars', 'tag_master', 'math', 'text', 'data').
+    - inputs (list[str]): Input port identifiers for cable connections.
+    - outputs (list[str]): Output port identifiers emitting data, tags, or loop tokens.
+    - color (str): Hexadecimal colour code establishing category identity across themes.
+    - properties (dict): Initial dictionary of parameters and defaults persisted in node state.
+    - widgets (list[dict]): Specifications for canvas UI controls ('combo', 'text', 'toggle').
+
+Widget Types and UI Contracts:
+    - {"type": "combo", "name": str, "property": str, "values": list[str]}: Renders an interactive
+      dropdown list enforcing discrete canonical enumeration choices.
+    - {"type": "text", "name": str, "property": str, ["default": str]}: Renders an inline text box
+      for scalars, coordinate pairs, or mathematical expressions.
+    - {"type": "toggle", "name": str, "property": str, "default": bool}: Renders a boolean switch.
+
+Canonical Port Configurations and Enum Conventions (Part 2):
+    - Spatial Anchors (`anchor`):
+      Discrete origin modes ('center', 'origin', 'relative', 'absolute', 'pieces',
+      'parent_org', 'pos', 'first_point', 'topleft', 'topright', 'bottomleft', 'bottomright')
+      governing local versus screen-space vector translations and ASS `\\org`/`\\pos` alignment.
+    - 1D vs 2D Iteration Ordering (`order`):
+      * 1D Linear (Sequential): 'normal', 'invert', '5' (centre outwards), '-5' (edges inwards),
+        'odd_even', 'rand'.
+      * 2D Spatial / Matrix / Slicer / Grids: Numpad directional cartesian orders ('79', '97',
+        '13', '31', '71', '17', '93', '39'), Radials ('5', '-5', 'cw', 'ccw'), and Stochastics ('rand').
+    - Vector Geometry & Boolean Modes:
+      * Joining: 'round', 'miter', 'bevel'.
+      * Capping: 'round', 'square', 'flat', 'bezier'.
+      * Boolean clipping (Clipper2): 'difference', 'intersection', 'union', 'xor', 'offset',
+        'minkowski_sum', 'minkowski_diff'.
+      * Tessellation (Slicer): 23 procedural mesh variants ('grid', 'hex', 'tri', 'voronoi',
+        'truchet', 'mondrian', 'circuit', etc.).
+    - Temporal Phases (`phase` in Retime):
+      'syl', 'presyl', 'postsyl', 'line', 'preline', 'postline', 'start2syl', 'syl2end', 'abs', 'sylpct'.
+    - Expandable and Dynamic Cable Ports:
+      Nodes supporting dynamic arity ('Concatenate', 'Dynamic Format', 'Script Code', 'Glitter')
+      synchronise socket count with inline properties (`inputs_count`, `expandable=True`),
+      enforcing input precedence: wired connection overrides inline widget value.
+
+Upstream Dependencies:
+    - decorators.py: Provides the `system_node(...)` registration function and global `SYSTEM_NODE_DB`.
+    - nodes: Imports all node calculation modules to guarantee `@pyxis_node` evaluation hooks
+      are loaded into memory alongside visual registrations.
+
+Downstream Consumers:
+    - decorators.get_manifest(): Serialises `SYSTEM_NODE_DB` into JSON for frontend bootstrapping.
+    - main.py / pyxis_daemon.py: Transmits node definitions over IPC/WebSocket to the UI client.
+    - web/index.html: Dynamically creates LiteGraph node classes based on exported manifest metadata.
+    - node_validator.py: Audits user graphs against valid property names, ports, and enums.
+
+State and Side Effects:
+    - Populates the global in-memory dictionary `decorators.SYSTEM_NODE_DB` at module import time.
+    - Zero runtime calculation overhead or side effects during graph rendering.
+"""
 
 from decorators import system_node
 import nodes
@@ -409,17 +484,18 @@ system_node(
 
 system_node(
     "Functions", "Particles", node_kind="data", color="#8B5CF6",
-    inputs=["Path / Origin", "Particle", "Density", "RedrawDist", "Seed", "Scale", "Numpad Order"],
+    inputs=["Path / Origin", "Particle", "Density", "RedrawDist", "Seed", "Scale", "Anchor", "Order"],
     outputs=["Shp Out", "\\pos Tag", "X Arr", "Y Arr", "Total"],
-    properties={"shape": "", "particle_shape": "", "density": "5.0", "redraw_dist": "0", "seed": "1", "scale": "1.0", "mode": "outline_v2", "order": "79"},
+    properties={"shape": "", "particle_shape": "", "density": "5.0", "redraw_dist": "0", "seed": "1", "scale": "1.0", "mode": "outline_v2", "anchor": "pieces", "order": "79"},
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": ["outline_v2", "border", "inner_fill"]},
-        {"type": "combo", "name": "Order:", "property": "order", "values": ["79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand"]},
         {"type": "text", "name": "Particle:", "property": "particle_shape"},
         {"type": "text", "name": "Density:", "property": "density"},
         {"type": "text", "name": "RedrawDist:", "property": "redraw_dist"},
         {"type": "text", "name": "Seed:", "property": "seed"},
-        {"type": "text", "name": "Scale:", "property": "scale"}
+        {"type": "text", "name": "Scale:", "property": "scale"},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["pieces", "relative", "parent_org", "pos", "absolute"]},
+        {"type": "combo", "name": "Order:", "property": "order", "values": ["79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand", "path", "path_inv"]}
     ]
 )
 
@@ -524,6 +600,8 @@ system_node(
 
 
 
+# Shape/IMG to Shape: Bitmap raster and animated GIF vectorisation into ASSDraw geometry.
+# Exposes 13 input ports, 6 output slots, and configurable thresholding, smoothing and anchor widgets.
 system_node(
     "Shape", "IMG to Shape", node_kind="data", color="#0F766E",
     inputs=["Image Path", "Frame (j)", "Threshold", "Tolerance", "Smoothing", "Optimization", "Scale Out", "Width Out", "Height Out", "Offset X", "Offset Y", "Image Scale", "Binarize Mode"],
@@ -565,6 +643,7 @@ system_node(
     ]
 )
 
+# Shape/Array: 2D spatial vector formations and matrix replication across grid, hex, radial, and spiral topologies.
 system_node(
     "Shape", "Array", node_kind="data", color="#0F766E",
     inputs=["Shape", "Cols", "Rows", "Size X", "Size Y", "Scale X", "Scale Y", "Off X", "Off Y", "Angle", "Step Angle", "Bleed", "Accel", "Text Scale", "Pre-Offset", "Anchor", "Output Type", "Order", "Loop Mode"],
@@ -775,7 +854,7 @@ system_node(
             "pieces", "relative", "parent_org", "pos", "absolute"
         ]},
         {"type": "combo", "name": "Order:", "property": "order", "values": [
-            "79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand"
+            "79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand", "path", "path_inv"
         ]},
         {"type": "text", "name": "Auto-Intersect:", "property": "clean_self_intersect", "default": "1"}
     ]

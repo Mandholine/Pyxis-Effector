@@ -12,7 +12,16 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-# For any question you can visit: https://discord.gg/rYsARc3fB9
+# For any question you can visit: https://discord.gg/fsxRESeQZN
+
+"""Pyxis Effector — Main PyWebView application bootstrap and JS-Python API bridge.
+
+Provides the primary graphical runtime for Pyxis Node Engine 1.1.4, managing
+PyWebView window initialisation, thread pooling, log buffering, OS job objects,
+configuration persistence, template storage, dialogue windows, script syntax
+validation, and communication bridges between client-side JavaScript and backend
+Python routines.
+"""
 
 import json
 import os
@@ -29,21 +38,44 @@ socketserver.TCPServer.request_queue_size = 256
 wsgiref.simple_server.WSGIServer.request_queue_size = 256
 
 class _LogBufferStream:
+    """Tee stream capturing standard output and error into an in-memory buffer.
+
+    Maintains a rolling ring buffer of console output (up to 3,000 entries)
+    to facilitate runtime diagnostics and integrated debug console inspection
+    without blocking standard stdout and stderr forwarding.
+    """
     _buffer = []
     _max_buffer = 3000
 
     def __init__(self, original_stream=None):
+        """Initialises the logging stream wrapper.
+
+        Args:
+            original_stream (io.TextIOBase, optional): Underlying stream to receive
+                mirrored writes. Defaults to None.
+        """
         self.original_stream = original_stream
 
     @classmethod
     def clear(cls):
+        """Empties the accumulated in-memory log buffer."""
         cls._buffer.clear()
 
     @classmethod
     def get_logs(cls):
+        """Retrieves a shallow copy of all log lines currently held in the ring buffer.
+
+        Returns:
+            list[str]: Copy of collected log strings.
+        """
         return list(cls._buffer)
 
     def write(self, s):
+        """Appends output to the internal ring buffer and forwards to original_stream.
+
+        Args:
+            s (str): String snippet to record.
+        """
         if s:
             _LogBufferStream._buffer.append(s)
             if len(_LogBufferStream._buffer) > _LogBufferStream._max_buffer:
@@ -56,6 +88,7 @@ class _LogBufferStream:
                     pass
 
     def flush(self):
+        """Flushes the underlying stream if present."""
         if self.original_stream:
             try:
                 self.original_stream.flush()
@@ -78,18 +111,43 @@ try:
 except Exception:
     pass
 
-PYXIS_ENGINE_VERSION = "1.1.4"
+try:
+    from version import (
+        PYXIS_VERSION as PYXIS_ENGINE_VERSION,
+        PYXIS_APP_ID,
+        PYXIS_CLIENT_AUTH,
+        PYXIS_STAGE,
+        PYXIS_FULL_VERSION,
+        PYXIS_VERSION_STRING
+    )
+except ImportError:
+    PYXIS_ENGINE_VERSION = "1.1.4"
+    PYXIS_APP_ID = "Mandholine.Pyxis.NodeEngine.1.1.4"
+    PYXIS_CLIENT_AUTH = "pyxis-beta-1.1.4-client"
+    PYXIS_STAGE = "Beta"
+    PYXIS_FULL_VERSION = "Beta v1.1.4"
+    PYXIS_VERSION_STRING = "v1.1.4"
 
 if sys.platform == "win32":
     try:
         import ctypes
-        my_app_id = "Mandholine.Pyxis.NodeEngine.1.1.4"
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(PYXIS_APP_ID)
     except Exception:
         pass
 
 
 def _apply_pyxis_window_icon(hwnd=None):
+    """Sets the high-resolution and low-resolution window icons on Windows.
+
+    Resolves the application icon (`icon.ico` or converts from `icon.png`),
+    locates the Pyxis engine window handle via Win32 `EnumWindows` if not
+    explicitly provided, and dispatches `WM_SETICON` messages for both
+    `ICON_BIG` (32x32) and `ICON_SMALL` (16x16).
+
+    Args:
+        hwnd (int, optional): Explicit Win32 window handle. If None, the window
+            is located dynamically by process ID and title match.
+    """
     if sys.platform != "win32":
         return
     try:
@@ -174,9 +232,14 @@ def _apply_pyxis_window_icon(hwnd=None):
 
 
 def _setup_windows_job_object():
-    """Asocia el proceso de Python a un Job Object de Windows con JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
-    Garantiza que si el proceso de Python se cierra, muere o se cancela, Windows elimina automáticamente
-    a todos los procesos hijos (workers de multiprocessing, ffmpeg, etc.) sin dejar procesos zombi.
+    """Binds the Python process to a Windows Job Object with kill-on-close policy.
+
+    Ensures that whenever the host process terminates, crashes, or is cancelled,
+    the Windows kernel immediately terminates all child processes (such as
+    multiprocessing worker pools, FFmpeg, or Potrace) to eliminate zombie tasks.
+
+    Returns:
+        int | None: Win32 handle to the created job object, or None if setup failed.
     """
     if sys.platform != "win32":
         return None
@@ -247,6 +310,7 @@ def _setup_windows_job_object():
 _GLOBAL_JOB_OBJECT = _setup_windows_job_object()
 
 def _cleanup_at_exit():
+    """At-exit handler ensuring all global multiprocessing worker pools are aborted."""
     try:
         from node_engine import abort_global_multiprocessing
         abort_global_multiprocessing()
@@ -256,6 +320,15 @@ atexit.register(_cleanup_at_exit)
 
 
 def _atomic_write(path, data):
+    """Writes text data atomically to disk with explicit directory creation and sync.
+
+    Writes initially to a hidden sibling file (`<path>.tmp`), flushes buffers,
+    issues `os.fsync`, and atomically replaces the target using `os.replace`.
+
+    Args:
+        path (str): Target filesystem path.
+        data (str): Text content to write.
+    """
     dir_name = os.path.dirname(path)
     if dir_name:
         os.makedirs(dir_name, exist_ok=True)
@@ -279,6 +352,16 @@ def _atomic_write(path, data):
 
 
 def _to_int_or_default(value, default=None):
+    """Safely converts an arbitrary scalar value to an integer with a fallback.
+
+    Args:
+        value (Any): Input value to parse.
+        default (int | None, optional): Fallback value if conversion fails or
+            input is empty. Defaults to None.
+
+    Returns:
+        int | None: Parsed integer or default value.
+    """
     if value is None:
         return default
     if isinstance(value, int):
@@ -294,7 +377,24 @@ def _to_int_or_default(value, default=None):
 
 
 class PyxisAPI:
+    """Primary JavaScript-Python bridge exposed to the PyWebView graphical interface.
+
+    Coordinates session parameters, configuration storage, theme management,
+    integrated console logs, bug reporting, background media, file diálogos,
+    template persistence, and execution pipelines between the frontend web canvas
+    and backend rendering routines.
+    """
+
     def __init__(self, temp_ass, result_file, session_file, aegisub_version="unknown", lock_file=None):
+        """Initialises the Pyxis API bridge instance with session parameters.
+
+        Args:
+            temp_ass (str): Path to the temporary ASS subtitle file exported by Aegisub.
+            result_file (str): Destination path for generated ASS dialogue lines.
+            session_file (str): Path to the session state file.
+            aegisub_version (str, optional): Version string of the calling Aegisub instance.
+            lock_file (str | None, optional): Path to the Aegisub lockfile indicating active edit.
+        """
         self.temp_ass = temp_ass
         self.result_file = result_file
         self.session_file = session_file
@@ -324,9 +424,11 @@ class PyxisAPI:
             print(f"[Pyxis] Error starting background maintenance threads: {e}", flush=True)
 
     def release_lock(self):
-        """Atomically and reliably release the lock file for Aegisub on Windows.
-        Includes retries with micro-pauses to prevent [WinError 32] collisions
-        when the Lua polling thread is inspecting the file at that millisecond.
+        """Atomically and reliably releases the lock file for Aegisub on Windows.
+
+        Includes retries with micro-pauses (up to 6 attempts) to prevent
+        WinError 32 sharing collisions when the calling Lua macro in Aegisub
+        is concurrently polling the file.
         """
         targets = []
         if hasattr(self, "lock_file") and self.lock_file:
@@ -346,8 +448,26 @@ class PyxisAPI:
                     time.sleep(0.02)
         self.lock_file = None
 
+    def get_version_info(self):
+        """Returns the canonical Pyxis engine version information dictionary.
+
+        Returns:
+            dict: Structured dictionary with version, stage, full_version, and app_id.
+        """
+        return {
+            "version": PYXIS_ENGINE_VERSION,
+            "stage": PYXIS_STAGE,
+            "version_string": PYXIS_VERSION_STRING,
+            "full_version": PYXIS_FULL_VERSION,
+            "app_id": PYXIS_APP_ID,
+        }
+
     def get_console_logs(self):
-        """Returns the accumulated log buffer for the integrated debug console."""
+        """Returns the accumulated in-memory log buffer for the integrated debug console.
+
+        Returns:
+            dict[str, Any]: Dictionary containing status flag and list of log strings.
+        """
         try:
             return {
                 "success": True,
@@ -357,7 +477,11 @@ class PyxisAPI:
             return {"success": False, "error": str(e), "logs": []}
 
     def clear_console_logs(self):
-        """Clears the accumulated in-memory log buffer."""
+        """Clears the accumulated in-memory log buffer.
+
+        Returns:
+            dict[str, Any]: Status dictionary indicating operation success or error.
+        """
         try:
             _LogBufferStream.clear()
             return {"success": True}
@@ -365,7 +489,21 @@ class PyxisAPI:
             return {"success": False, "error": str(e)}
 
     def send_bug_report(self, payload):
-        """Sends a structured bug report payload to the configured Cloudflare Worker proxy."""
+        """Transmits a structured bug report payload to the Cloudflare Worker proxy.
+
+        Enforces a 15-second client-side cooldown to prevent duplicate submissions,
+        assembles diagnostic telemetry (engine version, OS, Python runtime, Aegisub
+        version, GPU backend, screen resolution, backend logs), and dispatches an
+        HTTP POST request.
+
+        Args:
+            payload (dict): Submission data containing user intent, failure
+                description, optional base64 canvas screenshot, and diagnostic options.
+
+        Returns:
+            dict[str, Any]: Result dictionary with `success`, optional `cooldown`,
+                or error details.
+        """
         import json
         import time
         import urllib.request
@@ -430,7 +568,7 @@ class PyxisAPI:
                 headers={
                     "Content-Type": "application/json",
                     "User-Agent": f"Pyxis-Effector/{PYXIS_ENGINE_VERSION}",
-                    "X-Pyxis-Client-Auth": "pyxis-beta-1.1.4-client",
+                    "X-Pyxis-Client-Auth": PYXIS_CLIENT_AUTH,
                 },
                 method="POST"
             )
@@ -464,7 +602,14 @@ class PyxisAPI:
             return {"success": False, "error": str(e)}
 
     def open_external_url(self, url):
-        """Opens a web URL or mailto link safely in the operating system's default browser or mail client."""
+        """Safely opens a web URL or mailto link in the OS default browser or mail client.
+
+        Args:
+            url (str): Target URL starting with http://, https://, or mailto:.
+
+        Returns:
+            bool: True if launched successfully, False if blocked or invalid.
+        """
         import webbrowser
         try:
             url_str = str(url or "").strip()
@@ -477,6 +622,7 @@ class PyxisAPI:
 
     @property
     def template_store(self):
+        """Provides a lazily-instantiated TemplateStore singleton instance."""
         if self._store is None:
             from template_store import TemplateStore
             self._store = TemplateStore(
@@ -487,6 +633,7 @@ class PyxisAPI:
         return self._store
 
     def _get_config_path(self):
+        """Resolves the absolute path to user_config.json under the user's APPDATA directory."""
         appdata_dir = os.environ.get("APPDATA")
         if not appdata_dir:
             appdata_dir = os.path.expanduser("~")
@@ -495,6 +642,7 @@ class PyxisAPI:
         return os.path.join(pyxis_config_dir, "user_config.json")
 
     def _get_bg_media_dir(self):
+        """Resolves the directory storing background video and poster assets."""
         appdata_dir = os.environ.get("APPDATA")
         if not appdata_dir:
             appdata_dir = os.path.expanduser("~")
@@ -503,6 +651,7 @@ class PyxisAPI:
         return bg_media_dir
 
     def _get_bg_image_path(self):
+        """Resolves the active background image path (preferring WebP over PNG)."""
         appdata_dir = os.environ.get("APPDATA")
         if not appdata_dir:
             appdata_dir = os.path.expanduser("~")
@@ -515,6 +664,7 @@ class PyxisAPI:
         return webp_path
 
     def _get_default_back_path(self):
+        """Locates the default bundled background image across multiple candidate paths."""
         script_dir = os.path.dirname(os.path.abspath(__file__))
         appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
         pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
@@ -531,6 +681,13 @@ class PyxisAPI:
         return None
 
     def _get_bg_media_info(self):
+        """Inspects and returns metadata regarding active background video or image.
+
+        Returns:
+            dict[str, Any]: Dictionary detailing `has_bg`, `media_type` ('video',
+                'image', or 'none'), loopback media streaming URLs, poster URLs,
+                or base64 data URLs.
+        """
         appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
         pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
         bg_media_dir = os.path.join(pyxis_config_dir, "bg_media")
@@ -620,6 +777,15 @@ class PyxisAPI:
         }
 
     def get_user_config(self):
+        """Loads and returns user configuration settings merged with default values.
+
+        Reads from `%APPDATA%/PyxisNodes/user_config.json`, backfilling missing
+        attributes with defaults (theme, grid snapping, undo steps, background
+        media opacity and mode, language, telemetry scales).
+
+        Returns:
+            dict[str, Any]: Merged configuration dictionary.
+        """
         config = {
             "theme": "teal",
             "grid_mode": 1,
@@ -663,6 +829,11 @@ class PyxisAPI:
         return config
 
     def get_bg_image_data(self):
+        """Retrieves base64 data URL for the configured background image.
+
+        Returns:
+            str: Base64 data URL or empty string if no image background is configured.
+        """
         try:
             info = self._get_bg_media_info()
             return info.get("data_url", "")
@@ -671,6 +842,11 @@ class PyxisAPI:
         return ""
 
     def get_bg_media_data(self):
+        """Retrieves the complete background media information dictionary.
+
+        Returns:
+            dict[str, Any]: Media metadata dictionary.
+        """
         try:
             return self._get_bg_media_info()
         except Exception as e:
@@ -678,6 +854,18 @@ class PyxisAPI:
             return {"has_bg": False, "media_type": "none", "video_url": "", "poster_url": "", "data_url": "", "is_default": False}
 
     def save_user_config(self, payload):
+        """Persists updated user settings atomically to user_config.json.
+
+        Supports removal of existing background assets when requested, validates
+        theme identifiers and telemetry scales, persists configuration atomically,
+        and dynamically updates daemon mode on the active daemon server.
+
+        Args:
+            payload (dict | str): Updated configuration dictionary or JSON string.
+
+        Returns:
+            bool: True if configuration was successfully persisted, False otherwise.
+        """
         try:
             config_data = payload if isinstance(payload, dict) else json.loads(payload)
             is_removing_bg = bool(config_data.get("remove_bg_image", False) or config_data.get("remove_bg_media", False))
@@ -826,18 +1014,28 @@ class PyxisAPI:
             return False
 
     def _get_themes_dir(self):
+        """Resolves the directory storing individual user theme JSON files."""
         appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
         pyxis_themes_dir = os.path.join(appdata_dir, "PyxisNodes", "themes")
         os.makedirs(pyxis_themes_dir, exist_ok=True)
         return pyxis_themes_dir
 
     def _get_custom_themes_path(self):
+        """Resolves the path to the consolidated custom_themes.json file."""
         appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
         pyxis_config_dir = os.path.join(appdata_dir, "PyxisNodes")
         os.makedirs(pyxis_config_dir, exist_ok=True)
         return os.path.join(pyxis_config_dir, "custom_themes.json")
 
     def get_custom_themes(self):
+        """Loads and aggregates all custom UI themes from disk.
+
+        Scans both the legacy consolidated `custom_themes.json` and the dedicated
+        `themes/` folder, tagging each theme with `isCustom: True`.
+
+        Returns:
+            dict[str, dict[str, Any]]: Mapping of theme IDs to theme definitions.
+        """
         themes = {}
         try:
             path = self._get_custom_themes_path()
@@ -868,6 +1066,14 @@ class PyxisAPI:
         return themes
 
     def save_custom_themes(self, payload):
+        """Persists multiple custom themes to disk atomically.
+
+        Args:
+            payload (dict | str): Theme mapping or JSON string.
+
+        Returns:
+            bool: True if themes were saved successfully, False on error.
+        """
         try:
             themes = payload if isinstance(payload, dict) else json.loads(payload)
             themes_dir = self._get_themes_dir()
@@ -885,6 +1091,17 @@ class PyxisAPI:
             return False
 
     def save_custom_theme(self, payload):
+        """Saves or updates a single custom UI theme atomically.
+
+        Writes both an individual file in `%APPDATA%/PyxisNodes/themes/` and
+        synchronises the entry in `custom_themes.json`.
+
+        Args:
+            payload (dict | str): Theme dictionary or JSON string containing 'id'.
+
+        Returns:
+            bool: True if the theme was saved, False otherwise.
+        """
         try:
             theme_data = payload if isinstance(payload, dict) else json.loads(payload)
             theme_id = theme_data.get("id")
@@ -913,6 +1130,14 @@ class PyxisAPI:
             return False
 
     def delete_custom_theme(self, theme_id):
+        """Deletes a custom theme from both the consolidated file and individual storage.
+
+        Args:
+            theme_id (str): Unique theme identifier to delete.
+
+        Returns:
+            bool: True if deletion succeeded, False otherwise.
+        """
         try:
             path = self._get_custom_themes_path()
             themes = {}
@@ -954,7 +1179,18 @@ class PyxisAPI:
 
     @staticmethod
     def cleanup_temp_files(max_age_hours=72, force_all=False):
-        """Deletes temporary files and cache fragments older than max_age_hours (default 72h)."""
+        """Deletes temporary files and cache fragments older than max_age_hours (default 72h).
+
+        Purges expired files from `temp_cache`, `temp`, `fonts`, and preview
+        media files in `bg_media` (`preview_bg_*`, `export_bg_*`).
+
+        Args:
+            max_age_hours (int, optional): Cut-off threshold in hours. Defaults to 72.
+            force_all (bool, optional): If True, unlinks all files regardless of age.
+
+        Returns:
+            dict[str, Any]: Summary containing `cleaned_files` count and `freed_bytes`.
+        """
         import time
         try:
             appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
@@ -1048,9 +1284,22 @@ class PyxisAPI:
             return {"cleaned_files": 0, "freed_bytes": 0, "error": str(e)}
 
     def clean_temp_cache(self, max_age_hours=72, force_all=False):
+        """Convenience alias for cleanup_temp_files."""
         return self.cleanup_temp_files(max_age_hours=max_age_hours, force_all=force_all)
 
     def export_theme_dialog(self, payload):
+        """Displays a native file save dialogue to export a theme JSON document.
+
+        Uses PyWebView's `create_file_dialog` with Tkinter fallback if webview
+        dialogues are unavailable.
+
+        Args:
+            payload (dict | str): Theme data to export.
+
+        Returns:
+            dict[str, Any]: Status dictionary containing `success`, exported `path`,
+                or `cancelled` flag.
+        """
         try:
             theme = payload if isinstance(payload, dict) else json.loads(payload)
             theme_name = theme.get("name", "Tema_Pyxis").replace(" ", "_")
@@ -1095,6 +1344,14 @@ class PyxisAPI:
             return {"success": False, "error": str(e)}
 
     def import_theme_dialog(self):
+        """Displays a native file open dialogue to import a theme JSON document.
+
+        Validates the structure of the loaded theme, assigns a fallback ID if missing,
+        marks `isCustom: True`, and persists to custom themes storage.
+
+        Returns:
+            dict[str, Any]: Status dictionary containing imported `theme` or `cancelled` flag.
+        """
         try:
             import time
             open_path = None
@@ -1144,6 +1401,7 @@ class PyxisAPI:
             return {"success": False, "error": str(e)}
 
     def _get_code_templates_path(self):
+        """Resolves the path to the user code snippet templates configuration file."""
         appdata_dir = os.environ.get("APPDATA")
         if not appdata_dir:
             appdata_dir = os.path.expanduser("~")
@@ -1152,6 +1410,11 @@ class PyxisAPI:
         return os.path.join(pyxis_config_dir, "user_code_templates.json")
 
     def get_code_templates(self):
+        """Loads and returns user code snippet presets from user_code_templates.json.
+
+        Returns:
+            dict[str, Any]: Dictionary of code templates.
+        """
         try:
             path = self._get_code_templates_path()
             if os.path.exists(path):
@@ -1162,6 +1425,14 @@ class PyxisAPI:
         return {}
 
     def save_code_templates(self, payload):
+        """Persists user code snippet presets atomically to user_code_templates.json.
+
+        Args:
+            payload (dict | str): Presets dictionary or JSON string.
+
+        Returns:
+            bool: True if saved successfully, False on error.
+        """
         try:
             templates = payload if isinstance(payload, dict) else json.loads(payload)
             path = self._get_code_templates_path()
@@ -1172,6 +1443,22 @@ class PyxisAPI:
             return False
 
     def validate_script_syntax(self, script, language="Python"):
+        """Validates the syntax of Python or Lua user script snippets.
+
+        Applies regex pre-processing to handle Pyxis-specific shorthand unit
+        suffixes (such as `40Line`, `40ms`, `10f`, `5r`, `40li`) preventing
+        false-positive parse failures. Uses Python's `ast.parse` for Python
+        code and `lupa.LuaRuntime` for Lua scripts (with fallback to client-side
+        JS verification if `lupa` is not installed).
+
+        Args:
+            script (str): Script text to validate.
+            language (str, optional): Target language ("Python" or "Lua"). Defaults to "Python".
+
+        Returns:
+            dict[str, Any]: Validation result containing `valid: bool`, optional
+                `line: int`, and `error: str | None`.
+        """
         script_str = str(script or "").strip()
         if not script_str:
             return {"valid": True, "error": None}
@@ -1216,6 +1503,16 @@ class PyxisAPI:
         return {"valid": True, "error": None}
 
     def _optimize_bg_image(self, input_path, output_path):
+        """Optimises and compresses a background image into WebP format.
+
+        Transposes EXIF orientation tags, downsamples resolutions exceeding
+        2560x1440 using Lanczos filtering, and iteratively adjusts compression
+        quality to respect a strict 250 KB budget.
+
+        Args:
+            input_path (str): Source image filesystem path.
+            output_path (str): Destination WebP filesystem path.
+        """
         from PIL import Image, ImageOps
         import io
 
@@ -1257,6 +1554,12 @@ class PyxisAPI:
                 img.save(output_path, "WEBP", quality=50)
 
     def _generate_video_poster(self, video_path, poster_path):
+        """Extracts the first frame of a background video as a WebP poster image.
+
+        Args:
+            video_path (str): Source video file path.
+            poster_path (str): Target WebP image file path.
+        """
         ffmpeg_exe = self._find_ffmpeg()
         import subprocess
         startupinfo = None
@@ -1278,6 +1581,16 @@ class PyxisAPI:
             pass
 
     def _optimize_bg_video(self, input_path, output_path, poster_path=None):
+        """Transcodes background video to optimised H.264 MP4 with faststart flags.
+
+        Strips audio tracks, downscales to a maximum of 1920x1080 (ensuring even
+        dimensions), and generates an accompanying WebP poster thumbnail.
+
+        Args:
+            input_path (str): Source video file path.
+            output_path (str): Target MP4 file path.
+            poster_path (str, optional): Target WebP poster thumbnail path.
+        """
         ffmpeg_exe = self._find_ffmpeg()
         
         if poster_path is None:
@@ -1326,6 +1639,20 @@ class PyxisAPI:
                 self._generate_video_poster(output_path, poster_path)
 
     def select_bg_media(self, convert_video=True):
+        """Displays a native file selection dialogue for background image or video assets.
+
+        Processes chosen media, transcode-optimising video to MP4/WebP poster
+        or compressing image to WebP under strict byte budgets, and updates
+        persisted background media assets.
+
+        Args:
+            convert_video (bool, optional): Whether to transcode imported video
+                via FFmpeg. Defaults to True.
+
+        Returns:
+            dict[str, Any]: Media description dictionary containing status, URLs,
+                and format details.
+        """
         try:
             file_path = None
             if hasattr(webview, "windows") and webview.windows:
@@ -1510,6 +1837,7 @@ class PyxisAPI:
             return {"success": False, "error": str(e)}
 
     def select_bg_image(self):
+        """Opens media selection dialogue and returns the resolved media URL."""
         res = self.select_bg_media()
         if isinstance(res, dict):
             if res.get("media_type") == "image":
@@ -1519,6 +1847,11 @@ class PyxisAPI:
         return ""
 
     def select_image_dialog(self):
+        """Displays a native file dialogue to pick a raster image file for nodes.
+
+        Returns:
+            str: Absolute path to the selected image file, or empty string if cancelled.
+        """
         try:
             if not webview.windows:
                 return ""
@@ -1540,19 +1873,23 @@ class PyxisAPI:
             return ""
 
     def log_js_error(self, msg):
+        """Logs an error message originating from the frontend JavaScript context."""
         print(f"[Pyxis JS ERROR] {msg}", flush=True)
         return True
 
     def log_js_info(self, msg):
+        """Logs an informational message originating from frontend JavaScript."""
         print(f"[Pyxis JS INFO] {msg}", flush=True)
         return True
 
     def get_manifest(self):
+        """Returns the registered node manifest dictionary for the frontend node palette."""
         from decorators import get_manifest
         import nodes_library
         return get_manifest()
 
     def get_session_graph(self):
+        """Loads and returns the active graph session JSON string from session_file."""
         try:
             with open(self.session_file, "r", encoding="utf-8") as file_handle:
                 return file_handle.read()
@@ -1560,6 +1897,14 @@ class PyxisAPI:
             return ""
 
     def save_session(self, payload):
+        """Persists the current canvas graph state atomically into session_file.
+
+        Args:
+            payload (dict | str): Graph data structure or JSON string.
+
+        Returns:
+            bool: True if session state was persisted, False on error.
+        """
         try:
             graph_data = self._normalize_graph(payload)
             _atomic_write(
@@ -1580,6 +1925,17 @@ class PyxisAPI:
                 return False
 
     def save_template(self, name, comment, payload, template_id=None):
+        """Saves or updates a template in user templates storage.
+
+        Args:
+            name (str): Template display name.
+            comment (str): Template description or instructions.
+            payload (dict | str): Graph structure.
+            template_id (str, optional): Target template identifier.
+
+        Returns:
+            dict[str, Any]: Saved template metadata dictionary.
+        """
         graph_data = self._normalize_graph(payload)
         metadata = self.template_store.save_template(
             name, comment, graph_data, template_id=str(template_id) if template_id else None
@@ -1587,6 +1943,15 @@ class PyxisAPI:
         return metadata
 
     def save_template_as(self, payload, default_name=None):
+        """Displays a native save file dialogue to export the graph to a custom location.
+
+        Args:
+            payload (dict | str): Graph data structure.
+            default_name (str, optional): Suggested file name. Defaults to "template".
+
+        Returns:
+            dict[str, Any] | None: Metadata of exported template, or None if cancelled.
+        """
         try:
             graph_data = self._normalize_graph(payload)
             window = webview.windows[0]
@@ -1632,9 +1997,18 @@ class PyxisAPI:
             raise ValueError(f"Could not save file: {error}")
 
     def list_templates(self):
+        """Returns the sorted list of all available system and user templates."""
         return self.template_store.list_templates()
 
     def load_template(self, template_id):
+        """Loads and parses a template document by identifier.
+
+        Args:
+            template_id (str): Unique template identifier.
+
+        Returns:
+            dict[str, Any]: Dictionary containing `metadata` and `graph`.
+        """
         document = self.template_store.load_template(str(template_id))
         return {
             "metadata": document.get("metadata", {}),
@@ -1642,13 +2016,37 @@ class PyxisAPI:
         }
 
     def delete_template(self, template_id):
+        """Deletes a user-created template file from disk.
+
+        Args:
+            template_id (str): Unique identifier of template to delete.
+
+        Returns:
+            bool: True upon successful deletion.
+        """
         self.template_store.delete_template(str(template_id))
         return True
 
     def toggle_favorite(self, template_id):
+        """Toggles the favourite bookmark flag of the target template.
+
+        Args:
+            template_id (str): Unique template identifier.
+
+        Returns:
+            bool: Updated favourite status.
+        """
         return self.template_store.toggle_favorite(str(template_id))
 
     def export_template(self, template_id):
+        """Exports an existing template to an external JSON file via save file dialogue.
+
+        Args:
+            template_id (str): Unique template identifier.
+
+        Returns:
+            bool: True if exported, False if cancelled or on error.
+        """
         try:
             document = self.template_store.load_template(str(template_id))
             meta = document.get("metadata", {})
@@ -1674,6 +2072,11 @@ class PyxisAPI:
             return False
 
     def import_template(self):
+        """Imports an external template JSON file into the user's template library.
+
+        Returns:
+            dict[str, Any] | None: Metadata of imported template, or None if cancelled.
+        """
         try:
             window = webview.windows[0]
             save_flag = getattr(webview, 'FileDialog', None).OPEN if hasattr(webview, 'FileDialog') else webview.OPEN_DIALOG
@@ -1709,9 +2112,17 @@ class PyxisAPI:
             raise ValueError(f"Could not import template: {error}")
 
     def estimate_workload_api(self, graph_payload):
-        """
-        API invocada por el frontend para obtener una estimación instantánea (< 1ms)
-        del total de líneas a generar y nivel de complejidad del grafo.
+        """Calculates instantaneous workload metrics and complexity estimation (< 1ms).
+
+        Estimates total output line counts, base units, and rendering complexity
+        indicators for the given graph before initiating full generation.
+
+        Args:
+            graph_payload (dict | str): Graph data structure.
+
+        Returns:
+            dict[str, Any]: Workload metrics including `estimated_lines`, `input_lines`,
+                `base_units`, and complexity classifications.
         """
         try:
             from ass_parser import ASSParser
@@ -1774,7 +2185,15 @@ class PyxisAPI:
             }
 
     def cancel_generation(self):
-        """Cancels active generation immediately across any thread or subprocess."""
+        """Cancels active generation immediately across any thread or subprocess.
+
+        Signals the active `GraphEngine` instance, updates the shared multiprocessing
+        cancellation flag, and invokes `abort_global_multiprocessing()` to terminate
+        worker pools.
+
+        Returns:
+            dict[str, bool]: Execution status mapping with `success` and `cancelled`.
+        """
         print("[Pyxis] Cancellation requested by user from UI.", flush=True)
         self._preview_cancelled = True
         if getattr(self, '_active_engine', None) is not None:
@@ -1796,7 +2215,15 @@ class PyxisAPI:
         return {"success": True, "cancelled": True}
 
     def cancel_preview_ass(self):
-        """Cancels active preview ASS generation immediately."""
+        """Cancels active preview ASS generation immediately.
+
+        Signals the active preview `GraphEngine` instance, updates its shared cancel
+        flag, and invokes `abort_global_multiprocessing()` to ensure preview rendering
+        halts promptly.
+
+        Returns:
+            dict[str, bool]: Execution status mapping with `success` and `cancelled`.
+        """
         print("[Pyxis] Preview cancellation requested by user from UI.", flush=True)
         self.log_player_event("cancel_preview_ass called by user.")
         self._preview_cancelled = True
@@ -1812,7 +2239,14 @@ class PyxisAPI:
         return {"success": True, "cancelled": True}
 
     def complete_and_hide(self):
-        """Hides PyWebView window or shuts down server once UI completes."""
+        """Hides the PyWebView window or shuts down the daemon upon completion.
+
+        Releases the IPC lock file and either hides the primary webview window (if running
+        in daemon mode) or triggers complete daemon shutdown.
+
+        Returns:
+            dict[str, bool]: Execution status with `success=True`.
+        """
         self.release_lock()
 
         config = self.get_user_config()
@@ -1827,6 +2261,18 @@ class PyxisAPI:
         return {"success": True}
 
     def validate_graph(self, payload):
+        """Validates graph structure, node connections, and properties via GraphValidator.
+
+        Inspects the deserialised graph for unconnected required inputs, type mismatches,
+        cyclic dependencies, and variable syntax errors.
+
+        Args:
+            payload (dict | str): Graph data structure or JSON string.
+
+        Returns:
+            dict[str, Any]: Validation summary containing `success`, list of `issues`,
+                `has_critical`, `has_warning`, and `total_issues`.
+        """
         try:
             graph_data = self._normalize_graph(payload)
             from node_validator import GraphValidator
@@ -1852,6 +2298,25 @@ class PyxisAPI:
             }
 
     def process_graph(self, payload):
+        """Executes full node graph processing to generate ASS subtitle dialogue lines.
+
+        Normalises the graph payload, creates an auto-save session checkpoint, scans
+        for audio-dependent nodes to pre-convert and load PCM audio into `AudioEngine`,
+        instantiates `GraphEngine`, and evaluates the pipeline over input subtitle
+        dialogues and styles with real-time UI progress streaming.
+
+        On successful completion, writes generated dialogue lines along with the
+        `#PYXIS_USED_IDX` provenance header to `self.result_file`, flushes to disk via
+        `os.fsync`, and releases the lock file. On failure, captures the traceback to
+        a companion `_debug.log` file.
+
+        Args:
+            payload (dict | str): Graph structure and execution parameters.
+
+        Returns:
+            dict[str, Any]: Processing result containing `success`, `cancelled`,
+                `lines_generated`, and optional `error` traceback.
+        """
         try:
             graph_data = self._normalize_graph(payload)
             try:
@@ -1940,6 +2405,18 @@ class PyxisAPI:
             self._active_engine = None
 
     def get_image_file_data_url(self, file_path):
+        """Reads an image file from disk and encodes it into a base64 Data URL.
+
+        Determines the MIME type using `mimetypes` (with fallback to PNG/JPEG/WebP)
+        and constructs an inline `data:<mime>;base64,...` URI suitable for webview
+        display.
+
+        Args:
+            file_path (str): Absolute or relative filesystem path to the image.
+
+        Returns:
+            str: Base64 data URL string, or empty string on missing file or error.
+        """
         try:
             if not file_path or not os.path.exists(file_path):
                 return ""
@@ -1956,6 +2433,19 @@ class PyxisAPI:
             return ""
 
     def trace_image_api(self, node_props):
+        """Executes Potrace vectorisation on a raster image via `img_tracer_engine`.
+
+        Extracts tracing parameters (threshold, tolerance, bin_mode, alphamax, turnpolicy,
+        and frame index for animated formats) from `node_props` and delegates to
+        `img_tracer_engine.trace_image`.
+
+        Args:
+            node_props (dict): Property dictionary configured on the `Image/Trace` node.
+
+        Returns:
+            dict[str, Any]: Tracing result containing ASS drawing shape command `shape`,
+                `width`, `height`, `points`, or error details.
+        """
         try:
             from img_tracer_engine import trace_image
             if not isinstance(node_props, dict):
@@ -2031,6 +2521,19 @@ class PyxisAPI:
     _SAMPLE_PIXELS_CACHE = {}
 
     def sample_pixels_api(self, node_props):
+        """Samples pixel coordinates and RGBA colour data from a raster image or GIF.
+
+        Performs alpha-threshold filtering, adaptive grid subsampling (capping maximum
+        points to 8,000 to maintain smooth webview performance), and caches sampled
+        results in `PyxisAPI._SAMPLE_PIXELS_CACHE` (up to 500 entries).
+
+        Args:
+            node_props (dict): Property dictionary configured on the `Image/SamplePixels` node.
+
+        Returns:
+            dict[str, Any]: Sampled pixel points list `[x, y, r, g, b, a]`, total pixel
+                count, dimensions, frame indices, and sampling step sizes.
+        """
         try:
             if not isinstance(node_props, dict):
                 node_props = {}
@@ -2125,6 +2628,14 @@ class PyxisAPI:
 
     @staticmethod
     def _find_ffmpeg():
+        """Resolves the executable path to the FFmpeg binary.
+
+        Checks the bundled binary directory via `paths.get_bin_path("ffmpeg.exe")`,
+        local relative candidate directories, and the operating system PATH via `shutil.which`.
+
+        Returns:
+            str: Resolved path to the FFmpeg executable or fallback command name.
+        """
         try:
             from paths import get_bin_path
             target = get_bin_path("ffmpeg.exe")
@@ -2152,9 +2663,18 @@ class PyxisAPI:
 
     @classmethod
     def _detect_best_h264_encoder(cls, ffmpeg_exe: str = None) -> tuple[str, list[str]]:
-        """
-        Detects hardware H.264 encoders (NVENC, AMF, QSV) and returns optimal encoding arguments.
-        Falls back cleanly to CPU libx264 with optimized multithreaded preset.
+        """Probes and selects the optimal H.264 video encoder available on the system.
+
+        Tests hardware-accelerated encoders in order of priority (`h264_nvenc`,
+        `h264_amf`, `h264_qsv`) using a null-device command probe. Caches the
+        first functioning hardware encoder, or falls back to software `libx264`
+        with multi-threaded presets.
+
+        Args:
+            ffmpeg_exe (str, optional): Custom path to the FFmpeg binary. Defaults to None.
+
+        Returns:
+            tuple[str, list[str]]: A 2-tuple of `(encoder_name, ffmpeg_argument_list)`.
         """
         if cls._CACHED_H264_ENCODER is not None:
             return cls._CACHED_H264_ENCODER
@@ -2190,6 +2710,15 @@ class PyxisAPI:
 
     @staticmethod
     def _shift_ass_timestamp(time_str: str, shift_ms: int) -> str:
+        """Subtracts a millisecond offset from an ASS timestamp string (`H:MM:SS.cs`).
+
+        Args:
+            time_str (str): Formatted ASS timestamp.
+            shift_ms (int): Milliseconds to subtract (clamped to zero).
+
+        Returns:
+            str: Shifted ASS timestamp string in `H:MM:SS.cs` format.
+        """
         if not time_str:
             return "0:00:00.00"
         orig_ms = PyxisAPI._parse_ass_time(time_str)
@@ -2204,7 +2733,18 @@ class PyxisAPI:
 
     @classmethod
     def _shift_ass_line(cls, line_str: str, shift_ms: int) -> str:
-        """Adjusts Start and End fields of a Dialogue or Comment line by subtracting shift_ms."""
+        """Adjusts Start and End timestamps of a Dialogue or Comment ASS line.
+
+        Parses the comma-delimited fields of the line and shifts indices 1 (Start)
+        and 2 (End) backwards by `shift_ms` milliseconds for sub-clip audio/video sync.
+
+        Args:
+            line_str (str): Raw ASS Dialogue or Comment line.
+            shift_ms (int): Millisecond offset to shift.
+
+        Returns:
+            str: Line string with shifted Start and End timestamps.
+        """
         if not shift_ms or shift_ms <= 0:
             return line_str
         line_clean = line_str.lstrip('\ufeff')
@@ -2232,7 +2772,18 @@ class PyxisAPI:
 
     @staticmethod
     def _is_valid_mp4(filepath):
-        """Validates that an MP4 file exists, has sufficient size, and valid atoms (ftyp and moov)."""
+        """Validates that an MP4 container file is non-empty and structurally intact.
+
+        Checks file existence, minimum size (128 bytes), and inspects the initial
+        and terminal byte chunks for valid ISO Base Media File Format atoms (`ftyp`
+        and `moov`).
+
+        Args:
+            filepath (str): Filesystem path to the candidate MP4 video.
+
+        Returns:
+            bool: True if the file contains valid MP4 container headers and moov atom.
+        """
         if not filepath or not os.path.isfile(filepath):
             return False
         try:
@@ -2257,7 +2808,12 @@ class PyxisAPI:
             return False
 
     def _purge_corrupted_bg_media(self):
-        """Limpia en segundo plano archivos MP4 corruptos o incompletos en bg_media."""
+        """Scans and purges corrupted or temporary video cache files in background storage.
+
+        Inspects `%APPDATA%/PyxisNodes/bg_media/` for partial `.tmp.mp4` files or
+        containers that fail `_is_valid_mp4` validation, deleting invalid files to
+        prevent playback hangs.
+        """
         try:
             appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
             bg_media_dir = os.path.join(appdata_dir, "PyxisNodes", "bg_media")
@@ -2277,7 +2833,21 @@ class PyxisAPI:
 
     @staticmethod
     def _clean_and_resolve_media_path(raw_path, base_ass_path=None, script_file=None):
-        """Cleans Aegisub project prefixes (?video:, ?audio:, etc.) and resolves paths."""
+        """Cleans Aegisub project URI prefixes and resolves media files against candidate paths.
+
+        Strips enclosing quotes, normalises Aegisub macro prefixes (`?video:`, `?audio:`),
+        filters out dummy media placeholders, and attempts resolution in order:
+        direct filesystem path, directory of the active ASS script file, and directory
+        of the base ASS file.
+
+        Args:
+            raw_path (str | None): Raw video/audio path string from the ASS header.
+            base_ass_path (str | None, optional): Fallback base ASS script path. Defaults to None.
+            script_file (str | None, optional): Explicit Aegisub script path. Defaults to None.
+
+        Returns:
+            str | None: Absolute resolved filesystem path to the valid media file, or None.
+        """
         if not raw_path:
             return None
         p = str(raw_path).strip()
@@ -2317,7 +2887,15 @@ class PyxisAPI:
 
     @staticmethod
     def _get_aegisub_mru_media():
-        """Reads the most recent valid video from Aegisub's mru.json as a defensive fallback."""
+        """Reads the most recent valid video path from Aegisub's mru.json configuration.
+
+        Acts as a defensive fallback when the active ASS header omits video path entries
+        or uses relative paths detached from the disk structure. Inspects the `Video`
+        MRU array in `%APPDATA%/Aegisub/mru.json`, filtering out dummy media.
+
+        Returns:
+            str | None: Absolute path to the most recent valid video, or None.
+        """
         try:
             appdata = os.environ.get("APPDATA")
             if not appdata:
@@ -2345,7 +2923,22 @@ class PyxisAPI:
         return None
 
     def _ensure_preview_media_clip(self, info, is_export=False):
-        """Ensures presence of preview clip with synchronized video and audio in %APPDATA%/PyxisNodes/bg_media/."""
+        """Ensures the presence of an optimised MP4 preview clip in background cache storage.
+
+        Generates or reuses a clipped MP4 sub-segment in `%APPDATA%/PyxisNodes/bg_media/`
+        spanning the effective dialogue timeline window. Handles real video/audio multiplexing,
+        audio-only background with solid colour canvas, or synthetic dummy video/audio generation
+        using FFmpeg lavfi filters. Employs SHA-256 fingerprint caching and atomic file replacement.
+
+        Args:
+            info (dict[str, Any]): Media metadata dictionary containing resolution, frame rate,
+                time intervals (`clip_start_sec`, `clip_dur_sec`), and resolved file paths.
+            is_export (bool, optional): Whether rendering for hardsub export (higher quality)
+                or live player preview. Defaults to False.
+
+        Returns:
+            str | None: Filesystem path to the validated MP4 clip file, or None on error.
+        """
         if not hasattr(self, "_clip_lock"):
             import threading
             self._clip_lock = threading.RLock()
@@ -2538,6 +3131,22 @@ class PyxisAPI:
             return None
 
     def _matches_output_node(self, node, target_ids, all_output_nodes=None):
+        """Evaluates whether an Output node matches the targeted output filter list.
+
+        Checks node identifiers across multiple representations: literal node ID,
+        integer ID, node title, property `output_id`, widget `queue_id`, or 1-based
+        index within the ordered list of all Output nodes.
+
+        Args:
+            node (dict[str, Any]): Node data dictionary from the graph.
+            target_ids (list | tuple | set | str | int | None): Target output criteria.
+                If None or containing wildcard ('all', '*'), matches any output node.
+            all_output_nodes (list[dict[str, Any]] | None, optional): Full list of
+                Output nodes in the graph for index-based matching. Defaults to None.
+
+        Returns:
+            bool: True if the node satisfies the target criteria, False otherwise.
+        """
         if not node:
             return False
         n_type = str(node.get('type', '')).lower()
@@ -2611,6 +3220,21 @@ class PyxisAPI:
         return False
 
     def _calculate_effective_dialogue_range(self, dialogues, payload=None, target_output_id=None):
+        """Computes the effective millisecond start/end window for subtitle preview and rendering.
+
+        Inspects dialogue lines against targeted Output nodes, respecting selection scopes
+        (`All Lines`, `Style Lines`, or `Selected Lines`), and adds a 2.0-second safety margin
+        around the boundaries to accommodate kinematic and particle lead-in / lead-out effects.
+
+        Args:
+            dialogues (list): List of parsed ASS dialogue objects or dictionaries.
+            payload (dict | None, optional): Graph topology payload. Defaults to None.
+            target_output_id (list | str | int | None, optional): Filter criteria for Output nodes.
+
+        Returns:
+            tuple[int, int, float, float, float, int]: A 6-tuple containing:
+                `(min_start_ms, max_end_ms, clip_start_sec, clip_end_sec, clip_duration_sec, clip_start_ms)`.
+        """
         if not dialogues:
             return 0, 15000, 0.0, 15.0, 15.0, 0
 
@@ -2772,6 +3396,11 @@ class PyxisAPI:
         return min_start_ms, max_end_ms, clip_start_sec, clip_end_sec, clip_duration_sec, clip_start_ms
 
     def invalidate_aegisub_cache(self):
+        """Invalidates all cached Aegisub project state, parsed dialogues, and telemetry results.
+
+        Clears file hashes, cached parsed models, temporary file paths, last generated preview
+        ASS content, and resets the in-memory `GLOBAL_TELEMETRY_MANAGER` state.
+        """
         self._cached_aegisub_info = None
         self._cached_aegisub_parsed = None
         self._aegisub_temp_hash = None
@@ -2786,6 +3415,21 @@ class PyxisAPI:
             pass
 
     def _load_and_cache_aegisub_source(self, payload=None, target_output_id=None, force_reload=False):
+        """Parses and caches the active Aegisub ASS subtitle project with SHA-256 fingerprinting.
+
+        Reads `self.temp_ass` via `ASSParser`, resolving script video/audio files, effective
+        dialogue ranges, primary font family and sizes, and probes detailed media metadata
+        via FFmpeg. Caches the result dictionary in `_cached_aegisub_info`.
+
+        Args:
+            payload (dict | None, optional): Graph topology for Output node resolution. Defaults to None.
+            target_output_id (list | str | int | None, optional): Targeted Output node IDs. Defaults to None.
+            force_reload (bool, optional): Force re-parsing even if SHA-256 hash matches. Defaults to False.
+
+        Returns:
+            dict[str, Any]: Project information dictionary containing styles, dialogues, resolution,
+                frame rates, media paths, and clip time windows.
+        """
         if not self.temp_ass or not os.path.isfile(self.temp_ass):
             return {"has_aegisub": False, "source": "aegisub"}
 
@@ -2942,6 +3586,11 @@ class PyxisAPI:
             return {"has_aegisub": False, "source": "aegisub"}
 
     def _ensure_fallback_dummy_url(self):
+        """Generates a default dark grey dummy video URL as fallback when no media is available.
+
+        Returns:
+            str: HTTP endpoint URL on local daemon streaming the fallback video.
+        """
         try:
             fallback_info = {
                 "res_x": 1280,
@@ -2963,6 +3612,20 @@ class PyxisAPI:
         return ""
 
     def get_preview_video_data_url(self, source="base", target_output_id=None, payload=None):
+        """Resolves the streaming HTTP URL for the preview video.
+
+        Attempts direct byte streaming via HTTP 206 Partial Content for local video files.
+        If only audio is present, streams original audio. If media is missing or dummy,
+        generates or serves the cached synthetic MP4 preview clip.
+
+        Args:
+            source (str, optional): Media source ("aegisub" or "base"). Defaults to "base".
+            target_output_id (list | str | int | None, optional): Filter criteria for Output nodes.
+            payload (dict | None, optional): Graph topology for timeline evaluation.
+
+        Returns:
+            str: Daemon HTTP streaming URL for the video resource.
+        """
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
             # 1. Direct stream of original video via HTTP 206 Partial Content (no FFmpeg transcode)
@@ -2990,6 +3653,16 @@ class PyxisAPI:
         return self._ensure_fallback_dummy_url()
 
     def get_preview_audio_data_url(self, source="base", target_output_id=None, payload=None):
+        """Resolves the streaming HTTP URL for the preview audio track.
+
+        Args:
+            source (str, optional): Media source ("aegisub" or "base"). Defaults to "base".
+            target_output_id (list | str | int | None, optional): Filter criteria for Output nodes.
+            payload (dict | None, optional): Graph topology for timeline evaluation.
+
+        Returns:
+            str: Daemon HTTP streaming URL for the audio resource, or empty string.
+        """
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
             user_audio = info.get("real_audio_file")
@@ -3002,7 +3675,25 @@ class PyxisAPI:
         return ""
 
     def _probe_media_metadata(self, video_file=None, audio_file=None, dummy_info=None, default_fps=23.976, res_x=1280, res_y=720):
-        """Extracts real metadata from video and audio file using FFmpeg with in-memory cache."""
+        """Extracts technical stream metadata from video and audio containers using FFmpeg.
+
+        Invokes FFmpeg probe via subprocess with in-memory 7-tuple hash caching. Parses
+        stream descriptors using regular expressions for video codec (H.264, H.265, VP9, AV1),
+        resolution, exact frame rate, audio codec, sampling rate (kHz), audio channels
+        (Stereo/Mono), overall bitrate, and duration in seconds.
+
+        Args:
+            video_file (str | None, optional): Path to the video container. Defaults to None.
+            audio_file (str | None, optional): Path to the audio file. Defaults to None.
+            dummy_info (dict | None, optional): Fallback parameters for synthetic media. Defaults to None.
+            default_fps (float, optional): Fallback frame rate. Defaults to 23.976.
+            res_x (int, optional): Fallback width in pixels. Defaults to 1280.
+            res_y (int, optional): Fallback height in pixels. Defaults to 720.
+
+        Returns:
+            dict[str, Any]: Dictionary containing codecs, resolution, frame rate, bitrate,
+                duration, and channel specifications.
+        """
         if not hasattr(self, "_media_metadata_cache"):
             self._media_metadata_cache = {}
 
@@ -3198,6 +3889,21 @@ class PyxisAPI:
         return meta
 
     def get_preview_info(self, source="base", target_output_id=None, payload=None):
+        """Compiles complete runtime preview parameters, styles, dialogues, and media paths.
+
+        Dispatches between Aegisub live project data (`source="aegisub"`) and standalone
+        offline template data (`source="base"`). Injects resolution, aspect ratio, styles,
+        dialogues, effective timing bounds, resolved media paths, and probed stream metadata.
+
+        Args:
+            source (str, optional): Target source mode ("aegisub" or "base"). Defaults to "base".
+            target_output_id (list | str | int | None, optional): Filter criteria for Output nodes.
+            payload (dict | None, optional): Graph topology for timeline evaluation.
+
+        Returns:
+            dict[str, Any]: Comprehensive preview configuration dictionary consumed by
+                ArtPlayer / JASSUB WebAssembly player and backend rendering pipelines.
+        """
         has_aegisub = bool(self.temp_ass and os.path.isfile(self.temp_ass))
         if str(source).lower() == "aegisub" and has_aegisub:
             info = self._load_and_cache_aegisub_source(payload=payload, target_output_id=target_output_id)
@@ -3275,25 +3981,37 @@ class PyxisAPI:
         }
 
     def _get_temp_dir(self):
+        """Resolves and creates the user-level temporary directory for PyxisNodes."""
         appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
         temp_dir = os.path.join(appdata_dir, "PyxisNodes", "temp")
         os.makedirs(temp_dir, exist_ok=True)
         return temp_dir
 
     def log_player_event(self, msg):
-        try:
-            log_path = os.path.join(self._get_temp_dir(), "player_debug.log")
-            os.makedirs(os.path.dirname(log_path), exist_ok=True)
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}] {msg}\n")
-            print(f"[PYXIS PLAYER LOG] {msg}", flush=True)
-            return True
-        except Exception as e:
-            print(f"[Pyxis Log Error] {e}", flush=True)
-            return False
+        """Appends a diagnostic player event entry with timestamp to player_debug.log.
+
+        Args:
+            msg (str): Informational or diagnostic message from the media player subsystem.
+
+        Returns:
+            bool: True if logged successfully, False on I/O error.
+        """
 
     def _extract_font_data_from_gdi(self, font_name: str):
-        """Extracts raw binary bytes of font file (.ttf/.otf/.ttc) directly from Windows GDI memory."""
+        """Extracts raw binary font data directly from Windows GDI device context memory.
+
+        Invokes native Win32 GDI calls (CreateFontW, SelectObject, GetTextFaceW, and GetFontData)
+        to extract the uncompressed font table stream (.ttf, .otf, or .ttc container) without
+        requiring file system access or administrative privileges. Discards system fallback fonts
+        (such as System or Arial) if they do not match the requested typeface name.
+
+        Args:
+            font_name (str): Family or typeface name requested in the ASS style definition.
+
+        Returns:
+            tuple[bytes, str] | None: A tuple comprising (font_bytes, selected_face) upon
+            successful extraction, or None if extraction fails or resolves to an unwanted fallback.
+        """
         if not font_name:
             return None
         try:
@@ -3344,6 +4062,21 @@ class PyxisAPI:
         return None
 
     def _find_font_file(self, font_name: str):
+        """Locates the physical font file path on the host system or extracts it into cache.
+
+        Executes a multi-tier resolution strategy:
+        1. Direct Windows GDI binary extraction cached into `%APPDATA%/PyxisNodes/fonts/`.
+        2. Windows Registry scan across HKCU and HKLM font registries.
+        3. Directory scanning across system Fonts, LocalAppData, FontBase, and application dirs.
+        4. Direct filename matching and fuzzy case-insensitive directory listing.
+        5. Ultimate fallback to standard Arial font if resolution fails.
+
+        Args:
+            font_name (str): The font family name to discover on the host machine.
+
+        Returns:
+            str | None: Absolute path to the resolved .ttf/.otf/.ttc file, or None if unavailable.
+        """
         if not font_name:
             print("[Pyxis Font] _find_font_file called with empty name", flush=True)
             return None
@@ -3447,7 +4180,20 @@ class PyxisAPI:
         return None
 
     def get_preview_fonts_map(self, source="base"):
-        """Returns a dictionary { font_name: { 'data': data_url, 'http_url': url, 'path': path } } with all required fonts."""
+        """Compiles a comprehensive dictionary of all font assets required by preview subtitles.
+
+        Inspects the ASS style definitions and active lines for the chosen source, locates the
+        corresponding binary font files, and packages them with base64 Data URLs, local HTTP URLs,
+        and absolute file paths for consumption by the WebAssembly (JASSUB/ArtPlayer) canvas.
+
+        Args:
+            source (str): Source context identifier ('base' for preview_base.ass or 'aegisub').
+
+        Returns:
+            dict[str, dict[str, str]]: Dictionary mapping font family names (including lowercase
+            and whitespace-stripped keys) to metadata dictionaries containing 'data' (Data URL),
+            'http_url', 'path', and 'mime'.
+        """
         font_map = {}
         try:
             info = self.get_preview_info(source=source)
@@ -3502,6 +4248,17 @@ class PyxisAPI:
         return font_map
 
     def get_preview_font_data_url(self, source="base"):
+        """Generates a base64 Data URL for the primary font family of the current preview session.
+
+        Resolves the physical font file for the active dialogue style and encodes its binary
+        payload into a data URI scheme suitable for inline CSS `@font-face` injection.
+
+        Args:
+            source (str): Media source mode ('base' or 'aegisub').
+
+        Returns:
+            str: Base64-encoded Data URL ('data:font/ttf;base64,...'), or an empty string on error.
+        """
         try:
             info = self.get_preview_info(source=source)
             requested_font = str(info.get("font_name") or "Arial").strip()
@@ -3517,6 +4274,11 @@ class PyxisAPI:
         return ""
 
     def invalidate_preview_base_cache(self):
+        """Invalidates in-memory caches and telemetry buffers for the base preview subtitle file.
+
+        Clears cached parsed structures, SHA-256 content hashes, previous ASS payloads, and resets
+        the global libass telemetry manager cache to force a re-evaluation on next access.
+        """
         self._cached_preview_base_info = None
         self._preview_base_hash = None
         self._last_preview_ass_content = None
@@ -3528,10 +4290,14 @@ class PyxisAPI:
             pass
 
     def ensure_preview_base_ass(self):
-        """Ensures presence of preview_base.ass in %APPDATA%/PyxisNodes/preview_base.ass.
-If it already exists, preserves all user modifications.
-If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
-"""
+        """Ensures the existence of preview_base.ass in the user application data directory.
+
+        Verifies `%APPDATA%/PyxisNodes/preview_base.ass`. If absent, copies the distribution master
+        template from the application repository while preserving existing user customisations.
+
+        Returns:
+            str | None: Absolute path to the user preview_base.ass file, or None on failure.
+        """
         try:
             appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
             pyxis_user_dir = os.path.join(appdata_dir, "PyxisNodes")
@@ -3558,6 +4324,17 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
 
     @staticmethod
     def _parse_ass_time(t_str: str) -> int:
+        """Parses an Advanced SubStation Alpha timestamp into total elapsed milliseconds.
+
+        Converts the standard ASS time format (H:MM:SS.CS or H:MM:SS.MS) into an absolute
+        integer millisecond offset.
+
+        Args:
+            t_str (str): ASS timestamp string representation (e.g. '0:01:23.45').
+
+        Returns:
+            int: Total time in milliseconds, or 0 if malformed or empty.
+        """
         if not t_str:
             return 0
         try:
@@ -3575,7 +4352,19 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
         return 0
 
     def _load_and_cache_preview_base(self, force_reload=False):
-        """Scans preview_base.ass and caches result in memory with SHA-256 hash validation."""
+        """Parses preview_base.ass and caches structural metadata with SHA-256 validation.
+
+        Computes a SHA-256 digest of the physical file to avoid redundant parsing. Extracts ASS
+        header resolutions (PlayResX, PlayResY), styles, dialogues, timing spans, referenced
+        media paths, dummy clip specifications, and media stream metadata via FFprobe.
+
+        Args:
+            force_reload (bool): If True, bypasses cache comparisons and forces full re-parsing.
+
+        Returns:
+            dict[str, Any]: Comprehensive metadata dictionary describing preview base parameters,
+            effective clip intervals, dummy video parameters, and media stream properties.
+        """
         try:
             user_base_path = self.ensure_preview_base_ass()
             if not user_base_path or not os.path.exists(user_base_path):
@@ -3737,6 +4526,20 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
         return self._cached_preview_base_info
 
     def get_initial_base_ass(self, source="base", target_output_id=None, payload=None):
+        """Retrieves and prepares the raw initial ASS script text for player initialisation.
+
+        Reads the active subtitle source file, synchronises PlayResX and PlayResY declarations with
+        effective canvas dimensions, filters out extraneous sections, and returns the normalised
+        ASS script content.
+
+        Args:
+            source (str): Source subtitle selector ('base' or 'aegisub').
+            target_output_id (str | None): Specific Output node identifier in the active graph.
+            payload (dict | None): Graph serialisation payload for dialogue node resolution.
+
+        Returns:
+            str: Normalised ASS script content as a plain text string.
+        """
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
             ass_path = info.get("path") or (self.ensure_preview_base_ass() if source == "base" else None)
@@ -3766,6 +4569,25 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
         return ""
 
     def generate_preview_ass(self, payload, target_output_id=None, out_filename="preview_dummy.ass", preview_res_x=None, preview_res_y=None, source="base", for_hardsub=False):
+        """Generates an Advanced SubStation Alpha preview script from the current node graph.
+
+        Executes the graph pipeline targeting specified Output nodes, synchronises subtitle
+        events with the video clip time span, comments out replaced dialogue lines based on style
+        or selection criteria, and shifts timestamps if exporting for hardsub rendering.
+
+        Args:
+            payload (dict | str): Serialised graph topology payload from LiteGraph.
+            target_output_id (str | list[str] | None): Specific Output node ID(s) to render.
+            out_filename (str): Base file name for telemetry and diagnostic logging.
+            preview_res_x (int | None): Custom horizontal canvas resolution override.
+            preview_res_y (int | None): Custom vertical canvas resolution override.
+            source (str): Subtitle source identifier ('base' or 'aegisub').
+            for_hardsub (bool): If True, shifts timestamps to align with clipped media origin.
+
+        Returns:
+            dict[str, Any]: Execution result payload containing 'success', 'content' (ASS script),
+            and time boundaries ('clip_start_sec', 'clip_end_sec', 'clip_duration_sec', etc.).
+        """
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
             res_x = preview_res_x if preview_res_x is not None else info.get("res_x", 1280)
@@ -4041,7 +4863,23 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             self._active_preview_engine = None
 
     def run_ass_telemetry(self, payload=None, target_output_id=None, source="base", force_regenerate=False, clip_start_ms=None, clip_end_ms=None):
-        """Runs multi-worker libass_profiler telemetry on the generated or cached preview ASS."""
+        """Executes multi-worker libass profiler telemetry on the active preview subtitle script.
+
+        Analyses rasterisation cost, glyph rendering complexity, line budget consumption, and
+        frame-by-frame execution spikes using the native libass_profiler background engine.
+
+        Args:
+            payload (dict | None): Graph payload for on-demand regeneration if ASS is uncached.
+            target_output_id (str | list[str] | None): Target Output node identifiers.
+            source (str): Source context identifier ('base' or 'aegisub').
+            force_regenerate (bool): If True, forces fresh generation of the preview ASS script.
+            clip_start_ms (int | None): Optional start boundary in milliseconds.
+            clip_end_ms (int | None): Optional end boundary in milliseconds.
+
+        Returns:
+            dict[str, Any]: Telemetry metrics payload detailing execution duration, frame spikes,
+            peak lines, memory usage, and budget thresholds.
+        """
         try:
             from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
 
@@ -4114,7 +4952,12 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
 
 
     def get_last_telemetry(self):
-        """Returns the last completed telemetry payload from memory, if any."""
+        """Retrieves the most recent completed libass telemetry payload from in-memory cache.
+
+        Returns:
+            dict[str, Any]: The cached telemetry dictionary if available, or a fallback payload
+            indicating an empty state or query failure.
+        """
         try:
             from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
             last_res = GLOBAL_TELEMETRY_MANAGER.get_last_result()
@@ -4125,7 +4968,11 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             return {"success": False, "error": str(err)}
 
     def cancel_ass_telemetry(self):
-        """Cancels any active libass_profiler worker processes immediately."""
+        """Terminates any active libass profiler worker background processes immediately.
+
+        Returns:
+            dict[str, Any]: Confirmation dictionary with 'success': True or an error description.
+        """
         try:
             from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
             GLOBAL_TELEMETRY_MANAGER.cancel_active()
@@ -4134,7 +4981,11 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             return {"success": False, "error": str(err)}
 
     def clear_ass_telemetry(self):
-        """Clears cached preview ASS and in-memory telemetry results."""
+        """Purges cached preview ASS script buffers and resets in-memory telemetry results.
+
+        Returns:
+            dict[str, Any]: Confirmation dictionary with 'success': True or an error description.
+        """
         try:
             self._last_preview_ass_content = None
             self._last_preview_ass_info = None
@@ -4145,6 +4996,16 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             return {"success": False, "error": str(err)}
 
     def _select_save_video_path(self, default_filename="hardsub_clip.mp4"):
+        """Displays an interactive native save file dialog to select the destination MP4 path.
+
+        Attempts invocation via PyWebView file dialog first, falling back to Tkinter if unavailable.
+
+        Args:
+            default_filename (str): Suggested default output filename.
+
+        Returns:
+            str | None: Absolute destination path selected by the user, or None if cancelled.
+        """
         try:
             if hasattr(webview, "windows") and webview.windows:
                 window = webview.windows[0]
@@ -4181,6 +5042,22 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             return None
 
     def render_preview_hardsub(self, payload, target_output_id=None, out_filename=None, source="base"):
+        """Renders an exported MP4 video clip with burned-in hardsub subtitles using FFmpeg.
+
+        Generates the target preview ASS script, probes available hardware encoders (NVENC, AMF,
+        QSV, or libx264 CPU fallback), binds the ASS subtitles filter with custom fonts directory,
+        and encodes an MP4 video clip into the chosen destination path.
+
+        Args:
+            payload (dict | str): Graph topology serialisation payload.
+            target_output_id (str | list[str] | None): Target Output node identifier(s).
+            out_filename (str | None): Optional predefined output filename.
+            source (str): Subtitle source mode ('base' or 'aegisub').
+
+        Returns:
+            dict[str, Any]: Result dictionary containing 'success', 'saved_path', and 'data_url'
+            with base64-encoded video content for immediate frontend playback.
+        """
         try:
             import time
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
@@ -4347,6 +5224,17 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             return {"success": False, "error": str(err)}
 
     def _get_docs_dir(self, lang=None):
+        """Resolves the physical directory containing technical manual documentation chapters.
+
+        Inspects the requested language code ('es' or 'en') and validates folder existence
+        within the PyxisNodes distribution package.
+
+        Args:
+            lang (str | None): Target ISO language code ('es' for Spanish, 'en' for British English).
+
+        Returns:
+            str: Absolute path to the resolved documentation directory.
+        """
         try:
             from paths import DOCS_DIR
             root_docs = DOCS_DIR
@@ -4367,6 +5255,18 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
         return base_dir
 
     def _build_docs_index(self, lang=None, force=False):
+        """Scans and indexes technical documentation markdown files into memory.
+
+        Extracts chapter titles, node headers (## X. Node Type), anchors, and cross-references,
+        maintaining an ordered table of contents (TOC) and a lookup map keyed by node type.
+
+        Args:
+            lang (str | None): Language identifier ('es' or 'en').
+            force (bool): If True, bypasses in-memory caching and rebuilds index from disk.
+
+        Returns:
+            tuple[list[dict], dict[str, dict]]: A tuple comprising (toc_list, node_lookup_map).
+        """
         target_lang = str(lang or "es").lower().strip()
         lang_key = "en" if target_lang.startswith("en") else "es"
 
@@ -4447,6 +5347,14 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
         return toc, node_map
 
     def get_docs_toc(self, lang=None):
+        """Retrieves the complete Table of Contents of the Pyxis technical manual for the GUI.
+
+        Args:
+            lang (str | None): Requested language ('es' or 'en').
+
+        Returns:
+            dict[str, Any]: Result dictionary containing 'success' and 'toc' chapter list.
+        """
         try:
             toc, _ = self._build_docs_index(lang)
             return {"success": True, "toc": toc}
@@ -4454,6 +5362,18 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             return {"success": False, "error": str(e), "toc": []}
 
     def get_doc_chapter(self, filename, lang=None):
+        """Reads and returns the complete markdown content of a specific manual chapter.
+
+        Resolves filename variants and provides graceful fallback to Spanish documentation
+        if an English chapter translation is not yet available.
+
+        Args:
+            filename (str): Name or prefix of the chapter markdown file (e.g. '03 Basics.md').
+            lang (str | None): Language identifier ('es' or 'en').
+
+        Returns:
+            dict[str, Any]: Result dictionary containing 'success', 'filename', and 'content'.
+        """
         try:
             safe_name = os.path.basename(str(filename).strip())
             docs_dir = self._get_docs_dir(lang)
@@ -4498,6 +5418,19 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             return {"success": False, "error": str(e)}
 
     def get_node_doc(self, node_type, lang=None):
+        """Extracts the contextual documentation section for a single canonical node type.
+
+        Locates the chapter containing the node definition and slices the markdown content
+        between the node's `##` header and the subsequent section delimiter.
+
+        Args:
+            node_type (str): Canonical node type identifier (e.g. 'Basic/Coordinate System').
+            lang (str | None): Target language identifier ('es' or 'en').
+
+        Returns:
+            dict[str, Any]: Result payload with 'success', 'found', 'node_type', 'chapter_file',
+            'chapter_title', 'section_title', 'anchor', and 'content'.
+        """
         try:
             if not node_type or not isinstance(node_type, str):
                 return {"success": False, "found": False, "error": "Invalid node_type"}
@@ -4557,9 +5490,26 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             return {"success": False, "found": False, "error": str(e)}
 
     def get_doc_image(self, name):
+        """Locates and encodes a documentation asset image into a base64 Data URL.
+
+        Searches within language-specific and root documentation `img/` directories.
+
+        Args:
+            name (str): Image filename (e.g. 'diagram_nodes.png').
+
+        Returns:
+            dict[str, Any]: Result dictionary with 'success' and base64 'data_url'.
+        """
         try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            root_docs = os.path.join(base_dir, "docs")
+            try:
+                from paths import DOCS_DIR
+                root_docs = DOCS_DIR
+            except Exception:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                root_docs = os.path.join(base_dir, "..", "docs")
+                if not os.path.isdir(root_docs):
+                    root_docs = os.path.join(base_dir, "docs")
+
             safe_name = os.path.basename(str(name).strip())
             
             candidates = [
@@ -4586,6 +5536,11 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
             return {"success": False, "error": str(e)}
 
     def shutdown_daemon(self):
+        """Gracefully shuts down the background daemon server and closes GUI windows.
+
+        Releases the Aegisub lock file, terminates the HTTP/WebSocket daemon listener, and
+        destroys the native PyWebView window.
+        """
         try:
             self.release_lock()
             if hasattr(self, "_daemon_server") and self._daemon_server:
@@ -4597,6 +5552,20 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
 
     @staticmethod
     def _normalize_graph(payload):
+        """Validates and extracts the canonical graph structure from a serialised payload.
+
+        Ensures the payload contains valid 'nodes' and 'links' collections, unwrapping
+        nested graph containers if necessary.
+
+        Args:
+            payload (dict | str): Graph dictionary or JSON string.
+
+        Returns:
+            dict: Normalised graph dictionary containing 'nodes' and optional 'links'.
+
+        Raises:
+            ValueError: If the payload structure violates essential LiteGraph schema rules.
+        """
         graph_data = payload if isinstance(payload, dict) else json.loads(payload)
         if "nodes" not in graph_data and "graph" in graph_data:
             graph_data = graph_data["graph"]
@@ -4610,6 +5579,13 @@ If it does NOT exist, copies master template from PyxisNodes/preview_base.ass.
 
 
 def main():
+    """Main application bootstrap entry point for Pyxis Effector.
+
+    Parses command-line arguments passed from Aegisub Automation or standalone launcher,
+    checks for an existing daemon instance to facilitate instant hot-reloading, enforces
+    Microsoft Edge WebView2 runtime dependencies, initialises the native window, binds
+    PyxisAPI, starts the PyxisDaemonServer listener, and handles the application lifecycle.
+    """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
     user_temp_dir = os.path.join(appdata_dir, "PyxisNodes", "temp")
@@ -4853,7 +5829,7 @@ def main():
         window.events.closing += on_closing
         webview.settings['OPEN_DEVTOOLS_IN_DEBUG'] = False
         os.environ["PYWEBVIEW_GUI"] = "edgechromium"
-        webview.start(debug=False, http_server=True, gui="edgechromium")
+        webview.start(debug=True, http_server=True, gui="edgechromium")
     except Exception:
         debug_file = result_file + "_debug.log"
         try:
