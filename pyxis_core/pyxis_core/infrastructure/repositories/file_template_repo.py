@@ -11,7 +11,7 @@ from typing import List, Optional
 from ...domain.entities.template import EffectTemplate
 from ...domain.repositories.i_template_repository import ITemplateRepository
 from ...application.mappers.graph_mapper import GraphMapper
-from ..engine.paths import TEMPLATES_DIR, get_user_data_dir
+from ..engine.system import TEMPLATES_DIR, get_user_data_dir
 
 
 class FileTemplateRepository(ITemplateRepository):

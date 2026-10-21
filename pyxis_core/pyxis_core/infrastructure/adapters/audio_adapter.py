@@ -4,8 +4,7 @@
 # Licensed under GNU General Public License v3
 
 from typing import Callable, Optional
-from ..engine.audio_preprocessor import AudioPreprocessor
-from ..engine.audio_engine import AudioEngine
+from ..engine.audio import AudioEngine, AudioPreprocessor
 
 
 class AudioAdapter:

@@ -4,19 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyxis-core"
-version = "1.1.4"
+version = "0.1.0"
 description = "Core node-based subtitle effector and renderer engine for ASS subtitles"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "GPL-3.0-or-later" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE*"]
 authors = [
     { name = "Pyxis Effector contributors" }
 ]
-keywords = ["aegisub", "subtitles", "ass", "node-engine", "vfx", "motion-graphics"]
+keywords = ["aegisub", "subtitles", "ass", "node-engine", "vfx", "motion-graphics", "clean-architecture"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -42,11 +42,44 @@ dev = [
     "pytest>=7.0",
     "black",
     "flake8",
+    "build",
+    "twine",
 ]
+
+[project.scripts]
+pyxis-core = "pyxis_core.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Pyxis-Effector/Pyxis-Effector"
+Documentation = "https://github.com/Pyxis-Effector/Pyxis-Effector/tree/main/pyxis_core/docs"
+Repository = "https://github.com/Pyxis-Effector/Pyxis-Effector"
+Issues = "https://github.com/Pyxis-Effector/Pyxis-Effector/issues"
+
+[tool.setuptools]
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["pyxis_core*"]
 
 [tool.setuptools.package-data]
-pyxis_core = ["data/*", "data/templates/*"]
+"*" = ["*.ass", "*.json", "*.md", "*.png", "*.txt"]
+"pyxis_core" = [
+    "infrastructure/engine/data/*",
+    "infrastructure/engine/data/templates/*",
+    "infrastructure/engine/bin/img2ass*",
+    "infrastructure/engine/bin/potrace*",
+    "infrastructure/engine/bin/libass_profiler*",
+    "infrastructure/engine/bin/README.md",
+    "infrastructure/engine/bin/ass/*",
+    "infrastructure/engine/bin/images/*",
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["*.o", "*.lo", "*.la", "*.lai", "*.a", ".DS_Store", "__pycache__/*"]
+"pyxis_core" = [
+    "infrastructure/engine/bin/potrace_native/*",
+    "infrastructure/engine/bin/potrace_native/**/*",
+    "infrastructure/engine/bin/libass_profiler_native/*",
+    "infrastructure/engine/bin/libass_profiler_native/**/*",
+]

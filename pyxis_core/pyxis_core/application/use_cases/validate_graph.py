@@ -15,7 +15,7 @@ class ValidateGraphUseCase:
             node_graph = GraphMapper.to_domain(request.graph)
             graph_dict = GraphMapper.to_dict(node_graph)
 
-            from ...infrastructure.engine.node_validator import NodeValidator
+            from ...infrastructure.engine.graph import NodeValidator
 
             # Validate structure
             errors = []

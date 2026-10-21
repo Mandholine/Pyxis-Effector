@@ -20,15 +20,12 @@ import os
 import shutil
 import sys
 
-SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-PACKAGE_DIR = SRC_DIR
-DATA_DIR = os.path.join(PACKAGE_DIR, "data")
-PYXIS_ROOT_DIR = os.path.dirname(PACKAGE_DIR)
-BIN_DIR = (
-    os.path.join(PACKAGE_DIR, "bin")
-    if os.path.isdir(os.path.join(PACKAGE_DIR, "bin"))
-    else os.path.join(PYXIS_ROOT_DIR, "bin")
-)
+SYSTEM_DIR = os.path.dirname(os.path.abspath(__file__))
+ENGINE_DIR = os.path.dirname(SYSTEM_DIR)
+PACKAGE_DIR = ENGINE_DIR
+DATA_DIR = os.path.join(ENGINE_DIR, "data")
+BIN_DIR = os.path.join(ENGINE_DIR, "bin")
+PYXIS_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(ENGINE_DIR)))
 WEB_DIR = os.path.join(PYXIS_ROOT_DIR, "web")
 DOCS_DIR = os.path.join(PYXIS_ROOT_DIR, "docs")
 TEMPLATES_DIR = (

@@ -76,8 +76,7 @@ class ProcessGraphUseCase:
                     _emit_progress(15, "Preparing audio source...")
                     from ..mappers.subtitle_mapper import SubtitleMapper
                     # Lazy import infrastructure engines for execution
-                    from ...infrastructure.engine.audio_preprocessor import AudioPreprocessor
-                    from ...infrastructure.engine.audio_engine import AudioEngine
+                    from ...infrastructure.engine.audio import AudioPreprocessor, AudioEngine
 
                     wav_path = AudioPreprocessor.ensure_audio_wav(
                         audio_source,
@@ -91,7 +90,7 @@ class ProcessGraphUseCase:
             # 4. Prepare data for GraphEngine
             raw_styles, raw_dialogues, res_x, res_y, frame_duration = SubtitleMapper.to_engine_structures(script)
 
-            from ...infrastructure.engine.node_engine import GraphEngine
+            from ...infrastructure.engine.graph import GraphEngine
 
             engine = GraphEngine(
                 graph_dict,

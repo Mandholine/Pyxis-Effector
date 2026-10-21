@@ -1,0 +1,17 @@
+include LICENSE*
+include README.md
+include requirements.txt
+include pyproject.toml
+
+recursive-include pyxis_core/infrastructure/engine/data *
+include pyxis_core/infrastructure/engine/bin/img2ass*
+include pyxis_core/infrastructure/engine/bin/potrace*
+include pyxis_core/infrastructure/engine/bin/libass_profiler*
+include pyxis_core/infrastructure/engine/bin/README.md
+recursive-include pyxis_core/infrastructure/engine/bin/ass *
+recursive-include pyxis_core/infrastructure/engine/bin/images *
+recursive-include docs *.md
+
+global-exclude *.py[cod] __pycache__ *.so *.dylib *.o *.lo *.la *.lai *.a .DS_Store
+prune pyxis_core/infrastructure/engine/bin/potrace_native
+prune pyxis_core/infrastructure/engine/bin/libass_profiler_native

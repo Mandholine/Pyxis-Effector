@@ -4,9 +4,7 @@
 # Licensed under GNU General Public License v3
 
 from typing import Any, Dict, Optional
-from ..engine.font_engine import FontEngine
-from ..engine.font_resolver import FontResolver
-from ..engine.font_vector_engine import FontVectorEngine
+from ..engine.font import FontEngine, FontResolver, FontVectorEngine
 
 
 class FontAdapter:

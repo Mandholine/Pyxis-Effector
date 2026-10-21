@@ -9,8 +9,8 @@ import subprocess
 import sys
 from typing import Any, Dict, Optional, Tuple
 
-from ..engine.ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER, ASSTelemetryManager
-from ..engine.paths import BIN_DIR, get_bin_path
+from ..engine.telemetry import GLOBAL_TELEMETRY_MANAGER, ASSTelemetryManager
+from ..engine.system import BIN_DIR, get_bin_path
 
 
 class TelemetryAdapter:

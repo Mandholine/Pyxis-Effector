@@ -10,7 +10,7 @@ from typing import List, Optional
 from ...domain.entities.subtitle import SubtitleScript
 from ...domain.repositories.i_subtitle_repository import ISubtitleRepository
 from ...application.mappers.subtitle_mapper import SubtitleMapper
-from ..engine.ass_parser import ASSParser
+from ..engine.subtitles import ASSParser
 
 
 class FileSubtitleRepository(ISubtitleRepository):

@@ -6,7 +6,7 @@
 import os
 from typing import Any, Dict, Optional
 
-from ..engine.img_tracer_engine import trace_image, _get_potrace_exe_path
+from ..engine.geometry import trace_image, _get_potrace_exe_path
 
 
 class ImageTracerAdapter:

@@ -7,22 +7,65 @@ import os
 import sys
 
 _ENGINE_DIR = os.path.dirname(os.path.abspath(__file__))
-if _ENGINE_DIR not in sys.path:
-    sys.path.insert(0, _ENGINE_DIR)
+_SUBDIRS = [
+    _ENGINE_DIR,
+    os.path.join(_ENGINE_DIR, "graph"),
+    os.path.join(_ENGINE_DIR, "audio"),
+    os.path.join(_ENGINE_DIR, "font"),
+    os.path.join(_ENGINE_DIR, "geometry"),
+    os.path.join(_ENGINE_DIR, "subtitles"),
+    os.path.join(_ENGINE_DIR, "system"),
+    os.path.join(_ENGINE_DIR, "telemetry"),
+]
 
-from .node_engine import GraphEngine, NODE_REGISTRY, abort_global_multiprocessing
-from .ass_parser import ASSParser, KaraokeProcessor
-from .node_validator import NodeValidator
-from .paths import get_user_data_dir, TEMPLATES_DIR, PREVIEW_BASE_ASS
+for d in _SUBDIRS:
+    if d not in sys.path:
+        sys.path.insert(0, d)
+
+from .graph import GraphEngine, NodeValidator, NODE_REGISTRY, abort_global_multiprocessing
+from .subtitles import ASSParser, KaraokeProcessor
+from .audio import AudioEngine, AudioPreprocessor
+from .font import FontEngine, FontResolver, FontVectorEngine
+from .geometry import trace_image, _get_potrace_exe_path
+from .telemetry import ASSTelemetryManager, GLOBAL_TELEMETRY_MANAGER
+from .system import (
+    BIN_DIR,
+    TEMPLATES_DIR,
+    PREVIEW_BASE_ASS,
+    get_bin_path,
+    get_user_data_dir,
+    PyxisLine,
+    PyxisUnit,
+)
 
 __all__ = [
+    # Graph & Nodes
     "GraphEngine",
+    "NodeValidator",
     "NODE_REGISTRY",
     "abort_global_multiprocessing",
+    # Subtitles
     "ASSParser",
     "KaraokeProcessor",
-    "NodeValidator",
-    "get_user_data_dir",
+    # Audio
+    "AudioEngine",
+    "AudioPreprocessor",
+    # Font
+    "FontEngine",
+    "FontResolver",
+    "FontVectorEngine",
+    # Geometry
+    "trace_image",
+    "_get_potrace_exe_path",
+    # Telemetry
+    "ASSTelemetryManager",
+    "GLOBAL_TELEMETRY_MANAGER",
+    # System
+    "BIN_DIR",
     "TEMPLATES_DIR",
     "PREVIEW_BASE_ASS",
+    "get_bin_path",
+    "get_user_data_dir",
+    "PyxisLine",
+    "PyxisUnit",
 ]

@@ -1,6 +1,8 @@
 # Pyxis Effector - ASS Telemetry & Performance Profiling Engine
 # Copyright (C) 2026 @mandholine, @effector2, @pholguinc and Pyxis Effector contributors
 
+from __future__ import annotations
+
 import math
 import os
 import shutil

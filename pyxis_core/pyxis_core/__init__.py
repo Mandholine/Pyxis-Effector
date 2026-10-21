@@ -21,7 +21,7 @@ for _p in (_ROOT_PKG, _ENGINE_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-__version__ = "1.1.4"
+__version__ = "0.1.0"
 
 # 1. Domain Layer Exports
 from .domain import (
