@@ -1,74 +1,92 @@
-# pyxis-core
+# pyxis-core (Clean Architecture)
 
-**pyxis-core** es el motor y biblioteca modular de efectos por nodos para subtítulos ASS (*Advanced SubStation Alpha*).
+**pyxis-core** es el motor modular de efectos de subtítulos ASS organizado bajo los principios de **Clean Architecture** (Arquitectura Limpia).
 
-Forma parte del ecosistema **Pyxis Effector** y ha sido desacoplado para funcionar independientemente de interfaces de usuario (como `pywebview` o Qt), permitiendo su uso directo en:
-- Servidores y microservicios backend (**FastAPI**, Flask, gRPC).
-- Scripts CLI y herramientas de renderizado en lote (*batch processing* / headless).
-- Extensiones y plugins (Aegisub, etc.).
-
----
-
-## Características
-
-- **Motor de Grafos (`GraphEngine`):** Evaluación dirigida de nodos (animación, tiempo, matemáticas, transformaciones de texto, máscaras de clips, bucles y variables).
-- **Pipeline Orquestador (`PyxisPipeline`):** API simplificada para procesar subtítulos y grafos de nodos con soporte de callbacks de progreso (`progress_callback`) y cancelación (`cancel_checker`).
-- **Parseador ASS (`ASSParser` & `KaraokeProcessor`):** Análisis completo de cabeceras, estilos, tiempos y etiquetas de karaoke `\k`, `\kf`, `\ko`.
-- **Motores Multimedia Especializados:**
-  - `FontEngine` / `FontVectorEngine`: Vectorización de glifos y contornos con FreeType.
-  - `AudioEngine` / `AudioPreprocessor`: Extracción de ondas y telemetría de audio.
-  - `ClipperEngine`: Operaciones booleanas de trazados y polígonos.
-  - `ASSTelemetryEngine`: Análisis de métricas en tiempo real.
+Diseñado para ser consumido limpiamente por:
+- **FastAPI / Microservicios:** Controladores que reciben DTOs y llaman a Casos de Uso.
+- **Flutter / Web Apps:** Contrato desacoplado con DTOs y Mappers que se corresponden 1:1 con esquemas de API.
+- **Scripts CLI / Headless:** Ejecución directa y procesamiento en lote.
 
 ---
 
-## Instalación
+## 🏛️ Estructura de Capas
 
-### Modo desarrollo / local
-```bash
-pip install -e ./pyxis_core
+```text
+pyxis_core/
+├── pyproject.toml
+├── requirements.txt
+└── pyxis_core/
+    ├── __init__.py                     # Facade PyxisCore y exportaciones
+    │
+    ├── domain/                         # Capa de Dominio (Reglas puras)
+    │   ├── entities/                   # SubtitleScript, DialogueLine, SubtitleStyle, NodeGraph, EffectTemplate
+    │   ├── value_objects/              # Timecode (conversión ms/ASS), Resolution (aspect ratio, fps)
+    │   └── repositories/               # Interfaces: ISubtitleRepository, ITemplateRepository
+    │
+    ├── application/                    # Capa de Aplicación
+    │   ├── dtos/                       # Serializers: ProcessGraphRequestDTO, ProcessGraphResponseDTO, ProgressEventDTO
+    │   ├── mappers/                    # SubtitleMapper, GraphMapper
+    │   └── use_cases/                  # ProcessGraphUseCase, ValidateGraphUseCase, ManageTemplatesUseCase
+    │
+    └── infrastructure/                 # Capa de Infraestructura
+        ├── repositories/               # FileSubtitleRepository (ASSParser), FileTemplateRepository (JSON)
+        ├── adapters/                   # AudioAdapter, FontAdapter, TelemetryAdapter
+        └── engine/                     # Motores pesados (GraphEngine, Clipper, Nodes)
 ```
 
-### Requisitos
-- Python >= 3.9
-- `numpy`, `Pillow`, `pyclipper`, `freetype-py`, `psutil`, `lupa`
-
 ---
 
-## Uso Rápido
+## 🚀 Uso Rápido
 
-### Con `PyxisPipeline` (Recomendado)
+### 1. Vía Fachada `PyxisCore` (Recomendado)
 
 ```python
-from pyxis_core import PyxisPipeline
+from pyxis_core import PyxisCore
 
-pipeline = PyxisPipeline()
+core = PyxisCore()
 
-# Ejecutar un grafo sobre un archivo ASS
-result = pipeline.process(
-    ass_input="subtitulos.ass",
-    graph_data="efecto.json",
-    progress_callback=lambda p: print(f"Progreso: {p['percent']}% - {p['phase']}"),
-    output_path="resultado.ass"
+# Procesar subtítulos con un grafo de nodos
+response = core.process(
+    graph="efecto.json",                  # Ruta o dict
+    ass_path="dialogo.ass",               # Archivo ASS
+    output_path="resultado.ass",          # Salida opcional
+    progress_callback=lambda p: print(f"[{p.percent}%] {p.phase}")
 )
 
-if result.success:
-    print(f"Líneas generadas: {result.lines_count} en {result.duration_seconds:.2f}s")
+if response.success:
+    print(f"Generadas {response.lines_count} líneas en {response.duration_seconds}s")
 else:
-    print(f"Error: {result.error}")
+    print(f"Error: {response.error}")
 ```
 
-### Uso Directo de Componentes
+### 2. Uso con Inyección de Dependencias (Casos de Uso directos)
+
+Ideal para FastAPI con contenedores de dependencias:
 
 ```python
-from pyxis_core import ASSParser, GraphEngine
+from pyxis_core.application.use_cases import ProcessGraphUseCase
+from pyxis_core.application.dtos import ProcessGraphRequestDTO
+from pyxis_core.infrastructure.repositories import FileSubtitleRepository
 
-# 1. Parsear archivo ASS
-styles, dialogues, res_x, res_y, frame_duration = ASSParser.read_file("dialogo.ass")
+# Inyección del repositorio
+repo = FileSubtitleRepository()
+use_case = ProcessGraphUseCase(subtitle_repo=repo)
 
-# 2. Inicializar motor con grafo
-engine = GraphEngine(graph_dict, res_x, res_y, frame_duration)
+# Ejecución con DTO tipado
+request = ProcessGraphRequestDTO(
+    graph={"nodes": [...], "connections": [...]},
+    ass_content="[Script Info]...",
+)
+response = use_case.execute(request)
+```
 
-# 3. Procesar líneas
-output_lines = engine.process(dialogues, styles)
+### 3. Validación de Grafos
+
+```python
+from pyxis_core import PyxisCore
+
+core = PyxisCore()
+result = core.validate(graph_dict)
+if not result.valid:
+    print("Errores de validación:", result.errors)
 ```
