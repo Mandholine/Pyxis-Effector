@@ -10,7 +10,7 @@ adaptadores multimedia (FFmpeg, FreeType) y motores pesados de cálculo.
 """
 
 from .repositories import FileSubtitleRepository, FileTemplateRepository
-from .adapters import AudioAdapter, FontAdapter, TelemetryAdapter
+from .adapters import AudioAdapter, FontAdapter, TelemetryAdapter, ImageTracerAdapter
 
 __all__ = [
     "FileSubtitleRepository",
@@ -18,4 +18,5 @@ __all__ = [
     "AudioAdapter",
     "FontAdapter",
     "TelemetryAdapter",
+    "ImageTracerAdapter",
 ]

@@ -24,7 +24,11 @@ SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 PACKAGE_DIR = SRC_DIR
 DATA_DIR = os.path.join(PACKAGE_DIR, "data")
 PYXIS_ROOT_DIR = os.path.dirname(PACKAGE_DIR)
-BIN_DIR = os.path.join(PYXIS_ROOT_DIR, "bin")
+BIN_DIR = (
+    os.path.join(PACKAGE_DIR, "bin")
+    if os.path.isdir(os.path.join(PACKAGE_DIR, "bin"))
+    else os.path.join(PYXIS_ROOT_DIR, "bin")
+)
 WEB_DIR = os.path.join(PYXIS_ROOT_DIR, "web")
 DOCS_DIR = os.path.join(PYXIS_ROOT_DIR, "docs")
 TEMPLATES_DIR = (

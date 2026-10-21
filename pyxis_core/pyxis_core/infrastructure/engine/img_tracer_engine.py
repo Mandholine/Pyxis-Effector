@@ -72,7 +72,10 @@ def _get_potrace_exe_path() -> str:
         if os.path.isfile(cand) and os.path.getsize(cand) > 10000:
             return cand
     import shutil
-    system_potrace = shutil.which("potrace")
+    for common_path in ("/opt/homebrew/bin/potrace", "/usr/local/bin/potrace", "/usr/bin/potrace"):
+        if os.path.isfile(common_path) and os.access(common_path, os.X_OK):
+            return common_path
+    system_potrace = shutil.which("potrace") or shutil.which(exe_name)
     if system_potrace:
         return system_potrace
     return ""

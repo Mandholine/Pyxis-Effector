@@ -90,3 +90,19 @@ result = core.validate(graph_dict)
 if not result.valid:
     print("Errores de validación:", result.errors)
 ```
+
+### 4. Telemetría y Profiling con `libass_profiler`
+
+Para medir caídas de fotogramas (*dropped frames*), picos de lag y tiempos de renderizado fotograma a fotograma:
+
+```python
+from pyxis_core.infrastructure.adapters import TelemetryAdapter
+
+# Analizar rendimiento de subtítulos ASS
+telemetria = TelemetryAdapter.analyze_file("subtitulos.ass", fps=23.976)
+print(f"Frames analizados: {telemetria['summary']['total_frames']}")
+print(f"Frames con lag: {telemetria['summary']['dropped_frames_count']}")
+```
+
+> 📖 Consulta la guía completa de compilación y comandos en [`pyxis_core/pyxis_core/infrastructure/engine/bin/README.md`](pyxis_core/infrastructure/engine/bin/README.md).
+

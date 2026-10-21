@@ -1,0 +1,14 @@
+# Build artifacts
+*.o
+*.lo
+*.la
+*.lai
+*.dylib
+*.so
+.libs/
+mkbitmap
+
+# Intermediate test outputs
+*.bmp
+*.ppm
+*.csv
