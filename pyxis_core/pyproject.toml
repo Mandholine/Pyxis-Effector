@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyxis-core"
+version = "1.1.4"
+description = "Core node-based subtitle effector and renderer engine for ASS subtitles"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+    { name = "Pyxis Effector contributors" }
+]
+keywords = ["aegisub", "subtitles", "ass", "node-engine", "vfx", "motion-graphics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
+
+dependencies = [
+    "numpy>=1.26",
+    "Pillow>=10.0",
+    "pyclipper>=1.3",
+    "freetype-py>=2.4",
+    "psutil>=5.9",
+    "lupa>=2.0",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "cupy>=12.0",
+]
+dev = [
+    "pytest>=7.0",
+    "black",
+    "flake8",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyxis_core*"]
+
+[tool.setuptools.package-data]
+pyxis_core = ["data/*", "data/templates/*"]

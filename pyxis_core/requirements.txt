@@ -1,0 +1,7 @@
+# pyxis-core dependencies (pure engine - no UI/pywebview)
+numpy>=1.26
+Pillow>=10.0
+pyclipper>=1.3
+freetype-py>=2.4
+psutil>=5.9
+lupa>=2.0
