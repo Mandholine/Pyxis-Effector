@@ -104,5 +104,26 @@ print(f"Frames analizados: {telemetria['summary']['total_frames']}")
 print(f"Frames con lag: {telemetria['summary']['dropped_frames_count']}")
 ```
 
+### 5. Vectorización de Imágenes a Formas ASS (`img2ass` / `ImageTracerAdapter`)
+
+Conforme a la **Sección 12: Shape/IMG to Shape** de la especificación técnica, convierte imágenes (PNG con canal alfa, JPG, WebP) directamente en vectores ASSDraw (`{\p1}m ... b ...{\p0}`):
+
+#### 🧪 Prueba rápida desde consola:
+```bash
+cd pyxis_core/pyxis_core/infrastructure/engine/bin
+./img2ass images/payasito.png payasito.ass
+```
+> Abre `payasito.ass` en **Aegisub**: verás el dibujo perfectamente recortado y centrado en el medio de la pantalla sin ningún recuadro exterior.
+
+#### 🐍 Uso desde Python:
+```python
+from pyxis_core.infrastructure.adapters import ImageTracerAdapter
+
+res = ImageTracerAdapter.trace("images/payasito.png", mode="Potrace", anchor="Center")
+print(f"ASSDraw generado ({res['width']}x{res['height']} px, {res['points']} puntos):")
+print(res["shape"][:80], "...")
+```
+
 > 📖 Consulta la guía completa de compilación y comandos en [`pyxis_core/pyxis_core/infrastructure/engine/bin/README.md`](pyxis_core/infrastructure/engine/bin/README.md).
+
 
