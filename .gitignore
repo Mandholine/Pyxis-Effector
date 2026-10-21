@@ -1,20 +1,55 @@
-# Python
+# Python bytecode & cache
 __pycache__/
 *.py[cod]
+*$py.class
 
-# Entorno virtual creado por PyxisNodes/install_linux.sh / install_macos.sh
-PyxisNodes/.venv/
-
-# Python independiente de cada plataforma: se genera con tools/build_release.py y se
-# distribuye en las releases, no en el repositorio
-PyxisNodes/python/
-
-# Salida del empaquetador
+# Distribución y empaquetado de librerías Python (pyxis-core y raíz)
 dist/
 build/
+*.egg-info/
+**/*.egg-info/
+.eggs/
+*.egg
 
-# ffmpeg descargado/compilado con tools/get_ffmpeg.py (no se versiona)
+# Entornos virtuales
+.venv/
+venv/
+env/
+PyxisNodes/.venv/
+pyxis_core/.venv/
+
+# Testing y cobertura
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+htmlcov/
+
+# Binarios y objetos C/C++ intermedios
+*.o
+*.lo
+*.la
+*.lai
+*.so
+*.dylib
+*.a
+pyxis_core/pyxis_core/infrastructure/engine/bin/potrace_native/src/*.o
+pyxis_core/pyxis_core/infrastructure/engine/bin/potrace_native/src/*.lo
+pyxis_core/pyxis_core/infrastructure/engine/bin/potrace_native/src/.libs/
+pyxis_core/pyxis_core/infrastructure/engine/bin/libass_profiler_native/*.o
+
+# Python independiente por plataforma (tools/build_release.py)
+PyxisNodes/python/
+
+# ffmpeg compilado o descargado localmente (no versionado)
 PyxisNodes/bin/ffmpeg
 PyxisNodes/bin/ffmpeg.exe
 PyxisNodes/bin/ffmpeg-build-info.json
 PyxisNodes/bin/FFMPEG-NOTICE.txt
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
