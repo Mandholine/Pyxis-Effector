@@ -274,11 +274,11 @@ Tag blocks delimited by curly braces `{\...}` in any subtitle-producing node (in
 The templating language integrates 4 universal resolution mechanisms:
 
 1. **Direct algebraic expressions and variables inside ASS tag parentheses (`\tag(...)`):**
-   * Rotations and scales: `\frz(angle2)`, `\frz(j * 15)`, `\fscxy(120 + i*5)`.
+   * Rotations and scales: `\frz(rot)`, `\frz(j * 15)`, `\fscxy(120 + i*5)`.
    * Positions and pivots: `\pos(syl.center + 10, syl.middle)`, `\org(fx.pos_x, fx.pos_y - 1000)`.
    * Alphas and colours: `\alpha(255)`, `\1a(128)`, `\1c(line.color1)`, `\1c(ass_color(255, 128, 0))`.
 2. **Dynamic temporal transformations `\t(...)`:**
-   * Evaluated timestamps and tags: `\t(0, 150, \frz0)\t(fx.dur-150, fx.dur, \frz(angle2))`.
+   * Evaluated timestamps and tags: `\t(0, 150, \frz0)\t(fx.dur-150, fx.dur, \frz(rot))`.
 3. **Isolated expressions, variables, and ternaries in parentheses `(...)`:**
    * Evaluation of variables, attributes, and computations outside tags: `(syl.text)`, `(syl.dur)`, `(fx.dur)`, `(j * 15)`, `(line.text)`.
    * Conditional tag or value selection within the block: `(\blur3 if i == 1 else \blur0)`, `(Colores())`.
@@ -320,9 +320,9 @@ Parametric timing shortcuts that adapt to total effect duration or the chronolog
 | Dark Tag | Usage Syntax | Resulting ASS Expansion | Operational Description |
 | :--- | :--- | :--- | :--- |
 | `\te` | `\te(t1, t2, \tags)`<br>`\te(t1, t2, accel, \tags)`<br>`\te(t, \tags)` | `\t(fx.dur - t2, fx.dur - t1, \tags)`<br>`\t(fx.dur - t2, fx.dur - t1, accel, \tags)`<br>`\t(fx.dur - t, fx.dur, \tags)` | Inverted animation timed relative to the end of the line duration (`fx.dur`). |
-| `\ts` | `\ts(t1, t2, \tags)`<br>`\ts(t1, t2, accel, \tags)`<br>`\ts(t, \tags)` | `\t(syl.start + t1, syl.start + t2, \tags)`<br>`\t(syl.start + t1, syl.start + t2, accel, \tags)`<br>`\t(syl.start, syl.start + t, \tags)` | Animation relative to syllable start time. |
-| `\tc` | `\tc(t1, t2, \tags)`<br>`\tc(t1, t2, accel, \tags)`<br>`\tc(t, \tags)` | `\t(char.start + t1, char.start + t2, \tags)`<br>`\t(char.start + t1, char.start + t2, accel, \tags)`<br>`\t(char.start, char.start + t, \tags)` | Animation relative to character start time. |
-| `\tw` | `\tw(t1, t2, \tags)`<br>`\tw(t1, t2, accel, \tags)`<br>`\tw(t, \tags)` | `\t(word.start + t1, word.start + t2, \tags)`<br>`\t(word.start + t1, word.start + t2, accel, \tags)`<br>`\t(word.start, word.start + t, \tags)` | Animation relative to word start time. |
+| `\ts` | `\ts(t1, t2, \tags)`<br>`\ts(t1, t2, accel, \tags)`<br>`\ts(t, \tags)` | `\t(syl.start_time + t1, syl.start_time + t2, \tags)`<br>`\t(syl.start_time + t1, syl.start_time + t2, accel, \tags)`<br>`\t(syl.start_time, syl.start_time + t, \tags)` | Animation relative to syllable start time. |
+| `\tc` | `\tc(t1, t2, \tags)`<br>`\tc(t1, t2, accel, \tags)`<br>`\tc(t, \tags)` | `\t(char.start_time + t1, char.start_time + t2, \tags)`<br>`\t(char.start_time + t1, char.start_time + t2, accel, \tags)`<br>`\t(char.start_time, char.start_time + t, \tags)` | Animation relative to character start time. |
+| `\tw` | `\tw(t1, t2, \tags)`<br>`\tw(t1, t2, accel, \tags)`<br>`\tw(t, \tags)` | `\t(word.start_time + t1, word.start_time + t2, \tags)`<br>`\t(word.start_time + t1, word.start_time + t2, accel, \tags)`<br>`\t(word.start_time, word.start_time + t, \tags)` | Animation relative to word start time. |
 
 #### 5.4.4. Multichannel and Grouped Tags
 | Dark Tag | Direct ASS Expansion | Example |

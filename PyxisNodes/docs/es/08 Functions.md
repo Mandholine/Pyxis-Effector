@@ -396,7 +396,7 @@ Si la lista contiene $K$ colores de parada $\{C_0, C_1, \dots, C_{K-1}\}$:
   ```
   [Loops/Main Loop: mode=char] ──► char.i / char.n ─────────────────────┐
                                                                          ▼
-  [Functions/Color Gradient: accel=1.2] ──► Tags (\1c) ──────────────► Tags In ──► [System/Output]
+  [Functions/Color Gradient: accel=1.0] ──► Tags (\1c) ──────────────► Tags In ──► [System/Output]
      colors: "#FF4500, #FFD700, #00FFFF"
   ```
 
@@ -872,12 +872,12 @@ Dado un conjunto de $M$ puntos muestreados $\{P_0, P_1, \dots, P_{M-1}\}$ con di
                                                                      Return: "Texto"
   ```
 
-  * **Muestreo Métrico y Aceleración ($\Delta t = 300\text{ ms}$, $D = 174.34\text{ px}$):**
+  * **Muestreo Métrico y Aceleración ($\Delta t = 300\text{ ms}$, $D = 164.34\text{ px}$):**
     * Segmento 0 ($d_0 = 0.0$): $\tau_0 = 0.0 \to t = 0\text{ ms}$, posición $(100.0, 200.0)$.
-    * Segmento 1 ($d_1 = 70.0$): $\tau_1 = (70.0 / 174.34)^2 \approx 0.161 \to s_{t1} = 48\text{ ms}$, posición $(170.0, 200.0)$.
-    * Segmento 2 ($d_2 = 174.34$): $\tau_2 = 1.0 \to s_{t2} = 300\text{ ms}$, posición $(250.0, 250.0)$.
+    * Segmento 1 ($d_1 = 70.0$): $\tau_1 = (70.0 / 164.34)^2 \approx 0.181 \to s_{t1} = 54\text{ ms}$, posición $(170.0, 200.0)$.
+    * Segmento 2 ($d_2 = 164.34$): $\tau_2 = 1.0 \to s_{t2} = 300\text{ ms}$, posición $(250.0, 250.0)$.
   * **Bloque de Tags ASS Emitido:**
-    `{\an7\q2\pos(100.00,200.00)\fscx100.00\fscy100.00\t(0,48,2.00,\fscx170.00\fscy200.00)\t(48,300,2.00,\fscx250.00\fscy250.00)\p1}m 0 0 m 100 100 {\p0}Texto`
+    `{\an7\q2\pos(100.00,200.00)\fscx100.00\fscy100.00\t(0,54,2.00,\fscx170.00\fscy200.00)\t(54,300,2.00,\fscx250.00\fscy250.00)\p1}m 0 0 m 100 100 {\p0}Texto`
 
 ---
 
@@ -1250,7 +1250,7 @@ $$t_{\text{eased}} = \begin{cases} t^{\text{accel}} & \text{si } \text{accel} > 
                  P_tangente (X, Y)
                         ● ───> Vector Tangente (dx, dy)
                        / \
-                      /   \ θ = atan2(dy, dx) - 90°
+                      /   \ θ = atan2(dx, dy) - 90°
                      /     \
 Ruta Guía: P_inicio ●       ● P_fin (L_total)
 ```
@@ -1261,7 +1261,7 @@ Ruta Guía: P_inicio ●       ● P_fin (L_total)
 2. **Localización Espacial en el Trazo:**
    Se busca el segmento $S_k$ donde cae la distancia $d_{\text{target}}$ acotada en $[0, L_{\text{total}}]$, evaluando el punto $(X, Y)$ y el vector de velocidad $(dx, dy)$.
 3. **Cálculo de la Tangente e Inclinación:**
-   $$\theta_{\text{base}} = \left( \operatorname{atan2}(dy, dx) \cdot \frac{180}{\pi} - 90^\circ \right) + \text{extra\_angle}$$
+   $$\theta_{\text{base}} = \left( \operatorname{atan2}(dx, dy) \cdot \frac{180}{\pi} - 90^\circ \right) + \text{extra\_angle}$$
    El ángulo se normaliza en el rango $(-180^\circ, 180^\circ]$ para evitar saltos bruscos de giro en libass.
 
 ---
@@ -1282,9 +1282,9 @@ Ruta Guía: P_inicio ●       ● P_fin (L_total)
 
   * **Mapeo Paramétrico por Carácter:**
     Para una palabra de 3 caracteres con iterador activo `char.i` ($1, 2, 3$):
-    * Carácter 1 ($d=0\text{ px}$, inicio del arco): $P_1(100.0, 250.0)$, tangente $\theta = -45^\circ \to$ Emite `{\pos(100,250)\frz-45}K`.
+    * Carácter 1 ($d=0\text{ px}$, inicio del arco): $P_1(100.0, 250.0)$, tangente ascendente $\theta = 45^\circ \to$ Emite `{\pos(100,250)\frz45}K`.
     * Carácter 2 ($d=L/2$, ápice del arco): $P_2(250.0, 175.0)$, tangente horizontal $\theta = 0^\circ \to$ Emite `{\pos(250,175)\frz0}a`.
-    * Carácter 3 ($d=L$, extremo final): $P_3(400.0, 250.0)$, tangente descendente $\theta = 45^\circ \to$ Emite `{\pos(400,250)\frz45}r`.
+    * Carácter 3 ($d=L$, extremo final): $P_3(400.0, 250.0)$, tangente descendente $\theta = -45^\circ \to$ Emite `{\pos(400,250)\frz-45}r`.
 
 ---
 

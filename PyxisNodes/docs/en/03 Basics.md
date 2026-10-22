@@ -94,7 +94,7 @@ Injects the tag configured in `K Mode` (`\k`, `\kf`, `\ko`, `\K`) with its value
 
 ### 3.5. Synergies and Best Practices
 * **Sanitisation Prior to Vectorisation:** Connect `strip_tags` to the `Text` input of `Basics/Text to Shape` to ensure the vector engine receives clean glyphs without interpolated ASS control codes.
-* **Conditional Text Branching:** Use the `contains` operation wired into `Basics/Switch` to branch style paths based on keywords found in dialogue text.
+* **Conditional Text Branching:** Use the `contains` operation wired into `Basics/Only` to branch style paths based on keywords found in dialogue text.
 
 ---
 

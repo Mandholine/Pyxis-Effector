@@ -56,8 +56,8 @@ Pyxis Effector procesa las pistas sonoras mediante un pipeline de búferes conti
 1. **`rms` (`RMS` / `Volumen General`):** Evalúa la potencia energética cuadrática media global en toda la banda audible. Adecuado para pulsaciones de escala, resplandor y volumen general.
 2. **`peak` (`Peak` / `Amplitud Pico`):** Detecta la amplitud máxima absoluta instantánea. Indicado para transitorios secos de percusión, redoblantes y golpes de batería.
 3. **`bass` (`Bass` / `Graves 20-250 Hz`):** Filtra la energía en el rango de subgraves y bombos ($20\text{ Hz} \dots 250\text{ Hz}$).
-4. **`mids` (`Mids` / `Medios 250-4000 Hz`):** Aísla el espectro vocal principal, sintetizadores e instrumentos melódicos ($250\text{ Hz} \dots 4000\text{ Hz}$).
-5. **`highs` (`Highs` / `Agudos 4-16 kHz`):** Detecta platillos, sibilancias y transitorios de alta frecuencia ($4000\text{ Hz} \dots 16000\text{ Hz}$).
+4. **`mids` (`Mids` / `Medios 250-4000 Hz`):** Aísla el espectro vocal principal, metales, sintetizadores e instrumentos melódicos ($250\text{ Hz} \dots 4000\text{ Hz}$).
+5. **`highs` (`Highs` / `Agudos 4-16 kHz`):** Detecta platillos, charles (*hi-hats*), sibilancias y transitorios de alta frecuencia ($4000\text{ Hz} \dots 16000\text{ Hz}$).
 6. **`custom` (`Custom` / `Banda Personalizada`):** Habilita los controles de corte `Min Hz` y `Max Hz` para aislar frecuencias armónicas específicas.
 
 ---

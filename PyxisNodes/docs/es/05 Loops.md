@@ -51,7 +51,7 @@ Al evaluar cada línea de diálogo de Aegisub, el nodo construye las estructuras
   
   En un nodo de tags conectado a `Output (Tags)`:
   ```
-  {\pos(syl.center, syl.middle - 20)\k(syl.dur / 10)}
+  {\pos(syl.center, syl.middle - 25 * math.sin(math.pi * (syl.i - 1) / max(1, syl.n - 1)))\k(syl.dur / 10)}
   ```
   
   Para una línea con $N = 5$ sílabas, la tercera sílaba ($i = 3$) alcanzará la elevación máxima:

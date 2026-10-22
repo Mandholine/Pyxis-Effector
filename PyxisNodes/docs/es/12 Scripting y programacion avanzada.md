@@ -274,7 +274,7 @@ El script puede emitir directamente trazados vectoriales ASSdraw para su uso com
 ### 4.6. Reactividad de Audio Espectral
 * `audio_rms(start_ms, end_ms, [path])`: Amplitud media cuadrática del audio en la ventana temporal ($0.0 \dots 1.0$).
 * `audio_peak(start_ms, end_ms, [path])`: Amplitud de pico máximo alcanzada en la ventana ($0.0 \dots 1.0$).
-* `audio_band(start_ms, end_ms, min_hz, max_hz, [path])`: Energía acústica filtrada en una banda específica de frecuencias (por ejemplo, graves de 20 Hz a 150 Hz).
+* `audio_band(start_ms, end_ms, min_hz, max_hz, [path])`: Energía acústica filtrada en una banda específica de frecuencias (por ejemplo, graves de 20 Hz a 120 Hz).
 * `audio_fft(start_ms, end_ms, num_bands, min_hz, max_hz, [path])`: Devuelve una lista (o tabla Lua) con los valores normalizados de los canales espectrales tras aplicar la Transformada Rápida de Fourier.
 
 ### 4.7. Memoria Persistente y Estado Compartido

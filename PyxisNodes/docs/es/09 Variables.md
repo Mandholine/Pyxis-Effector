@@ -460,11 +460,11 @@ Extracción de coordenadas métricas del glifo y duración nativa para posiciona
 
 * **Plantilla en `Dynamic Format`:**
   ```text
-  {\an5\pos(%s, %s)\t(0, %s, \fscx125\fscy125\1c&H00FFFF&)\t(%s, %s, \fscx100\fscy100\1c&HFFFFFF&)}
+  {\an5\pos(%s, %s)\t(0, %s, \fscx125\fscy125\1c&H00FFFF&)}
   ```
 * **Línea ASS compilada resultante:**
   ```ass
-  Dialogue: 0,0:01:12.40,0:01:15.80,Romaji,,0,0,0,,{\an5\pos(412.5, 680.0)\t(0, 320, \fscx125\fscy125\1c&H00FFFF&)\t(320, 320, \fscx100\fscy100\1c&HFFFFFF&)}Ka
+  Dialogue: 0,0:01:12.40,0:01:15.80,Romaji,,0,0,0,,{\an5\pos(412.5, 680.0)\t(0, 320, \fscx125\fscy125\1c&H00FFFF&)}Ka
   ```
 
 ---
@@ -555,7 +555,7 @@ Definición de traslación orbital sinusoidal y rotación angular por pieza de `
   ```
 * **Línea ASS compilada resultante:**
   ```ass
-  Dialogue: 0,0:01:12.40,0:01:15.80,Romaji,,0,0,0,,{\pos(425.2, 672.8)\frz(45.0)\t(0, 320, \alpha&HFF&)}Ka
+  Dialogue: 0,0:01:12.40,0:01:15.80,Romaji,,0,0,0,,{\pos(425.2, 672.8)\frz(22.5)\t(0, 320, \alpha&HFF&)}Ka
   ```
 
 ---
@@ -712,7 +712,9 @@ Acumulador cinemático horizontal entre sílabas en una línea para recrear espa
   ```
 * **Línea ASS compilada resultante:**
   ```ass
-  Dialogue: 0,0:01:12.40,0:01:15.80,Romaji,,0,0,0,,{\an7\pos(384.0, 680.0)\t(0, 180, \fscx115\fscy115\t(180, 320, \fscx100\fscy100))}Ka
+  Dialogue: 0,0:01:12.40,0:01:15.80,Romaji,,0,0,0,,{\an7\pos(384.0, 680.0)}Ka
+  Dialogue: 0,0:01:12.40,0:01:15.80,Romaji,,0,0,0,,{\an7\pos(424.0, 680.0)}ra
+  Dialogue: 0,0:01:12.40,0:01:15.80,Romaji,,0,0,0,,{\an7\pos(462.5, 680.0)}o
   ```
 
 ---

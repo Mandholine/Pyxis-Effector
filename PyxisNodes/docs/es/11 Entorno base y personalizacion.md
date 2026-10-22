@@ -171,7 +171,7 @@ Dialogue: 0,0:00:03.00,0:00:09.00,Default,,0,0,0,,{\k45}Kyou{\k40}kai {\k60}no {
 ```
 * **Sílabas cortas ($\le 200\text{ ms}$):** Útiles para validar transiciones rápidas de rebote (*Bounce*) o impactos cinéticos.
 * **Sílabas largas ($\ge 600\text{ ms}$):** Ideales para observar osciladores continuos (`Tag Oscillator`), gradientes dinámicos o emisiones de partículas sostenidas.
-* **Complejidad glífica:** Incluir kanjis densos si se trabaja con morfología vectorial o caracteres con islas cerradas (ej. `B`, `P`, `o`, `8`) para verificar operaciones booleanas de unión y corte en Clipper2.
+* **Complejidad glífica:** Incluir kanjis densos si se trabaja con morfología vectorial o caracteres con islas cerradas (ej. `B`, `P`, `o`, `8`) para verificar operaciones booleanas de unión y corte en Clipper2, así como la orientación y reglas de devanado (*winding rules*) de los polígonos.
 
 ---
 
@@ -210,6 +210,6 @@ Dialogue: 0,0:00:03.00,0:00:08.50,Default,,0,0,0,,{\k45}Py{\k35}xis {\k60}Ef{\k5
 1. **Uso de Vídeos Virtuales para Compartir Plantillas:**
    * Al exportar grafos o plantillas para otros usuarios, mantenga el vídeo en modo `?dummy:...`. De este modo, cualquier diseñador podrá abrir la plantilla y previsualizarla sin requerir rutas absolutas de vídeo inexistentes en su máquina.
 2. **Pruebas Tipográficas con Fuentes Locales:**
-   * Al diseñar con tipografías experimentales, ubique los archivos `.ttf` o `.otf` en `%APPDATA%\PyxisNodes\fonts\`. Tanto el motor vectorial como `libass` cargarán automáticamente los glifos locales sin exigir su instalación en el sistema operativo Windows.
+   * Al diseñar con tipografías experimentales, ubique los archivos `.ttf` o `.otf` en `%APPDATA%\PyxisNodes\fonts\`. Pyxis vectoriza y renderiza estas fuentes localmente mediante FreeType/HarfBuzz y libass sin exigir su instalación en el sistema operativo Windows.
 3. **Procedimiento de Restablecimiento de Fábrica:**
    * Para restaurar el archivo base a su configuración original de fábrica, cierre Pyxis Effector, elimine `%APPDATA%\PyxisNodes\preview_base.ass` y reinicie la aplicación; el motor regenerará una copia limpia automáticamente.

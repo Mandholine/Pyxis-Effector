@@ -86,7 +86,7 @@ $$\text{\textbackslash t}(T_{\text{local\_1}}, T_{\text{local\_2}}, [a,] \text{\
   Supplying `Tags` in `System/Output` with base style `{\an5\pos(syl.center, syl.middle)\fscx0\fscy0\alpha&HFF&}`:
   The node emits:
   ```
-  {\an5\pos(syl.center, syl.middle)\fscx0\fscy0\alpha&HFF&\t(0, syl.syl_start, 0.8, \fscx100\fscy100\alpha&H00&)}
+  {\an5\pos(320, 240)\fscx0\fscy0\alpha&HFF&\t(0, 180, 0.8, \fscx100\fscy100\alpha&H00&)}
   ```
   The syllable smoothly transitions over the lead-in window (*start2syl*) with a decelerating easing curve (*ease-out*, `accel=0.8`).
 
@@ -722,12 +722,12 @@ t=0 ms                                                  t=D ms
   ```
   [Time/Ipol: dur_ms=600, points="0, 30, 100", accel=1.5] ──► Data
   ```
-  The node outputs sub-intervals: `[0.0, 98.6], [98.6, 600.0]`.
+  The node outputs sub-intervals: `[0.0, 212.1], [212.1, 600.0]`.
   In the ASS override block:
   ```
-  {\t(0, 99, \fscx140\fscy140)\t(99, 600, 0.8, \fscx100\fscy100)}
+  {\t(0, 212, \fscx140\fscy140)\t(212, 600, 0.8, \fscx100\fscy100)}
   ```
-  The glyph surges quickly to 140% over the first 99 ms (impact phase) and relaxes back to 100% across the remaining 501 ms with a smooth decelerating easing curve.
+  The glyph surges quickly to 140% over the first 212 ms (impact phase) and relaxes back to 100% across the remaining 388 ms with a smooth decelerating easing curve.
 
 ---
 

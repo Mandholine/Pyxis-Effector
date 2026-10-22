@@ -12,7 +12,7 @@ La categoría **Basics** reúne los nodos dedicados a la generación, transforma
 ![Basics/Number](img/number.png)
 
 ### 1.1. Puertos de Salida (*Outputs*)
-1. **`[1.1] Number`:** Emite el valor numérico evaluado como cadena de texto. Si el valor resultante es un entero exacto, se formatea sin decimales (ej. `10`); si contiene decimales, se trunca a un máximo de 4 decimales significativos sin ceros redundantes a la derecha (ej. `12.5`).
+1. **`[1.1] Number`:** Emite el valor numérico evaluado como cadena de texto. Si el valor resultante es un entero exacto, se formatea sin decimales (ej. `10`); si contiene decimales, se redondea a un máximo de 4 decimales significativos sin ceros redundantes a la derecha (ej. `12.5`).
 
 ### 1.2. Controles y Propiedades del Cuerpo
 1. **`[2.1] Value` (`value`):** Campo de entrada editable. Acepta números directos (`100`, `-45.2`), variables del contexto ASS (`syl.x`, `line.width`, `j`, `i`, `char.n`) o expresiones matemáticas (`syl.width / 2 + 10`, `sin(j * 0.1) * 50`).
@@ -94,7 +94,7 @@ Inyecta la etiqueta configurada en `K Mode` (`\k`, `\kf`, `\ko`, `\K`) con su va
 
 ### 3.5. Sinergias y Buenas Prácticas
 * **Saneamiento Previo a Vectorización:** Conectar `strip_tags` a la entrada `Text` de `Basics/Text to Shape` para asegurar que el motor de renderizado vectorial procese exclusivamente glifos limpios sin etiquetas ASS interpoladas.
-* **Comprobación Condicional de Texto:** Utilizar la operación `contains` conectada a `Basics/Switch` para bifurcar rutas de estilo según palabras clave presentes en el diálogo.
+* **Comprobación Condicional de Texto:** Utilizar la operación `contains` conectada a `Basics/Only` para bifurcar rutas de estilo según palabras clave presentes en el diálogo.
 
 ---
 

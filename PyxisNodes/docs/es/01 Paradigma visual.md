@@ -273,11 +273,11 @@ Los bloques de etiquetas delimitados por llaves `{\...}` en cualquier nodo produ
 El lenguaje de plantillas integra 4 mecanismos universales de resolución:
 
 1. **Expresiones algebraicas y variables directas en paréntesis de tags ASS (`\tag(...)`):**
-   * Rotaciones y escalas: `\frz(angle2)`, `\frz(j * 15)`, `\fscxy(120 + i*5)`.
+   * Rotaciones y escalas: `\frz(rot)`, `\frz(j * 15)`, `\fscxy(120 + i*5)`.
    * Posiciones y pivotes: `\pos(syl.center + 10, syl.middle)`, `\org(fx.pos_x, fx.pos_y - 1000)`.
    * Alfas y colores: `\alpha(255)`, `\1a(128)`, `\1c(line.color1)`, `\1c(ass_color(255, 128, 0))`.
 2. **Transformaciones temporales `\t(...)` dinámicas:**
-   * Tiempos y tags evaluados: `\t(0, 150, \frz0)\t(fx.dur-150, fx.dur, \frz(angle2))`.
+   * Tiempos y tags evaluados: `\t(0, 150, \frz0)\t(fx.dur-150, fx.dur, \frz(rot))`.
 3. **Expresiones, variables y ternarios aislados entre paréntesis `(...)`:**
    * Evaluación de variables, atributos y cálculos fuera de tags: `(syl.text)`, `(syl.dur)`, `(fx.dur)`, `(j * 15)`, `(line.text)`.
    * Selección condicional de etiquetas o valores dentro del bloque: `(\blur3 if i == 1 else \blur0)`, `(Colores())`.
@@ -319,9 +319,9 @@ Atajos temporales paramétricos que se adaptan a la duración total del efecto o
 | Dark Tag | Sintaxis de Uso | Expansión ASS Resultante | Descripción Operativa |
 | :--- | :--- | :--- | :--- |
 | `\te` | `\te(t1, t2, \tags)`<br>`\te(t1, t2, accel, \tags)`<br>`\te(t, \tags)` | `\t(fx.dur - t2, fx.dur - t1, \tags)`<br>`\t(fx.dur - t2, fx.dur - t1, accel, \tags)`<br>`\t(fx.dur - t, fx.dur, \tags)` | Animación invertida respecto al fin de la línea (`fx.dur`). |
-| `\ts` | `\ts(t1, t2, \tags)`<br>`\ts(t1, t2, accel, \tags)`<br>`\ts(t, \tags)` | `\t(syl.start + t1, syl.start + t2, \tags)`<br>`\t(syl.start + t1, syl.start + t2, accel, \tags)`<br>`\t(syl.start, syl.start + t, \tags)` | Animación relativa al inicio temporal de la sílaba. |
-| `\tc` | `\tc(t1, t2, \tags)`<br>`\tc(t1, t2, accel, \tags)`<br>`\tc(t, \tags)` | `\t(char.start + t1, char.start + t2, \tags)`<br>`\t(char.start + t1, char.start + t2, accel, \tags)`<br>`\t(char.start, char.start + t, \tags)` | Animación relativa al inicio temporal del carácter. |
-| `\tw` | `\tw(t1, t2, \tags)`<br>`\tw(t1, t2, accel, \tags)`<br>`\tw(t, \tags)` | `\t(word.start + t1, word.start + t2, \tags)`<br>`\t(word.start + t1, word.start + t2, accel, \tags)`<br>`\t(word.start, word.start + t, \tags)` | Animación relativa al inicio temporal de la palabra. |
+| `\ts` | `\ts(t1, t2, \tags)`<br>`\ts(t1, t2, accel, \tags)`<br>`\ts(t, \tags)` | `\t(syl.start_time + t1, syl.start_time + t2, \tags)`<br>`\t(syl.start_time + t1, syl.start_time + t2, accel, \tags)`<br>`\t(syl.start_time, syl.start_time + t, \tags)` | Animación relativa al inicio temporal de la sílaba. |
+| `\tc` | `\tc(t1, t2, \tags)`<br>`\tc(t1, t2, accel, \tags)`<br>`\tc(t, \tags)` | `\t(char.start_time + t1, char.start_time + t2, \tags)`<br>`\t(char.start_time + t1, char.start_time + t2, accel, \tags)`<br>`\t(char.start_time, char.start_time + t, \tags)` | Animación relativa al inicio temporal del carácter. |
+| `\tw` | `\tw(t1, t2, \tags)`<br>`\tw(t1, t2, accel, \tags)`<br>`\tw(t, \tags)` | `\t(word.start_time + t1, word.start_time + t2, \tags)`<br>`\t(word.start_time + t1, word.start_time + t2, accel, \tags)`<br>`\t(word.start_time, word.start_time + t, \tags)` | Animación relativa al inicio temporal de la palabra. |
 
 #### 5.4.4. Tags Multicanal y Agrupados
 | Dark Tag | Expansión ASS Directa | Ejemplo |

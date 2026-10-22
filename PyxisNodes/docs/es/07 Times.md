@@ -84,9 +84,9 @@ $$\text{\textbackslash t}(T_{\text{local\_1}}, T_{\text{local\_2}}, [a,] \text{\
   ```
 
   Alimentando `Tags` de `System/Output` con estilo base `{\an5\pos(syl.center, syl.middle)\fscx0\fscy0\alpha&HFF&}`:
-  El nodo emite:
+  El nodo resuelve numéricamente los tiempos en milisegundos y emite:
   ```
-  {\an5\pos(syl.center, syl.middle)\fscx0\fscy0\alpha&HFF&\t(0, syl.syl_start, 0.8, \fscx100\fscy100\alpha&H00&)}
+  {\an5\pos(320, 240)\fscx0\fscy0\alpha&HFF&\t(0, 180, 0.8, \fscx100\fscy100\alpha&H00&)}
   ```
   La sílaba transiciona suavemente durante el intervalo de entrada (*start2syl*) con curva desacelerada (*ease-out*, `accel=0.8`).
 
@@ -724,12 +724,12 @@ t=0 ms                                                  t=D ms
   ```
   [Time/Ipol: dur_ms=600, points="0, 30, 100", accel=1.5] ──► Data
   ```
-  El nodo devuelve los sub-intervalos: `[0.0, 98.6], [98.6, 600.0]`.
+  El nodo devuelve los sub-intervalos: `[0.0, 212.1], [212.1, 600.0]`.
   En el bloque ASS:
   ```
-  {\t(0, 99, \fscx140\fscy140)\t(99, 600, 0.8, \fscx100\fscy100)}
+  {\t(0, 212, \fscx140\fscy140)\t(212, 600, 0.8, \fscx100\fscy100)}
   ```
-  El glifo salta bruscamente al 140% durante los primeros 99 ms (fase de impacto) y regresa suavemente al 100% durante los 501 ms restantes con curva decelerada.
+  El glifo salta bruscamente al 140% durante los primeros 212 ms (fase de impacto) y regresa suavemente al 100% durante los 388 ms restantes con curva decelerada.
 
 ---
 

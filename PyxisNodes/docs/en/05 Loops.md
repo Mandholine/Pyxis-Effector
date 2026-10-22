@@ -51,7 +51,7 @@ Upon evaluating each Aegisub dialogue line, the node constructs contextual metri
   
   In a tag node connected to `Output (Tags)`:
   ```
-  {\pos(syl.center, syl.middle - 20)\k(syl.dur / 10)}
+  {\pos(syl.center, syl.middle - 25 * math.sin(math.pi * (syl.i - 1) / max(1, syl.n - 1)))\k(syl.dur / 10)}
   ```
   
   For a line with $N = 5$ syllables, the third syllable ($i = 3$) achieves peak displacement:

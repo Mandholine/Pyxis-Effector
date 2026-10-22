@@ -17435,6 +17435,133 @@ function setupDynamicInlineNode(node) {
             }
         }
 
+        function getSafeLocalPos(node, raw_pos) {
+            if (!raw_pos) return [0, 0];
+            let lx = raw_pos[0];
+            let ly = raw_pos[1];
+            if (node && node.pos && (lx > node.pos[0] + (node.size ? node.size[0] : 0) || ly > node.pos[1] + (node.size ? node.size[1] : 0))) {
+                lx = lx - node.pos[0];
+                ly = ly - node.pos[1];
+            }
+            return [lx, ly];
+        }
+
+        function getImgNodePreviewLayout(node) {
+            const nodeW = node.size ? node.size[0] : 380;
+            const nodeH = node.size ? node.size[1] : 230;
+
+            let max_in_text_w = 0;
+            if (node.properties) {
+                for (const k in node.properties) {
+                    if (k === "modo" || k === "anchor" || k === "invert" || k === "view_mode" || k === "bin_mode" || k === "invert_img" || k === "order") continue;
+                    let val = String(node.properties[k] || "");
+                    if (k === "image_path") val = "...image.png";
+                    if (val.length > 0) {
+                        const tw = Math.min(85, getExactTextWidth(val, "bold 11px monospace"));
+                        if (tw > max_in_text_w) max_in_text_w = tw;
+                    }
+                }
+            }
+
+            let max_out_w = 0;
+            (node.outputs || []).forEach(out => {
+                if (out.name) {
+                    const ow = getExactTextWidth(out.name, "10px sans-serif");
+                    if (ow > max_out_w) max_out_w = ow;
+                }
+            });
+
+            const left_box_w = Math.max(70, max_in_text_w + 16);
+            const left_col_end = 22 + left_box_w;
+            const right_col_w = max_out_w > 0 ? (max_out_w + 38) : 20;
+            const right_col_start = nodeW - right_col_w;
+
+            const availW = Math.max(150, right_col_start - left_col_end - 24);
+            const availH = Math.max(150, nodeH - 65);
+            const cardSize = Math.floor(Math.min(availW, availH));
+            const cardW = cardSize;
+            const cardH = cardSize;
+
+            const cardX = Math.floor(left_col_end + (right_col_start - left_col_end - cardW) / 2);
+            const cardY = Math.max(12, Math.floor((nodeH - cardH - 32) / 2));
+
+            const barY = cardY + cardH + 8;
+            const barH = 20;
+            const btnH = 20;
+            const barTotalW = 150;
+            const barStartX = Math.floor(cardX + (cardW - barTotalW) / 2);
+            const btnW = 118;
+            const btnX = barStartX;
+            const refreshW = 28;
+            const refreshX = barStartX + 122;
+
+            const hasTopBar = Boolean(node._totalFrames && node._totalFrames > 1);
+            const topBarY = cardY - 22;
+            const topBarH = 18;
+            const stepBtnW = 18;
+            const trackX = cardX + stepBtnW + 4;
+            const trackW = cardW - 2 * stepBtnW - 8;
+
+            return {
+                nodeW, nodeH,
+                cardX, cardY, cardW, cardH,
+                cardCenterX: cardX + cardW / 2,
+                cardCenterY: cardY + cardH / 2,
+                barY, barH, btnH,
+                btnX, btnW,
+                refreshX, refreshW,
+                hasTopBar, topBarY, topBarH, stepBtnW, trackX, trackW
+            };
+        }
+
+        function hitTestImgPreview(layout, lx, ly) {
+            if (!layout) return null;
+            const pad = 5;
+
+            if (layout.hasTopBar) {
+                if (ly >= layout.topBarY - 3 && ly <= layout.topBarY + layout.topBarH + 3) {
+                    if (lx >= layout.cardX - 3 && lx <= layout.cardX + layout.stepBtnW + 2) {
+                        return "prev_frame";
+                    }
+                    if (lx >= layout.cardX + layout.cardW - layout.stepBtnW - 2 && lx <= layout.cardX + layout.cardW + 3) {
+                        return "next_frame";
+                    }
+                    if (lx >= layout.trackX - 2 && lx <= layout.trackX + layout.trackW + 2) {
+                        return "scrub_track";
+                    }
+                }
+            }
+
+            if (ly >= layout.barY - pad && ly <= layout.barY + layout.btnH + pad) {
+                if (lx >= layout.btnX - pad && lx <= layout.btnX + layout.btnW + 2) {
+                    return "view_btn";
+                }
+                if (lx >= layout.refreshX - 2 && lx <= layout.refreshX + layout.refreshW + pad) {
+                    return "refresh_btn";
+                }
+            }
+
+            if (lx >= layout.cardX && lx <= layout.cardX + layout.cardW && ly >= layout.cardY && ly <= layout.cardY + layout.cardH) {
+                return "card";
+            }
+
+            return null;
+        }
+
+        function updateImgPreviewCursor(node, canvas, target) {
+            const cObj = canvas || LGraphCanvas.active_canvas || window.canvas || window.graphcanvas;
+            const cElem = cObj ? (cObj.canvas || cObj) : null;
+            if (!cElem || !cElem.style) return;
+
+            if (target === "view_btn" || target === "refresh_btn" || target === "prev_frame" || target === "next_frame" || target === "scrub_track" || target === "card") {
+                cElem.style.cursor = "pointer";
+            } else {
+                if (cElem.style.cursor === "pointer") {
+                    cElem.style.cursor = "default";
+                }
+            }
+        }
+
         function setupImgToShapeNode(node) {
             if (!node.properties) node.properties = {};
             if (node.properties.image_path === undefined) node.properties.image_path = "";
@@ -17517,166 +17644,162 @@ function setupDynamicInlineNode(node) {
                 scheduleImgToShapeFetch(this);
             };
 
+            const oldMouseMove = node.onMouseMove;
+            node.onMouseMove = function(e, local_pos, canvas) {
+                if (local_pos) {
+                    const [lx, ly] = getSafeLocalPos(this, local_pos);
+                    const layout = getImgNodePreviewLayout(this);
+                    const target = hitTestImgPreview(layout, lx, ly);
+                    if (this._hoverTarget !== target) {
+                        this._hoverTarget = target;
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
+                    }
+                    updateImgPreviewCursor(this, canvas, target);
+                }
+                if (oldMouseMove) return oldMouseMove.call(this, e, local_pos, canvas);
+            };
+
+            const oldMouseLeave = node.onMouseLeave;
+            node.onMouseLeave = function(e, canvas) {
+                if (this._hoverTarget || this._pressedTarget) {
+                    this._hoverTarget = null;
+                    this._pressedTarget = null;
+                    if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
+                }
+                updateImgPreviewCursor(this, canvas, null);
+                if (oldMouseLeave) return oldMouseLeave.call(this, e, canvas);
+            };
+
+            const oldMouseUp = node.onMouseUp;
+            node.onMouseUp = function(e, local_pos, canvas) {
+                if (this._pressedTarget) {
+                    this._pressedTarget = null;
+                    if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
+                }
+                if (oldMouseUp) return oldMouseUp.call(this, e, local_pos, canvas);
+            };
+
             const oldMouseDown = node.onMouseDown;
             node.onMouseDown = function(e, local_pos, canvas) {
                 if (local_pos) {
-                    const nodeW = this.size ? this.size[0] : 380;
-                    const nodeH = this.size ? this.size[1] : 230;
+                    const [lx, ly] = getSafeLocalPos(this, local_pos);
+                    const layout = getImgNodePreviewLayout(this);
+                    const target = hitTestImgPreview(layout, lx, ly);
 
-                    let max_in_text_w = 0;
-                    if (this.properties) {
-                        for (const k in this.properties) {
-                            if (k === "modo" || k === "anchor" || k === "invert" || k === "view_mode" || k === "bin_mode" || k === "invert_img") continue;
-                            let val = String(this.properties[k] || "");
-                            if (k === "image_path") val = "...image.png";
-                            if (val.length > 0) {
-                                const tw = Math.min(85, getExactTextWidth(val, "bold 11px monospace"));
-                                if (tw > max_in_text_w) max_in_text_w = tw;
-                            }
-                        }
+                    if (target) {
+                        this._pressedTarget = target;
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
                     }
 
-                    let max_out_w = 0;
-                    (this.outputs || []).forEach(out => {
-                        if (out.name) {
-                            const ow = getExactTextWidth(out.name, "10px sans-serif");
-                            if (ow > max_out_w) max_out_w = ow;
+                    if (target === "prev_frame") {
+                        const curF = this._currentFrame || 1;
+                        const newFrame = Math.max(1, curF - 1);
+                        if (newFrame !== curF) {
+                            scheduleImgToShapeFetch(this, newFrame);
                         }
-                    });
-
-                    const left_box_w = Math.max(70, max_in_text_w + 16);
-                    const left_col_end = 22 + left_box_w;
-                    const right_col_w = max_out_w > 0 ? (max_out_w + 38) : 20;
-                    const right_col_start = nodeW - right_col_w;
-
-                    const availW = Math.max(150, right_col_start - left_col_end - 24);
-                    const availH = Math.max(150, nodeH - 65);
-                    const cardSize = Math.floor(Math.min(availW, availH));
-                    const cardW = cardSize;
-                    const cardH = cardSize;
-
-                    const cardX = Math.floor(left_col_end + (right_col_start - left_col_end - cardW) / 2);
-                    const cardY = Math.max(12, Math.floor((nodeH - cardH - 32) / 2));
-
-                    if (this._totalFrames && this._totalFrames > 1) {
-                        const topBarY = cardY - 22;
-                        const topBarH = 18;
-                        const stepBtnW = 18;
-                        const trackX = cardX + stepBtnW + 4;
-                        const trackW = cardW - 2 * stepBtnW - 8;
-                        const pad = 4;
-
-                        if (local_pos[1] >= topBarY - pad && local_pos[1] <= topBarY + topBarH + pad) {
-                            const selfNode = this;
-                            const curF = selfNode._currentFrame || 1;
-                            const totF = selfNode._totalFrames || 1;
-
-                            if (local_pos[0] >= cardX - pad && local_pos[0] <= cardX + stepBtnW + 2) {
-                                const newFrame = Math.max(1, curF - 1);
-                                if (newFrame !== curF) {
-                                    scheduleImgToShapeFetch(selfNode, newFrame);
-                                }
-                                return true;
-                            }
-
-                            if (local_pos[0] >= cardX + cardW - stepBtnW - 2 && local_pos[0] <= cardX + cardW + pad) {
-                                const newFrame = Math.min(totF, curF + 1);
-                                if (newFrame !== curF) {
-                                    scheduleImgToShapeFetch(selfNode, newFrame);
-                                }
-                                return true;
-                            }
-
-                            if (local_pos[0] >= trackX - 2 && local_pos[0] <= trackX + trackW + 2) {
-                                const updateFrameFromEvent = (eMove) => {
-                                    const canvasObj = canvas || window.canvas || window.graphcanvas;
-                                    if (!canvasObj || !canvasObj.canvas) return;
-                                    const rect = canvasObj.canvas.getBoundingClientRect();
-                                    const scale = (canvasObj.ds && canvasObj.ds.scale) ? canvasObj.ds.scale : 1.0;
-                                    const tx = (canvasObj.ds && canvasObj.ds.offset) ? canvasObj.ds.offset[0] : 0;
-                                    const graphX = (eMove.clientX - rect.left) / scale - tx;
-                                    const nodeLocalX = graphX - selfNode.pos[0];
-
-                                    const ratio = Math.max(0, Math.min(1, (nodeLocalX - trackX) / Math.max(1, trackW)));
-                                    const newFrame = Math.round(1 + ratio * (selfNode._totalFrames - 1));
-                                    if (newFrame !== selfNode._currentFrame) {
-                                        scheduleImgToShapeFetch(selfNode, newFrame);
-                                    }
-                                };
-
-                                updateFrameFromEvent(e);
-
-                                const onWindowMove = (eMove) => { updateFrameFromEvent(eMove); };
-                                const onWindowUp = (eUp) => {
-                                    window.removeEventListener("pointermove", onWindowMove);
-                                    window.removeEventListener("pointerup", onWindowUp);
-                                    window.removeEventListener("mousemove", onWindowMove);
-                                    window.removeEventListener("mouseup", onWindowUp);
-                                };
-
-                                window.addEventListener("pointermove", onWindowMove);
-                                window.addEventListener("pointerup", onWindowUp);
-                                window.addEventListener("mousemove", onWindowMove);
-                                window.addEventListener("mouseup", onWindowUp);
-
-                                return true;
-                            }
-                        }
+                        return true;
                     }
 
-                    const barY = cardY + cardH + 8;
-                    const barH = 18;
-                    const btnH = 18;
-                    const barTotalW = 150;
-                    const barStartX = Math.floor(cardX + (cardW - barTotalW) / 2);
+                    if (target === "next_frame") {
+                        const curF = this._currentFrame || 1;
+                        const totF = this._totalFrames || 1;
+                        const newFrame = Math.min(totF, curF + 1);
+                        if (newFrame !== curF) {
+                            scheduleImgToShapeFetch(this, newFrame);
+                        }
+                        return true;
+                    }
 
-                    const btnW = 118;
-                    const btnX = barStartX;
-                    const refreshW = 28;
-                    const refreshX = barStartX + 122;
-                    const pad = 4;
+                    if (target === "scrub_track") {
+                        const selfNode = this;
+                        const updateFrameFromEvent = (eMove) => {
+                            const canvasObj = canvas || LGraphCanvas.active_canvas || window.canvas || window.graphcanvas;
+                            if (!canvasObj || !canvasObj.canvas) return;
+                            const rect = canvasObj.canvas.getBoundingClientRect();
+                            const scale = (canvasObj.ds && canvasObj.ds.scale) ? canvasObj.ds.scale : 1.0;
+                            const tx = (canvasObj.ds && canvasObj.ds.offset) ? canvasObj.ds.offset[0] : 0;
+                            const graphX = (eMove.clientX - rect.left) / scale - tx;
+                            const nodeLocalX = graphX - selfNode.pos[0];
 
-                    if (local_pos[1] >= barY - pad && local_pos[1] <= barY + barH + pad) {
-                        if (local_pos[0] >= btnX - pad && local_pos[0] <= btnX + btnW + 2) {
-                            const VIEW_MODES = ["Overlay", "Image", "Vector"];
-                            let curV = (this.properties && this.properties.view_mode) ? this.properties.view_mode : "Overlay";
-                            if (curV === "Superposición") curV = "Overlay";
-                            if (curV === "Imagen") curV = "Image";
-                            let curIdx = VIEW_MODES.indexOf(curV);
-                            if (curIdx < 0) curIdx = 0;
-                            const nextIdx = (curIdx + 1) % VIEW_MODES.length;
-                            this.properties.view_mode = VIEW_MODES[nextIdx];
+                            const ratio = Math.max(0, Math.min(1, (nodeLocalX - layout.trackX) / Math.max(1, layout.trackW)));
+                            const newFrame = Math.round(1 + ratio * ((selfNode._totalFrames || 1) - 1));
+                            if (newFrame !== selfNode._currentFrame) {
+                                scheduleImgToShapeFetch(selfNode, newFrame);
+                            }
+                        };
+
+                        updateFrameFromEvent(e);
+
+                        const onWindowMove = (eMove) => { updateFrameFromEvent(eMove); };
+                        const onWindowUp = (eUp) => {
+                            if (selfNode._pressedTarget) {
+                                selfNode._pressedTarget = null;
+                                if (selfNode.setDirtyCanvas) selfNode.setDirtyCanvas(true, false);
+                            }
+                            window.removeEventListener("pointermove", onWindowMove);
+                            window.removeEventListener("pointerup", onWindowUp);
+                            window.removeEventListener("mousemove", onWindowMove);
+                            window.removeEventListener("mouseup", onWindowUp);
+                        };
+
+                        window.addEventListener("pointermove", onWindowMove);
+                        window.addEventListener("pointerup", onWindowUp);
+                        window.addEventListener("mousemove", onWindowMove);
+                        window.addEventListener("mouseup", onWindowUp);
+
+                        return true;
+                    }
+
+                    if (target === "view_btn") {
+                        const VIEW_MODES = ["Overlay", "Image", "Vector"];
+                        let curV = (this.properties && this.properties.view_mode) ? this.properties.view_mode : "Overlay";
+                        if (curV === "Superposición") curV = "Overlay";
+                        if (curV === "Imagen") curV = "Image";
+                        let curIdx = VIEW_MODES.indexOf(curV);
+                        if (curIdx < 0) curIdx = 0;
+                        const nextIdx = (curIdx + 1) % VIEW_MODES.length;
+                        this.properties.view_mode = VIEW_MODES[nextIdx];
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+                        if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("view_mode-cycle");
+                        return true;
+                    }
+
+                    if (target === "refresh_btn") {
+                        const imgPath = String(this.properties ? (this.properties.image_path || "") : "").trim();
+                        if (!imgPath) {
+                            this._missingImgFlash = Date.now();
                             if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
-                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("view_mode-cycle");
+                            if (typeof showPyxisToast === "function") {
+                                const isEs = window.PyxisI18n && PyxisI18n.currentLang === "es";
+                                showPyxisToast(isEs ? "Por favor selecciona una imagen primero" : "Please select an image first", "warning");
+                            }
                             return true;
                         }
-                        else if (local_pos[0] >= refreshX - 2 && local_pos[0] <= refreshX + refreshW + pad) {
-                            if (this._isTracing) return true;
-                            this._isTracing = true;
-                            if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+                        if (this._isTracing) return true;
+                        this._isTracing = true;
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
 
-                            if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.trace_image_api === 'function') {
-                                window.pywebview.api.trace_image_api(this.properties).then(res => {
-                                    this._isTracing = false;
-                                    if (res) {
-                                        if (res.shape) this._lastTracedShape = res.shape;
-                                        if (res.total_frames) this._totalFrames = res.total_frames;
-                                        if (res.frame_index) this._currentFrame = res.frame_index;
-                                    }
-                                    if (res && res.preview_image_path) {
-                                        loadPreviewImage(this, res.preview_image_path);
-                                    } else if (this.setDirtyCanvas) {
-                                        this.setDirtyCanvas(true, true);
-                                    }
-                                }).catch(() => {
-                                    this._isTracing = false;
-                                    if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
-                                });
-                            } else {
+                        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.trace_image_api === 'function') {
+                            window.pywebview.api.trace_image_api(this.properties).then(res => {
                                 this._isTracing = false;
-                            }
-                            return true;
+                                if (res) {
+                                    if (res.shape) this._lastTracedShape = res.shape;
+                                    if (res.total_frames) this._totalFrames = res.total_frames;
+                                    if (res.frame_index) this._currentFrame = res.frame_index;
+                                }
+                                if (res && res.preview_image_path) {
+                                    loadPreviewImage(this, res.preview_image_path);
+                                } else if (this.setDirtyCanvas) {
+                                    this.setDirtyCanvas(true, true);
+                                }
+                            }).catch(() => {
+                                this._isTracing = false;
+                                if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+                            });
+                        } else {
+                            this._isTracing = false;
                         }
+                        return true;
                     }
                 }
                 if (oldMouseDown) return oldMouseDown.call(this, e, local_pos, canvas);
@@ -17692,52 +17815,11 @@ function setupDynamicInlineNode(node) {
 
             node.onDblClick = function(e, local_pos, canvas) {
                 if (!local_pos) return false;
-                let lx = local_pos[0];
-                let ly = local_pos[1];
-                if (this.pos && (lx > this.pos[0] + this.size[0] || ly > this.pos[1] + this.size[1])) {
-                    lx = lx - this.pos[0];
-                    ly = ly - this.pos[1];
-                }
+                const [lx, ly] = getSafeLocalPos(this, local_pos);
+                const layout = getImgNodePreviewLayout(this);
+                const target = hitTestImgPreview(layout, lx, ly);
 
-                const nodeW = this.size ? this.size[0] : 380;
-                const nodeH = this.size ? this.size[1] : 230;
-
-                let max_in_text_w = 0;
-                if (this.properties) {
-                    for (const k in this.properties) {
-                        if (k === "modo" || k === "anchor" || k === "invert" || k === "view_mode" || k === "bin_mode") continue;
-                        let val = String(this.properties[k] || "");
-                        if (k === "image_path") val = "...image.png";
-                        if (val.length > 0) {
-                            const tw = Math.min(85, getExactTextWidth(val, "bold 11px monospace"));
-                            if (tw > max_in_text_w) max_in_text_w = tw;
-                        }
-                    }
-                }
-
-                let max_out_w = 0;
-                (this.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-
-                const left_box_w = Math.max(70, max_in_text_w + 16);
-                const left_col_end = 22 + left_box_w;
-                const right_col_w = max_out_w > 0 ? (max_out_w + 38) : 20;
-                const right_col_start = nodeW - right_col_w;
-
-                const availW = Math.max(150, right_col_start - left_col_end - 24);
-                const availH = Math.max(150, nodeH - 65);
-                const cardSize = Math.floor(Math.min(availW, availH));
-                const cardW = cardSize;
-                const cardH = cardSize;
-
-                const cardX = Math.floor(left_col_end + (right_col_start - left_col_end - cardW) / 2);
-                const cardY = Math.max(12, Math.floor((nodeH - cardH - 32) / 2));
-
-                if (lx >= cardX && lx <= cardX + cardW && ly >= cardY && ly <= cardY + cardH) {
+                if (target === "card") {
                     const updateImagePath = (filePath) => {
                         if (!filePath) return;
                         const prev = this.properties["image_path"];
@@ -17844,59 +17926,31 @@ function setupDynamicInlineNode(node) {
                 if (oldDraw) oldDraw.call(this, ctx);
                 if (this.flags && this.flags.collapsed) return;
 
-                const nodeW = this.size ? this.size[0] : 380;
-                const nodeH = this.size ? this.size[1] : 230;
+                const isTracing = Boolean(this._isTracing);
+                if (isTracing || (this._missingImgFlash && Date.now() - this._missingImgFlash < 800)) {
+                    if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
+                }
+
+                const layout = getImgNodePreviewLayout(this);
+                const { nodeW, nodeH, cardX, cardY, cardW, cardH, cardCenterX, cardCenterY, barY, btnH, btnX, btnW, refreshX, refreshW } = layout;
                 let viewMode = (this.properties && this.properties.view_mode) ? this.properties.view_mode : "Overlay";
                 if (viewMode === "Superposición") viewMode = "Overlay";
                 if (viewMode === "Imagen") viewMode = "Image";
 
-                let max_in_text_w = 0;
-                if (this.properties) {
-                    for (const k in this.properties) {
-                        if (k === "modo" || k === "anchor" || k === "invert" || k === "view_mode") continue;
-                        let val = String(this.properties[k] || "");
-                        if (k === "image_path") val = "...image.png";
-                        if (val.length > 0) {
-                            const tw = Math.min(85, getExactTextWidth(val, "bold 11px monospace"));
-                            if (tw > max_in_text_w) max_in_text_w = tw;
-                        }
-                    }
-                }
-
-                let max_out_w = 0;
-                (this.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-
-                const left_box_w = Math.max(70, max_in_text_w + 16);
-                const left_col_end = 22 + left_box_w;
-                const right_col_w = max_out_w > 0 ? (max_out_w + 38) : 20;
-                const right_col_start = nodeW - right_col_w;
-
-                const availW = Math.max(150, right_col_start - left_col_end - 24);
-                const availH = Math.max(150, nodeH - 65);
-                const cardSize = Math.floor(Math.min(availW, availH));
-                const cardW = cardSize;
-                const cardH = cardSize;
-
-                const cardX = Math.floor(left_col_end + (right_col_start - left_col_end - cardW) / 2);
-                const cardY = Math.max(12, Math.floor((nodeH - cardH - 32) / 2));
-
-                if (this._totalFrames && this._totalFrames > 1) {
+                if (layout.hasTopBar) {
                     ctx.save();
-                    const topBarY = cardY - 22;
-                    const topBarH = 18;
-                    const stepBtnW = 18;
-                    const trackX = cardX + stepBtnW + 4;
-                    const trackW = cardW - 2 * stepBtnW - 8;
+                    const topBarY = layout.topBarY;
+                    const topBarH = layout.topBarH;
+                    const stepBtnW = layout.stepBtnW;
+                    const trackX = layout.trackX;
+                    const trackW = layout.trackW;
                     const curF = this._currentFrame || 1;
                     const totF = this._totalFrames || 1;
 
-                    ctx.fillStyle = "#12161f";
-                    ctx.strokeStyle = curF > 1 ? "#8b5cf6" : "#334155";
+                    const isPrevHover = this._hoverTarget === "prev_frame";
+                    const isPrevPressed = this._pressedTarget === "prev_frame";
+                    ctx.fillStyle = isPrevPressed ? "rgba(91, 33, 182, 0.75)" : (isPrevHover ? "rgba(139, 92, 246, 0.32)" : "#12161f");
+                    ctx.strokeStyle = curF > 1 ? (isPrevHover ? "#c084fc" : "#8b5cf6") : "#334155";
                     ctx.lineWidth = 1.2;
                     ctx.beginPath();
                     if (ctx.roundRect) ctx.roundRect(cardX, topBarY, stepBtnW, topBarH, 4);
@@ -17904,9 +17958,9 @@ function setupDynamicInlineNode(node) {
                     ctx.fill();
                     ctx.stroke();
 
-                    ctx.fillStyle = curF > 1 ? "#a7f3d0" : "#475569";
+                    ctx.fillStyle = curF > 1 ? (isPrevHover ? "#ffffff" : "#a7f3d0") : "#475569";
                     const arrowLeftCenterX = cardX + stepBtnW / 2;
-                    const arrowLeftCenterY = topBarY + topBarH / 2;
+                    const arrowLeftCenterY = topBarY + topBarH / 2 + (isPrevPressed ? 1 : 0);
                     ctx.beginPath();
                     ctx.moveTo(arrowLeftCenterX - 3, arrowLeftCenterY);
                     ctx.lineTo(arrowLeftCenterX + 2.5, arrowLeftCenterY - 4);
@@ -17914,17 +17968,19 @@ function setupDynamicInlineNode(node) {
                     ctx.closePath();
                     ctx.fill();
 
-                    ctx.fillStyle = "#12161f";
-                    ctx.strokeStyle = curF < totF ? "#8b5cf6" : "#334155";
+                    const isNextHover = this._hoverTarget === "next_frame";
+                    const isNextPressed = this._pressedTarget === "next_frame";
+                    ctx.fillStyle = isNextPressed ? "rgba(91, 33, 182, 0.75)" : (isNextHover ? "rgba(139, 92, 246, 0.32)" : "#12161f");
+                    ctx.strokeStyle = curF < totF ? (isNextHover ? "#c084fc" : "#8b5cf6") : "#334155";
                     ctx.beginPath();
                     if (ctx.roundRect) ctx.roundRect(cardX + cardW - stepBtnW, topBarY, stepBtnW, topBarH, 4);
                     else ctx.rect(cardX + cardW - stepBtnW, topBarY, stepBtnW, topBarH);
                     ctx.fill();
                     ctx.stroke();
 
-                    ctx.fillStyle = curF < totF ? "#a7f3d0" : "#475569";
+                    ctx.fillStyle = curF < totF ? (isNextHover ? "#ffffff" : "#a7f3d0") : "#475569";
                     const arrowRightCenterX = cardX + cardW - stepBtnW / 2;
-                    const arrowRightCenterY = topBarY + topBarH / 2;
+                    const arrowRightCenterY = topBarY + topBarH / 2 + (isNextPressed ? 1 : 0);
                     ctx.beginPath();
                     ctx.moveTo(arrowRightCenterX + 3, arrowRightCenterY);
                     ctx.lineTo(arrowRightCenterX - 2.5, arrowRightCenterY - 4);
@@ -17932,8 +17988,9 @@ function setupDynamicInlineNode(node) {
                     ctx.closePath();
                     ctx.fill();
 
+                    const isTrackHover = this._hoverTarget === "scrub_track";
                     ctx.fillStyle = "#12161f";
-                    ctx.strokeStyle = "#8b5cf6";
+                    ctx.strokeStyle = isTrackHover ? "#c084fc" : "#8b5cf6";
                     ctx.lineWidth = 1.2;
                     ctx.beginPath();
                     if (ctx.roundRect) ctx.roundRect(trackX, topBarY, trackW, topBarH, 5);
@@ -17950,7 +18007,7 @@ function setupDynamicInlineNode(node) {
                     ctx.fill();
 
                     const knobX = trackX + 2 + fillRatio * Math.max(0, trackW - 10);
-                    ctx.fillStyle = "#34d399";
+                    ctx.fillStyle = isTrackHover ? "#6ee7b7" : "#34d399";
                     ctx.beginPath();
                     ctx.arc(knobX + 3, topBarY + 9, 4, 0, Math.PI * 2);
                     ctx.fill();
@@ -17962,29 +18019,22 @@ function setupDynamicInlineNode(node) {
                     ctx.restore();
                 }
 
-                const barY = cardY + cardH + 8;
-                const barH = 18;
-                const btnH = 18;
-                const barTotalW = 150;
-                const barStartX = Math.floor(cardX + (cardW - barTotalW) / 2);
-
-                const btnW = 118;
-                const btnX = barStartX;
-                const refreshW = 28;
-                const refreshX = barStartX + 122;
+                const isViewHover = this._hoverTarget === "view_btn";
+                const isViewPressed = this._pressedTarget === "view_btn";
+                const viewYOffset = isViewPressed ? 1 : 0;
 
                 ctx.save();
                 ctx.font = "bold 10px monospace";
-                ctx.fillStyle = "#12161f";
-                ctx.strokeStyle = "#8b5cf6";
-                ctx.lineWidth = 1.4;
+                ctx.fillStyle = isViewPressed ? "rgba(91, 33, 182, 0.75)" : (isViewHover ? "rgba(139, 92, 246, 0.32)" : "#12161f");
+                ctx.strokeStyle = isViewHover ? "#c084fc" : "#8b5cf6";
+                ctx.lineWidth = isViewHover ? 1.6 : 1.4;
                 ctx.beginPath();
-                if (ctx.roundRect) ctx.roundRect(btnX, barY, btnW, btnH, 5);
-                else ctx.rect(btnX, barY, btnW, btnH);
+                if (ctx.roundRect) ctx.roundRect(btnX, barY + viewYOffset, btnW, btnH, 5);
+                else ctx.rect(btnX, barY + viewYOffset, btnW, btnH);
                 ctx.fill();
                 ctx.stroke();
 
-                ctx.fillStyle = "#a7f3d0";
+                ctx.fillStyle = isViewHover ? "#ffffff" : "#a7f3d0";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 const isEs1 = window.PyxisI18n && PyxisI18n.currentLang === "es";
@@ -17992,31 +18042,42 @@ function setupDynamicInlineNode(node) {
                 if (modeText1 === "Superposición" || modeText1 === "Overlay") modeText1 = isEs1 ? "Superposición" : "Overlay";
                 else if (modeText1 === "Imagen" || modeText1 === "Image") modeText1 = isEs1 ? "Imagen" : "Image";
                 else if (modeText1 === "Vector") modeText1 = "Vector";
-                ctx.fillText((isEs1 ? "Vista: " : "View: ") + modeText1, btnX + btnW / 2, barY + btnH / 2 + 1);
+                ctx.fillText((isEs1 ? "Vista: " : "View: ") + modeText1, btnX + btnW / 2, barY + btnH / 2 + 1 + viewYOffset);
 
-                const isTracing = Boolean(this._isTracing);
-                ctx.fillStyle = isTracing ? "#2d1f3d" : "#12161f";
-                ctx.strokeStyle = isTracing ? "#fbbf24" : "#8b5cf6";
-                ctx.lineWidth = 1.4;
+                const isRefHover = this._hoverTarget === "refresh_btn";
+                const isRefPressed = this._pressedTarget === "refresh_btn";
+                const refYOffset = isRefPressed ? 1 : 0;
+
+                ctx.fillStyle = isRefPressed ? "rgba(91, 33, 182, 0.75)" : (isTracing ? "#2d1f3d" : (isRefHover ? "rgba(139, 92, 246, 0.32)" : "#12161f"));
+                ctx.strokeStyle = isTracing ? "#fbbf24" : (isRefHover ? "#34d399" : "#8b5cf6");
+                ctx.lineWidth = isRefHover ? 1.6 : 1.4;
                 ctx.beginPath();
-                if (ctx.roundRect) ctx.roundRect(refreshX, barY, refreshW, btnH, 5);
-                else ctx.rect(refreshX, barY, refreshW, btnH);
+                if (ctx.roundRect) ctx.roundRect(refreshX, barY + refYOffset, refreshW, btnH, 5);
+                else ctx.rect(refreshX, barY + refYOffset, refreshW, btnH);
                 ctx.fill();
                 ctx.stroke();
 
                 const iconCenterX = refreshX + refreshW / 2;
-                const iconCenterY = barY + btnH / 2;
-                ctx.strokeStyle = isTracing ? "#fbbf24" : "#a7f3d0";
-                ctx.fillStyle = isTracing ? "#fbbf24" : "#a7f3d0";
+                const iconCenterY = barY + btnH / 2 + refYOffset;
+                ctx.save();
+                ctx.translate(iconCenterX, iconCenterY);
+
+                if (isTracing) {
+                    const spinAngle = (Date.now() / 120) % (Math.PI * 2);
+                    ctx.rotate(spinAngle);
+                }
+
+                ctx.strokeStyle = isTracing ? "#fbbf24" : (isRefHover ? "#ffffff" : "#a7f3d0");
+                ctx.fillStyle = isTracing ? "#fbbf24" : (isRefHover ? "#ffffff" : "#a7f3d0");
                 ctx.lineWidth = 1.5;
 
                 const endAngle = 1.65 * Math.PI;
                 ctx.beginPath();
-                ctx.arc(iconCenterX, iconCenterY, 4.0, 0.25 * Math.PI, endAngle, false);
+                ctx.arc(0, 0, 4.0, 0.25 * Math.PI, endAngle, false);
                 ctx.stroke();
 
-                const endX = iconCenterX + 4.0 * Math.cos(endAngle);
-                const endY = iconCenterY + 4.0 * Math.sin(endAngle);
+                const endX = 4.0 * Math.cos(endAngle);
+                const endY = 4.0 * Math.sin(endAngle);
 
                 ctx.beginPath();
                 ctx.moveTo(endX + 3.0, endY - 2.5);
@@ -18024,13 +18085,25 @@ function setupDynamicInlineNode(node) {
                 ctx.lineTo(endX - 0.5, endY + 1.0);
                 ctx.closePath();
                 ctx.fill();
-
                 ctx.restore();
+                ctx.restore();
+
+                const isCardHover = this._hoverTarget === "card";
+                let cardStroke = "rgba(139, 92, 246, 0.7)";
+                if (this._missingImgFlash && Date.now() - this._missingImgFlash < 800) {
+                    const elapsed = Date.now() - this._missingImgFlash;
+                    const pulse = 0.5 + 0.5 * Math.sin((elapsed / 800) * Math.PI * 4);
+                    cardStroke = `rgba(251, 191, 36, ${0.4 + 0.6 * pulse})`;
+                } else if (isCardHover) {
+                    cardStroke = "rgba(52, 211, 153, 0.85)";
+                } else if (isTracing) {
+                    cardStroke = "rgba(251, 191, 36, 0.9)";
+                }
 
                 ctx.save();
                 ctx.fillStyle = "rgba(18, 22, 31, 0.95)";
-                ctx.strokeStyle = "rgba(139, 92, 246, 0.7)";
-                ctx.lineWidth = 1.6;
+                ctx.strokeStyle = cardStroke;
+                ctx.lineWidth = (isCardHover || (this._missingImgFlash && Date.now() - this._missingImgFlash < 800)) ? 2.0 : 1.6;
                 ctx.beginPath();
                 if (ctx.roundRect) ctx.roundRect(cardX, cardY, cardW, cardH, 10);
                 else ctx.rect(cardX, cardY, cardW, cardH);
@@ -18082,8 +18155,6 @@ function setupDynamicInlineNode(node) {
                 }
 
                 let lastShape = this._lastTracedShape || (this.output_values ? this.output_values[0] : null);
-                const cardCenterX = cardX + cardW / 2;
-                const cardCenterY = cardY + cardH / 2;
 
                 if ((viewMode === "Overlay" || viewMode === "Vector" || viewMode === "Superposición") && lastShape && typeof lastShape === 'string' && lastShape.trim().length > 0) {
                     if (!this._cachedShapePath || this._cachedShapeKey !== lastShape) {
@@ -18131,24 +18202,44 @@ function setupDynamicInlineNode(node) {
                             ctx.restore();
                         }
                     }
-                } else if (isTracing) {
+                }
+
+                if (isTracing) {
                     ctx.save();
+                    ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(cardX + 2, cardY + 2, cardW - 4, cardH - 4, 8);
+                    else ctx.rect(cardX + 2, cardY + 2, cardW - 4, cardH - 4);
+                    ctx.fillStyle = "rgba(18, 22, 31, 0.65)";
+                    ctx.fill();
+
+                    const ringAngle = (Date.now() / 120) % (Math.PI * 2);
+                    ctx.strokeStyle = "#34d399";
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.arc(cardCenterX, cardCenterY - 6, 16, ringAngle, ringAngle + 1.25 * Math.PI);
+                    ctx.stroke();
+
                     ctx.fillStyle = "#fbbf24";
                     ctx.font = "bold 11px monospace";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText("Trazando Vector...", cardCenterX, cardCenterY);
+                    const curF = this._currentFrame || 1;
+                    const totF = this._totalFrames || 1;
+                    const isEs = window.PyxisI18n && PyxisI18n.currentLang === "es";
+                    const statusText = totF > 1 ? ("Frame " + curF + "/" + totF + "...") : (isEs ? "Trazando Vector..." : "Tracing Vector...");
+                    ctx.fillText(statusText, cardCenterX, cardCenterY + 18);
                     ctx.restore();
                 } else if (!this._imgObj && viewMode !== "Vector") {
                     ctx.save();
-                    ctx.fillStyle = "rgba(167, 243, 208, 0.6)";
+                    ctx.fillStyle = isCardHover ? "#34d399" : "rgba(167, 243, 208, 0.75)";
                     ctx.font = "bold 11px monospace";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText("IMG -> SHAPE", cardCenterX, cardCenterY - 8);
-                    ctx.fillStyle = "rgba(100, 116, 139, 0.75)";
+                    ctx.fillText("IMG -> SHAPE", cardCenterX, cardCenterY - 10);
+                    ctx.fillStyle = isCardHover ? "#e0e7ff" : "rgba(148, 163, 184, 0.85)";
                     ctx.font = "10px sans-serif";
-                    ctx.fillText("Trazado Vectorial", cardCenterX, cardCenterY + 12);
+                    const isEs = window.PyxisI18n && PyxisI18n.currentLang === "es";
+                    ctx.fillText(isCardHover ? (isEs ? "Doble clic para elegir" : "Double-click to choose") : (isEs ? "Trazado Vectorial" : "Vector Tracing"), cardCenterX, cardCenterY + 10);
                     ctx.restore();
                 }
                 ctx.restore();
@@ -18254,146 +18345,142 @@ function setupDynamicInlineNode(node) {
                 scheduleSampling(this);
             };
 
+            const oldMouseMove = node.onMouseMove;
+            node.onMouseMove = function(e, local_pos, canvas) {
+                if (local_pos) {
+                    const [lx, ly] = getSafeLocalPos(this, local_pos);
+                    const layout = getImgNodePreviewLayout(this);
+                    const target = hitTestImgPreview(layout, lx, ly);
+                    if (this._hoverTarget !== target) {
+                        this._hoverTarget = target;
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
+                    }
+                    updateImgPreviewCursor(this, canvas, target);
+                }
+                if (oldMouseMove) return oldMouseMove.call(this, e, local_pos, canvas);
+            };
+
+            const oldMouseLeave = node.onMouseLeave;
+            node.onMouseLeave = function(e, canvas) {
+                if (this._hoverTarget || this._pressedTarget) {
+                    this._hoverTarget = null;
+                    this._pressedTarget = null;
+                    if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
+                }
+                updateImgPreviewCursor(this, canvas, null);
+                if (oldMouseLeave) return oldMouseLeave.call(this, e, canvas);
+            };
+
+            const oldMouseUp = node.onMouseUp;
+            node.onMouseUp = function(e, local_pos, canvas) {
+                if (this._pressedTarget) {
+                    this._pressedTarget = null;
+                    if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
+                }
+                if (oldMouseUp) return oldMouseUp.call(this, e, local_pos, canvas);
+            };
+
             const oldMouseDown = node.onMouseDown;
             node.onMouseDown = function(e, local_pos, canvas) {
                 if (local_pos) {
-                    const nodeW = this.size ? this.size[0] : 380;
-                    const nodeH = this.size ? this.size[1] : 230;
+                    const [lx, ly] = getSafeLocalPos(this, local_pos);
+                    const layout = getImgNodePreviewLayout(this);
+                    const target = hitTestImgPreview(layout, lx, ly);
 
-                    let max_in_text_w = 0;
-                    if (this.properties) {
-                        for (const k in this.properties) {
-                            if (k === "anchor" || k === "order" || k === "view_mode") continue;
-                            let val = String(this.properties[k] || "");
-                            if (k === "image_path") val = "...image.png";
-                            if (val.length > 0) {
-                                const tw = Math.min(85, getExactTextWidth(val, "bold 11px monospace"));
-                                if (tw > max_in_text_w) max_in_text_w = tw;
-                            }
-                        }
+                    if (target) {
+                        this._pressedTarget = target;
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
                     }
 
-                    let max_out_w = 0;
-                    (this.outputs || []).forEach(out => {
-                        if (out.name) {
-                            const ow = getExactTextWidth(out.name, "10px sans-serif");
-                            if (ow > max_out_w) max_out_w = ow;
+                    if (target === "prev_frame") {
+                        const curF = this._currentFrame || 1;
+                        const newFrame = Math.max(1, curF - 1);
+                        if (newFrame !== curF) {
+                            scheduleSampling(this, newFrame);
                         }
-                    });
-
-                    const left_box_w = Math.max(70, max_in_text_w + 16);
-                    const left_col_end = 22 + left_box_w;
-                    const right_col_w = max_out_w > 0 ? (max_out_w + 38) : 20;
-                    const right_col_start = nodeW - right_col_w;
-
-                    const availW = Math.max(150, right_col_start - left_col_end - 24);
-                    const availH = Math.max(150, nodeH - 65);
-                    const cardSize = Math.floor(Math.min(availW, availH));
-                    const cardW = cardSize;
-                    const cardH = cardSize;
-
-                    const cardX = Math.floor(left_col_end + (right_col_start - left_col_end - cardW) / 2);
-                    const cardY = Math.max(12, Math.floor((nodeH - cardH - 32) / 2));
-
-                    if (this._totalFrames && this._totalFrames > 1) {
-                        const topBarY = cardY - 22;
-                        const topBarH = 18;
-                        const stepBtnW = 18;
-                        const trackX = cardX + stepBtnW + 4;
-                        const trackW = cardW - 2 * stepBtnW - 8;
-                        const pad = 4;
-
-                        if (local_pos[1] >= topBarY - pad && local_pos[1] <= topBarY + topBarH + pad) {
-                            const selfNode = this;
-                            const curF = selfNode._currentFrame || 1;
-                            const totF = selfNode._totalFrames || 1;
-
-                            if (local_pos[0] >= cardX - pad && local_pos[0] <= cardX + stepBtnW + 2) {
-                                const newFrame = Math.max(1, curF - 1);
-                                if (newFrame !== curF) {
-                                    scheduleSampling(selfNode, newFrame);
-                                }
-                                return true;
-                            }
-
-                            if (local_pos[0] >= cardX + cardW - stepBtnW - 2 && local_pos[0] <= cardX + cardW + pad) {
-                                const newFrame = Math.min(totF, curF + 1);
-                                if (newFrame !== curF) {
-                                    scheduleSampling(selfNode, newFrame);
-                                }
-                                return true;
-                            }
-
-                            if (local_pos[0] >= trackX - 2 && local_pos[0] <= trackX + trackW + 2) {
-                                const updateFrameFromEvent = (eMove) => {
-                                    const canvasObj = canvas || window.canvas || window.graphcanvas;
-                                    if (!canvasObj || !canvasObj.canvas) return;
-                                    const rect = canvasObj.canvas.getBoundingClientRect();
-                                    const scale = (canvasObj.ds && canvasObj.ds.scale) ? canvasObj.ds.scale : 1.0;
-                                    const tx = (canvasObj.ds && canvasObj.ds.offset) ? canvasObj.ds.offset[0] : 0;
-                                    const graphX = (eMove.clientX - rect.left) / scale - tx;
-                                    const nodeLocalX = graphX - selfNode.pos[0];
-
-                                    const ratio = Math.max(0, Math.min(1, (nodeLocalX - trackX) / Math.max(1, trackW)));
-                                    const newFrame = Math.round(1 + ratio * (selfNode._totalFrames - 1));
-                                    if (newFrame !== selfNode._currentFrame) {
-                                        scheduleSampling(selfNode, newFrame);
-                                    }
-                                };
-
-                                updateFrameFromEvent(e);
-
-                                const onWindowMove = (eMove) => { updateFrameFromEvent(eMove); };
-                                const onWindowUp = (eUp) => {
-                                    window.removeEventListener("pointermove", onWindowMove);
-                                    window.removeEventListener("pointerup", onWindowUp);
-                                    window.removeEventListener("mousemove", onWindowMove);
-                                    window.removeEventListener("mouseup", onWindowUp);
-                                };
-
-                                window.addEventListener("pointermove", onWindowMove);
-                                window.addEventListener("pointerup", onWindowUp);
-                                window.addEventListener("mousemove", onWindowMove);
-                                window.addEventListener("mouseup", onWindowUp);
-
-                                return true;
-                            }
-                        }
+                        return true;
                     }
 
-                    const barY = cardY + cardH + 8;
-                    const barH = 18;
-                    const btnH = 18;
-                    const barTotalW = 150;
-                    const barStartX = Math.floor(cardX + (cardW - barTotalW) / 2);
+                    if (target === "next_frame") {
+                        const curF = this._currentFrame || 1;
+                        const totF = this._totalFrames || 1;
+                        const newFrame = Math.min(totF, curF + 1);
+                        if (newFrame !== curF) {
+                            scheduleSampling(this, newFrame);
+                        }
+                        return true;
+                    }
 
-                    const btnW = 118;
-                    const btnX = barStartX;
-                    const refreshW = 28;
-                    const refreshX = barStartX + 122;
-                    const pad = 4;
+                    if (target === "scrub_track") {
+                        const selfNode = this;
+                        const updateFrameFromEvent = (eMove) => {
+                            const canvasObj = canvas || LGraphCanvas.active_canvas || window.canvas || window.graphcanvas;
+                            if (!canvasObj || !canvasObj.canvas) return;
+                            const rect = canvasObj.canvas.getBoundingClientRect();
+                            const scale = (canvasObj.ds && canvasObj.ds.scale) ? canvasObj.ds.scale : 1.0;
+                            const tx = (canvasObj.ds && canvasObj.ds.offset) ? canvasObj.ds.offset[0] : 0;
+                            const graphX = (eMove.clientX - rect.left) / scale - tx;
+                            const nodeLocalX = graphX - selfNode.pos[0];
 
-                    if (local_pos[1] >= barY - pad && local_pos[1] <= barY + barH + pad) {
-                        if (local_pos[0] >= btnX - pad && local_pos[0] <= btnX + btnW + 2) {
-                            const VIEW_MODES = ["Overlay", "Image", "Particles"];
-                            let curV = (this.properties && this.properties.view_mode) ? this.properties.view_mode : "Overlay";
-                            if (curV === "Superposición") curV = "Overlay";
-                            if (curV === "Imagen") curV = "Image";
-                            if (curV === "Partículas") curV = "Particles";
-                            let curIdx = VIEW_MODES.indexOf(curV);
-                            if (curIdx < 0) curIdx = 0;
-                            const nextIdx = (curIdx + 1) % VIEW_MODES.length;
-                            this.properties.view_mode = VIEW_MODES[nextIdx];
+                            const ratio = Math.max(0, Math.min(1, (nodeLocalX - layout.trackX) / Math.max(1, layout.trackW)));
+                            const newFrame = Math.round(1 + ratio * ((selfNode._totalFrames || 1) - 1));
+                            if (newFrame !== selfNode._currentFrame) {
+                                scheduleSampling(selfNode, newFrame);
+                            }
+                        };
+
+                        updateFrameFromEvent(e);
+
+                        const onWindowMove = (eMove) => { updateFrameFromEvent(eMove); };
+                        const onWindowUp = (eUp) => {
+                            if (selfNode._pressedTarget) {
+                                selfNode._pressedTarget = null;
+                                if (selfNode.setDirtyCanvas) selfNode.setDirtyCanvas(true, false);
+                            }
+                            window.removeEventListener("pointermove", onWindowMove);
+                            window.removeEventListener("pointerup", onWindowUp);
+                            window.removeEventListener("mousemove", onWindowMove);
+                            window.removeEventListener("mouseup", onWindowUp);
+                        };
+
+                        window.addEventListener("pointermove", onWindowMove);
+                        window.addEventListener("pointerup", onWindowUp);
+                        window.addEventListener("mousemove", onWindowMove);
+                        window.addEventListener("mouseup", onWindowUp);
+
+                        return true;
+                    }
+
+                    if (target === "view_btn") {
+                        const VIEW_MODES = ["Overlay", "Image", "Particles"];
+                        let curV = (this.properties && this.properties.view_mode) ? this.properties.view_mode : "Overlay";
+                        if (curV === "Superposición") curV = "Overlay";
+                        if (curV === "Imagen") curV = "Image";
+                        if (curV === "Partículas") curV = "Particles";
+                        let curIdx = VIEW_MODES.indexOf(curV);
+                        if (curIdx < 0) curIdx = 0;
+                        const nextIdx = (curIdx + 1) % VIEW_MODES.length;
+                        this.properties.view_mode = VIEW_MODES[nextIdx];
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+                        if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("view_mode-cycle-pixels");
+                        return true;
+                    }
+
+                    if (target === "refresh_btn") {
+                        const imgPath = String(this.properties ? (this.properties.image_path || "") : "").trim();
+                        if (!imgPath) {
+                            this._missingImgFlash = Date.now();
                             if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
-                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("view_mode-cycle-pixels");
+                            if (typeof showPyxisToast === "function") {
+                                const isEs = window.PyxisI18n && PyxisI18n.currentLang === "es";
+                                showPyxisToast(isEs ? "Por favor selecciona una imagen primero" : "Please select an image first", "warning");
+                            }
                             return true;
                         }
-                        else if (local_pos[0] >= refreshX - 2 && local_pos[0] <= refreshX + refreshW + pad) {
-                            if (this._isTracing) return true;
-                            this._pendingFrame = undefined;
-                            scheduleSampling(this);
-                            return true;
-                        }
+                        if (this._isTracing) return true;
+                        this._pendingFrame = undefined;
+                        scheduleSampling(this);
+                        return true;
                     }
                 }
                 if (oldMouseDown) return oldMouseDown.call(this, e, local_pos, canvas);
@@ -18422,52 +18509,11 @@ function setupDynamicInlineNode(node) {
 
             node.onDblClick = function(e, local_pos, canvas) {
                 if (!local_pos) return false;
-                let lx = local_pos[0];
-                let ly = local_pos[1];
-                if (this.pos && (lx > this.pos[0] + this.size[0] || ly > this.pos[1] + this.size[1])) {
-                    lx = lx - this.pos[0];
-                    ly = ly - this.pos[1];
-                }
+                const [lx, ly] = getSafeLocalPos(this, local_pos);
+                const layout = getImgNodePreviewLayout(this);
+                const target = hitTestImgPreview(layout, lx, ly);
 
-                const nodeW = this.size ? this.size[0] : 380;
-                const nodeH = this.size ? this.size[1] : 230;
-
-                let max_in_text_w = 0;
-                if (this.properties) {
-                    for (const k in this.properties) {
-                        if (k === "anchor" || k === "order" || k === "view_mode") continue;
-                        let val = String(this.properties[k] || "");
-                        if (k === "image_path") val = "...image.png";
-                        if (val.length > 0) {
-                            const tw = Math.min(85, getExactTextWidth(val, "bold 11px monospace"));
-                            if (tw > max_in_text_w) max_in_text_w = tw;
-                        }
-                    }
-                }
-
-                let max_out_w = 0;
-                (this.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-
-                const left_box_w = Math.max(70, max_in_text_w + 16);
-                const left_col_end = 22 + left_box_w;
-                const right_col_w = max_out_w > 0 ? (max_out_w + 38) : 20;
-                const right_col_start = nodeW - right_col_w;
-
-                const availW = Math.max(150, right_col_start - left_col_end - 24);
-                const availH = Math.max(150, nodeH - 65);
-                const cardSize = Math.floor(Math.min(availW, availH));
-                const cardW = cardSize;
-                const cardH = cardSize;
-
-                const cardX = Math.floor(left_col_end + (right_col_start - left_col_end - cardW) / 2);
-                const cardY = Math.max(12, Math.floor((nodeH - cardH - 32) / 2));
-
-                if (lx >= cardX && lx <= cardX + cardW && ly >= cardY && ly <= cardY + cardH) {
+                if (target === "card") {
                     const updateImagePath = (filePath) => {
                         if (!filePath) return;
                         const prev = this.properties["image_path"];
@@ -18553,63 +18599,30 @@ function setupDynamicInlineNode(node) {
                 if (this.flags && this.flags.collapsed) return;
 
                 const isTracing = Boolean(this._isTracing);
-                if (isTracing) {
-                    if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+                if (isTracing || (this._missingImgFlash && Date.now() - this._missingImgFlash < 800)) {
+                    if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
                 }
 
-                const nodeW = this.size ? this.size[0] : 380;
-                const nodeH = this.size ? this.size[1] : 230;
+                const layout = getImgNodePreviewLayout(this);
+                const { nodeW, nodeH, cardX, cardY, cardW, cardH, cardCenterX, cardCenterY, barY, btnH, btnX, btnW, refreshX, refreshW } = layout;
                 let viewMode = (this.properties && this.properties.view_mode) ? this.properties.view_mode : "Overlay";
                 if (viewMode === "Superposición") viewMode = "Overlay";
                 if (viewMode === "Imagen") viewMode = "Image";
 
-                let max_in_text_w = 0;
-                if (this.properties) {
-                    for (const k in this.properties) {
-                        if (k === "anchor" || k === "order" || k === "view_mode") continue;
-                        let val = String(this.properties[k] || "");
-                        if (k === "image_path") val = "...image.png";
-                        if (val.length > 0) {
-                            const tw = Math.min(85, getExactTextWidth(val, "bold 11px monospace"));
-                            if (tw > max_in_text_w) max_in_text_w = tw;
-                        }
-                    }
-                }
-
-                let max_out_w = 0;
-                (this.outputs || []).forEach(out => {
-                    if (out.name) {
-                        const ow = getExactTextWidth(out.name, "10px sans-serif");
-                        if (ow > max_out_w) max_out_w = ow;
-                    }
-                });
-
-                const left_box_w = Math.max(70, max_in_text_w + 16);
-                const left_col_end = 22 + left_box_w;
-                const right_col_w = max_out_w > 0 ? (max_out_w + 38) : 20;
-                const right_col_start = nodeW - right_col_w;
-
-                const availW = Math.max(150, right_col_start - left_col_end - 24);
-                const availH = Math.max(150, nodeH - 65);
-                const cardSize = Math.floor(Math.min(availW, availH));
-                const cardW = cardSize;
-                const cardH = cardSize;
-
-                const cardX = Math.floor(left_col_end + (right_col_start - left_col_end - cardW) / 2);
-                const cardY = Math.max(12, Math.floor((nodeH - cardH - 32) / 2));
-
-                if (this._totalFrames && this._totalFrames > 1) {
+                if (layout.hasTopBar) {
                     ctx.save();
-                    const topBarY = cardY - 22;
-                    const topBarH = 18;
-                    const stepBtnW = 18;
-                    const trackX = cardX + stepBtnW + 4;
-                    const trackW = cardW - 2 * stepBtnW - 8;
+                    const topBarY = layout.topBarY;
+                    const topBarH = layout.topBarH;
+                    const stepBtnW = layout.stepBtnW;
+                    const trackX = layout.trackX;
+                    const trackW = layout.trackW;
                     const curF = this._currentFrame || 1;
                     const totF = this._totalFrames || 1;
 
-                    ctx.fillStyle = "#12161f";
-                    ctx.strokeStyle = curF > 1 ? "#8b5cf6" : "#334155";
+                    const isPrevHover = this._hoverTarget === "prev_frame";
+                    const isPrevPressed = this._pressedTarget === "prev_frame";
+                    ctx.fillStyle = isPrevPressed ? "rgba(91, 33, 182, 0.75)" : (isPrevHover ? "rgba(139, 92, 246, 0.32)" : "#12161f");
+                    ctx.strokeStyle = curF > 1 ? (isPrevHover ? "#c084fc" : "#8b5cf6") : "#334155";
                     ctx.lineWidth = 1.2;
                     ctx.beginPath();
                     if (ctx.roundRect) ctx.roundRect(cardX, topBarY, stepBtnW, topBarH, 4);
@@ -18617,9 +18630,9 @@ function setupDynamicInlineNode(node) {
                     ctx.fill();
                     ctx.stroke();
 
-                    ctx.fillStyle = curF > 1 ? "#a7f3d0" : "#475569";
+                    ctx.fillStyle = curF > 1 ? (isPrevHover ? "#ffffff" : "#a7f3d0") : "#475569";
                     const arrowLeftCenterX = cardX + stepBtnW / 2;
-                    const arrowLeftCenterY = topBarY + topBarH / 2;
+                    const arrowLeftCenterY = topBarY + topBarH / 2 + (isPrevPressed ? 1 : 0);
                     ctx.beginPath();
                     ctx.moveTo(arrowLeftCenterX - 3, arrowLeftCenterY);
                     ctx.lineTo(arrowLeftCenterX + 2.5, arrowLeftCenterY - 4);
@@ -18627,17 +18640,19 @@ function setupDynamicInlineNode(node) {
                     ctx.closePath();
                     ctx.fill();
 
-                    ctx.fillStyle = "#12161f";
-                    ctx.strokeStyle = curF < totF ? "#8b5cf6" : "#334155";
+                    const isNextHover = this._hoverTarget === "next_frame";
+                    const isNextPressed = this._pressedTarget === "next_frame";
+                    ctx.fillStyle = isNextPressed ? "rgba(91, 33, 182, 0.75)" : (isNextHover ? "rgba(139, 92, 246, 0.32)" : "#12161f");
+                    ctx.strokeStyle = curF < totF ? (isNextHover ? "#c084fc" : "#8b5cf6") : "#334155";
                     ctx.beginPath();
                     if (ctx.roundRect) ctx.roundRect(cardX + cardW - stepBtnW, topBarY, stepBtnW, topBarH, 4);
                     else ctx.rect(cardX + cardW - stepBtnW, topBarY, stepBtnW, topBarH);
                     ctx.fill();
                     ctx.stroke();
 
-                    ctx.fillStyle = curF < totF ? "#a7f3d0" : "#475569";
+                    ctx.fillStyle = curF < totF ? (isNextHover ? "#ffffff" : "#a7f3d0") : "#475569";
                     const arrowRightCenterX = cardX + cardW - stepBtnW / 2;
-                    const arrowRightCenterY = topBarY + topBarH / 2;
+                    const arrowRightCenterY = topBarY + topBarH / 2 + (isNextPressed ? 1 : 0);
                     ctx.beginPath();
                     ctx.moveTo(arrowRightCenterX + 3, arrowRightCenterY);
                     ctx.lineTo(arrowRightCenterX - 2.5, arrowRightCenterY - 4);
@@ -18645,8 +18660,9 @@ function setupDynamicInlineNode(node) {
                     ctx.closePath();
                     ctx.fill();
 
+                    const isTrackHover = this._hoverTarget === "scrub_track";
                     ctx.fillStyle = "#12161f";
-                    ctx.strokeStyle = "#8b5cf6";
+                    ctx.strokeStyle = isTrackHover ? "#c084fc" : "#8b5cf6";
                     ctx.lineWidth = 1.2;
                     ctx.beginPath();
                     if (ctx.roundRect) ctx.roundRect(trackX, topBarY, trackW, topBarH, 5);
@@ -18663,7 +18679,7 @@ function setupDynamicInlineNode(node) {
                     ctx.fill();
 
                     const knobX = trackX + 2 + fillRatio * Math.max(0, trackW - 10);
-                    ctx.fillStyle = "#34d399";
+                    ctx.fillStyle = isTrackHover ? "#6ee7b7" : "#34d399";
                     ctx.beginPath();
                     ctx.arc(knobX + 3, topBarY + 9, 4, 0, Math.PI * 2);
                     ctx.fill();
@@ -18675,59 +18691,56 @@ function setupDynamicInlineNode(node) {
                     ctx.restore();
                 }
 
-                const barY = cardY + cardH + 8;
-                const barH = 18;
-                const btnH = 18;
-                const barTotalW = 150;
-                const barStartX = Math.floor(cardX + (cardW - barTotalW) / 2);
-
-                const btnW = 118;
-                const btnX = barStartX;
-                const refreshW = 28;
-                const refreshX = barStartX + 122;
+                const isViewHover = this._hoverTarget === "view_btn";
+                const isViewPressed = this._pressedTarget === "view_btn";
+                const viewYOffset = isViewPressed ? 1 : 0;
 
                 ctx.save();
                 ctx.font = "bold 10px monospace";
-                ctx.fillStyle = "#12161f";
-                ctx.strokeStyle = "#8b5cf6";
-                ctx.lineWidth = 1.4;
+                ctx.fillStyle = isViewPressed ? "rgba(91, 33, 182, 0.75)" : (isViewHover ? "rgba(139, 92, 246, 0.32)" : "#12161f");
+                ctx.strokeStyle = isViewHover ? "#c084fc" : "#8b5cf6";
+                ctx.lineWidth = isViewHover ? 1.6 : 1.4;
                 ctx.beginPath();
-                if (ctx.roundRect) ctx.roundRect(btnX, barY, btnW, btnH, 5);
-                else ctx.rect(btnX, barY, btnW, btnH);
+                if (ctx.roundRect) ctx.roundRect(btnX, barY + viewYOffset, btnW, btnH, 5);
+                else ctx.rect(btnX, barY + viewYOffset, btnW, btnH);
                 ctx.fill();
                 ctx.stroke();
 
-                ctx.fillStyle = "#a7f3d0";
+                ctx.fillStyle = isViewHover ? "#ffffff" : "#a7f3d0";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 const isEs1 = window.PyxisI18n && PyxisI18n.currentLang === "es";
                 let modeText1 = (this.properties && this.properties.view_mode) ? this.properties.view_mode : "Overlay";
                 if (modeText1 === "Superposición" || modeText1 === "Overlay") modeText1 = isEs1 ? "Superposición" : "Overlay";
                 else if (modeText1 === "Imagen" || modeText1 === "Image") modeText1 = isEs1 ? "Imagen" : "Image";
-                else if (modeText1 === "Vector") modeText1 = "Vector";
-                ctx.fillText((isEs1 ? "Vista: " : "View: ") + modeText1, btnX + btnW / 2, barY + btnH / 2 + 1);
+                else if (modeText1 === "Partículas" || modeText1 === "Particles") modeText1 = isEs1 ? "Partículas" : "Particles";
+                ctx.fillText((isEs1 ? "Vista: " : "View: ") + modeText1, btnX + btnW / 2, barY + btnH / 2 + 1 + viewYOffset);
 
-                ctx.fillStyle = isTracing ? "#2d1f3d" : "#12161f";
-                ctx.strokeStyle = isTracing ? "#fbbf24" : "#8b5cf6";
-                ctx.lineWidth = 1.4;
+                const isRefHover = this._hoverTarget === "refresh_btn";
+                const isRefPressed = this._pressedTarget === "refresh_btn";
+                const refYOffset = isRefPressed ? 1 : 0;
+
+                ctx.fillStyle = isRefPressed ? "rgba(91, 33, 182, 0.75)" : (isTracing ? "#2d1f3d" : (isRefHover ? "rgba(139, 92, 246, 0.32)" : "#12161f"));
+                ctx.strokeStyle = isTracing ? "#fbbf24" : (isRefHover ? "#34d399" : "#8b5cf6");
+                ctx.lineWidth = isRefHover ? 1.6 : 1.4;
                 ctx.beginPath();
-                if (ctx.roundRect) ctx.roundRect(refreshX, barY, refreshW, btnH, 5);
-                else ctx.rect(refreshX, barY, refreshW, btnH);
+                if (ctx.roundRect) ctx.roundRect(refreshX, barY + refYOffset, refreshW, btnH, 5);
+                else ctx.rect(refreshX, barY + refYOffset, refreshW, btnH);
                 ctx.fill();
                 ctx.stroke();
 
                 const iconCenterX = refreshX + refreshW / 2;
-                const iconCenterY = barY + btnH / 2;
+                const iconCenterY = barY + btnH / 2 + refYOffset;
                 ctx.save();
                 ctx.translate(iconCenterX, iconCenterY);
 
                 if (isTracing) {
-                    const spinAngle = (Date.now() / 150) % (Math.PI * 2);
+                    const spinAngle = (Date.now() / 120) % (Math.PI * 2);
                     ctx.rotate(spinAngle);
                 }
 
-                ctx.strokeStyle = isTracing ? "#fbbf24" : "#a7f3d0";
-                ctx.fillStyle = isTracing ? "#fbbf24" : "#a7f3d0";
+                ctx.strokeStyle = isTracing ? "#fbbf24" : (isRefHover ? "#ffffff" : "#a7f3d0");
+                ctx.fillStyle = isTracing ? "#fbbf24" : (isRefHover ? "#ffffff" : "#a7f3d0");
                 ctx.lineWidth = 1.5;
 
                 const endAngle = 1.65 * Math.PI;
@@ -18747,10 +18760,22 @@ function setupDynamicInlineNode(node) {
                 ctx.restore();
                 ctx.restore();
 
+                const isCardHover = this._hoverTarget === "card";
+                let cardStroke = "rgba(139, 92, 246, 0.7)";
+                if (this._missingImgFlash && Date.now() - this._missingImgFlash < 800) {
+                    const elapsed = Date.now() - this._missingImgFlash;
+                    const pulse = 0.5 + 0.5 * Math.sin((elapsed / 800) * Math.PI * 4);
+                    cardStroke = `rgba(251, 191, 36, ${0.4 + 0.6 * pulse})`;
+                } else if (isCardHover) {
+                    cardStroke = "rgba(52, 211, 153, 0.85)";
+                } else if (isTracing) {
+                    cardStroke = "rgba(251, 191, 36, 0.9)";
+                }
+
                 ctx.save();
                 ctx.fillStyle = "rgba(18, 22, 31, 0.95)";
-                ctx.strokeStyle = isTracing ? "rgba(251, 191, 36, 0.9)" : "rgba(139, 92, 246, 0.7)";
-                ctx.lineWidth = 1.6;
+                ctx.strokeStyle = cardStroke;
+                ctx.lineWidth = (isCardHover || (this._missingImgFlash && Date.now() - this._missingImgFlash < 800)) ? 2.0 : 1.6;
                 ctx.beginPath();
                 if (ctx.roundRect) ctx.roundRect(cardX, cardY, cardW, cardH, 10);
                 else ctx.rect(cardX, cardY, cardW, cardH);
@@ -18781,9 +18806,6 @@ function setupDynamicInlineNode(node) {
                     this._imgObj = null;
                     this._imgLoadedPath = null;
                 }
-
-                const cardCenterX = cardX + cardW / 2;
-                const cardCenterY = cardY + cardH / 2;
 
                 let iw = 1, ih = 1, fitScale = 1, drawX = cardX, drawY = cardY, drawW = cardW, drawH = cardH;
                 if (this._imgObj && (viewMode === "Overlay" || viewMode === "Image" || viewMode === "Superposición" || viewMode === "Imagen")) {
@@ -18865,19 +18887,21 @@ function setupDynamicInlineNode(node) {
                     ctx.textBaseline = "middle";
                     const curF = this._currentFrame || 1;
                     const totF = this._totalFrames || 1;
-                    const statusText = totF > 1 ? ("Frame " + curF + "/" + totF + "...") : "Muestreando...";
+                    const isEs = window.PyxisI18n && PyxisI18n.currentLang === "es";
+                    const statusText = totF > 1 ? ("Frame " + curF + "/" + totF + "...") : (isEs ? "Muestreando..." : "Sampling...");
                     ctx.fillText(statusText, cardCenterX, cardCenterY + 18);
                     ctx.restore();
                 } else if (!this._imgObj && viewMode !== "Particles" && pts.length === 0) {
                     ctx.save();
-                    ctx.fillStyle = "rgba(167, 243, 208, 0.6)";
+                    ctx.fillStyle = isCardHover ? "#34d399" : "rgba(167, 243, 208, 0.75)";
                     ctx.font = "bold 11px monospace";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText("IMG -> PIXELS", cardCenterX, cardCenterY - 8);
-                    ctx.fillStyle = "rgba(100, 116, 139, 0.75)";
+                    ctx.fillText("IMG -> PIXELS", cardCenterX, cardCenterY - 10);
+                    ctx.fillStyle = isCardHover ? "#e0e7ff" : "rgba(148, 163, 184, 0.85)";
                     ctx.font = "10px sans-serif";
-                    ctx.fillText(window.PyxisI18n && PyxisI18n.currentLang === "es" ? "Muestreador Partículas" : "Particle Sampler", cardCenterX, cardCenterY + 12);
+                    const isEs = window.PyxisI18n && PyxisI18n.currentLang === "es";
+                    ctx.fillText(isCardHover ? (isEs ? "Doble clic para elegir" : "Double-click to choose") : (isEs ? "Muestreador Partículas" : "Particle Sampler"), cardCenterX, cardCenterY + 10);
                     ctx.restore();
                 }
                 ctx.restore();
@@ -27551,207 +27575,8 @@ function setupDynamicInlineNode(node) {
                 }, 100);
             }
 
-            const activeImgViewers = {};
-
-            async function updateInNodeImgViewersPosition() {
-                if (!window.graphcanvas || !window.graphcanvas.graph) return;
-                const nodes = window.graphcanvas.graph._nodes || [];
-                const scale = window.graphcanvas.ds ? window.graphcanvas.ds.scale : 1;
-                const tx = window.graphcanvas.ds ? window.graphcanvas.ds.offset[0] : 0;
-                const ty = window.graphcanvas.ds ? window.graphcanvas.ds.offset[1] : 0;
-                const layer = document.getElementById('pyxis-canvas-players-layer');
-
-                const currentImgNodes = {};
-
-                for (let i = 0; i < nodes.length; i++) {
-                    const node = nodes[i];
-                    if (!node) continue;
-                    const nodeTitle = String(node.title || node.type || "");
-                    if (nodeTitle === "IMG to Shape" || nodeTitle.includes("IMG to Shape")) {
-                        const nodeIdStr = String(node.id);
-                        currentImgNodes[nodeIdStr] = true;
-
-                        if (node.flags && node.flags.collapsed) {
-                            if (activeImgViewers[nodeIdStr] && activeImgViewers[nodeIdStr].wrapper) {
-                                activeImgViewers[nodeIdStr].wrapper.style.display = 'none';
-                            }
-                            continue;
-                        }
-
-                        let vObj = activeImgViewers[nodeIdStr];
-
-                        if (!vObj) {
-                            if (!layer) continue;
-
-                            const wrapper = document.createElement('div');
-                            wrapper.id = 'pyxis-imgviewer-wrapper-' + nodeIdStr;
-                            wrapper.className = 'pyxis-node-imgviewer-wrapper';
-
-                            const toolbar = document.createElement('div');
-                            toolbar.className = 'pyxis-imgviewer-toolbar';
-                            toolbar.innerHTML = `
-                                <div class="pyxis-imgviewer-modes">
-                                    <button class="pyxis-imgviewer-btn active" data-mode="super">${window.PyxisI18n && PyxisI18n.currentLang === "es" ? "Superposición" : "Overlay"}</button>
-                                    <button class="pyxis-imgviewer-btn" data-mode="img">${window.PyxisI18n && PyxisI18n.currentLang === "es" ? "Imagen" : "Image"}</button>
-                                    <button class="pyxis-imgviewer-btn" data-mode="vec">${window.PyxisI18n && PyxisI18n.currentLang === "es" ? "Vector" : "Vector"}</button>
-                                </div>
-                            `;
-
-                            const body = document.createElement('div');
-                            body.className = 'pyxis-imgviewer-body';
-
-                            const imgEl = document.createElement('img');
-                            imgEl.className = 'pyxis-imgviewer-img';
-
-                            const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                            svgEl.setAttribute("class", "pyxis-imgviewer-svg");
-                            const svgPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                            svgPath.setAttribute("fill", "rgba(139, 92, 246, 0.35)");
-                            svgPath.setAttribute("stroke", "#a7f3d0");
-                            svgPath.setAttribute("stroke-width", "2");
-                            svgPath.setAttribute("stroke-linejoin", "round");
-                            svgPath.setAttribute("stroke-linecap", "round");
-                            svgEl.appendChild(svgPath);
-
-                            body.appendChild(imgEl);
-                            body.appendChild(svgEl);
-
-                            wrapper.appendChild(toolbar);
-                            wrapper.appendChild(body);
-                            layer.appendChild(wrapper);
-
-                            vObj = {
-                                nodeIdStr: nodeIdStr,
-                                node: node,
-                                wrapper: wrapper,
-                                imgEl: imgEl,
-                                svgEl: svgEl,
-                                svgPath: svgPath,
-                                mode: 'super',
-                                lastImgPath: '',
-                                lastShapeStr: ''
-                            };
-
-                            activeImgViewers[nodeIdStr] = vObj;
-
-                            const modeBtns = toolbar.querySelectorAll('.pyxis-imgviewer-btn');
-                            modeBtns.forEach(btn => {
-                                btn.onclick = (e) => {
-                                    e.stopPropagation();
-                                    modeBtns.forEach(b => b.classList.remove('active'));
-                                    btn.classList.add('active');
-                                    vObj.mode = btn.dataset.mode;
-                                    updateImgViewerDisplay(vObj);
-                                };
-                            });
-
-                            toolbar.addEventListener('mousedown', e => e.stopPropagation());
-                        }
-
-                        if (vObj && vObj.wrapper) {
-                            vObj.wrapper.style.display = 'flex';
-
-                            let max_in_text_w = 0;
-                            if (node.properties) {
-                                for (const k in node.properties) {
-                                    if (k === "modo" || k === "anchor" || k === "invert") continue;
-                                    let val = String(node.properties[k] || "");
-                                    if (k === "image_path") val = "...image.png";
-                                    if (val.length > 0) {
-                                        const tw = Math.min(85, getExactTextWidth(val, "bold 11px monospace"));
-                                        if (tw > max_in_text_w) max_in_text_w = tw;
-                                    }
-                                }
-                            }
-
-                            let max_out_w = 0;
-                            (node.outputs || []).forEach(out => {
-                                if (out.name) {
-                                    const ow = getExactTextWidth(out.name, "10px sans-serif");
-                                    if (ow > max_out_w) max_out_w = ow;
-                                }
-                            });
-
-                            const left_box_w = Math.max(70, max_in_text_w + 16);
-                            const left_col_end = 22 + left_box_w;
-                            const right_col_start = node.size[0] - (max_out_w > 0 ? (max_out_w + 38) : 20);
-
-                            const cardW = 150;
-                            const cardH = Math.min(150, Math.max(50, node.size[1] - 30));
-                            const cardX = Math.floor(left_col_end + (right_col_start - left_col_end - cardW) / 2);
-                            const cardY = Math.floor((node.size[1] - cardH) / 2);
-
-                            const screenX = (node.pos[0] + cardX) * scale + tx;
-                            const screenY = (node.pos[1] + cardY) * scale + ty;
-
-                            vObj.wrapper.style.left = screenX + 'px';
-                            vObj.wrapper.style.top = screenY + 'px';
-                            vObj.wrapper.style.width = (cardW * scale) + 'px';
-                            vObj.wrapper.style.height = (cardH * scale) + 'px';
-
-                            const currentPath = String(node.properties ? (node.properties.image_path || "") : "").trim();
-                            const currentShape = node._lastTracedShape || (node.output_values ? node.output_values[0] : "");
-
-                            if (currentPath && currentPath !== vObj.lastImgPath) {
-                                vObj.lastImgPath = currentPath;
-                                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.get_image_file_data_url === 'function') {
-                                    try {
-                                        const dataUri = await window.pywebview.api.get_image_file_data_url(currentPath);
-                                        if (dataUri) vObj.imgEl.src = dataUri;
-                                    } catch (e) {}
-                                } else {
-                                    vObj.imgEl.src = currentPath.startsWith("http") ? currentPath : ("file:///" + currentPath.replace(/\\/g, "/"));
-                                }
-                            }
-
-                            if (currentShape !== vObj.lastShapeStr) {
-                                vObj.lastShapeStr = currentShape;
-                                if (currentShape && typeof currentShape === 'string' && currentShape.trim().length > 0) {
-                                    const svgD = assPathToSvg(currentShape);
-                                    vObj.svgPath.setAttribute("d", svgD);
-                                    const bbox = getAssPathBBox(currentShape);
-                                    if (bbox && bbox.w > 0 && bbox.h > 0) {
-                                        const margin = 10;
-                                        vObj.svgEl.setAttribute("viewBox", `${bbox.minX - margin} ${bbox.minY - margin} ${bbox.w + margin * 2} ${bbox.h + margin * 2}`);
-                                    }
-                                } else {
-                                    vObj.svgPath.setAttribute("d", "");
-                                }
-                            }
-
-                            updateImgViewerDisplay(vObj);
-                        }
-                    }
-                }
-
-                Object.keys(activeImgViewers).forEach(id => {
-                    if (!currentImgNodes[id]) {
-                        const v = activeImgViewers[id];
-                        if (v && v.wrapper && v.wrapper.parentNode) {
-                            v.wrapper.parentNode.removeChild(v.wrapper);
-                        }
-                        delete activeImgViewers[id];
-                    }
-                });
-            }
-
-            function updateImgViewerDisplay(vObj) {
-                if (!vObj) return;
-                if (vObj.mode === 'img') {
-                    vObj.imgEl.style.display = 'block';
-                    vObj.svgEl.style.display = 'none';
-                } else if (vObj.mode === 'vec') {
-                    vObj.imgEl.style.display = 'none';
-                    vObj.svgEl.style.display = 'block';
-                } else {
-                    vObj.imgEl.style.display = 'block';
-                    vObj.svgEl.style.display = 'block';
-                }
-            }
-
             function loopSync() {
                 updateInNodePlayersPosition();
-                updateInNodeImgViewersPosition();
                 requestAnimationFrame(loopSync);
             }
             requestAnimationFrame(loopSync);

@@ -3,9 +3,9 @@
 The **Functions** category contains 16 specialised nodes dedicated to algebraic ASS tag manipulation, oscillator synthesis, conditional logic, colour gradients, kinematics, and vector deformation.
 
 ### Chapter Thematic Structure:
-* **Section 8.A — Tag Modulation, Oscillators, and Conditional Logic:** [`Tag Manipulator`](#1-node-functionstag-manipulator-ass-tag-manipulator) (§1), [`Tag Oscillator`](#2-node-functionstag-oscillator-ass-tag-oscillator) (§2), [`Glitter`](#3-node-functionsglitter-stochastic-sparkle-generator) (§3), [`Conditioner`](#4-node-functionsconditioner-logical-conditioner) (§4), [`Animation`](#8-node-functionsanimation-fbf-animation-and-alpha-modulation) (§8).
-* **Section 8.B — Colour Gradients, Raster-to-Pixels, and Kinematics:** [`Color Gradient`](#5-node-functionscolor-gradient-multi-layer-colour-gradient) (§5), [`Clip Gradient`](#6-node-functionsclip-gradient-clipping-bands-and-meshes-for-gradients) (§6), [`IMG to pixels`](#7-node-functionsimg-to-pixels-raster-to-particles-sampling) (§7), [`Polar to Cartesian`](#12-node-functionspolar-to-cartesian-polar-to-cartesian-converter) (§12), [`Interpolator`](#14-node-functionsinterpolator-polymorphic-parametric-interpolator) (§14).
-* **Section 8.C — Bézier Curves, Particle Swarms, and Vectorised Typography:** [`Bezier Curve`](#9-node-functionsbezier-curve-2d-bezier-curves-and-splines) (§9), [`Move Tag`](#10-node-functionsmove-tag-kinematics-and-ass-motion-trajectories) (§10), [`Move Text`](#11-node-functionsmove-text-coordinated-typographic-kinematic-motion) (§11), [`Particles`](#13-node-functionsparticles-vector-particle-swarms) (§13), [`Text on Path`](#15-node-functionstext-on-path-text-aligned-along-curves) (§15), [`Text to Shape`](#16-node-functionstext-to-shape-typographical-glyph-vectorisation) (§16).
+* **Section 8.A — Tag Modulation, Oscillators, and Conditional Logic:** [`Tag Manipulator`](#1-node-functionstag-manipulator-ass-tag-manipulator) (§1), [`Tag Oscillator`](#2-node-functionstag-oscillator-periodic-tag-modulator) (§2), [`Glitter`](#3-node-functionsglitter-stochastic-sparkle-generator) (§3), [`Conditioner`](#4-node-functionsconditioner-logical-data-branching) (§4), [`Animation`](#8-node-functionsanimation-fbf-frame-switcher-and-alpha-modulator) (§8).
+* **Section 8.B — Colour Gradients, Raster-to-Pixels, and Kinematics:** [`Color Gradient`](#5-node-functionscolor-gradient-multi-stop-colour-gradient) (§5), [`Clip Gradient`](#6-node-functionsclip-gradient-clipping-bands-and-meshes-for-multi-layer-gradients) (§6), [`IMG to pixels`](#7-node-functionsimg-to-pixels-raster-sampling-to-particle-swarms) (§7), [`Polar to Cartesian`](#12-node-functionspolar-to-cartesian-polar-to-cartesian-converter) (§12), [`Interpolator`](#14-node-functionsinterpolator-polymorphic-parametric-interpolator) (§14).
+* **Section 8.C — Bézier Curves, Particle Swarms, and Vectorised Typography:** [`Bezier Curve`](#9-node-functionsbezier-curve-2d-bézier-splines-and-trajectories) (§9), [`Move Tag`](#10-node-functionsmove-tag-kinematic-ass-motion-sequences) (§10), [`Move Text`](#11-node-functionsmove-text-coordinated-inline-typographic-motion) (§11), [`Particles`](#13-node-functionsparticles-vector-particle-swarms) (§13), [`Text on Path`](#15-node-functionstext-on-path-text-flow-along-curved-paths) (§15), [`Text to Shape`](#16-node-functionstext-to-shape-typographic-glyph-vectorisation) (§16).
 
 ---
 
@@ -405,7 +405,7 @@ Given $K$ colour stops $\{C_0, C_1, \dots, C_{K-1}\}$:
   ```
   [Loops/Main Loop: mode=char] ──► char.i / char.n ─────────────────────┐
                                                                          ▼
-  [Functions/Color Gradient: accel=1.2] ──► Tags (\1c) ──────────────► Tags In ──► [System/Output]
+  [Functions/Color Gradient: accel=1.0] ──► Tags (\1c) ──────────────► Tags In ──► [System/Output]
      colors: "#FF4500, #FFD700, #00FFFF"
   ```
 
@@ -891,12 +891,12 @@ Given $M$ sampled points $\{P_0, P_1, \dots, P_{M-1}\}$ with cumulative distance
                                                                      Return: "Text"
   ```
 
-  * **Metric Sampling and Acceleration ($\Delta t = 300\text{ ms}$, $D = 174.34\text{ px}$):**
+  * **Metric Sampling and Acceleration ($\Delta t = 300\text{ ms}$, $D = 164.34\text{ px}$):**
     * Segment 0 ($d_0 = 0.0$): $\tau_0 = 0.0 \to t = 0\text{ ms}$, coordinates $(100.0, 200.0)$.
-    * Segment 1 ($d_1 = 70.0$): $\tau_1 = (70.0 / 174.34)^2 \approx 0.161 \to s_{t1} = 48\text{ ms}$, coordinates $(170.0, 200.0)$.
-    * Segment 2 ($d_2 = 174.34$): $\tau_2 = 1.0 \to s_{t2} = 300\text{ ms}$, coordinates $(250.0, 250.0)$.
+    * Segment 1 ($d_1 = 70.0$): $\tau_1 = (70.0 / 164.34)^2 \approx 0.181 \to s_{t1} = 54\text{ ms}$, coordinates $(170.0, 200.0)$.
+    * Segment 2 ($d_2 = 164.34$): $\tau_2 = 1.0 \to s_{t2} = 300\text{ ms}$, coordinates $(250.0, 250.0)$.
   * **Emitted ASS Tag Block:**
-    `{\an7\q2\pos(100.00,200.00)\fscx100.00\fscy100.00\t(0,48,2.00,\fscx170.00\fscy200.00)\t(48,300,2.00,\fscx250.00\fscy250.00)\p1}m 0 0 m 100 100 {\p0}Text`
+    `{\an7\q2\pos(100.00,200.00)\fscx100.00\fscy100.00\t(0,54,2.00,\fscx170.00\fscy200.00)\t(54,300,2.00,\fscx250.00\fscy250.00)\p1}m 0 0 m 100 100 {\p0}Text`
 
 ---
 
@@ -1279,7 +1279,7 @@ $$t_{\text{eased}} = \begin{cases} t^{\text{accel}} & \text{if } \text{accel} > 
                  P_tangent (X, Y)
                         ● ───> Tangent Vector (dx, dy)
                        / \
-                      /   \ θ = atan2(dy, dx) - 90°
+                      /   \ θ = atan2(dx, dy) - 90°
                      /     \
 Guide Route: P_start ●       ● P_end (L_total)
 ```
@@ -1290,7 +1290,7 @@ Guide Route: P_start ●       ● P_end (L_total)
 2. **Spatial Path Arc-Length Lookup:**
    Finds segment $S_k$ where target distance $d_{\text{target}}$ resides clamped in $[0, L_{\text{total}}]$, retrieving point $(X, Y)$ and velocity vector $(dx, dy)$.
 3. **Tangent and Heading Calculation:**
-   $$\theta_{\text{base}} = \left( \operatorname{atan2}(dy, dx) \cdot \frac{180}{\pi} - 90^\circ \right) + \text{extra\_angle}$$
+   $$\theta_{\text{base}} = \left( \operatorname{atan2}(dx, dy) \cdot \frac{180}{\pi} - 90^\circ \right) + \text{extra\_angle}$$
    Angles are wrapped into $(-180^\circ, 180^\circ]$ to prevent sudden 360-degree rotation flips in libass.
 
 ---
@@ -1311,9 +1311,9 @@ Guide Route: P_start ●       ● P_end (L_total)
 
   * **Parametric Mapping per Character:**
     For a 3-character word with active iterator `char.i` ($1, 2, 3$):
-    * Character 1 ($d=0\text{ px}$, arc origin): $P_1(100.0, 250.0)$, tangent $\theta = -45^\circ \to$ Emits `{\pos(100,250)\frz-45}K`.
+    * Character 1 ($d=0\text{ px}$, arc origin): $P_1(100.0, 250.0)$, ascending tangent $\theta = 45^\circ \to$ Emits `{\pos(100,250)\frz45}K`.
     * Character 2 ($d=L/2$, arc apex): $P_2(250.0, 175.0)$, horizontal tangent $\theta = 0^\circ \to$ Emits `{\pos(250,175)\frz0}a`.
-    * Character 3 ($d=L$, arc termination): $P_3(400.0, 250.0)$, descending tangent $\theta = 45^\circ \to$ Emits `{\pos(400,250)\frz45}r`.
+    * Character 3 ($d=L$, arc termination): $P_3(400.0, 250.0)$, descending tangent $\theta = -45^\circ \to$ Emits `{\pos(400,250)\frz-45}r`.
 
 ---
 
