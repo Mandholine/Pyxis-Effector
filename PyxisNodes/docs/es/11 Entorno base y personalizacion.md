@@ -169,7 +169,7 @@ La línea de diálogo base debe contener una variedad equilibrada de sílabas pa
 ```ini
 Dialogue: 0,0:00:03.00,0:00:09.00,Default,,0,0,0,,{\k45}Kyou{\k40}kai {\k60}no {\k50}Ka{\k55}na{\k70}ta
 ```
-* **Sílabas cortas ($\le 200\text{ ms}$):** Útiles para validar transiciones rápidas de rebote (*Bounce*) o impactos cinéticos.
+* **Sílabas cortas ($\le 200\text{ ms}$):** Ideales para validar impactos de alta velocidad, transiciones rápidas (*snap eases*) y rebotes elásticos (*Bounce* / *elastic rebounds*).
 * **Sílabas largas ($\ge 600\text{ ms}$):** Ideales para observar osciladores continuos (`Tag Oscillator`), gradientes dinámicos o emisiones de partículas sostenidas.
 * **Complejidad glífica:** Incluir kanjis densos si se trabaja con morfología vectorial o caracteres con islas cerradas (ej. `B`, `P`, `o`, `8`) para verificar operaciones booleanas de unión y corte en Clipper2, así como la orientación y reglas de devanado (*winding rules*) de los polígonos.
 

@@ -210,6 +210,6 @@ Dialogue: 0,0:00:03.00,0:00:08.50,Default,,0,0,0,,{\k45}Py{\k35}xis {\k60}Ef{\k5
 1. **Synthetic Video Sharing:**
    * When publishing template graphs for community sharing, configure the base environment with `?dummy:...`. This ensures that downstream users can open and preview your effects without encountering missing media alerts.
 2. **Local Font Staging:**
-   * When designing with boutique or custom display typography, place your `.ttf` or `.otf` font files in `%APPDATA%\PyxisNodes\fonts\`. Pyxis vectorises and renders these fonts locally via FreeType/HarfBuzz without requiring system-wide installation.
+   * When designing with boutique or custom display typography, place your `.ttf` or `.otf` font files in `%APPDATA%\PyxisNodes\fonts\`. Pyxis vectorises and renders these fonts locally via FreeType/HarfBuzz and libass without requiring system-wide installation.
 3. **Factory Reset Procedure:**
    * To restore the base environment to its initial distribution defaults, close Pyxis Effector, delete `%APPDATA%\PyxisNodes\preview_base.ass`, and relaunch the application; the engine automatically writes a fresh copy.
