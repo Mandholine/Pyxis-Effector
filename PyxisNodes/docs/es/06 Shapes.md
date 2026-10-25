@@ -588,7 +588,7 @@ Detecta los vértices y ángulos agudos del trazado poligonal y los reemplaza po
 Pliega y flexiona la forma a lo largo de un arco paramétrico o una curva spline ASSdraw personalizada.
 * **`Shape / Text`:** Trazado base a flexionar.
 * **`Factor (t)` / `Bend (t)`:** Factor de progresión de la flexión ($0.0 \to 1.0$).
-* **`Curve / Angle` (`curve`):** Grados de curvatura angular numérica (ej. `30`, `45`, `-60`) o código ASSdraw completo de una curva guía (`m ... b ...`) sobre la cual se proyectará el dibujo.
+* **`Curve / Angle` (`curve`):** Grados de curvatura angular numérica (ej. `30`, `45`, `-60`), fórmulas matemáticas y variables de contexto (ej. `30 + 15`, `(syl.i * 10)`), o código ASSdraw completo de una curva guía (`m ... b ...`) sobre la cual se proyectará el dibujo.
 * **`Anchor`:** Punto de anclaje de la proyección (`center`, `origin`, `relative`, `absolute`).
 * **`Axis` (Propiedad):** Eje rector de la flexión (`x` para doblar la forma horizontalmente a lo largo del arco, `y` para doblar en sentido vertical).
 
@@ -654,7 +654,7 @@ Permite transiciones morfológicas continuas en tres fases encadenadas: Forma In
      $$\text{Ring}_i = \text{BooleanDifference}(\text{Outer}_i, \text{Inner}_i)$$
    * **`Solid (filled borders)` / `Solid`:** El primer elemento inicial ($i = 1$) conserva el relleno sólido completo de la forma base original, mientras que las capas concéntricas subsiguientes ($i \ge 2$) se computan como anillos huecos perimetrales hacia afuera.
 3. **`[2.3] Max Rings` (`loop_count`):** Cantidad máxima total de capas concéntricas a generar en la secuencia de bucle (default: `5`). Define el valor de `b_n` y `maxloop`.
-4. **`[2.4] Separación (px)` (`separation`):** Distancia en píxeles de separación o grosor de dilatación entre anillos sucesivos. Admite un valor numérico fijo (ej. `5.0`) o listas de patrones separados por comas (ej. `5, 2, 8, 3`) para generar ritmos concéntricos alternados de grosor variable.
+4. **`[2.4] Separación (px)` (`separation`):** Distancia en píxeles de separación o grosor de dilatación entre anillos sucesivos. Admite un valor numérico fijo (ej. `5.0`), expresiones matemáticas con variables (ej. `(syl.i * 2) + 3`), o listas de patrones separados por comas que incluyan expresiones entre paréntesis (ej. `5, (2 * syl.i), 10`) para generar ritmos concéntricos alternados de grosor variable.
 5. **`[2.5] Solape (px)` (`overlap`):** Margen de solapamiento en píxeles entre capas contiguas (default: `0.5`). Elimina fisuras o costuras de renderizado causadas por el antialiasing del motor libass/VSFilter al unir piezas adyacentes.
 6. **`[2.6] Anchor` (`Center` / `Relativo` / `Absoluto` / `Piezas`):** Botón selector que determina el punto de anclaje y sistema de coordenadas de referencia espacial para la geometría generada.
 7. **`[2.7] b_i, b_n`:** Variables de iteración expuestas en el pie del nodo (`b_i` / `ring_i` = índice del anillo actual $[1 \dots N]$, `b_n` / `ring_n` = total de anillos concéntricos producidos).
@@ -974,7 +974,7 @@ Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo
    Permite animar la aparición secuencial o construcción progresiva de la formación completa.
 4. **`[2.8] Anchor` (Sistema de Anclaje y Origen Inyectado):**
    * **`Piece` (`Piezas`):** Centra cada partícula en su propio centroide local e inyecta `\pos(x_i, y_i)` y `\org(x_i, y_i)` correspondientes a la posición absoluta de esa celda en pantalla.
-   * **`Relativo`:** Mantiene las partículas dibujadas con respecto al centroide del padre (`parent_x, parent_y`) sin alterar las coordenadas base de la línea.
+   * **`Relativo`:** Mantiene las partículas dibujadas con respecto al centroide del padre (`parent_x, parent_y`) sin alterar las coordenadas base de la línea. En modo `Formation`, preserva el origen cartesiano y tipográfico `(0, 0)` de la silueta sin recentrados espurios por caja de tinta, garantizando coincidencia 1:1 exacta sobre texto.
    * **`Parent Org` (`Org Padre` — `parent_org`):** Sitúa el origen vectorial `\org` en las coordenadas centrales del texto o sílaba padre, permitiendo rotaciones globales centradas en la palabra mientras las piezas están dispersas.
    * **`Pos`:** Inyecta exclusivamente `\pos(x_i, y_i)` desactivando la sobreescritura de `\org`.
    * **`Absoluto`:** Proyecta las coordenadas directamente en el espacio absoluto del lienzo fijando `\pos(0,0)`.
@@ -996,7 +996,7 @@ Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo
 
 #### 2. Modo `[FORM]` (Lattice sobre Silueta Guía)
 * **`[2.2] Formation`:** Código de dibujo ASSdraw o texto guía que sirve de matriz o silueta base sobre la cual se muestrean y posicionan las partículas.
-* **`[2.3] Spacing`:** Separación perimetral o paso de muestreo entre partículas adyacentes.
+* **`[2.3] Explosion` (`explosion`):** Factor de dispersión o estallido radial hacia los extremos (default: `0`). Cuando vale `0`, las partículas se posicionan con exactitud matemática 1:1 sobre la silueta base sin distorsionar su escala exterior. Valores positivos expanden las partículas centrífugamente desde el centroide hacia afuera. Admite retrocompatibilidad transparente con la propiedad previa `spacing`.
 
 #### 3. Modo `[RINGS]` (Anillos Concéntricos Radiales)
 * **`[2.2] Rings`:** Cantidad total de capas o anillos circulares concéntricos (default: `3`).
@@ -1068,7 +1068,12 @@ Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo
 ### 12.1. Atajos de Interfaz y Navegación de Cuadros
 1. **Atajo de Carga de Archivo (Doble Clic):**
    Un doble clic sobre la tarjeta de previsualización (*Preview Card*) o sobre cualquier área vacía del cuerpo del nodo abre el selector nativo de archivos del sistema operativo para cargar imágenes compatibles (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`). La ruta seleccionada se inyecta directamente en `image_path`.
-2. **Transporte de Animaciones GIF:**
+2. **Zoom y Paneo Interactivo en la Tarjeta de Previsualización:**
+   Al colocar el cursor sobre el área del visualizador (*Preview Card*), se habilitan controles de cámara idénticos a los del reproductor de `System/Previewer` sin interferir con el zoom o paneo del lienzo general:
+   * **Rueda del Ratón (*Mouse Wheel*):** Acerca o aleja la vista ($1.0\times \dots 15.0\times$) tomando como pivote exacto la posición actual del cursor para inspeccionar vértices y curvas Bézier al detalle. Al regresar a $1.0\times$, la vista se centra suavemente de forma automática.
+   * **Clic Central y Arrastrar (*Middle-Click Drag*):** Desplaza libremente el encuadre (*pan*) dentro del visor con compensación de escala $1:1$.
+   * **Tecla `R`:** Al pulsar `R` con el cursor sobre la tarjeta de previsualización, se restablece suavemente el zoom y el encuadre a su estado original ($1.0\times$).
+3. **Transporte de Animaciones GIF:**
    Al detectar un archivo con múltiples fotogramas (`total_frames > 1`), el nodo despliega los controles interactivos de transporte:
    * Botones de paso de cuadro `[◀]` y `[▶]`.
    * Barra horizontal de desplazamiento (*Scrubber*) para examinar la vectorización en tiempo real cuadro a cuadro.
@@ -1154,13 +1159,23 @@ El nodo integra 10 algoritmos geométricos especializados:
 4. **`Separation` (`separation`):** Distancia de separación o espaciado entre capas o elementos adyacentes.
 5. **`Factor (t)` (`t`):** Progresión temporal ($0.0 \to 1.0$) para animar la aparición secuencial o escala de las capas.
 6. **`Anchor` (`anchor`):** Sistema de anclaje de referencia espacial:
-   * **`center`:** Centra el conjunto de la forma generada en el origen cartesiano `(0, 0)`.
+   * **`center`:** Centra el conjunto de la forma generada por su caja de tinta (*ink bounds*) o centro canónico en el origen cartesiano `(0, 0)`.
    * **`origin`:** Alinea la esquina superior izquierda de la caja delimitadora en `(0, 0)`.
-   * **`relative`:** Conserva el desplazamiento relativo al padre sin recentrar.
+   * **`relative`:** Conserva intactas las coordenadas relativas originales respecto a `(0, 0)`. Es el modo indispensable para trabajar sobre texto tipográfico en `\an5` o formas ya centradas, garantizando una alineación milimétrica 1:1 sin desfases por descensuras o asimetrías de fuente.
    * **`absolute`:** Posiciona la forma directamente en las coordenadas absolutas de pantalla `(fx.pos_x, fx.pos_y)`.
 7. **`Tags` (`tags`):** Cadena de etiquetas ASS o colores a intercalar en el código vectorial emitido.
 8. **`Out Mode` (`out_mode`):** Formato devuelto (`Shape`, `\clip`, `\iclip`).
 9. **`Loop Mode` (`loop_mode`):** Conmuta entre emisión monolítica unificada (`Shape`) e iteración pieza por pieza (`Loops`, exponiendo las variables de contexto `m_i` y `m_n`).
+10. **`Order` (`order`):** Orden de cálculo, aparición bajo factor temporal `t` y secuencia de bucles para las piezas procedurales. Se adapta dinámicamente según el modo seleccionado:
+    * **`concentric_squares` / `concentric_rings`:** Concéntricos `["normal", "invert", "odd_even", "rand"]`.
+    * **`diagonal_stripes`:** Barrido diagonal `["79", "31", "5", "-5", "odd_even", "rand"]`.
+    * **`segmented_border`:** 1D perimetral `["normal", "invert", "5", "-5", "odd_even", "rand"]`. Cuando se conecta una forma base (`base_shape`), el marco segmentado traza su contorno exacto 1:1 sin distorsiones anamórficas de escala.
+    * **`radial_rosette`:** Angular radial `["cw", "ccw", "5", "odd_even", "rand"]`.
+    * **`tunnel_cascade`:** Secuencia de profundidad `["normal", "invert", "odd_even", "rand"]`.
+    * **`polygonal_mosaic` / `multi_shape_mosaic`:** Catálogo bidimensional completo (Numpad cartesianos, radiales y aleatorios).
+
+> [!NOTE]
+> **Arquitectura de Caché LRU de Alto Rendimiento:** `Shape/Multi` implementa un sistema de memoización espacial desacoplado de `Factor (t)`. La geometría estructural completa y su ordenamiento se calculan una sola vez y se almacenan en cachés LRU independientes de 512 entradas (`_MULTI_CONCENTRIC_RINGS_CACHE`, `_MULTI_SEGMENTED_BORDER_CACHE`, `_MULTI_PIECES_FULL_CACHE`, `_GLOBAL_MULTI_GRID_CACHE`). Al animar `t` fotograma a fotograma o en sub-bucles, las llamadas subsecuentes recuperan las piezas en $\mathcal{O}(1)$ y realizan un corte instantáneo, acelerando el renderizado hasta 10x–50x en siluetas complejas o tipografía.
 
 ### 13.3. Puertos de Salida (*Outputs*)
 1. **`[3.1] Shape`:** Código de dibujo vectorial ASSdraw compuesto resultante (o pieza activa en modo `Loops`).

@@ -535,6 +535,7 @@ Emitiendo un trazado vectorial cerrado de 4 puntos: `\clip(m p1_x p1_y l p2_x p2
 ### 7.2. Atajos de Interfaz y Clics Interactivos (*UI Shortcuts & Interaction*)
 > [!TIP]
 > * **Doble Clic sobre la Tarjeta de Previsualización (*Preview Card*):** Al hacer doble clic en el área de la miniatura central de la tarjeta, se abre de forma inmediata el explorador de archivos nativo del sistema operativo para seleccionar directamente archivos de imagen (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), actualizando la propiedad `image_path` y renderizando la textura sin tener que copiar manualmente rutas de disco.
+> * **Zoom y Paneo Interactivo en el Visualizador:** Al situar el cursor sobre la tarjeta de previsualización (*Preview Card*), se puede hacer **zoom con la rueda del ratón** ($1.0\times \dots 15.0\times$ centrado en el cursor) para inspeccionar el muestreo de píxeles individuales, **arrastrar con el botón central (rueda)** para desplazar el encuadre (*pan*), o pulsar la tecla **`R`** (o alejar el zoom al mínimo) para restablecer suavemente la vista original sin afectar el lienzo principal.
 
 ---
 
@@ -607,23 +608,36 @@ Imagen Ráster (Pillow / NumPy)          Enjambre Vectorial ASS
 ![Functions/Animation](img/animation.png)
 
 ### 8.1. Encabezado y Modos Operativos (*Header Mode Combos*)
-1. **`FBF` (*Frame-by-Frame*):** Cada iteración del bucle principal (`an_i` o `j`) selecciona el fotograma correspondiente dentro de la secuencia. La salida `Shape` emite el trazado vectorial del cuadro activo prefijado con alineación `{\an7}`.
-2. **`Alpha` (*Modulación Alfa Sincronizada*):** Genera una cadena continua de transiciones de visibilidad `\t` que enciende (`&H00&`) y apaga (`&HFF&`) cíclicamente cada forma en sus intervalos de tiempo calculados.
+1. **Modo Principal (`mode`):**
+   * **`fbf` (*Frame-by-Frame*):** Cada iteración del bucle principal (`an_i` o `j`) selecciona el fotograma correspondiente dentro de la secuencia. La salida `Shape` emite el trazado vectorial del cuadro activo prefijado con alineación `{\an7}`.
+   * **`alpha` (*Modulación Alfa Sincronizada*):** Genera una cadena continua de transiciones de visibilidad `\t` que enciende (`&H00&`) y apaga (`&HFF&`) cíclicamente cada forma en sus intervalos de tiempo calculados.
+2. **Orden de Secuencia (`order` - Pill Secundario):**
+   * **`sequential` (`Seq` - Defecto):** Recorre los fotogramas en orden directo ($1 \to K$).
+   * **`reverse` (`Rev`):** Recorre los fotogramas en sentido inverso ($K \to 1$).
+   * **`pingpong` (`Ping`):** Oscila de ida y vuelta sin duplicar los extremos ($1 \to K \to 1$).
+   * **`random` (`Rand`):** Selecciona un fotograma pseudoaleatorio determinista en cada paso.
 
 ---
 
 ### 8.2. Puertos de Entrada y Propiedades del Cuerpo (*Inputs & Properties*)
-1. **`Frames / Text` (`frames`):** Secuencia de formas vectoriales o texto. Acepta:
-   * Nombres de primitivas de librería (ej. `"Circle, Star, Heart"`).
+1. **`Shape list` (`frames`):** Secuencia de formas vectoriales o texto (etiquetada en la UI como *Lista Shapes*). Acepta:
+   * Nombres de primitivas de librería (ej. `"circle, star, heart"`).
    * Arrays JSON (ej. `["m 0 0 l 10 10", "m 0 0 l 20 20"]`).
-   * Listas separadas por comas, punto y coma `;` o saltos de línea `\n`.
+   * Listas separadas por comas, punto y coma `;`, barras `|` o saltos de línea `\n`.
    * Cadenas de texto ordinarias (convertidas automáticamente a vectores de fuente tipográfica).
    * Referencias directas a variables del contexto (ej. `Shapes1`, `my_frames`).
+   * Conexión directa desde `Shape/IMG to Shape` (traza automáticamente todos los fotogramas de un GIF animado).
 2. **`Step ms` (`step_ms`):** Duración temporal en milisegundos de cada fotograma individual de la animación. Un valor de `41.7` equivale aproximadamente a 24 FPS; `33.3` a 30 FPS; `16.6` a 60 FPS. (Defecto: `41.7`).
 3. **`Start Time` (`start_time`):** Instante de inicio de la animación en milisegundos relativos al evento activo (`0` o vacío toma el inicio del efecto `fx.st` / `syl.start_time`).
 4. **`End Time` (`end_time`):** Instante de finalización de la animación (`fx.dur` o vacío toma la duración total del efecto).
-5. **`Alpha Tag` (`alpha_tag`):** [Modo Alpha] Etiqueta ASS o Dark Tag multicanal de transparencia modulada (`\alpha`, canales individuales `\1a`, `\2a`, `\3a`, `\4a`, dobles `\12a`, `\13a`, `\14a`, `\23a`, `\24a`, `\34a`, triples `\123a`, `\124a`, `\134a`, `\234a` o cuádruple `\1234a`). Permite conmutar la visibilidad de canales específicos (por ejemplo, `\13a` modula relleno primario y borde simultáneamente sin afectar la sombra `\4a`). (Defecto: `"\alpha"`).
-6. **`Variable Prefix` (`var_name`):** Prefijo identificador para las variables de bucle inyectadas en el contexto. (Defecto: `"an"`).
+5. **`Alpha Tag` (`alpha_tag`):** [Modo `alpha`] Etiqueta ASS o Dark Tag multicanal de transparencia modulada (`\alpha`, canales individuales `\1a`, `\2a`, `\3a`, `\4a`, dobles `\12a`, `\13a`, `\14a`, `\23a`, `\24a`, `\34a`, triples `\123a`, `\124a`, `\134a`, `\234a` o cuádruple `\1234a`). Permite conmutar la visibilidad de canales específicos (por ejemplo, `\13a` modula relleno primario y borde simultáneamente sin afectar la sombra `\4a`). (Defecto: `"\alpha"`).
+6. **`Variable Prefix` (`var_name`):** Prefijo identificador editable desde el pie del nodo para las variables de bucle inyectadas en el contexto. (Defecto: `"an"`).
+
+### 8.2.1. Previsualizador Vectorial Interactivo y Controles de Reproducción (*Interactive Preview Card*)
+> [!TIP]
+> * **Reproducción en Tiempo Real (`▶ Reproducir` / `⏸ Pausa`):** El botón inferior de la tarjeta reproduce en vivo la secuencia de fotogramas vectoriales respetando la cadencia configurada en `Step ms` y el modo de recorrido `order` (`sequential`, `reverse`, `pingpong`, `random`). Si no hay fotogramas para reproducir ($K \le 1$), el botón permanece desactivado en pausa y emite un destello visual sobre el borde de la tarjeta.
+> * **Barra Superior de Fotogramas (*Frame Scrubber*):** Cuando la secuencia consta de más de un fotograma ($K > 1$), aparece automáticamente la barra superior interactiva (`<` `Frame X / N` `>`) que permite avanzar/retroceder paso a paso o arrastrar el deslizador para inspeccionar cualquier cuadro.
+> * **Zoom, Paneo y Reset (`R`):** Soporta zoom centrado en el cursor con la rueda del ratón ($0.2\times \dots 12.0\times$), paneo arrastrando con el botón central (rueda) y restablecimiento inmediato pulsando la tecla **`R`**.
 
 ---
 
@@ -676,7 +690,7 @@ $$\backslash\text{t}(t_1, t_2, \text{tag}\&H00\&)\backslash\text{t}(t_3, t_4, \t
 ---
 
 ### 8.5. Sinergias y Buenas Prácticas
-* **GIFs y Spritesheets con `Shape/IMG to Shape`:** Conectar la salida `Shapes Array` de un `IMG to Shape` directamente a la entrada `Frames / Text` de `Animation` para reproducir animaciones extraídas de GIFs cuadro a cuadro.
+* **GIFs y Spritesheets con `Shape/IMG to Shape`:** Conectar la salida `Shapes Array` de un `IMG to Shape` directamente a la entrada `Shape list` de `Animation` para reproducir animaciones extraídas de GIFs cuadro a cuadro.
 * **Integración con `Loops/MaxLoop (fbf)`:** Configurar un `MaxLoop` en modo `fbf` para que itere automáticamente la cantidad exacta de cuadros requerida por la duración del karaoke.
 
 ### 8.6. Ejemplo Práctico de Producción
@@ -1038,16 +1052,17 @@ Los valores numéricos se formatean como enteros limpios si no presentan parte f
 1. **`Path / Origin` (`shape`):** Trazado vectorial base ASSdraw (`m ...`) o nombre de primitiva. Si se deja vacío o se pasa una cadena tipográfica, Pyxis extrae automáticamente el contorno del glifo del contexto activo (`syl` o `char`).
 2. **`Particle` (`particle_shape`):** Forma vectorial empleada como partícula individual (ej. `"Circle"`, `"Star"`, `"Heart"` o código ASSdraw directo). Si está vacío, utiliza un cuadrado básico de $2 \times 2$ px (`m 0 0 l 2 0 l 2 2 l 0 2`).
 3. **`Density` (`density`):** Paso métrico de muestreo en píxeles. En modo `Outline`, define la distancia entre partículas a lo largo del trazo; en modo `Inner Fill`, define la separación de la grilla de relleno. (Defecto: `5.0`).
-4. **`RedrawDist` (`redraw_dist`):** Rango de dispersión o fluctuación aleatoria uniforme $(\pm \Delta x, \pm \Delta y)$ aplicada a cada partícula en píxeles. (Defecto: `0.0`).
-5. **`Seed` (`seed`):** Semilla determinista para la generación pseudoaleatoria de dispersión. (Defecto: `1`).
-6. **`Scale` (`scale`):** Factor multiplicador de escala aplicado a las coordenadas del conjunto de partículas. (Defecto: `1.0`).
-7. **`Anchor` (`anchor`):** Selector cíclico interactivo de perfil *Piece Anchor* idéntico a los nodos de fragmentación (`Slicer`, `Array`, `Union & Divide`). Determina cómo se proyectan las coordenadas locales de cada partícula y el centroide de rotación `\org` sobre el sistema de coordenadas de pantalla del subtítulo:
+4. **`RedrawDist` (`redraw_dist`):** Longitud máxima de tramo o paso de redibujado vectorial (*redraw tract*). Subdivide segmentos rectilíneos extensos y discretiza curvas Bézier cúbicas (`b ...`) en una sucesión de mini-segmentos lineales (`l ...`) de longitud máxima `redraw_dist`. Cuando su valor es `0` (defecto canónico), preserva la geometría y curvas del trazado original intactas sin alterarlas. (Defecto: `0.0`).
+5. **`Seed` (`seed`):** Semilla determinista que gobierna la fluctuación estocástica de posición (*jitter*). Si `seed > 0`, activa la dispersión aleatoria de cada partícula en un rango uniforme proporcional a la densidad ($\pm 0.5 \times \text{density}\text{ px}$). Si `seed <= 0` (defecto: `0`), no se aplica dispersión alguna y los puntos se ubican en sus coordenadas exactas calculadas. (Defecto: `0`).
+6. **`Close Path` (`close_path`):** Casilla de verificación (*toggle*) que cierra explícitamente los contornos abiertos del trazado original (conectando el último vértice con el inicial) antes de procesarlos por el redibujado de curvas o el muestreo de partículas. (Defecto: `False`).
+7. **`Scale` (`scale`):** Factor multiplicador de escala aplicado a las coordenadas del conjunto de partículas. (Defecto: `1.0`).
+8. **`Anchor` (`anchor`):** Selector cíclico interactivo de perfil *Piece Anchor* idéntico a los nodos de fragmentación (`Slicer`, `Array`, `Union & Divide`). Determina cómo se proyectan las coordenadas locales de cada partícula y el centroide de rotación `\org` sobre el sistema de coordenadas de pantalla del subtítulo:
    * **`pieces` (Defecto canónico):** Cada micro-partícula se posiciona en sus coordenadas absolutas independientes `\pos(x, y)` calculadas a partir del centroide de su glifo o contorno base, y establece `\org(x, y)` exactamente en su propio baricentro. Esto permite que transformaciones posteriores (como giros `\frz`, escalados `\fscx/\fscy` o deformaciones angulares) roten cada partícula de forma autónoma sobre su propio eje.
    * **`relative`:** Conserva el origen de coordenadas relativo al centroide base del texto o forma padre, sin sobreescribir `pos_overridden`.
    * **`parent_org`:** Posiciona la partícula en sus coordenadas absolutas `\pos(x, y)`, pero ancla el centro de rotación `\org` en el origen global del texto o línea padre (`parent_x, parent_y`), permitiendo giros orbitales coordinados alrededor del elemento origen.
    * **`pos`:** Posiciona la partícula en sus coordenadas absolutas `\pos(x, y)` sin forzar una etiqueta `\org` explícita (`has_org = False`).
    * **`absolute`:** Integra las coordenadas absolutas directamente horneadas en los vértices del trazado vectorial (`m x y ...`), situando `\pos` en el origen padre y desactivando `pos_overridden`.
-8. **`Order` (`order`):** Selector cíclico interactivo de perfil 2D (*Numpad Order*) para la secuencia de recorrido y asignación de índices iterativos (`p_i`):
+9. **`Order` (`order`):** Selector cíclico interactivo de perfil 2D (*Numpad Order*) para la secuencia de recorrido y asignación de índices iterativos (`p_i`):
    * `"79"`: Arriba-Izquierda $\to$ Abajo-Derecha (*Top-Left to Bottom-Right*).
    * `"97"`: Arriba-Derecha $\to$ Abajo-Izquierda (*Top-Right to Bottom-Left*).
    * `"13"`: Abajo-Izquierda $\to$ Arriba-Derecha (*Bottom-Left to Top-Right*).
@@ -1096,10 +1111,15 @@ Para cada contorno vectorial cerrado $C = \{V_0, V_1, \dots, V_m, V_0\}$:
 1. Se calcula la distancia acumulada de cada segmento:
    $$d_k = \|V_{k+1} - V_k\|, \quad D_{\text{total}} = \sum_{k=0}^m d_k$$
 2. Se generan objetivos de muestreo equidistantes $s_j = j \cdot \text{density}$ para $j \in \left[0, \lfloor D_{\text{total}} / \text{density} \rfloor \right]$.
-3. Cada punto objetivo se interpola linealmente en su segmento correspondiente y se perturba estocásticamente si $\text{RedrawDist} > 0$:
-   $$P_j = P_{\text{interp}} + \begin{pmatrix} U(-\text{redraw\_dist}, \text{redraw\_dist}) \\ U(-\text{redraw\_dist}, \text{redraw\_dist}) \end{pmatrix} \cdot \text{scale}$$
+3. Cada punto objetivo se interpola en su segmento correspondiente y se perturba estocásticamente si $\text{Seed} > 0$:
+   $$P_j = \begin{cases} P_{\text{interp}} \cdot \text{scale} + \begin{pmatrix} U(-0.5 \cdot \text{density}, 0.5 \cdot \text{density}) \\ U(-0.5 \cdot \text{density}, 0.5 \cdot \text{density}) \end{pmatrix} \cdot \text{scale} & \text{si } \text{Seed} > 0 \\ P_{\text{interp}} \cdot \text{scale} & \text{si } \text{Seed} \le 0 \end{cases}$$
 
-#### 13.4.2. Muestreo de Relleno por Algoritmo Ray-Casting
+#### 13.4.2. Pre-Cierre y Redibujado Lineal (*Redraw Tract*)
+Antes de realizar el muestreo perimetral o de relleno:
+1. **Pre-cierre de Contornos (`close_path`):** Si está activo (`True`), detecta contornos abiertos cuyo vértice final difiera del inicial ($\|V_m - V_0\| > 10^{-4}$) e inserta automáticamente un segmento rectilíneo de cierre hacia $V_0$.
+2. **Redibujado Lineal (`redraw_dist`):** Si $\text{redraw\_dist} > 0$, analiza cada segmento del trazado: los tramos rectos mayores a $\text{redraw\_dist}$ se subdividen uniformemente en mini-segmentos de longitud $\le \text{redraw\_dist}$, y las curvas Bézier cúbicas (`b x1 y1 x2 y2 x3 y3`) se discretizan paramétricamente convirtiéndose en una sucesión de segmentos lineales aproximados (`l x y`). Si $\text{redraw\_dist} = 0$, el trazado original se preserva íntegro sin transformaciones lineales.
+
+#### 13.4.3. Muestreo de Relleno por Algoritmo Ray-Casting
 1. Se extrae la caja delimitadora $(X_{\min}, Y_{\min}) \to (X_{\max}, Y_{\max})$ de todos los contornos.
 2. Se genera una cuadrícula uniforme en pasos de tamaño $\Delta = \text{density}$.
 3. Para cada nodo $(g_x, g_y)$, se proyecta un rayo horizontal hacia $+X$ y se contabiliza el número de intersecciones con los bordes de los polígonos:

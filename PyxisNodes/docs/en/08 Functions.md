@@ -548,6 +548,7 @@ Emitting a closed 4-point vector path: `\clip(m p1_x p1_y l p2_x p2_y l p3_x p3_
 ### 7.2. UI Shortcuts and Interaction
 > [!TIP]
 > * **Double-Click on the Preview Card:** Double-clicking the centre thumbnail area opens the native OS file dialogue to pick image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), updating `image_path` and rendering the texture instantly.
+> * **Interactive Preview Card Zoom and Pan:** Whilst hovering over the preview card, use the **mouse wheel** to zoom in/out ($1.0\times \dots 15.0\times$ centred on the cursor) to inspect individual sampled pixel particles, **middle-click and drag** to pan across the texture, or press **`R`** (or zoom back out to $1.0\times$) to smoothly reset the viewport without affecting the main graph canvas.
 
 ---
 
@@ -622,23 +623,36 @@ Raster Image (Pillow / NumPy)           ASS Vector Swarm
 ---
 
 ### 8.1. Header Mode Combos
-1. **`FBF` (*Frame-by-Frame*):** Each main loop iteration (`an_i` or `j`) selects the active shape in the sequence. Output `Shape` emits the vector path with alignment `{\an7}`.
-2. **`Alpha` (*Synchronised Alpha Modulation*):** Compiles continuous `\t` visibility cycles that switch opacity between visible (`&H00&`) and transparent (`&HFF&`) at calculated time milestones.
+1. **Primary Mode (`mode`):**
+   * **`fbf` (*Frame-by-Frame*):** Each main loop iteration (`an_i` or `j`) selects the active shape in the sequence. Output `Shape` emits the vector path with alignment `{\an7}`.
+   * **`alpha` (*Synchronised Alpha Modulation*):** Compiles continuous `\t` visibility cycles that switch opacity between visible (`&H00&`) and transparent (`&HFF&`) at calculated time milestones.
+2. **Sequence Order (`order` - Secondary Pill):**
+   * **`sequential` (`Seq` - Default):** Traverses frames in forward order ($1 \to K$).
+   * **`reverse` (`Rev`):** Traverses frames in reverse order ($K \to 1$).
+   * **`pingpong` (`Ping`):** Alternates forward and backward without repeating endpoints ($1 \to K \to 1$).
+   * **`random` (`Rand`):** Selects a deterministic pseudo-random frame on each step.
 
 ---
 
 ### 8.2. Input Ports and Body Properties (*Inputs & Properties*)
-1. **`Frames / Text` (`frames`):** Sequence of vector shapes or text. Accepts:
-   * Library primitive names (e.g. `"Circle, Star, Heart"`).
+1. **`Shape list` (`frames`):** Sequence of vector shapes or text. Accepts:
+   * Library primitive names (e.g. `"circle, star, heart"`).
    * JSON arrays (e.g. `["m 0 0 l 10 10", "m 0 0 l 20 20"]`).
-   * Delimited lists (commas, semicolons `;`, or newlines `\n`).
+   * Delimited lists (commas, semicolons `;`, pipes `|`, or newlines `\n`).
    * Plain text strings (converted to vector glyphs).
    * Context variable references (e.g. `Shapes1`, `my_frames`).
+   * Direct connection from `Shape/IMG to Shape` (automatically traces all frames of an animated GIF).
 2. **`Step ms` (`step_ms`):** Temporal duration in milliseconds per animation frame. ($41.7\text{ ms} \approx 24\text{ FPS}$; $33.3\text{ ms} \approx 30\text{ FPS}$; $16.6\text{ ms} \approx 60\text{ FPS}$). (Default: `41.7`).
 3. **`Start Time` (`start_time`):** Animation start timestamp in milliseconds (`0` or blank adopts effect start `fx.st` / `syl.start_time`).
 4. **`End Time` (`end_time`):** Animation end timestamp in milliseconds (`fx.dur` or blank adopts total duration).
-5. **`Alpha Tag` (`alpha_tag`):** [Alpha Mode] Modulated ASS transparency tag or composite Dark Tag (`\alpha`, single channels `\1a`, `\2a`, `\3a`, `\4a`, dual channels `\12a`, `\13a`, `\14a`, `\23a`, `\24a`, `\34a`, triple channels `\123a`, `\124a`, `\134a`, `\234a`, or quadruple channel `\1234a`). Allows selective channel switching (e.g. `\13a` modulates primary fill and border simultaneously without affecting the `\4a` shadow). (Default: `"\alpha"`).
-6. **`Variable Prefix` (`var_name`):** Identifier prefix for loop context variables. (Default: `"an"`).
+5. **`Alpha Tag` (`alpha_tag`):** [Mode `alpha`] Modulated ASS transparency tag or composite Dark Tag (`\alpha`, single channels `\1a`, `\2a`, `\3a`, `\4a`, dual channels `\12a`, `\13a`, `\14a`, `\23a`, `\24a`, `\34a`, triple channels `\123a`, `\124a`, `\134a`, `\234a`, or quadruple channel `\1234a`). Allows selective channel switching (e.g. `\13a` modulates primary fill and border simultaneously without affecting the `\4a` shadow). (Default: `"\alpha"`).
+6. **`Variable Prefix` (`var_name`):** Editable footer identifier prefix for loop context variables. (Default: `"an"`).
+
+### 8.2.1. Interactive Vector Preview Card & Playback Controls
+> [!TIP]
+> * **Real-Time Playback (`▶ Play` / `⏸ Pause`):** The bottom bar toggle button plays back the resolved vector frame sequence in real time according to `Step ms` and the active `order` mode (`sequential`, `reverse`, `pingpong`, `random`). If there are no multi-frame sequences to play ($K \le 1$), playback remains paused and the card border flashes briefly to indicate that no sequence is loaded.
+> * **Top Frame Scrubber:** When the sequence contains multiple frames ($K > 1$), the top scrubber bar (`<` `Frame X / N` `>`) appears automatically, allowing single-frame stepping or continuous drag scrubbing across all frames.
+> * **Zoom, Pan, and Reset (`R`):** Supports cursor-centred mouse-wheel zoom ($0.2\times \dots 12.0\times$), middle-click drag panning, and instant viewport reset via the **`R`** key.
 
 ---
 
@@ -691,7 +705,7 @@ $$\backslash\text{t}(t_1, t_2, \text{tag}\&H00\&)\backslash\text{t}(t_3, t_4, \t
 ---
 
 ### 8.5. Synergies and Practical Workflow Examples
-* **GIFs and Spritesheets:** Route `Shapes Array` from `Shape/IMG to Shape` into `Frames / Text` of `Animation` to playback extracted GIF frame sequences.
+* **GIFs and Spritesheets:** Route `Shapes Array` from `Shape/IMG to Shape` into `Shape list` of `Animation` to playback extracted GIF frame sequences.
 * **Integration with `Loops/MaxLoop (fbf)`:** Configure `MaxLoop` in `fbf` mode to automatically iterate the exact frame count required by karaoke line duration.
 
 ### 8.6. Practical Production Example
@@ -1063,16 +1077,17 @@ Numeric values are emitted as clean integers if fractional parts are zero, or ro
 1. **`Path / Origin` (`shape`):** Base ASSdraw path (`m ...`) or primitive name. If empty or given plain text, automatically extracts glyph outlines from the active context (`syl` or `char`).
 2. **`Particle` (`particle_shape`):** Vector shape used as an individual particle (e.g. `"Circle"`, `"Star"`, `"Heart"`, or raw ASSdraw). If empty, defaults to a $2 \times 2\text{ px}$ square (`m 0 0 l 2 0 l 2 2 l 0 2`).
 3. **`Density` (`density`):** Sampling stride in pixels. In `Outline` mode, sets spacing along contours; in `Inner Fill`, sets grid cell step. (Default: `5.0`).
-4. **`RedrawDist` (`redraw_dist`):** Uniform random jitter range $(\pm \Delta x, \pm \Delta y)$ in pixels applied to each particle. (Default: `0.0`).
-5. **`Seed` (`seed`):** Deterministic seed for jitter generation. (Default: `1`).
-6. **`Scale` (`scale`):** Multiplier applied to particle swarm coordinates. (Default: `1.0`).
-7. **`Anchor` (`anchor`):** Interactive cyclic button matching the standard *Piece Anchor* profile found across tessellation nodes (`Slicer`, `Array`, `Union & Divide`). Governs how local particle coordinates and the rotation origin `\org` are projected onto the subtitle canvas:
+4. **`RedrawDist` (`redraw_dist`):** Maximum segment redraw tract length in pixels (*redraw tract*). Subdivides long linear segments and discretises cubic Bézier curves (`b ...`) into a sequence of linear mini-segments (`l ...`) of maximum length `redraw_dist`. When set to `0` (canonical default), preserves the geometry and curvature of the original path intact without linear approximations. (Default: `0.0`).
+5. **`Seed` (`seed`):** Deterministic seed governing stochastic position fluctuation (*jitter*). When `seed > 0`, enables random jitter applied to each particle within a uniform range proportional to density ($\pm 0.5 \times \text{density}\text{ px}$). When `seed <= 0` (default: `0`), no jitter is applied and particles are placed at exact sampled coordinates. (Default: `0`).
+6. **`Close Path` (`close_path`):** Toggle checkbox that explicitly closes open contours on the source path (connecting the final vertex back to the initial anchor) prior to curve redrawing or particle sampling. (Default: `False`).
+7. **`Scale` (`scale`):** Multiplier applied to particle swarm coordinates. (Default: `1.0`).
+8. **`Anchor` (`anchor`):** Interactive cyclic button matching the standard *Piece Anchor* profile found across tessellation nodes (`Slicer`, `Array`, `Union & Divide`). Governs how local particle coordinates and the rotation origin `\org` are projected onto the subtitle canvas:
    * **`pieces` (Canonical default):** Each micro-particle is positioned at its autonomous screen-space coordinates `\pos(x, y)` relative to its glyph or path centroid, while setting `\org(x, y)` precisely at its own geometric centre. This allows subsequent downstream transformations (such as `\frz` spins, `\fscx/\fscy` scaling, or shearing) to rotate each particle independently around its own pivot.
    * **`relative`:** Preserves coordinates relative to the parent text or shape base centroid without asserting `pos_overridden`.
    * **`parent_org`:** Positions the particle at its absolute screen coordinates `\pos(x, y)`, but pins `\org` to the parent text or line origin (`parent_x, parent_y`), enabling coordinated orbital rotations around the source glyph.
    * **`pos`:** Positions the particle at its absolute screen coordinates `\pos(x, y)` without emitting an explicit `\org` override (`has_org = False`).
    * **`absolute`:** Bakes screen coordinates directly into the vector path vertices (`m x y ...`), pinning `\pos` to parent origin and clearing `pos_overridden`.
-8. **`Order` (`order`):** Interactive cyclic button for 2D spatial sorting (*Numpad Order*) governing iteration index assignment (`p_i`):
+9. **`Order` (`order`):** Interactive cyclic button for 2D spatial sorting (*Numpad Order*) governing iteration index assignment (`p_i`):
    * `"79"`: Top-Left to Bottom-Right (*TL $\to$ BR*).
    * `"97"`: Top-Right to Bottom-Left (*TR $\to$ BL*).
    * `"13"`: Bottom-Left to Top-Right (*BL $\to$ TR*).
@@ -1121,10 +1136,15 @@ For each closed contour $C = \{V_0, V_1, \dots, V_m, V_0\}$:
 1. Compute cumulative segment distances:
    $$d_k = \|V_{k+1} - V_k\|, \quad D_{\text{total}} = \sum_{k=0}^m d_k$$
 2. Generate equidistant sample targets $s_j = j \cdot \text{density}$ for $j \in \left[0, \lfloor D_{\text{total}} / \text{density} \rfloor \right]$.
-3. Linearly interpolate each target point on its segment and apply stochastic jitter if $\text{RedrawDist} > 0$:
-   $$P_j = P_{\text{interp}} + \begin{pmatrix} U(-\text{redraw\_dist}, \text{redraw\_dist}) \\ U(-\text{redraw\_dist}, \text{redraw\_dist}) \end{pmatrix} \cdot \text{scale}$$
+3. Linearly interpolate each target point on its segment and apply stochastic jitter if $\text{Seed} > 0$:
+   $$P_j = \begin{cases} P_{\text{interp}} \cdot \text{scale} + \begin{pmatrix} U(-0.5 \cdot \text{density}, 0.5 \cdot \text{density}) \\ U(-0.5 \cdot \text{density}, 0.5 \cdot \text{density}) \end{pmatrix} \cdot \text{scale} & \text{if } \text{Seed} > 0 \\ P_{\text{interp}} \cdot \text{scale} & \text{if } \text{Seed} \le 0 \end{cases}$$
 
-#### 13.4.2. Ray-Casting Interior Grid Sampling
+#### 13.4.2. Contour Pre-Closure and Linear Redraw (*Redraw Tract*)
+Prior to evaluating perimeter or interior grid sampling:
+1. **Contour Pre-Closure (`close_path`):** When enabled (`True`), identifies open contours whose final endpoint deviates from the starting origin ($\|V_m - V_0\| > 10^{-4}$) and automatically appends a linear closing segment connecting back to $V_0$.
+2. **Linear Redraw (`redraw_dist`):** When $\text{redraw\_dist} > 0$, evaluates each segment along the path: straight lines longer than $\text{redraw\_dist}$ are subdivided into linear mini-segments of length $\le \text{redraw\_dist}$, and cubic Bézier curves (`b x1 y1 x2 y2 x3 y3`) are parametrically discretised into a succession of linear mini-segments (`l x y`). When $\text{redraw\_dist} = 0$, the original path geometry and continuous curves are preserved untouched without linear subdivision.
+
+#### 13.4.3. Ray-Casting Interior Grid Sampling
 1. Extract bounding box $(X_{\min}, Y_{\min}) \to (X_{\max}, Y_{\max})$ across all contours.
 2. Form a regular grid with cell size $\Delta = \text{density}$.
 3. For each grid node $(g_x, g_y)$, cast a horizontal ray towards $+X$ and count polygon edge intersections:

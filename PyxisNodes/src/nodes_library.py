@@ -486,7 +486,7 @@ system_node(
     "Functions", "Particles", node_kind="data", color="#8B5CF6",
     inputs=["Path / Origin", "Particle", "Density", "RedrawDist", "Seed", "Scale", "Anchor", "Order"],
     outputs=["Shp Out", "\\pos Tag", "X Arr", "Y Arr", "Total"],
-    properties={"shape": "", "particle_shape": "", "density": "5.0", "redraw_dist": "0", "seed": "1", "scale": "1.0", "mode": "outline_v2", "anchor": "pieces", "order": "79"},
+    properties={"shape": "", "particle_shape": "", "density": "5.0", "redraw_dist": "0", "seed": "0", "scale": "1.0", "mode": "outline_v2", "anchor": "pieces", "order": "79", "close_path": False},
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": ["outline_v2", "border", "inner_fill"]},
         {"type": "text", "name": "Particle:", "property": "particle_shape"},
@@ -495,7 +495,8 @@ system_node(
         {"type": "text", "name": "Seed:", "property": "seed"},
         {"type": "text", "name": "Scale:", "property": "scale"},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["pieces", "relative", "parent_org", "pos", "absolute"]},
-        {"type": "combo", "name": "Order:", "property": "order", "values": ["79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand", "path", "path_inv"]}
+        {"type": "combo", "name": "Order:", "property": "order", "values": ["79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand", "path", "path_inv"]},
+        {"type": "toggle", "name": "Close Path", "property": "close_path", "default": False}
     ]
 )
 
@@ -646,14 +647,12 @@ system_node(
 # Shape/Array: 2D spatial vector formations and matrix replication across grid, hex, radial, and spiral topologies.
 system_node(
     "Shape", "Array", node_kind="data", color="#0F766E",
-    inputs=["Shape", "Cols", "Rows", "Size X", "Size Y", "Scale X", "Scale Y", "Off X", "Off Y", "Angle", "Step Angle", "Bleed", "Accel", "Text Scale", "Pre-Offset", "Anchor", "Output Type", "Order", "Loop Mode"],
-    outputs=["Array", "X", "Y", "Col", "Row", "Angle"],
+    inputs=["Particle", "Cols", "Rows", "Spacing X", "Spacing Y", "Scale", "Factor (t)", "Anchor", "Order", "Tags"],
+    outputs=["Shape", "\\pos Tag", "X", "Y", "Angle (\\frz)", "Index (a_i)", "Total (a_n)", "Col / Ring", "Row / IdxRing"],
     properties={
-        "mode": "grid", "out_mode": "shape", "anchor": "pieces", "order": "79",
-        "overlap": "0", "accel": "1.0", "loop_mode": "shape",
-        "cols": "2", "rows": "2", "size_x": "20", "size_y": "20",
-        "scale_x": "1.0", "scale_y": "1.0", "offset_x": "0", "offset_y": "0",
-        "angle": "0", "step_angle": "0", "text_scale": "1.0", "pre_offset": "0"
+        "mode": "grid", "out_mode": "loops", "anchor": "pieces", "order": "79",
+        "scale": "1.0", "t": "1.0", "cols": "5", "rows": "3",
+        "spacing_x": "0", "spacing_y": "0", "explosion": "0", "tags": ""
     },
     widgets=[]
 )
@@ -862,11 +861,11 @@ system_node(
 
 system_node(
     "Shape", "Multi", node_kind="data", color="#0F766E",
-    inputs=["Mode", "Size", "Px Pattern", "Separation", "Factor (t)", "Anchor", "Tags"],
+    inputs=["Mode", "Size", "Px Pattern", "Separation", "Factor (t)", "Anchor", "Order", "Tags"],
     outputs=["Shape"],
     properties={
         "mode": "concentric_squares", "size": "100.0", "width": "70.0", "height": "50.0",
-        "anchor": "center", "px": "4", "space": "0.0", "separation": "0.0",
+        "anchor": "center", "order": "normal", "px": "4", "space": "0.0", "separation": "0.0",
         "angle": "0.0", "t": "1.0", "tags": "", "loop_mode": "shape", "out_mode": "shape"
     },
     widgets=[
@@ -875,6 +874,9 @@ system_node(
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
             "center", "origin", "relative", "absolute"
+        ]},
+        {"type": "combo", "name": "Order:", "property": "order", "values": [
+            "normal", "invert", "5", "-5", "odd_even", "rand", "cw", "ccw", "79", "31"
         ]},
         {"type": "text", "name": "Size:", "property": "size", "default": "100.0"},
         {"type": "text", "name": "Width:", "property": "width", "default": "70.0"},
@@ -918,7 +920,7 @@ system_node(
 
 system_node(
     "Functions", "Animation", node_kind="data", color="#8B5CF6",
-    inputs=["Frames / Text", "Step ms", "Start Time", "End Time"],
+    inputs=["Shape list", "Step ms", "Start Time", "End Time"],
     outputs=["Shape", "Frame", "Frames List"],
     properties={
         "mode": "fbf",

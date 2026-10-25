@@ -3155,12 +3155,14 @@ div.JASSUB canvas,
     z-index: 25 !important;
 }
 
-/* Ocultar elementos internos nativos de Artplayer */
+/* Hide native internal Artplayer elements */
 .pyxis-artplayer-box .art-state,
 .pyxis-artplayer-box .art-loading,
 .pyxis-artplayer-box .art-bottom,
 .pyxis-artplayer-box .art-controls,
-.pyxis-artplayer-box .art-progress {
+.pyxis-artplayer-box .art-progress,
+.pyxis-artplayer-box .art-contextmenus,
+.art-video-player .art-contextmenus {
     display: none !important;
     opacity: 0 !important;
     visibility: hidden !important;
@@ -6375,6 +6377,11 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     justify-content: center;
     overflow: hidden;
     border-radius: 9px;
+}
+
+#pyxis-telemetry-overlay .pyxis-pbtn-fullscreen,
+.pyxis-tel-video-stage .pyxis-pbtn-fullscreen {
+    display: none !important;
 }
 
 .pyxis-tel-resizer {

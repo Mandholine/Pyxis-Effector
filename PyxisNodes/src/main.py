@@ -2626,6 +2626,137 @@ class PyxisAPI:
             print(f"[sample_pixels_api Error] {e}", flush=True)
             return {"pixels_points": [], "total_pixels": 0, "total_frames": 1, "frame_index": 1, "error": str(e)}
 
+    _ANIMATION_PREVIEW_CACHE = {}
+
+    def preview_animation_api(self, node_props):
+        """Resolves vector shape frames for the interactive `Functions/Animation` canvas previewer.
+
+        Supports inline preset shapes, ASSdraw `m ...` paths, delimited lists, typographic
+        glyphs vectorised via `FontVectorEngine`, and upstream `Shape/IMG to Shape` nodes
+        (including animated GIFs). Results are cached in `PyxisAPI._ANIMATION_PREVIEW_CACHE`.
+
+        Args:
+            node_props (dict): Property dictionary from the `Functions/Animation` node,
+                optionally including `upstream_img_to_shape` when port 0 is connected to `IMG to Shape`.
+
+        Returns:
+            dict[str, Any]: Dictionary containing `frames` (list of ASSdraw strings) and `total_frames`.
+        """
+        try:
+            if not isinstance(node_props, dict):
+                node_props = {}
+
+            upstream_img = node_props.get("upstream_img_to_shape")
+            if isinstance(upstream_img, dict) and str(upstream_img.get("image_path", "")).strip():
+                img_path = str(upstream_img.get("image_path", "")).strip()
+                if os.path.exists(img_path):
+                    from img_tracer_engine import trace_image, _is_animated_gif, _get_or_extract_gif_frames
+                    mode = str(upstream_img.get("mode", "potrace")).strip()
+                    threshold_raw = upstream_img.get("threshold", "128")
+                    threshold = int(float(threshold_raw) if str(threshold_raw).replace(".", "", 1).isdigit() else 128)
+                    tolerance_raw = upstream_img.get("tolerance", "1.0")
+                    tolerance = float(tolerance_raw if str(tolerance_raw).replace(".", "", 1).isdigit() else 1.0)
+                    invert_str = str(upstream_img.get("invert", "normal")).strip()
+                    invert = invert_str.lower() == "inverted"
+                    bin_mode = str(upstream_img.get("bin_mode", "luminance")).strip()
+                    alphamax_raw = upstream_img.get("alphamax", "1.0")
+                    alphamax = float(alphamax_raw if str(alphamax_raw).replace(".", "", 1).isdigit() else 1.0)
+                    opttoler_raw = upstream_img.get("opttoler", "0.2")
+                    opttoler = float(opttoler_raw if str(opttoler_raw).replace(".", "", 1).isdigit() else 0.2)
+                    turnpolicy = str(upstream_img.get("turnpolicy", "minority")).strip()
+                    invert_img_str = str(upstream_img.get("invert_img", "normal")).strip()
+                    use_inverted_img = invert_img_str.lower() == "inverted"
+
+                    try:
+                        img_mtime = os.path.getmtime(img_path)
+                    except Exception:
+                        img_mtime = 0
+
+                    cache_key = (
+                        "img_to_shape", img_path, img_mtime, mode, threshold, invert,
+                        tolerance, bin_mode, alphamax, opttoler, turnpolicy, use_inverted_img
+                    )
+                    if cache_key in PyxisAPI._ANIMATION_PREVIEW_CACHE:
+                        return PyxisAPI._ANIMATION_PREVIEW_CACHE[cache_key]
+
+                    total_f = 1
+                    if _is_animated_gif(img_path):
+                        _, g_count = _get_or_extract_gif_frames(img_path)
+                        total_f = max(1, int(g_count or 1))
+
+                    traced_frames = []
+                    for f_idx in range(1, total_f + 1):
+                        tr = trace_image(
+                            image_path=img_path,
+                            mode=mode,
+                            threshold=threshold,
+                            invert=invert,
+                            tolerance=tolerance,
+                            out_scale=1.0,
+                            out_w=0.0,
+                            out_h=0.0,
+                            anchor="center",
+                            offset_x=0.0,
+                            offset_y=0.0,
+                            img_scale=1.0,
+                            bin_mode=bin_mode,
+                            alphamax=alphamax,
+                            opttoler=opttoler,
+                            turnpolicy=turnpolicy,
+                            frame_index=f_idx,
+                            invert_img=use_inverted_img
+                        )
+                        shp = str(tr.get("shape", "")).strip() if isinstance(tr, dict) else ""
+                        if shp:
+                            traced_frames.append(shp)
+
+                    if traced_frames:
+                        res_img = {"frames": traced_frames, "total_frames": len(traced_frames)}
+                        if len(PyxisAPI._ANIMATION_PREVIEW_CACHE) > 500:
+                            PyxisAPI._ANIMATION_PREVIEW_CACHE.clear()
+                        PyxisAPI._ANIMATION_PREVIEW_CACHE[cache_key] = res_img
+                        return res_img
+
+            frames_raw = node_props.get("frames", "")
+            font_name = "Arial"
+            font_size = 65
+            bold = False
+            italic = False
+
+            base_info = getattr(self, "_cached_preview_base_info", None)
+            if isinstance(base_info, dict):
+                font_name = str(base_info.get("primary_font_name") or "Arial")
+                try:
+                    font_size = int(base_info.get("primary_font_size") or 65)
+                except Exception:
+                    font_size = 65
+
+            cache_key = ("frames", str(frames_raw), font_name, font_size, bold, italic)
+            if cache_key in PyxisAPI._ANIMATION_PREVIEW_CACHE:
+                return PyxisAPI._ANIMATION_PREVIEW_CACHE[cache_key]
+
+            from nodes.tag_nodes import resolve_animation_frames_list
+            ctx = {
+                "style": {
+                    "fontname": font_name,
+                    "fontsize": font_size,
+                    "bold": bold,
+                    "italic": italic
+                }
+            }
+            resolved = resolve_animation_frames_list(frames_raw, ctx)
+            res = {
+                "frames": resolved,
+                "total_frames": len(resolved)
+            }
+            if len(PyxisAPI._ANIMATION_PREVIEW_CACHE) > 500:
+                PyxisAPI._ANIMATION_PREVIEW_CACHE.clear()
+            PyxisAPI._ANIMATION_PREVIEW_CACHE[cache_key] = res
+            return res
+        except Exception as e:
+            print(f"[preview_animation_api Error] {e}", flush=True)
+            return {"frames": [], "total_frames": 0, "error": str(e)}
+
     @staticmethod
     def _find_ffmpeg():
         """Resolves the executable path to the FFmpeg binary.

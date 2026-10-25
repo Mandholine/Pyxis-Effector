@@ -544,7 +544,7 @@ Transforms vector typography into vibrating analogue chalk or electrical outline
 
 #### 4. `Flexor` / `Bend` (Spline Bending) Mode
 Bends geometry along a numerical arc or custom ASSdraw curve.
-* **`Curve / Angle` (`curve`):** Angular degrees (e.g. `30`, `-45`) or full ASSdraw spline (`m ... b ...`).
+* **`Curve / Angle` (`curve`):** Angular degrees (e.g. `30`, `-45`), mathematical expressions with context variables (e.g. `30 + 15`, `(syl.i * 10)`), or full ASSdraw spline (`m ... b ...`).
 * **`Axis`:** Bending axis (`x` for horizontal curve, `y` for vertical).
 * **`Anchor`:** Spatial anchor (`center`, `origin`, `relative`, `absolute`).
 
@@ -608,7 +608,7 @@ Continuous 3-stage morph: Start ($t=0.0$) $\to$ Mid ($t=0.5$) $\to$ Target ($t=1
      $$\text{Ring}_i = \text{BooleanDifference}(\text{Outer}_i, \text{Inner}_i)$$
    * **`Solid (filled borders)`:** First layer ($i = 1$) is solid fill; subsequent layers ($i \ge 2$) are outward hollow rings.
 3. **`[2.3] Max Rings` (`loop_count`):** Total concentric layers to generate (default: `5`). Defines `b_n` and `maxloop`.
-4. **`[2.4] Separation (px)` (`separation`):** Dilation thickness per ring. Supports fixed floats (`5.0`) or comma-separated lists (`5, 2, 8, 3`) for alternating rhythms.
+4. **`[2.4] Separation (px)` (`separation`):** Dilation thickness per ring. Supports fixed floats (`5.0`), mathematical expressions with variables (e.g. `(syl.i * 2) + 3`), or comma-separated lists including parenthesised expressions (e.g. `5, (2 * syl.i), 10`) for alternating rhythms.
 5. **`[2.5] Overlap (px)` (`overlap`):** Boundary overlap in pixels between adjacent layers (default: `0.5`) to eliminate subpixel anti-aliasing gaps in libass.
 6. **`[2.6] Anchor`:** Spatial anchor (`Center`, `Relative`, `Absolute`, `Piece`).
 7. **`[2.7] b_i, b_n`:** Iteration variables in footer (`b_i` = active ring index $[1 \dots N]$, `b_n` = total rings).
@@ -920,7 +920,7 @@ Pairing `Union & Divide (FUSION)` with `Concatenate (Zip)` enables parallel mult
 1. **`[2.1] Particle`:** Base ASSdraw vector shape or particle code.
 2. **`[2.6] Scale`:** Particle scale multiplier ($1.0 = 100\%$).
 3. **`[2.7] Factor (t)` (`t` / `progress`):** Progress factor ($0.0 \to 1.0$) controlling visible count: $\text{Visible} = \text{round}(\text{Total} \cdot t)$.
-4. **`[2.8] Anchor`:** Spatial reference (`Piece`, `Relative`, `Parent Org`, `Pos`, `Absolute`).
+4. **`[2.8] Anchor`:** Spatial reference (`Piece`, `Relative`, `Parent Org`, `Pos`, `Absolute`). In `Formation` mode, `Relative` preserves the native typographic origin `(0, 0)` without ink-box recentring, guaranteeing 1:1 pixel-perfect alignment over text.
 5. **`[2.9] Order:`:** Spatial ordering (`79`, `97`, `13`, `31`, `71`, `17`, `5`, `cw`, `ccw`).
 6. **`[2.10] Tags`:** ASS tag string for tag fusion in `SHAPE` mode.
 7. **`[2.11] a_i, a_n`:** Footer iteration variables ($a\_i \in [1 \dots N]$).
@@ -935,7 +935,7 @@ Pairing `Union & Divide (FUSION)` with `Concatenate (Zip)` enables parallel mult
 
 #### 2. `[FORM]` Mode
 * **`[2.2] Formation`:** Guide ASSdraw path or text silhouette.
-* **`[2.3] Spacing`:** Sampling step spacing between particles.
+* **`[2.3] Explosion` (`explosion`):** Radial dispersion or centrifugal expansion factor outwards from the silhouette centre (default: `0`). At `0`, particles are placed with 1:1 geometric precision on the guide silhouette without altering outer boundaries. Positive values disperse particles radially outward. Supports transparent backward compatibility with the previous `spacing` property.
 
 #### 3. `[RINGS]` Mode
 * **`[2.2] Rings`:** Total concentric ring count.
@@ -993,7 +993,12 @@ Pairing `Union & Divide (FUSION)` with `Concatenate (Zip)` enables parallel mult
 ### 12.1. Canvas Shortcuts and Frame Navigation
 1. **File Loading Shortcut (Double-Click):**
    Double-clicking the Preview Card or any empty area of the node body opens the native operating system file picker dialogue (`select_image_dialog`) to load compatible files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`). The selected absolute path is written directly into `image_path`.
-2. **Animated GIF Transport Controls:**
+2. **Interactive Preview Card Zoom and Pan:**
+   Hovering the cursor over the visualiser card (*Preview Card*) enables camera inspection controls matching the `System/Previewer` video player without leaking events to the main node canvas:
+   * **Mouse Wheel:** Zooms in or out ($1.0\times \dots 15.0\times$) anchored directly at the cursor position to inspect vertices and Bézier curves in detail. Zooming back out to $1.0\times$ smoothly auto-centres the view.
+   * **Middle-Click and Drag:** Pans the viewport freely inside the card with $1:1$ scale compensation.
+   * **`R` Key:** Pressing `R` whilst hovering over the preview card smoothly resets zoom and pan back to the default $1.0\times$ view.
+3. **Animated GIF Transport Controls:**
    When an animation file with multiple frames is detected (`total_frames > 1`), interactive transport controls appear:
    * Step buttons `[◀]` and `[▶]` for stepping frame by frame.
    * Horizontal scrubber timeline for real-time interactive inspection across all animation frames.
@@ -1079,13 +1084,23 @@ The node incorporates 10 dedicated geometric algorithms:
 4. **`Separation` (`separation`):** Inter-layer spacing or dilation offset between neighbouring elements.
 5. **`Factor (t)` (`t`):** Parametric progress ($0.0 \to 1.0$) for animating sequential emergence or scale.
 6. **`Anchor` (`anchor`):** Spatial reference frame:
-   * **`center`:** Centres compound generated geometry at Cartesian origin `(0, 0)`.
+   * **`center`:** Centres compound generated geometry by its ink bounding box or canonical centre at Cartesian origin `(0, 0)`.
    * **`origin`:** Aligns top-left corner of bounding box at `(0, 0)`.
-   * **`relative`:** Preserves relative displacement from parent without ink recentring.
+   * **`relative`:** Preserves original relative coordinates intact relative to `(0, 0)`. Essential for overlays on `\an5` typographic text or pre-centred shapes, ensuring exact 1:1 alignment without font descent or bearing offsets.
    * **`absolute`:** Positions geometry directly at screen coordinates `(fx.pos_x, fx.pos_y)`.
 7. **`Tags` (`tags`):** ASS tags or color attributes to interleave in emitted vector code.
 8. **`Out Mode` (`out_mode`):** Emitted format (`Shape`, `\clip`, `\iclip`).
 9. **`Loop Mode` (`loop_mode`):** Toggles between monolithic unified drawing (`Shape`) and piece-by-piece iteration (`Loops`, exposing footer variables `m_i` and `m_n`).
+10. **`Order` (`order`):** Procedural calculation, appearance progression under temporal factor `t`, and loop sequence for multi-piece geometries. Dynamically adapts according to the active mode:
+    * **`concentric_squares` / `concentric_rings`:** Concentric `["normal", "invert", "odd_even", "rand"]`.
+    * **`diagonal_stripes`:** Diagonal sweep `["79", "31", "5", "-5", "odd_even", "rand"]`.
+    * **`segmented_border`:** 1D perimeter `["normal", "invert", "5", "-5", "odd_even", "rand"]`. When a base guide shape (`base_shape`) is connected, the segmented frame traces its exact 1:1 contour without anamorphic aspect ratio distortion.
+    * **`radial_rosette`:** Angular radial `["cw", "ccw", "5", "odd_even", "rand"]`.
+    * **`tunnel_cascade`:** Depth cascade `["normal", "invert", "odd_even", "rand"]`.
+    * **`polygonal_mosaic` / `multi_shape_mosaic`:** Full two-dimensional matrix catalogue (Cartesian Numpad, radial, and stochastic).
+
+> [!NOTE]
+> **High-Performance LRU Cache Architecture:** `Shape/Multi` implements a spatial memoisation system decoupled from `Factor (t)`. The complete structural geometry and piece ordering are computed once and retained across dedicated 512-slot LRU caches (`_MULTI_CONCENTRIC_RINGS_CACHE`, `_MULTI_SEGMENTED_BORDER_CACHE`, `_MULTI_PIECES_FULL_CACHE`, `_GLOBAL_MULTI_GRID_CACHE`). When modulating `t` frame-by-frame or across sub-loops, subsequent invocations retrieve pieces in $\mathcal{O}(1)$ time and execute an instantaneous slice, accelerating generation up to 10x–50x on intricate contours or typography.
 
 ### 13.3. Output Ports (*Outputs*)
 1. **`[3.1] Shape`:** Composite ASSdraw vector code (or active piece in `Loops` mode).

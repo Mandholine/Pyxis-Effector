@@ -3222,6 +3222,14 @@ class GraphEngine:
                 out_mode_val = str(_get_prop_value(props, "out_mode", "shape")).strip()
                 loop_mode_val = str(_get_prop_value(props, "loop_mode", "shape")).strip()
 
+                order_val = str(_get_prop_value(props, "order", _get_prop_value(props, "orden", "normal"))).strip()
+                for idx, inp in enumerate(node.get("inputs", [])):
+                    if str(inp.get("name", "")).strip().lower() in ["order", "numpad order", "orden"]:
+                        val = self.get_input_value(node, idx, context)
+                        if val is not None and str(val).strip() != "":
+                            order_val = str(val).strip()
+                        break
+
                 tags_raw =None 
                 for idx ,inp in enumerate (node .get ("inputs",[])):
                     if str (inp .get ("name","")).strip ().lower ()in ["tags","tag"]:
@@ -3249,7 +3257,7 @@ class GraphEngine:
                     anc_val =self .get_input_value (node ,4 ,context )
                     if anc_val is None or str (anc_val ).strip ()=="":anc_val =_get_prop_value (props ,"anchor","center")
                     _prep_multi_ctx()
-                    res = shape_multi (context ,mode ="Concentric Squares",size =size_val ,px =px_val ,separation =sep_val ,t =t_val ,anchor =anc_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
+                    res = shape_multi (context ,mode ="Concentric Squares",size =size_val ,px =px_val ,separation =sep_val ,t =t_val ,anchor =anc_val ,order =order_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
 
                 elif "franja"in modo_clean or "diagonal"in modo_clean or "stripe"in modo_clean or "multi2"in modo_clean :
                     w_val =_eval_num_expr (self .get_input_value (node ,0 ,context )or _get_prop_value (props ,"width","70.0"),context ,70.0 )
@@ -3261,7 +3269,7 @@ class GraphEngine:
                     anc_val =self .get_input_value (node ,5 ,context )
                     if anc_val is None or str (anc_val ).strip ()=="":anc_val =_get_prop_value (props ,"anchor","center")
                     _prep_multi_ctx()
-                    res = shape_multi (context ,mode ="Diagonal Stripes",width =w_val ,height =h_val ,px =px_val ,separation =sep_val ,t =t_val ,anchor =anc_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
+                    res = shape_multi (context ,mode ="Diagonal Stripes",width =w_val ,height =h_val ,px =px_val ,separation =sep_val ,t =t_val ,anchor =anc_val ,order =order_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
 
                 elif "anillo"in modo_clean or "multi3"in modo_clean or "ring"in modo_clean :
                     if isinstance(context, dict): context['pos_overridden'] = False
@@ -3279,7 +3287,7 @@ class GraphEngine:
                     anc_val =self .get_input_value (node ,5 ,context )
                     if anc_val is None or str (anc_val ).strip ()=="":anc_val =_get_prop_value (props ,"anchor","center")
                     _prep_multi_ctx()
-                    res = shape_multi (context ,drawing =shp_val ,mode ="Concentric Rings",size =size_val ,bord =bord_val ,separation =sep_val ,t =t_val ,anchor =anc_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
+                    res = shape_multi (context ,drawing =shp_val ,mode ="Concentric Rings",size =size_val ,bord =bord_val ,separation =sep_val ,t =t_val ,anchor =anc_val ,order =order_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
 
                 elif "multi-forma"in modo_clean or "multiforma"in modo_clean or "multi-shape"in modo_clean or "multishape"in modo_clean or "multi5"in modo_clean :
                     if isinstance(context, dict): context['pos_overridden'] = False
@@ -3295,14 +3303,6 @@ class GraphEngine:
                     t_val =_eval_num_expr (self .get_input_value (node ,5 ,context )or _get_prop_value (props ,"t","1.0"),context ,1.0 )
                     anc_val =self .get_input_value (node ,6 ,context )
                     if anc_val is None or str (anc_val ).strip ()=="":anc_val =_get_prop_value (props ,"anchor","center")
-
-                    order_val = str(_get_prop_value(props, "order", "Normal")).strip()
-                    for idx, inp in enumerate(node.get("inputs", [])):
-                        if str(inp.get("name", "")).strip().lower() in ["order", "numpad order", "orden"]:
-                            val = self.get_input_value(node, idx, context)
-                            if val: order_val = str(val).strip()
-                            break
-
                     _prep_multi_ctx()
                     res = shape_multi (context ,drawing =shp_val ,mode ="Multi-Shape Mosaic",width =w_val ,height =h_val ,dx =dx_val ,dy =dy_val ,t =t_val ,anchor =anc_val ,order =order_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
 
@@ -3315,12 +3315,6 @@ class GraphEngine:
                     t_val =_eval_num_expr (self .get_input_value (node ,5 ,context )or _get_prop_value (props ,"t","1.0"),context ,1.0 )
                     anc_val =self .get_input_value (node ,6 ,context )
                     if anc_val is None or str (anc_val ).strip ()=="":anc_val =_get_prop_value (props ,"anchor","center")
-                    order_val = str(_get_prop_value(props, "order", "Normal")).strip()
-                    for idx, inp in enumerate(node.get("inputs", [])):
-                        if str(inp.get("name", "")).strip().lower() in ["order", "numpad order", "orden"]:
-                            val = self.get_input_value(node, idx, context)
-                            if val: order_val = str(val).strip()
-                            break
                     _prep_multi_ctx()
                     res = shape_multi (context ,mode ="Polygonal Mosaic",size =size_val ,sides =sides_val ,rings =rings_val ,n_layers =n_val ,separation =sep_val ,t =t_val ,anchor =anc_val ,order =order_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
 
@@ -3353,7 +3347,7 @@ class GraphEngine:
                         anc_val =self .get_input_value (node ,6 ,context )
                         if anc_val is None or str (anc_val ).strip ()=="":anc_val =_get_prop_value (props ,"anchor","center")
                     _prep_multi_ctx()
-                    res = shape_multi (context ,drawing =shp_val ,mode ="Segmented Border",width =w_val ,height =h_val ,bord =bord_val ,space =space_val ,length =len_val ,separation =space_val ,t =t_val ,anchor =anc_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
+                    res = shape_multi (context ,drawing =shp_val ,mode ="Segmented Border",width =w_val ,height =h_val ,bord =bord_val ,space =space_val ,length =len_val ,separation =space_val ,t =t_val ,anchor =anc_val ,order =order_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
 
                 elif "roseta"in modo_clean or "rosette"in modo_clean or "pastel"in modo_clean or "radial"in modo_clean or "multi7"in modo_clean :
                     parts_val =int (_eval_num_expr (self .get_input_value (node ,0 ,context )or _get_prop_value (props ,"parts","12"),context ,12 ))
@@ -3364,7 +3358,7 @@ class GraphEngine:
                     anc_val =self .get_input_value (node ,5 ,context )
                     if anc_val is None or str (anc_val ).strip ()=="":anc_val =_get_prop_value (props ,"anchor","center")
                     _prep_multi_ctx()
-                    res = shape_multi (context ,mode ="Radial Rosette",parts =parts_val ,r_out =r_out_val ,r_in =r_in_val ,separation =sep_val ,t =t_val ,anchor =anc_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
+                    res = shape_multi (context ,mode ="Radial Rosette",parts =parts_val ,r_out =r_out_val ,r_in =r_in_val ,separation =sep_val ,t =t_val ,anchor =anc_val ,order =order_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
 
                 elif "tunel"in modo_clean or "cascada"in modo_clean or "multi8"in modo_clean or "tunnel"in modo_clean or "cascade"in modo_clean :
                     if isinstance(context, dict): context['pos_overridden'] = False
@@ -3394,7 +3388,7 @@ class GraphEngine:
                         if anc_val is None or str (anc_val ).strip ()=="":anc_val =_get_prop_value (props ,"anchor","center")
 
                     _prep_multi_ctx()
-                    res = shape_multi (context ,drawing =shp_val ,mode ="Tunnel / Cascade",size1 =s1_val ,size2 =s2_val ,loop =loop_val ,separation =sep_val ,angle =ang_val ,t =t_val ,anchor =anc_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
+                    res = shape_multi (context ,drawing =shp_val ,mode ="Tunnel / Cascade",size1 =s1_val ,size2 =s2_val ,loop =loop_val ,separation =sep_val ,angle =ang_val ,t =t_val ,anchor =anc_val ,order =order_val ,tags =tags_raw ,out_mode =out_mode_val ,loop_mode =loop_mode_val )
 
                 elif "banner" in modo_clean or "cartela" in modo_clean:
                     w_val = _eval_num_expr(self.get_input_value(node, 0, context) or _get_prop_value(props, "width", "200.0"), context, 200.0)
@@ -4844,7 +4838,7 @@ class GraphEngine:
                     rows_raw = str(props.get("rows", "3")).strip()
                     sp_x_raw = str(props.get("spacing_x", "0")).strip()
                     sp_y_raw = str(props.get("spacing_y", "0")).strip()
-                    sp_raw = str(props.get("spacing", "0")).strip()
+                    sp_raw = str(props.get("explosion", props.get("spacing", "0"))).strip()
                     rings_raw = str(props.get("rings", "3")).strip()
                     c_per_ring_raw = str(props.get("count_per_ring", "")).strip()
                     rad_raw = str(props.get("radius", "50")).strip()
@@ -5037,6 +5031,7 @@ class GraphEngine:
                     spacing_x =sp_x_raw ,
                     spacing_y =sp_y_raw ,
                     spacing =sp_raw ,
+                    explosion =sp_raw ,
                     rings =rings_raw ,
                     count_per_ring =c_per_ring_raw ,
                     radius =rad_raw ,
@@ -5815,7 +5810,7 @@ class GraphEngine:
                 if redraw =="":redraw =str (_get_prop_value (props ,"redraw_dist","0")).strip ()
 
                 seed =self .get_input_value (node ,4 ,context )
-                if seed =="":seed =str (_get_prop_value (props ,"seed","1")).strip ()
+                if seed =="":seed =str (_get_prop_value (props ,"seed","0")).strip ()
 
                 scale =self .get_input_value (node ,5 ,context )
                 if scale =="":scale =str (_get_prop_value (props ,"scale","1.0")).strip ()
@@ -5827,6 +5822,12 @@ class GraphEngine:
                 if order == "": order = str(_get_prop_value(props, "order", "79")).strip()
 
                 modo = str(_get_prop_value(props, "mode", "outline_v2")).strip()
+
+                close_raw = _get_prop_value(props, "close_path", False)
+                if isinstance(close_raw, str):
+                    close_path = close_raw.strip().lower() in ("true", "1", "yes")
+                else:
+                    close_path = bool(close_raw)
 
                 if isinstance(context, dict):
                     context['pos_overridden'] = upstream_overridden
@@ -5842,7 +5843,7 @@ class GraphEngine:
 
                 from particle_nodes import particle_text_node 
                 abs_x, abs_y, particle_ass_shape, total_pts = particle_text_node(
-                    context, shape=shp, particle_shape=p_shp, density=density, redraw_dist=redraw, seed=seed, scale=scale, mode=modo, order=order, anchor=anchor
+                    context, shape=shp, particle_shape=p_shp, density=density, redraw_dist=redraw, seed=seed, scale=scale, mode=modo, order=order, anchor=anchor, close_path=close_path
                 )
 
                 if output_slot_index ==1 :return f"\\pos({abs_x },{abs_y })"
@@ -5906,10 +5907,7 @@ class GraphEngine:
                         context['pos_y'] = upstream_py
                     if f'_gen_idx_{node_id}' in context:
                         ip_idx_val = context[f'_gen_idx_{node_id}']
-                        context['p_i'] = ip_idx_val
-                        context['particle_i'] = ip_idx_val
                         context['ip_i'] = ip_idx_val
-                        context['img_p_i'] = ip_idx_val
 
                 from particle_nodes import particle_image_node 
                 abs_x ,abs_y ,col_ass ,alpha_ass ,p_shape ,total_px =particle_image_node (
@@ -6646,10 +6644,10 @@ class GraphEngine:
         "Multi":                    {"i": ("m_i", "multi_i"),          "n": ("m_n", "m_max", "multi_n", "multi_max"),                  "count_keys": ("multi_loop_count", "m_n")},
         "Functions/Particles":      {"i": ("p_i", "particle_i", "tp_i", "text_p_i"), "n": ("p_n", "p_max", "particle_n", "particle_max", "tp_n", "tp_max", "text_p_n", "text_p_max"), "count_keys": ("tp_loop_count", "p_n")},
         "Particles":                {"i": ("p_i", "particle_i", "tp_i", "text_p_i"), "n": ("p_n", "p_max", "particle_n", "particle_max", "tp_n", "tp_max", "text_p_n", "text_p_max"), "count_keys": ("tp_loop_count", "p_n")},
-        "Functions/IMG to pixels":  {"i": ("p_i", "particle_i", "ip_i", "img_p_i"),  "n": ("p_n", "p_max", "particle_n", "particle_max", "ip_n", "ip_max", "img_p_n", "img_p_max", "total_pixels"), "count_keys": ("img_loop_count", "p_n", "total_pixels")},
-        "Functions/IMG to Pixels":  {"i": ("p_i", "particle_i", "ip_i", "img_p_i"),  "n": ("p_n", "p_max", "particle_n", "particle_max", "ip_n", "ip_max", "img_p_n", "img_p_max", "total_pixels"), "count_keys": ("img_loop_count", "p_n", "total_pixels")},
-        "IMG to pixels":            {"i": ("p_i", "particle_i", "ip_i", "img_p_i"),  "n": ("p_n", "p_max", "particle_n", "particle_max", "ip_n", "ip_max", "img_p_n", "img_p_max", "total_pixels"), "count_keys": ("img_loop_count", "p_n", "total_pixels")},
-        "IMG to Pixels":            {"i": ("p_i", "particle_i", "ip_i", "img_p_i"),  "n": ("p_n", "p_max", "particle_n", "particle_max", "ip_n", "ip_max", "img_p_n", "img_p_max", "total_pixels"), "count_keys": ("img_loop_count", "p_n", "total_pixels")},
+        "Functions/IMG to pixels":  {"i": ("ip_i",),                   "n": ("ip_n", "ip_max", "total_pixels"),                        "count_keys": ("img_loop_count", "ip_n", "total_pixels")},
+        "Functions/IMG to Pixels":  {"i": ("ip_i",),                   "n": ("ip_n", "ip_max", "total_pixels"),                        "count_keys": ("img_loop_count", "ip_n", "total_pixels")},
+        "IMG to pixels":            {"i": ("ip_i",),                   "n": ("ip_n", "ip_max", "total_pixels"),                        "count_keys": ("img_loop_count", "ip_n", "total_pixels")},
+        "IMG to Pixels":            {"i": ("ip_i",),                   "n": ("ip_n", "ip_max", "total_pixels"),                        "count_keys": ("img_loop_count", "ip_n", "total_pixels")},
         "Functions/Clip Gradient":  {"i": ("c_i", "clip_i"),           "n": ("c_n", "c_max", "clip_n", "clip_max"),                    "count_keys": ("cg_loop_count", "c_n")},
         "Shape/Clip Gradient":      {"i": ("c_i", "clip_i"),           "n": ("c_n", "c_max", "clip_n", "clip_max"),                    "count_keys": ("cg_loop_count", "c_n")},
         "Clip Gradient":            {"i": ("c_i", "clip_i"),           "n": ("c_n", "c_max", "clip_n", "clip_max"),                    "count_keys": ("cg_loop_count", "c_n")},

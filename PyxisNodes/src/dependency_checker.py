@@ -298,11 +298,44 @@ def install_webview2_bootstrapper(interactive: bool = True) -> bool:
     return False
 
 
+def unblock_runtime_binaries(pyxis_root: str | None = None) -> int:
+    """
+    Removes NTFS Zone.Identifier alternate data streams (Mark of the Web) from
+    bundled runtime DLLs and executables in the PyxisNodes directory so .NET
+    Framework CAS does not block Python.Runtime.dll or WebView2 assemblies.
+    """
+    if os.name != "nt":
+        return 0
+    if not pyxis_root:
+        pyxis_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    site_pkgs = os.path.join(pyxis_root, "python", "Lib", "site-packages")
+    scan_dirs = [
+        os.path.join(pyxis_root, "bin"),
+        os.path.join(site_pkgs, "pythonnet"),
+        os.path.join(site_pkgs, "clr_loader"),
+        os.path.join(site_pkgs, "webview", "lib"),
+    ]
+    unblocked = 0
+    for target_dir in scan_dirs:
+        if not os.path.isdir(target_dir):
+            continue
+        for root, _, files in os.walk(target_dir):
+            for fname in files:
+                if fname.lower().endswith((".dll", ".exe", ".pyd")):
+                    try:
+                        os.remove(os.path.join(root, fname) + ":Zone.Identifier")
+                        unblocked += 1
+                    except OSError:
+                        pass
+    return unblocked
+
+
 def ensure_dependencies(config_path: str, interactive: bool = True) -> bool:
     """
     Orchestrates comprehensive preflight dependency checks with persistent caching in AppData.
 
     Runtime Guarantees:
+        - Strips Windows Zone.Identifier streams from bundled .NET/WebView2 DLLs.
         - Preflight cache check in user_config.json: Enables instant startup (<1 ms overhead)
           on subsequent launches by verifying that registry keys remain valid.
         - Validates .NET Framework >= 4.6.2.
@@ -319,6 +352,8 @@ def ensure_dependencies(config_path: str, interactive: bool = True) -> bool:
     Dependencies & Couplings:
         - Called by main.py prior to webview.create_window() instantiation.
     """
+    unblock_runtime_binaries()
+
     # 1. Quick Cache Check: 0 ms overhead on subsequent launches
     cached = get_cached_dependency_status(config_path)
     if cached and cached.get("verified") is True:

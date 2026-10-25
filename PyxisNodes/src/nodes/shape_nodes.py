@@ -1897,6 +1897,11 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
 
     curve_str = str(curve or "").strip()
     is_custom_curve = curve_str.lower().startswith("m ") or curve_str.lower().startswith("m-") or curve_str.lower().startswith("m0")
+    if not is_custom_curve and curve is not None and str(curve).strip() != "":
+        try:
+            bend_val = float(_eval_num_expr(curve, context, bend_val))
+        except Exception:
+            pass
 
     def sample_path(path_str):
         p_tokens = path_str.strip().split()
@@ -2755,10 +2760,13 @@ def shape_transform(context, drawing="", mode="inflate", t=None, ratio=1.0, infl
         c_curve = curve if curve is not None else kwargs.get("curve", "30")
         b_t = t if (t is not None and str(t).strip() != "") else (bend_t if bend_t != 1.0 else kwargs.get("bend_t", kwargs.get("t", 1.0)))
         b_bend = kwargs.get("bend", 30.0)
+        from node_engine import _eval_num_expr
         try:
-            if isinstance(c_curve, (int, float)) or (isinstance(c_curve, str) and not c_curve.strip().lower().startswith("m")):
+            if isinstance(c_curve, (int, float)):
                 b_bend = float(c_curve)
-        except:
+            elif isinstance(c_curve, str) and not (c_curve.strip().lower().startswith("m ") or c_curve.strip().lower().startswith("m-") or c_curve.strip().lower().startswith("m0")):
+                b_bend = float(_eval_num_expr(c_curve, context, 30.0))
+        except Exception:
             pass
         ax = axis if axis else kwargs.get("axis", "x")
         return _shape_flexor(raw_shp, curve=c_curve, t=b_t, bend=b_bend, axis=ax, anchor=anchor, context=context)
@@ -2875,14 +2883,24 @@ def shape_concentric_borders_node(
     if sc_val != 1.0:
         shp_val = ClipperEngine.transform_shape(shp_val, mode="Escalar", factor=sc_val)
 
-    sep_str = str(separation).strip()
-    try:
-        if "," in sep_str:
-            sep_list = [max(0.5, float(x.strip())) for x in sep_str.split(",") if x.strip()]
-        else:
-            sep_list = [max(0.5, float(_eval_num_expr(separation, context, 5.0)))]
-    except Exception:
-        sep_list = [5.0]
+    from node_engine import _split_tokens_respecting_delimiters
+    if isinstance(separation, (list, tuple)):
+        try:
+            sep_list = [max(0.5, float(_eval_num_expr(x, context, 5.0))) for x in separation if str(x).strip()]
+        except Exception:
+            sep_list = [5.0]
+    else:
+        sep_str = str(separation).strip()
+        try:
+            raw_tokens = _split_tokens_respecting_delimiters(sep_str)
+            if len(raw_tokens) > 1:
+                sep_list = [max(0.5, float(_eval_num_expr(x, context, 5.0))) for x in raw_tokens if x.strip()]
+            elif len(raw_tokens) == 1:
+                sep_list = [max(0.5, float(_eval_num_expr(raw_tokens[0], context, 5.0)))]
+            else:
+                sep_list = [max(0.5, float(_eval_num_expr(separation, context, 5.0)))]
+        except Exception:
+            sep_list = [5.0]
     if not sep_list:
         sep_list = [5.0]
 
@@ -4487,13 +4505,37 @@ def clear_shape_array_caches():
 _GLOBAL_MULTI_GRID_CACHE = OrderedDict()
 _GLOBAL_MULTI_GRID_MAX_CACHE = 512
 
+_MULTI_CONCENTRIC_RINGS_CACHE = OrderedDict()
+_MULTI_CONCENTRIC_RINGS_MAX_CACHE = 512
+
+_MULTI_SEGMENTED_BORDER_CACHE = OrderedDict()
+_MULTI_SEGMENTED_BORDER_MAX_CACHE = 512
+
+_MULTI_PIECES_FULL_CACHE = OrderedDict()
+_MULTI_PIECES_FULL_MAX_CACHE = 512
+
+_SHAPE_DIVIDE_ISLANDS_CACHE = OrderedDict()
+_SHAPE_DIVIDE_ISLANDS_MAX_CACHE = 512
+
+def _lru_cache_put(cache_dict, max_size, key, value):
+    """Stores a key-value pair in an OrderedDict with strict LRU eviction."""
+    if key in cache_dict:
+        cache_dict.move_to_end(key)
+    else:
+        if len(cache_dict) >= max_size:
+            cache_dict.popitem(last=False)
+    cache_dict[key] = value
+
 def clear_multi_caches():
-    """Clears global grid and sorting cache for Shape Multi."""
+    """Clears global grid, rings, segmented border and pieces cache for Shape Multi."""
     _GLOBAL_MULTI_GRID_CACHE.clear()
+    _MULTI_CONCENTRIC_RINGS_CACHE.clear()
+    _MULTI_SEGMENTED_BORDER_CACHE.clear()
+    _MULTI_PIECES_FULL_CACHE.clear()
 
 
 def clear_all_shape_caches():
-    """Clears all shape-related geometry, bbox, redraw, and array caches."""
+    """Clears all shape-related geometry, bbox, redraw, array, and divide caches."""
     _SHAPE_BBOX_CACHE.clear()
     _PARSE_SEGMENTS_CACHE.clear()
     _WALKER_PARAM_CACHE.clear()
@@ -4501,6 +4543,10 @@ def clear_all_shape_caches():
     _SHAPE_REDRAW_CACHE.clear()
     _GLOBAL_SHAPE_ARRAY_CACHE.clear()
     _GLOBAL_MULTI_GRID_CACHE.clear()
+    _MULTI_CONCENTRIC_RINGS_CACHE.clear()
+    _MULTI_SEGMENTED_BORDER_CACHE.clear()
+    _MULTI_PIECES_FULL_CACHE.clear()
+    _SHAPE_DIVIDE_ISLANDS_CACHE.clear()
 
 
 def point_in_contour_vectorized(points_x, points_y, contour):
@@ -4553,6 +4599,7 @@ def shape_array_core(
     spacing_x=0.0,
     spacing_y=0.0,
     spacing=0.0,
+    explosion=0.0,
     rings=3,
     count_per_ring="",
     radius=50.0,
@@ -4626,27 +4673,63 @@ def shape_array_core(
     if context is None:
         context = {}
 
+    from node_engine import _eval_num_expr
+
+    def _eval_num_param(val, default_val=0.0):
+        if val is None or val == "":
+            return default_val
+        try:
+            return float(val)
+        except Exception:
+            try:
+                return float(_eval_num_expr(val, context, default_val))
+            except Exception:
+                return default_val
+
+    def _eval_int_param(val, default_val=1):
+        if val is None or val == "":
+            return default_val
+        try:
+            return int(float(val))
+        except Exception:
+            try:
+                return int(round(float(_eval_num_expr(val, context, default_val))))
+            except Exception:
+                return default_val
+
     mode_clean = str(mode or "grid").strip().lower()
-    target_w = float(width) if width not in ("", None) else 0.0
-    target_h = float(height) if height not in ("", None) else 0.0
-    sc_val = max(0.001, float(scale) if scale not in ("", None) else 1.0)
-    cols_val = int(float(cols)) if cols not in ("", None) else 5
-    rows_val = int(float(rows)) if rows not in ("", None) else 3
-    sp_x_val = float(spacing_x) if spacing_x not in ("", None) else 0.0
-    sp_y_val = float(spacing_y) if spacing_y not in ("", None) else 0.0
-    sp_val = float(spacing) if spacing not in ("", None) else 0.0
-    rings_val = int(float(rings)) if rings not in ("", None) else 3
-    c_per_ring_str = str(count_per_ring or "")
-    rad_val = float(radius) if radius not in ("", None) else 50.0
-    dr_val = float(radius_step) if radius_step not in ("", None) else 30.0
-    d_rot_val = float(rotate_step) if rotate_step not in ("", None) else 0.0
-    count_val = int(float(count)) if count not in ("", None) else 20
-    turns_val = float(turns) if turns not in ("", None) else 2.0
-    max_r_val = float(max_radius) if max_radius not in ("", None) else 100.0
-    a_step_val = float(angle_step) if angle_step not in ("", None) else 0.0
-    aw_val = float(area_width) if area_width not in ("", None) else 150.0
-    ah_val = float(area_height) if area_height not in ("", None) else 100.0
-    seed_val = int(float(seed)) if seed not in ("", None) else 1
+    target_w = _eval_num_param(width, 0.0)
+    target_h = _eval_num_param(height, 0.0)
+    sc_val = max(0.001, _eval_num_param(scale, 1.0))
+    cols_val = _eval_int_param(cols, 5)
+    rows_val = _eval_int_param(rows, 3)
+    sp_x_val = _eval_num_param(spacing_x, 0.0)
+    sp_y_val = _eval_num_param(spacing_y, 0.0)
+    exp_val = _eval_num_param(explosion if explosion not in (0.0, "0", "0.0", "", None) else spacing, 0.0)
+    sp_val = exp_val
+    rings_val = _eval_int_param(rings, 3)
+
+    c_per_ring_str = str(count_per_ring or "").strip()
+    if c_per_ring_str and "," in c_per_ring_str:
+        parsed_c_parts = []
+        for p in c_per_ring_str.split(","):
+            p_strip = p.strip()
+            if p_strip:
+                parsed_c_parts.append(str(_eval_int_param(p_strip, 1)))
+        c_per_ring_str = ",".join(parsed_c_parts)
+    elif c_per_ring_str:
+        c_per_ring_str = str(_eval_int_param(c_per_ring_str, 1))
+
+    rad_val = _eval_num_param(radius, 50.0)
+    dr_val = _eval_num_param(radius_step, 30.0)
+    d_rot_val = _eval_num_param(rotate_step, 0.0)
+    count_val = _eval_int_param(count, 20)
+    turns_val = _eval_num_param(turns, 2.0)
+    max_r_val = _eval_num_param(max_radius, 100.0)
+    a_step_val = _eval_num_param(angle_step, 0.0)
+    aw_val = _eval_num_param(area_width, 150.0)
+    ah_val = _eval_num_param(area_height, 100.0)
+    seed_val = _eval_int_param(seed, 1)
     order_str = str(order or "79")
 
     cache_key = (
@@ -4673,7 +4756,8 @@ def shape_array_core(
         aw_val,
         ah_val,
         seed_val,
-        order_str
+        order_str,
+        str(anchor or "pieces").strip().lower()
     )
 
     cached_pieces = _GLOBAL_SHAPE_ARRAY_CACHE.get(cache_key)
@@ -4781,14 +4865,21 @@ def shape_array_core(
             eff_sp_x = sp_x_val if sp_x_val != 0 else sp_val
             eff_sp_y = sp_y_val if sp_y_val != 0 else sp_val
 
+            anchor_clean = str(anchor or "pieces").strip().lower()
+            is_already_centered = (f_min_x < 0 < f_max_x and f_min_y < 0 < f_max_y)
+            if "rel" in anchor_clean or is_already_centered:
+                ref_cx, ref_cy = 0.0, 0.0
+            else:
+                ref_cx, ref_cy = fcx, fcy
+
             for idx_pt in valid_indices:
                 gx = float(pts_gx[idx_pt])
                 gy = float(pts_gy[idx_pt])
                 c_idx = int((idx_pt % grid_cols_cnt) + 1)
                 r_idx = int((idx_pt // grid_cols_cnt) + 1)
 
-                rel_x = gx - fcx
-                rel_y = gy - fcy
+                rel_x = gx - ref_cx
+                rel_y = gy - ref_cy
 
                 final_x = rel_x + (c_idx - c_center) * eff_sp_x
                 final_y = rel_y + (r_idx - r_center) * eff_sp_y
@@ -4807,25 +4898,21 @@ def shape_array_core(
             raw_items.append({"x": 0.0, "y": 0.0, "col": 1, "row": 1, "angle": 0.0, "ring": 1, "idx_ring": 1})
 
     elif "ring" in mode_clean or "anillo" in mode_clean or "radial" in mode_clean:
-        n_rings = max(1, int(float(rings)) if rings not in ("", None) else 3)
-        base_r = float(radius) if radius not in ("", None) else 50.0
-        dr = float(radius_step) if radius_step not in ("", None) else 30.0
-        d_rot = float(rotate_step) if rotate_step not in ("", None) else 0.0
+        n_rings = max(1, rings_val)
+        base_r = rad_val
+        dr = dr_val
+        d_rot = d_rot_val
         eff_diam = max(1.0, max(max_eff_w, max_eff_h))
 
         counts_list = []
-        if count_per_ring not in ("", None):
-            if isinstance(count_per_ring, (list, tuple)):
-                counts_list = [max(1, int(float(v))) for v in count_per_ring if str(v).strip()]
+        if c_per_ring_str:
+            if "," in c_per_ring_str:
+                counts_list = [max(1, int(float(v.strip()))) for v in c_per_ring_str.split(",") if v.strip()]
             else:
-                s_c = str(count_per_ring).strip()
-                if "," in s_c:
-                    counts_list = [max(1, int(float(v.strip()))) for v in s_c.split(",") if v.strip()]
-                else:
-                    try:
-                        counts_list = [max(1, int(float(s_c)))]
-                    except Exception:
-                        counts_list = []
+                try:
+                    counts_list = [max(1, int(float(c_per_ring_str)))]
+                except Exception:
+                    counts_list = []
 
         eff_step = max(1.0, eff_diam + sp_val)
         for k in range(n_rings):
@@ -4855,10 +4942,10 @@ def shape_array_core(
                 })
 
     elif "spiral" in mode_clean or "espiral" in mode_clean:
-        n_pts = max(1, int(float(count)) if count not in ("", None) else 20)
-        n_turns = float(turns) if turns not in ("", None) else 2.0
-        max_r = float(max_radius) if max_radius not in ("", None) else 100.0
-        a_step = float(angle_step) if angle_step not in ("", None) else 0.0
+        n_pts = max(1, count_val)
+        n_turns = turns_val
+        max_r = max_r_val
+        a_step = a_step_val
 
         for i in range(n_pts):
             t = (i / max(1, n_pts - 1)) if n_pts > 1 else 0.0
@@ -4878,10 +4965,10 @@ def shape_array_core(
             })
 
     elif "scatter" in mode_clean or "dispers" in mode_clean or "rand" in mode_clean:
-        n_pts = max(1, int(float(count)) if count not in ("", None) else 20)
-        aw = max(1.0, float(area_width) if area_width not in ("", None) else 150.0)
-        ah = max(1.0, float(area_height) if area_height not in ("", None) else 100.0)
-        s_seed = int(float(seed)) if seed not in ("", None) else 1
+        n_pts = max(1, count_val)
+        aw = max(1.0, aw_val)
+        ah = max(1.0, ah_val)
+        s_seed = seed_val
         rng = np.random.RandomState(abs(s_seed) % 1000000)
 
         xs = rng.uniform(-aw / 2.0, aw / 2.0, size=n_pts)
@@ -4898,9 +4985,8 @@ def shape_array_core(
             })
 
     elif "hex" in mode_clean or "panal" in mode_clean:
-        n_cols = max(1, int(float(cols)) if cols not in ("", None) else 5)
-        n_rows = max(1, int(float(rows)) if rows not in ("", None) else 3)
-        sp_val = float(spacing) if spacing not in ("", None) else 0.0
+        n_cols = max(1, cols_val)
+        n_rows = max(1, rows_val)
         pitch_x = max_eff_w + sp_val
         pitch_y = pitch_x * math.sqrt(3.0) / 2.0
 
@@ -4923,15 +5009,16 @@ def shape_array_core(
                 })
 
     else:
-        n_cols = max(1, int(float(cols)) if cols not in ("", None) else 5)
-        n_rows = max(1, int(float(rows)) if rows not in ("", None) else 3)
-        sp_x = float(spacing_x) if spacing_x not in ("", None) else (float(spacing) if spacing not in ("", None) else 0.0)
-        sp_y = float(spacing_y) if spacing_y not in ("", None) else (float(spacing) if spacing not in ("", None) else 0.0)
+        n_cols = max(1, cols_val)
+        n_rows = max(1, rows_val)
+        sp_x = sp_x_val
+        sp_y = sp_y_val
 
         pitch_x = max_eff_w + sp_x
         pitch_y = max_eff_h + sp_y
 
         total_w = (n_cols - 1) * pitch_x
+        total_h = (n_rows - 1) * pitch_y
         total_h = (n_rows - 1) * pitch_y
 
         for r in range(n_rows):
@@ -4962,7 +5049,7 @@ def shape_array_core(
         rel_code = shape_manipulator(context, drawing=p_base, offset_x=cx, offset_y=cy, mode="center")
         combined_parts.append(rel_code)
         pieces.append({
-            "code": p_base,
+            "code": rel_code,
             "rel_code": rel_code,
             "cx": cx,
             "cy": cy,
@@ -4976,7 +5063,7 @@ def shape_array_core(
 
     unified_relative_shape = " ".join(combined_parts)
     cache_val = (pieces, unified_relative_shape)
-    _GLOBAL_SHAPE_ARRAY_CACHE[cache_key] = cache_val
+    _lru_cache_put(_GLOBAL_SHAPE_ARRAY_CACHE, _GLOBAL_SHAPE_ARRAY_MAX_CACHE, cache_key, cache_val)
     return cache_val
 
 
@@ -4997,6 +5084,7 @@ def shape_array_node(
     spacing_x=0.0,
     spacing_y=0.0,
     spacing=0.0,
+    explosion=0.0,
     rings=3,
     count_per_ring="",
     radius=50.0,
@@ -5091,6 +5179,7 @@ def shape_array_node(
         spacing_x=spacing_x,
         spacing_y=spacing_y,
         spacing=spacing,
+        explosion=explosion,
         rings=rings,
         count_per_ring=count_per_ring,
         radius=radius,
@@ -5135,8 +5224,9 @@ def shape_array_node(
 
         active_pieces = pieces[:visible_count]
         piece_drawings = []
+        eff_anchor = "relative" if anchor_mode in ("pieces", "relative") else anchor_mode
         for p in active_pieces:
-            anc_res = resolve_piece_anchor(p["code"], piece_cx=p["cx"], piece_cy=p["cy"], parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
+            anc_res = resolve_piece_anchor(p["rel_code"], piece_cx=p["cx"], piece_cy=p["cy"], parent_x=parent_x, parent_y=parent_y, anchor=eff_anchor, context=context)
             piece_drawings.append(anc_res["formatted_code"])
 
         tags_val = tags if tags else (kwargs.get("tag") or "")
@@ -5169,7 +5259,7 @@ def shape_array_node(
     col_val = piece["col"]
     row_val = piece["row"]
 
-    anc_res = resolve_piece_anchor(piece["code"], piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
+    anc_res = resolve_piece_anchor(piece["rel_code"], piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
     piece_code = anc_res["formatted_code"]
     px = round(anc_res["pos_x"], 2)
     py = round(anc_res["pos_y"], 2)
@@ -5759,17 +5849,73 @@ def _invert_shape_contour(raw_shp):
     return " ".join(out_tokens) + " "
 
 
+def _reorder_multi_pieces(pieces, order="normal", context=None):
+    """
+    Reorders a collection of procedural shape pieces according to 1D/2D canonical schemes.
+
+    Supported ordering schemes:
+        - 'normal' / '0' / 'natural' / '79' / 'cw' / 'path': Original generator order.
+        - 'invert' / 'inv' / 'reverse' / '31' / 'ccw' / '-1' / 'path_inv': Reversed order.
+        - 'odd_even' / 'even_odd': Alternating parity (even indices then odd indices).
+        - '5' / 'center': Center outwards based on index distance from list midpoint.
+        - '-5' / 'edges': Edges inwards towards list midpoint.
+        - 'rand' / 'random': Stochastic random shuffle.
+
+    Parameters:
+        pieces (list): List of piece drawing strings or descriptors.
+        order (str): Traversal order name or code.
+        context (dict or None): Execution evaluation context.
+
+    Returns:
+        list: Reordered list of pieces.
+    """
+    if not pieces or len(pieces) <= 1:
+        return list(pieces)
+
+    order_str = str(order or "normal").strip().lower()
+    if "(" in order_str:
+        order_str = order_str.split("(")[0].strip()
+
+    if order_str in ("normal", "raw", "none", "0", "79", "cw", "natural", "path", "contour"):
+        return list(pieces)
+
+    if order_str in ("invert", "inv", "reverse", "31", "ccw", "-1", "path_inv", "contour_inv"):
+        return list(reversed(pieces))
+
+    if order_str in ("odd_even", "even_odd", "oddeven", "evenodd"):
+        return list(pieces[0::2]) + list(pieces[1::2])
+
+    n = len(pieces)
+    mid = (n - 1) / 2.0
+
+    if order_str in ("5", "center", "centro", "center to edges"):
+        indices = sorted(range(n), key=lambda i: (abs(i - mid), i))
+        return [pieces[i] for i in indices]
+
+    if order_str in ("-5", "5_inv", "edges", "extremos", "edges to center"):
+        indices = sorted(range(n), key=lambda i: (-abs(i - mid), i))
+        return [pieces[i] for i in indices]
+
+    if "rand" in order_str or "random" in order_str or "aleator" in order_str:
+        import random
+        copy_pieces = list(pieces)
+        random.shuffle(copy_pieces)
+        return copy_pieces
+
+    return list(pieces)
+
+
 def _finish_multi_pieces(pieces, anchor="center", tags="", context=None, return_list=False, canonical_center=None, t=1.0):
     """
     Anchors, aligns, and finalises a collection of procedural shape pieces.
 
-    Translates coordinates based on the selected anchor ('origin', 'absolute', 'center'),
+    Translates coordinates based on the selected anchor ('center', 'origin', 'relative', 'absolute', 'pieces'),
     optionally merges ASS style override tags across pieces via ClipperEngine, and formats
     output as either a list of individual piece strings or a concatenated drawing string.
 
     Parameters:
         pieces (list of str): List of ASSdraw piece drawings.
-        anchor (str): Spatial anchor alignment mode ('center', 'origin', 'absolute').
+        anchor (str): Spatial anchor alignment mode ('center', 'origin', 'relative', 'absolute', 'pieces').
         tags (str): ASS style tags to embed or interpolate across pieces.
         context (dict or None): Execution evaluation context.
         return_list (bool): If True, returns a Python list of pieces; otherwise concatenates.
@@ -5819,12 +5965,15 @@ def _finish_multi_pieces(pieces, anchor="center", tags="", context=None, return_
             pos_y = float(context.get('fx_pos_y', context.get('y', context.get('pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(line_obj, 'y', getattr(line_obj, 'middle', 0.0))))))))
         except Exception: pos_y = 0.0
 
-    if anchor_str == "origin":
+    if anchor_str in ("origin", "topleft"):
         ref_x, ref_y = min_x, min_y
         base_x, base_y = 0.0, 0.0
-    elif anchor_str == "absolute":
+    elif anchor_str in ("absolute", "abs"):
         ref_x, ref_y = 0.0, 0.0
         base_x, base_y = pos_x, pos_y
+    elif "rel" in anchor_str or anchor_str in ("pieces", "piece", "parent_org", "pos"):
+        ref_x, ref_y = 0.0, 0.0
+        base_x, base_y = 0.0, 0.0
     else:  # "center" fallback
         if canonical_center is not None:
             ref_x, ref_y = canonical_center
@@ -5832,31 +5981,34 @@ def _finish_multi_pieces(pieces, anchor="center", tags="", context=None, return_
             ref_x, ref_y = cx, cy
         base_x, base_y = 0.0, 0.0
 
-    anchored_pieces = []
-    for toks in piece_tokens_list:
-        out_tokens = []
-        i = 0
-        while i < len(toks):
-            token = toks[i]
-            try:
-                x_val = float(token)
-                if i + 1 < len(toks):
-                    try:
-                        y_val = float(toks[i + 1])
-                        rel_x = (x_val - ref_x) + base_x
-                        rel_y = (y_val - ref_y) + base_y
-                        out_tokens.append(f"{rel_x:.2f}".rstrip('0').rstrip('.'))
-                        out_tokens.append(f"{rel_y:.2f}".rstrip('0').rstrip('.'))
-                        i += 2
-                        continue
-                    except ValueError:
-                        pass
-                out_tokens.append(token)
-                i += 1
-            except ValueError:
-                out_tokens.append(token)
-                i += 1
-        anchored_pieces.append(" ".join(out_tokens))
+    if abs(ref_x) < 1e-6 and abs(ref_y) < 1e-6 and abs(base_x) < 1e-6 and abs(base_y) < 1e-6:
+        anchored_pieces = valid_pieces
+    else:
+        anchored_pieces = []
+        for toks in piece_tokens_list:
+            out_tokens = []
+            i = 0
+            while i < len(toks):
+                token = toks[i]
+                try:
+                    x_val = float(token)
+                    if i + 1 < len(toks):
+                        try:
+                            y_val = float(toks[i + 1])
+                            rel_x = (x_val - ref_x) + base_x
+                            rel_y = (y_val - ref_y) + base_y
+                            out_tokens.append(_format_num(rel_x))
+                            out_tokens.append(_format_num(rel_y))
+                            i += 2
+                            continue
+                        except ValueError:
+                            pass
+                    out_tokens.append(token)
+                    i += 1
+                except ValueError:
+                    out_tokens.append(token)
+                    i += 1
+            anchored_pieces.append(" ".join(out_tokens))
 
     if return_list:
         return anchored_pieces
@@ -5867,109 +6019,141 @@ def _finish_multi_pieces(pieces, anchor="center", tags="", context=None, return_
     return " ".join(anchored_pieces)
 
 
-def _gen_multi1_concentric_squares(size=100.0, px_pattern="4", separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
-    """multi1: Concentric square frames with alternating thicknesses, gaps, and spacing."""
+def _gen_multi1_concentric_squares(size=100.0, px_pattern="4", separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False, order="normal"):
+    """multi1: Concentric square frames with alternating thicknesses, gaps, spacing, and appearance ordering."""
     s_val = float(size) if size is not None else 100.0
     sep_val = float(separation) if separation is not None else 0.0
     t_clamped = max(0.0, min(1.0, float(t)))
-    target_size = max(1.0, s_val * t_clamped)
+    if t_clamped < 0.0001:
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
 
-    pattern = _parse_multi_pattern(px_pattern, 4.0)
-    px1, is_gap1 = pattern[0]
-    px1 = max(0.1, px1)
-    shpw = px1
+    target_size = max(1.0, s_val)
+    squares_key = ("multi1_squares", round(target_size, 2), str(px_pattern), round(sep_val, 2), str(order))
+    cached = _MULTI_PIECES_FULL_CACHE.get(squares_key)
+    if cached is not None:
+        _MULTI_PIECES_FULL_CACHE.move_to_end(squares_key)
+        full_pieces, can_cx, can_cy = cached
+    else:
+        pattern = _parse_multi_pattern(px_pattern, 4.0)
+        px1, is_gap1 = pattern[0]
+        px1 = max(0.1, px1)
+        shpw = px1
 
-    shp_parts = [f"m 0 0 l 0 {_format_num(px1)} l {_format_num(px1)} {_format_num(px1)} l {_format_num(px1)} 0 l 0 0 "]
-    i = 1
-    while 2 * shpw < target_size and i < 1000:
-        pxi_val, is_gap = pattern[i % len(pattern)]
-        shpw += pxi_val + sep_val
-        if not is_gap and pxi_val > 0:
-            p_a = -shpw + px1
-            p_b = shpw
-            p_c = -shpw + px1 + pxi_val
-            p_d = shpw - pxi_val
-            shp_parts.append(
-                f"m {_format_num(p_a)} {_format_num(p_a)} "
-                f"l {_format_num(p_a)} {_format_num(p_b)} "
-                f"l {_format_num(p_b)} {_format_num(p_b)} "
-                f"l {_format_num(p_b)} {_format_num(p_a)} "
-                f"l {_format_num(p_a)} {_format_num(p_a)} "
-                f"l {_format_num(p_c)} {_format_num(p_c)} "
-                f"l {_format_num(p_d)} {_format_num(p_c)} "
-                f"l {_format_num(p_d)} {_format_num(p_d)} "
-                f"l {_format_num(p_c)} {_format_num(p_d)} "
-                f"l {_format_num(p_c)} {_format_num(p_c)} "
-            )
-        i += 1
+        shp_parts = []
+        if not is_gap1 and px1 > 0:
+            shp_parts.append(f"m 0 0 l 0 {_format_num(px1)} l {_format_num(px1)} {_format_num(px1)} l {_format_num(px1)} 0 l 0 0 ")
 
-    return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(px1 / 2.0, px1 / 2.0), t=t_clamped)
+        i = 1
+        while 2 * shpw < target_size and i < 1000:
+            pxi_val, is_gap = pattern[i % len(pattern)]
+            shpw += pxi_val + sep_val
+            if not is_gap and pxi_val > 0:
+                p_a = -shpw + px1
+                p_b = shpw
+                p_c = -shpw + px1 + pxi_val
+                p_d = shpw - pxi_val
+                shp_parts.append(
+                    f"m {_format_num(p_a)} {_format_num(p_a)} "
+                    f"l {_format_num(p_a)} {_format_num(p_b)} "
+                    f"l {_format_num(p_b)} {_format_num(p_b)} "
+                    f"l {_format_num(p_b)} {_format_num(p_a)} "
+                    f"l {_format_num(p_a)} {_format_num(p_a)} "
+                    f"l {_format_num(p_c)} {_format_num(p_c)} "
+                    f"l {_format_num(p_d)} {_format_num(p_c)} "
+                    f"l {_format_num(p_d)} {_format_num(p_d)} "
+                    f"l {_format_num(p_c)} {_format_num(p_d)} "
+                    f"l {_format_num(p_c)} {_format_num(p_c)} "
+                )
+            i += 1
+
+        full_pieces = _reorder_multi_pieces(shp_parts, order=order, context=context)
+        can_cx, can_cy = px1 / 2.0, px1 / 2.0
+        _lru_cache_put(_MULTI_PIECES_FULL_CACHE, _MULTI_PIECES_FULL_MAX_CACHE, squares_key, (full_pieces, can_cx, can_cy))
+
+    tot = len(full_pieces)
+    vis_count = max(1, int(round(tot * t_clamped))) if t_clamped > 0.001 else 0
+    shp_parts = full_pieces[:vis_count]
+
+    return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(can_cx, can_cy), t=t_clamped)
 
 
-def _gen_multi2_diagonal_stripes(width=70.0, height=50.0, px_pattern="6", separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
-    """multi2: 45° diagonal stripes inside rectangle with spacing or overlap."""
+def _gen_multi2_diagonal_stripes(width=70.0, height=50.0, px_pattern="6", separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False, order="79"):
+    """multi2: 45° diagonal stripes inside rectangle with spacing or overlap and appearance ordering."""
     w_val = max(1.0, float(width) if width is not None else 70.0)
     h_val = max(1.0, float(height) if height is not None else 50.0)
     sep_val = float(separation) if separation is not None else 0.0
-    pattern = _parse_multi_pattern(px_pattern, 6.0)
     t_clamped = max(0.0, min(1.0, float(t)))
-    total_diag = w_val + h_val
-    max_c = total_diag * t_clamped
 
     if t_clamped < 0.0001:
         return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_val / 2.0, h_val / 2.0), t=t_clamped)
 
-    from clipper_engine import ClipperEngine
+    stripes_key = ("multi2_stripes", round(w_val, 2), round(h_val, 2), str(px_pattern), round(sep_val, 2), str(order))
+    cached = _MULTI_PIECES_FULL_CACHE.get(stripes_key)
+    if cached is not None:
+        _MULTI_PIECES_FULL_CACHE.move_to_end(stripes_key)
+        discrete_stripes = cached
+    else:
+        from clipper_engine import ClipperEngine
 
-    period = sum([p[0] + sep_val for p in pattern])
-    if period <= 0.001:
-        period = 10.0
-    c_mid = total_diag / 2.0
-    first_px = pattern[0][0]
+        pattern = _parse_multi_pattern(px_pattern, 6.0)
+        total_diag = w_val + h_val
+        period = sum([p[0] + sep_val for p in pattern])
+        if period <= 0.001:
+            period = 10.0
+        c_mid = total_diag / 2.0
+        first_px = pattern[0][0]
 
-    num_periods = int((c_mid - first_px / 2.0) / period) + 3
-    c_start_base = (c_mid - first_px / 2.0) - num_periods * period
+        num_periods = int((c_mid - first_px / 2.0) / period) + 3
+        c_start_base = (c_mid - first_px / 2.0) - num_periods * period
 
-    c = c_start_base
-    i = 0
-    bands = []
-    extra_h = h_val + 50.0
+        c = c_start_base
+        i = 0
+        bands = []
+        extra_h = h_val + 50.0
 
-    while c < total_diag + period and i < 4000:
-        pxi, is_gap = pattern[i % len(pattern)]
-        if pxi <= 0 or is_gap:
+        while c < total_diag + period and i < 4000:
+            pxi, is_gap = pattern[i % len(pattern)]
+            if pxi <= 0 or is_gap:
+                c += pxi + sep_val
+                i += 1
+                continue
+            c_band_start = c
+            c_band_end = c + pxi
+            p1 = (c_band_start, 0.0)
+            p2 = (c_band_end, 0.0)
+            p3 = (c_band_end - extra_h, extra_h)
+            p4 = (c_band_start - extra_h, extra_h)
+            band_ass = (
+                f"m {_format_num(p1[0])} {_format_num(p1[1])} "
+                f"l {_format_num(p2[0])} {_format_num(p2[1])} "
+                f"l {_format_num(p3[0])} {_format_num(p3[1])} "
+                f"l {_format_num(p4[0])} {_format_num(p4[1])} "
+            )
+            bands.append(band_ass)
             c += pxi + sep_val
             i += 1
-            continue
-        c_band_start = c
-        c_band_end = c + pxi
-        if c_band_start < max_c:
-            c_end_clipped = min(c_band_end, max_c)
-            if c_end_clipped > c_band_start:
-                p1 = (c_band_start, 0.0)
-                p2 = (c_end_clipped, 0.0)
-                p3 = (c_end_clipped - extra_h, extra_h)
-                p4 = (c_band_start - extra_h, extra_h)
-                band_ass = (
-                    f"m {_format_num(p1[0])} {_format_num(p1[1])} "
-                    f"l {_format_num(p2[0])} {_format_num(p2[1])} "
-                    f"l {_format_num(p3[0])} {_format_num(p3[1])} "
-                    f"l {_format_num(p4[0])} {_format_num(p4[1])} "
-                )
-                bands.append(band_ass)
-        c += pxi + sep_val
-        i += 1
 
-    if not bands:
+        if not bands:
+            discrete_stripes = []
+        else:
+            clip_box = f"m 0 0 l {_format_num(w_val)} 0 l {_format_num(w_val)} {_format_num(h_val)} l 0 {_format_num(h_val)} "
+            discrete_stripes = [ClipperEngine.boolean_intersection(b, clip_box) for b in bands]
+            discrete_stripes = [s for s in discrete_stripes if s and s.strip()]
+            discrete_stripes = _reorder_multi_pieces(discrete_stripes, order=order, context=context)
+
+        _lru_cache_put(_MULTI_PIECES_FULL_CACHE, _MULTI_PIECES_FULL_MAX_CACHE, stripes_key, discrete_stripes)
+
+    if not discrete_stripes:
         return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_val / 2.0, h_val / 2.0), t=t_clamped)
 
-    clip_box = f"m 0 0 l {_format_num(w_val)} 0 l {_format_num(w_val)} {_format_num(h_val)} l 0 {_format_num(h_val)} "
-    discrete_stripes = [ClipperEngine.boolean_intersection(b, clip_box) for b in bands]
-    discrete_stripes = [s for s in discrete_stripes if s and s.strip()]
-    return _finish_multi_pieces(discrete_stripes, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_val / 2.0, h_val / 2.0), t=t_clamped)
+    tot = len(discrete_stripes)
+    vis_count = max(1, int(round(tot * t_clamped))) if t_clamped > 0.001 else 0
+    shp_parts = discrete_stripes[:vis_count]
+
+    return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_val / 2.0, h_val / 2.0), t=t_clamped)
 
 
-def _gen_multi3_concentric_rings(base_shape=None, size=100.0, bord_pattern="4", separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
+def _gen_multi3_concentric_rings(base_shape=None, size=100.0, bord_pattern="4", separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False, order="normal"):
     """multi3: Concentric rings with smooth Bezier preset scaling for geometric presets, and Clipper-offset contour rings for text and complex drawings."""
     is_preset_shape = False
     if not base_shape or not str(base_shape).strip():
@@ -5988,7 +6172,10 @@ def _gen_multi3_concentric_rings(base_shape=None, size=100.0, bord_pattern="4", 
     size_val = float(size) if size is not None else 100.0
     sep_val = max(0.0, float(separation)) if separation is not None else 0.0
     t_clamped = max(0.0, min(1.0, float(t)))
-    target_size = max(1.0, size_val * t_clamped)
+    if t_clamped < 0.0001:
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
+
+    target_size = max(1.0, size_val)
 
     pattern = _parse_multi_pattern(bord_pattern, 4.0)
     bi_val, is_gap1 = pattern[0]
@@ -6004,64 +6191,91 @@ def _gen_multi3_concentric_rings(base_shape=None, size=100.0, bord_pattern="4", 
     manip_mode = anchor if ("rel" in str(anchor).lower() or "pieza" in str(anchor).lower()) else "center"
 
     if is_preset_shape:
-        def _scale_to(shp_code, dim):
-            sc = dim / max_dim
-            return shape_manipulator(context, drawing=shp_code, scale_x=sc, scale_y=sc, mode=manip_mode)
+        preset_key = ("preset_rings", base_shape, round(target_size, 2), str(bord_pattern), round(sep_val, 2), str(order), str(manip_mode))
+        cached = _MULTI_CONCENTRIC_RINGS_CACHE.get(preset_key)
+        if cached is not None:
+            _MULTI_CONCENTRIC_RINGS_CACHE.move_to_end(preset_key)
+            full_pieces = cached
+        else:
+            def _scale_to(shp_code, dim):
+                sc = dim / max_dim
+                return shape_manipulator(context, drawing=shp_code, scale_x=sc, scale_y=sc, mode=manip_mode)
 
-        smax = bi_val
-        shp_parts = []
-        if not is_gap1 and bi_val > 0:
-            shp_parts.append(_scale_to(base_shape, bi_val))
+            smax = bi_val
+            shp_parts = []
+            if not is_gap1 and bi_val > 0:
+                shp_parts.append(_scale_to(base_shape, bi_val))
 
-        i = 1
-        while smax <= target_size and i < 1000:
-            bi, is_gap = pattern[i % len(pattern)]
-            smax += 2 * bi + sep_val
-            if not is_gap and bi > 0:
-                shp1 = _scale_to(base_shape, smax)
-                inner_dim = max(0.1, smax - 2 * bi)
-                shp2 = _scale_to(base_shape, inner_dim)
-                scon = shp1.strip() + " " + _invert_shape_contour(shp2).strip() + " "
-                shp_parts.append(scon)
-            i += 1
+            i = 1
+            while smax <= target_size and i < 1000:
+                bi, is_gap = pattern[i % len(pattern)]
+                smax += 2 * bi + sep_val
+                if not is_gap and bi > 0:
+                    shp1 = _scale_to(base_shape, smax)
+                    inner_dim = max(0.1, smax - 2 * bi)
+                    shp2 = _scale_to(base_shape, inner_dim)
+                    scon = shp1.strip() + " " + _invert_shape_contour(shp2).strip() + " "
+                    shp_parts.append(scon)
+                i += 1
+
+            full_pieces = _reorder_multi_pieces(shp_parts, order=order, context=context)
+            _lru_cache_put(_MULTI_CONCENTRIC_RINGS_CACHE, _MULTI_CONCENTRIC_RINGS_MAX_CACHE, preset_key, full_pieces)
+
+        tot = len(full_pieces)
+        vis_count = max(1, int(round(tot * t_clamped))) if t_clamped > 0.001 else 0
+        shp_parts = full_pieces[:vis_count]
+
         return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
 
-    from clipper_engine import ClipperEngine
+    rings_key = ("clipper_rings", base_shape, round(target_size, 2), str(bord_pattern), round(sep_val, 2), str(order))
+    cached = _MULTI_CONCENTRIC_RINGS_CACHE.get(rings_key)
+    if cached is not None:
+        _MULTI_CONCENTRIC_RINGS_CACHE.move_to_end(rings_key)
+        full_pieces = cached
+    else:
+        from clipper_engine import ClipperEngine
 
-    shp_parts = []
-    if not is_gap1 and bi_val > 0:
-        shp_parts.append(base_shape)
+        shp_parts = []
+        if not is_gap1 and bi_val > 0:
+            shp_parts.append(base_shape)
 
-    max_expansion = target_size / 2.0
-    cumulative_dist = 0.0
-    i = 1
-    offset_cache = {0.0: base_shape}
-    while cumulative_dist < max_expansion and i < 50:
-        bi, is_gap = pattern[i % len(pattern)]
-        if not is_gap and bi > 0:
-            inner_dist = cumulative_dist + sep_val
-            outer_dist = inner_dist + bi
-            if outer_dist > max_expansion and i > 1:
-                outer_dist = max_expansion
-            if outer_dist > inner_dist:
-                if inner_dist not in offset_cache:
-                    offset_cache[inner_dist] = ClipperEngine.offset_shape(base_shape, inner_dist) if inner_dist > 0.01 else base_shape
-                inner_shp = offset_cache[inner_dist]
+        max_expansion = target_size / 2.0
+        cumulative_dist = 0.0
+        i = 1
+        offset_cache = {0.0: base_shape}
+        while cumulative_dist < max_expansion and i < 50:
+            bi, is_gap = pattern[i % len(pattern)]
+            if not is_gap and bi > 0:
+                inner_dist = cumulative_dist + sep_val
+                outer_dist = inner_dist + bi
+                if outer_dist > max_expansion and i > 1:
+                    outer_dist = max_expansion
+                if outer_dist > inner_dist:
+                    if inner_dist not in offset_cache:
+                        offset_cache[inner_dist] = ClipperEngine.offset_shape(base_shape, inner_dist) if inner_dist > 0.01 else base_shape
+                    inner_shp = offset_cache[inner_dist]
 
-                if outer_dist not in offset_cache:
-                    offset_cache[outer_dist] = ClipperEngine.offset_shape(base_shape, outer_dist)
-                outer_shp = offset_cache[outer_dist]
+                    if outer_dist not in offset_cache:
+                        offset_cache[outer_dist] = ClipperEngine.offset_shape(base_shape, outer_dist)
+                    outer_shp = offset_cache[outer_dist]
 
-                diff_shp = ClipperEngine.boolean_difference(outer_shp, inner_shp)
-                if diff_shp and diff_shp.strip():
-                    shp_parts.append(diff_shp)
-            cumulative_dist = outer_dist
-        else:
-            cumulative_dist += bi + sep_val
-        i += 1
+                    diff_shp = ClipperEngine.boolean_difference(outer_shp, inner_shp)
+                    if diff_shp and diff_shp.strip():
+                        shp_parts.append(diff_shp)
+                cumulative_dist = outer_dist
+            else:
+                cumulative_dist += bi + sep_val
+            i += 1
 
-    if not shp_parts:
-        shp_parts = [base_shape]
+        if not shp_parts:
+            shp_parts = [base_shape]
+
+        full_pieces = _reorder_multi_pieces(shp_parts, order=order, context=context)
+        _lru_cache_put(_MULTI_CONCENTRIC_RINGS_CACHE, _MULTI_CONCENTRIC_RINGS_MAX_CACHE, rings_key, full_pieces)
+
+    tot = len(full_pieces)
+    vis_count = max(1, int(round(tot * t_clamped))) if t_clamped > 0.001 else 0
+    shp_parts = full_pieces[:vis_count]
 
     return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(cx, cy), t=t_clamped)
 
@@ -6134,7 +6348,9 @@ def _gen_multi4_polygonal_mosaic(size=64.0, sides=6, rings=1, n_layers=25, separ
     if is_custom_order:
         grid_key = ("multi4_custom", round(s_val, 2), loop1, loop2, n_val, round(sep_val, 2), order_str)
         full_tiles = _GLOBAL_MULTI_GRID_CACHE.get(grid_key)
-        if full_tiles is None:
+        if full_tiles is not None:
+            _GLOBAL_MULTI_GRID_CACHE.move_to_end(grid_key)
+        else:
             all_entries = []
             for r_idx, (sz40, px40) in enumerate(ring_specs):
                 s40 = 2 * math.ceil(sz40 / 2.0)
@@ -6187,16 +6403,16 @@ def _gen_multi4_polygonal_mosaic(size=64.0, sides=6, rings=1, n_layers=25, separ
             from clipper_engine import ClipperEngine
             sorted_entries = ClipperEngine.sort_islands_by_order(all_entries, order=order)
             full_tiles = [e['figure'] for e in sorted_entries]
-            if len(_GLOBAL_MULTI_GRID_CACHE) > 512:
-                _GLOBAL_MULTI_GRID_CACHE.clear()
-            _GLOBAL_MULTI_GRID_CACHE[grid_key] = full_tiles
+            _lru_cache_put(_GLOBAL_MULTI_GRID_CACHE, _GLOBAL_MULTI_GRID_MAX_CACHE, grid_key, full_tiles)
 
         individual_tiles = full_tiles[:visible_sectors]
         parts_to_finish = individual_tiles
     else:
         grid_key = ("multi4_normal", round(s_val, 2), loop1, loop2, n_val, round(sep_val, 2))
         full_ring_data = _GLOBAL_MULTI_GRID_CACHE.get(grid_key)
-        if full_ring_data is None:
+        if full_ring_data is not None:
+            _GLOBAL_MULTI_GRID_CACHE.move_to_end(grid_key)
+        else:
             full_rings = []
             for sz40, px40 in ring_specs:
                 s40 = 2 * math.ceil(sz40 / 2.0)
@@ -6234,9 +6450,7 @@ def _gen_multi4_polygonal_mosaic(size=64.0, sides=6, rings=1, n_layers=25, separ
                         piece_str = shape_manipulator(context, drawing=piece_str, rot=rot_ang, mode="origin")
                     r_pieces.append(piece_str)
                 full_rings.append(r_pieces)
-            if len(_GLOBAL_MULTI_GRID_CACHE) > 512:
-                _GLOBAL_MULTI_GRID_CACHE.clear()
-            _GLOBAL_MULTI_GRID_CACHE[grid_key] = full_rings
+            _lru_cache_put(_GLOBAL_MULTI_GRID_CACHE, _GLOBAL_MULTI_GRID_MAX_CACHE, grid_key, full_rings)
             full_ring_data = full_rings
 
         ring_drawings = []
@@ -6300,7 +6514,9 @@ def _gen_multi5_multi_shape_mosaic(shapes=None, width=60.0, height=50.0, dx=0.0,
 
     grid_key = ("multi5", tuple(shapes), round(w_target, 2), round(h_target, 2), round(dx_val, 2), round(dy_val, 2), order_str, anchor_str)
     sorted_shapes = _GLOBAL_MULTI_GRID_CACHE.get(grid_key)
-    if sorted_shapes is None:
+    if sorted_shapes is not None:
+        _GLOBAL_MULTI_GRID_CACHE.move_to_end(grid_key)
+    else:
         n = len(shapes)
         bboxes = [_get_drawing_bbox(s) for s in shapes]
         widths = [max(1.0, b[1] - b[0]) for b in bboxes]
@@ -6342,9 +6558,7 @@ def _gen_multi5_multi_shape_mosaic(shapes=None, width=60.0, height=50.0, dx=0.0,
         from clipper_engine import ClipperEngine
         sorted_entries = ClipperEngine.sort_islands_by_order(placed_entries, order=order_str)
         sorted_shapes = [e['figure'] for e in sorted_entries]
-        if len(_GLOBAL_MULTI_GRID_CACHE) > 512:
-            _GLOBAL_MULTI_GRID_CACHE.clear()
-        _GLOBAL_MULTI_GRID_CACHE[grid_key] = sorted_shapes
+        _lru_cache_put(_GLOBAL_MULTI_GRID_CACHE, _GLOBAL_MULTI_GRID_MAX_CACHE, grid_key, sorted_shapes)
 
     total_shapes = len(sorted_shapes)
     visible_shapes = max(1, int(round(total_shapes * t_clamped))) if t_clamped > 0.001 else 0
@@ -6353,8 +6567,8 @@ def _gen_multi5_multi_shape_mosaic(shapes=None, width=60.0, height=50.0, dx=0.0,
     return _finish_multi_pieces(placed_shapes, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(w_target / 2.0, h_target / 2.0), t=t_clamped)
 
 
-def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bord=4.0, space=0.0, length=20.0, separation=None, t=1.0, anchor="center", context=None, tags="", return_list=False):
-    """multi6: Closed analytical rectangular segmented border or tracer along perimeter of any base shape."""
+def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bord=4.0, space=0.0, length=20.0, separation=None, t=1.0, anchor="center", context=None, tags="", return_list=False, order="normal"):
+    """multi6: Closed analytical rectangular segmented border or tracer along perimeter of any base shape with appearance ordering."""
     xsize = max(1.0, float(width) if width is not None else 104.0)
     ysize = max(1.0, float(height) if height is not None else 104.0)
     bord_val = max(0.1, float(bord) if bord is not None else 4.0)
@@ -6362,216 +6576,253 @@ def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bor
     len_val = max(0.1, float(length)) if length is not None else 20.0
     t_clamped = max(0.0, min(1.0, float(t)))
 
+    if t_clamped < 0.0001:
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(xsize / 2.0, ysize / 2.0), t=t_clamped)
+
     resolved_base = resolve_shape_value(base_shape, context) if base_shape and str(base_shape).strip() else None
 
     if not resolved_base or not resolved_base.strip():
-        xloop = max(1, math.ceil((xsize - bord_val) / max(0.1, len_val + space_val)))
-        yloop = max(1, math.ceil((ysize - bord_val) / max(0.1, len_val + space_val)))
+        rect_key = ("rect_border", round(xsize, 2), round(ysize, 2), round(bord_val, 2), round(space_val, 2), round(len_val, 2), str(order))
+        cached = _MULTI_SEGMENTED_BORDER_CACHE.get(rect_key)
+        if cached is not None:
+            _MULTI_SEGMENTED_BORDER_CACHE.move_to_end(rect_key)
+            shp_parts, can_cx, can_cy = cached
+        else:
+            xloop = max(1, math.ceil((xsize - bord_val) / max(0.1, len_val + space_val)))
+            yloop = max(1, math.ceil((ysize - bord_val) / max(0.1, len_val + space_val)))
 
-        eff_xsize = xloop * (len_val + space_val) + bord_val - space_val
-        eff_ysize = yloop * (len_val + space_val) + bord_val - space_val
+            eff_xsize = xloop * (len_val + space_val) + bord_val - space_val
+            eff_ysize = yloop * (len_val + space_val) + bord_val - space_val
 
-        blocks = []
-        for k in range(xloop):
-            bx = k * (len_val + space_val)
-            by = 0.0
-            blocks.append((bx, by, len_val, bord_val))
+            blocks = []
+            for k in range(xloop):
+                bx = k * (len_val + space_val)
+                by = 0.0
+                blocks.append((bx, by, len_val, bord_val))
 
-        for k in range(yloop):
-            bx = eff_xsize - bord_val
-            by = k * (len_val + space_val)
-            blocks.append((bx, by, bord_val, len_val))
+            for k in range(yloop):
+                bx = eff_xsize - bord_val
+                by = k * (len_val + space_val)
+                blocks.append((bx, by, bord_val, len_val))
 
-        for k in range(xloop):
-            bx = eff_xsize - (k + 1) * (len_val + space_val) + space_val
-            by = eff_ysize - bord_val
-            blocks.append((bx, by, len_val, bord_val))
+            for k in range(xloop):
+                bx = eff_xsize - (k + 1) * (len_val + space_val) + space_val
+                by = eff_ysize - bord_val
+                blocks.append((bx, by, len_val, bord_val))
 
-        for k in range(yloop):
-            bx = 0.0
-            by = eff_ysize - (k + 1) * (len_val + space_val) + space_val
-            blocks.append((bx, by, bord_val, len_val))
+            for k in range(yloop):
+                bx = 0.0
+                by = eff_ysize - (k + 1) * (len_val + space_val) + space_val
+                blocks.append((bx, by, bord_val, len_val))
 
-        tot = len(blocks)
+            shp_parts = []
+            for bx, by, bw, bh in blocks:
+                shp_parts.append(
+                    f"m {_format_num(bx)} {_format_num(by)} "
+                    f"l {_format_num(bx + bw)} {_format_num(by)} "
+                    f"l {_format_num(bx + bw)} {_format_num(by + bh)} "
+                    f"l {_format_num(bx)} {_format_num(by + bh)} "
+                    f"l {_format_num(bx)} {_format_num(by)} "
+                )
+
+            shp_parts = _reorder_multi_pieces(shp_parts, order=order, context=context)
+            can_cx, can_cy = eff_xsize / 2.0, eff_ysize / 2.0
+            _lru_cache_put(_MULTI_SEGMENTED_BORDER_CACHE, _MULTI_SEGMENTED_BORDER_MAX_CACHE, rect_key, (shp_parts, can_cx, can_cy))
+
+        tot = len(shp_parts)
         vis_count = max(1, int(round(tot * t_clamped))) if t_clamped > 0.001 else 0
+        shp_parts = shp_parts[:vis_count]
 
-        shp_parts = []
-        for i in range(vis_count):
-            bx, by, bw, bh = blocks[i]
-            shp_parts.append(
-                f"m {_format_num(bx)} {_format_num(by)} "
-                f"l {_format_num(bx + bw)} {_format_num(by)} "
-                f"l {_format_num(bx + bw)} {_format_num(by + bh)} "
-                f"l {_format_num(bx)} {_format_num(by + bh)} "
-                f"l {_format_num(bx)} {_format_num(by)} "
-            )
+        return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(can_cx, can_cy), t=t_clamped)
 
-        return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list)
+    border_key = ("contour_border", resolved_base, round(bord_val, 2), round(space_val, 2), round(len_val, 2), str(order))
+    cached = _MULTI_SEGMENTED_BORDER_CACHE.get(border_key)
+    if cached is not None:
+        _MULTI_SEGMENTED_BORDER_CACHE.move_to_end(border_key)
+        all_dash_shapes, cx_base, cy_base = cached
+    else:
+        from clipper_engine import ClipperEngine
+        import pyclipper
 
-    from clipper_engine import ClipperEngine
-    import pyclipper
+        bb = _get_drawing_bbox(resolved_base)
+        cx_base = (bb[0] + bb[1]) / 2.0 if bb else (xsize / 2.0)
+        cy_base = (bb[2] + bb[3]) / 2.0 if bb else (ysize / 2.0)
 
-    bb = _get_drawing_bbox(resolved_base)
-    sw = max(0.001, bb[1] - bb[0])
-    sh = max(0.001, bb[3] - bb[2])
-    if xsize > 1.0 and ysize > 1.0 and (abs(xsize - 104.0) > 0.01 or abs(ysize - 104.0) > 0.01):
-        manip_mode = anchor if ("rel" in str(anchor).lower() or "pieza" in str(anchor).lower()) else "center"
-        resolved_base = shape_manipulator(context, drawing=resolved_base, scale_x=xsize / sw, scale_y=ysize / sh, mode=manip_mode)
+        contours = ClipperEngine.parse_assdraw(resolved_base, bezier_steps=20, min_points=2)
+        if not contours:
+            return [] if return_list else ""
 
-    contours = ClipperEngine.parse_assdraw(resolved_base, bezier_steps=20, min_points=2)
-    if not contours:
-        return [] if return_list else ""
+        scale = 1000.0
+        all_dash_shapes = []
 
-    scale = 1000.0
-    all_dash_shapes = []
+        for contour in contours:
+            pts = [list(map(float, p)) for p in contour]
+            if len(pts) < 2:
+                continue
+            is_closed = math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-4
+            if not is_closed:
+                pts.append(list(pts[0]))
 
-    for contour in contours:
-        pts = [list(map(float, p)) for p in contour]
-        if len(pts) < 2:
-            continue
-        is_closed = math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-4
-        if not is_closed:
-            pts.append(list(pts[0]))
+            cum_dist = [0.0]
+            total_len = 0.0
+            for i in range(len(pts) - 1):
+                d = math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+                total_len += d
+                cum_dist.append(total_len)
 
-        cum_dist = [0.0]
-        total_len = 0.0
-        for i in range(len(pts) - 1):
-            d = math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
-            total_len += d
-            cum_dist.append(total_len)
-
-        if total_len < 0.001:
-            continue
-
-        def _get_pt_at_dist(target_d):
-            target_d = max(0.0, min(total_len, target_d))
-            for i in range(len(cum_dist) - 1):
-                if cum_dist[i] <= target_d <= cum_dist[i + 1]:
-                    seg_len = cum_dist[i + 1] - cum_dist[i]
-                    if seg_len < 1e-6:
-                        return list(pts[i])
-                    ratio = (target_d - cum_dist[i]) / seg_len
-                    return [
-                        pts[i][0] + ratio * (pts[i + 1][0] - pts[i][0]),
-                        pts[i][1] + ratio * (pts[i + 1][1] - pts[i][1])
-                    ]
-            return list(pts[-1])
-
-        period = len_val + space_val
-        if period <= 0.001:
-            period = 10.0
-
-        num_dashes = max(1, math.ceil(total_len / period))
-        visible_dashes = max(1, int(round(num_dashes * t_clamped))) if t_clamped > 0.001 else 0
-
-        for k in range(visible_dashes):
-            s_start = k * period
-            s_end = min(total_len, s_start + len_val)
-            if s_start >= total_len:
-                break
-
-            dash_pts = [_get_pt_at_dist(s_start)]
-            for i in range(len(cum_dist)):
-                if s_start < cum_dist[i] < s_end:
-                    dash_pts.append(list(pts[i]))
-            dash_pts.append(_get_pt_at_dist(s_end))
-
-            cleaned = [dash_pts[0]]
-            for p in dash_pts[1:]:
-                if math.hypot(p[0] - cleaned[-1][0], p[1] - cleaned[-1][1]) > 0.01:
-                    cleaned.append(p)
-
-            if len(cleaned) < 2:
+            if total_len < 0.001:
                 continue
 
-            pco = pyclipper.PyclipperOffset(miter_limit=2.0, arc_tolerance=0.25 * scale)
-            c_path = [[int(round(p[0] * scale)), int(round(p[1] * scale))] for p in cleaned]
-            pco.AddPath(c_path, pyclipper.JT_SQUARE, pyclipper.ET_OPENBUTT)
-            sol = pco.Execute((bord_val / 2.0) * scale)
-            if sol:
-                dash_ass = ClipperEngine.contours_to_assdraw([[[pt[0] / scale, pt[1] / scale] for pt in poly] for poly in sol])
-                all_dash_shapes.append(dash_ass)
+            def _get_pt_at_dist(target_d):
+                target_d = max(0.0, min(total_len, target_d))
+                for i in range(len(cum_dist) - 1):
+                    if cum_dist[i] <= target_d <= cum_dist[i + 1]:
+                        seg_len = cum_dist[i + 1] - cum_dist[i]
+                        if seg_len < 1e-6:
+                            return list(pts[i])
+                        ratio = (target_d - cum_dist[i]) / seg_len
+                        return [
+                            pts[i][0] + ratio * (pts[i + 1][0] - pts[i][0]),
+                            pts[i][1] + ratio * (pts[i + 1][1] - pts[i][1])
+                        ]
+                return list(pts[-1])
 
-    return _finish_multi_pieces(all_dash_shapes, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(xsize / 2.0, ysize / 2.0), t=t_clamped)
+            period = len_val + space_val
+            if period <= 0.001:
+                period = 10.0
+
+            num_dashes = max(1, math.ceil(total_len / period))
+
+            for k in range(num_dashes):
+                s_start = k * period
+                s_end = min(total_len, s_start + len_val)
+                if s_start >= total_len:
+                    break
+
+                dash_pts = [_get_pt_at_dist(s_start)]
+                for i in range(len(cum_dist)):
+                    if s_start < cum_dist[i] < s_end:
+                        dash_pts.append(list(pts[i]))
+                dash_pts.append(_get_pt_at_dist(s_end))
+
+                cleaned = [dash_pts[0]]
+                for p in dash_pts[1:]:
+                    if math.hypot(p[0] - cleaned[-1][0], p[1] - cleaned[-1][1]) > 0.01:
+                        cleaned.append(p)
+
+                if len(cleaned) < 2:
+                    continue
+
+                pco = pyclipper.PyclipperOffset(miter_limit=2.0, arc_tolerance=0.25 * scale)
+                c_path = [[int(round(p[0] * scale)), int(round(p[1] * scale))] for p in cleaned]
+                pco.AddPath(c_path, pyclipper.JT_SQUARE, pyclipper.ET_OPENBUTT)
+                sol = pco.Execute((bord_val / 2.0) * scale)
+                if sol:
+                    dash_ass = ClipperEngine.contours_to_assdraw([[[pt[0] / scale, pt[1] / scale] for pt in poly] for poly in sol])
+                    all_dash_shapes.append(dash_ass)
+
+        all_dash_shapes = _reorder_multi_pieces(all_dash_shapes, order=order, context=context)
+        _lru_cache_put(_MULTI_SEGMENTED_BORDER_CACHE, _MULTI_SEGMENTED_BORDER_MAX_CACHE, border_key, (all_dash_shapes, cx_base, cy_base))
+
+    tot = len(all_dash_shapes)
+    vis_count = max(1, int(round(tot * t_clamped))) if t_clamped > 0.001 else 0
+    shp_parts = all_dash_shapes[:vis_count]
+
+    return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(cx_base, cy_base), t=t_clamped)
 
 
-def _gen_multi7_radial_rosette(parts=12, r_out=50.0, r_in=0.0, separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
-    """multi7: Radial sectors (pie slices) with smooth cubic ASS Bézier curves and radial separation."""
+def _gen_multi7_radial_rosette(parts=12, r_out=50.0, r_in=0.0, separation=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False, order="cw"):
+    """multi7: Radial sectors (pie slices) with smooth cubic ASS Bézier curves, radial separation, and appearance ordering."""
     part = max(2, int(round(abs(float(parts))))) if parts is not None else 12
     r_outer = float(r_out) if r_out is not None else 50.0
     r_inner = float(r_in) if r_in is not None else 0.0
     sep_val = float(separation) if separation is not None else 0.0
     t_clamped = max(0.0, min(1.0, float(t)))
-    visible_parts = max(1, int(round(part * t_clamped))) if t_clamped > 0.001 else 0
 
-    angle = 360.0 / part
-    ang_b = angle * 0.295927
-    cos_ang_b = math.cos(math.radians(ang_b))
-    ratio = 1.0 / cos_ang_b if abs(cos_ang_b) > 1e-6 else 1.0
+    if t_clamped < 0.0001:
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
 
-    shp_list = []
-    if r_inner <= 0.001:
-        for i in range(1, visible_parts + 1):
-            a_start = angle * (i - 1)
-            a_end = angle * i
-            a_mid = (a_start + a_end) / 2.0
-
-            off_x = sep_val * math.cos(math.radians(a_mid)) if abs(sep_val) > 0.001 else 0.0
-            off_y = sep_val * math.sin(math.radians(a_mid)) if abs(sep_val) > 0.001 else 0.0
-
-            x0 = r_outer * math.cos(math.radians(a_start)) + off_x
-            y0 = r_outer * math.sin(math.radians(a_start)) + off_y
-            x1 = (r_outer * ratio) * math.cos(math.radians(a_start + ang_b)) + off_x
-            y1 = (r_outer * ratio) * math.sin(math.radians(a_start + ang_b)) + off_y
-            x2 = (r_outer * ratio) * math.cos(math.radians(a_end - ang_b)) + off_x
-            y2 = (r_outer * ratio) * math.sin(math.radians(a_end - ang_b)) + off_y
-            x3 = r_outer * math.cos(math.radians(a_end)) + off_x
-            y3 = r_outer * math.sin(math.radians(a_end)) + off_y
-
-            shp_list.append(
-                f"m {_format_num(off_x)} {_format_num(off_y)} "
-                f"l {_format_num(x0)} {_format_num(y0)} "
-                f"b {_format_num(x1)} {_format_num(y1)} {_format_num(x2)} {_format_num(y2)} {_format_num(x3)} {_format_num(y3)} "
-                f"l {_format_num(off_x)} {_format_num(off_y)} "
-            )
+    rosette_key = ("multi7_rosette", part, round(r_outer, 2), round(r_inner, 2), round(sep_val, 2), str(order))
+    cached = _MULTI_PIECES_FULL_CACHE.get(rosette_key)
+    if cached is not None:
+        _MULTI_PIECES_FULL_CACHE.move_to_end(rosette_key)
+        full_pieces = cached
     else:
-        for i in range(1, visible_parts + 1):
-            a_start = angle * (i - 1)
-            a_end = angle * i
-            a_mid = (a_start + a_end) / 2.0
+        angle = 360.0 / part
+        ang_b = angle * 0.295927
+        cos_ang_b = math.cos(math.radians(ang_b))
+        ratio = 1.0 / cos_ang_b if abs(cos_ang_b) > 1e-6 else 1.0
 
-            off_x = sep_val * math.cos(math.radians(a_mid)) if abs(sep_val) > 0.001 else 0.0
-            off_y = sep_val * math.sin(math.radians(a_mid)) if abs(sep_val) > 0.001 else 0.0
+        shp_list = []
+        if r_inner <= 0.001:
+            for i in range(1, part + 1):
+                a_start = angle * (i - 1)
+                a_end = angle * i
+                a_mid = (a_start + a_end) / 2.0
 
-            x0 = r_outer * math.cos(math.radians(a_start)) + off_x
-            y0 = r_outer * math.sin(math.radians(a_start)) + off_y
-            x1 = (r_outer * ratio) * math.cos(math.radians(a_start + ang_b)) + off_x
-            y1 = (r_outer * ratio) * math.sin(math.radians(a_start + ang_b)) + off_y
-            x2 = (r_outer * ratio) * math.cos(math.radians(a_end - ang_b)) + off_x
-            y2 = (r_outer * ratio) * math.sin(math.radians(a_end - ang_b)) + off_y
-            x3 = r_outer * math.cos(math.radians(a_end)) + off_x
-            y3 = r_outer * math.sin(math.radians(a_end)) + off_y
+                off_x = sep_val * math.cos(math.radians(a_mid)) if abs(sep_val) > 0.001 else 0.0
+                off_y = sep_val * math.sin(math.radians(a_mid)) if abs(sep_val) > 0.001 else 0.0
 
-            x4 = r_inner * math.cos(math.radians(a_end)) + off_x
-            y4 = r_inner * math.sin(math.radians(a_end)) + off_y
-            x5 = (r_inner * ratio) * math.cos(math.radians(a_end - ang_b)) + off_x
-            y5 = (r_inner * ratio) * math.sin(math.radians(a_end - ang_b)) + off_y
-            x6 = (r_inner * ratio) * math.cos(math.radians(a_start + ang_b)) + off_x
-            y6 = (r_inner * ratio) * math.sin(math.radians(a_start + ang_b)) + off_y
-            x7 = r_inner * math.cos(math.radians(a_start)) + off_x
-            y7 = r_inner * math.sin(math.radians(a_start)) + off_y
-            x8 = x0
-            y8 = y0
+                x0 = r_outer * math.cos(math.radians(a_start)) + off_x
+                y0 = r_outer * math.sin(math.radians(a_start)) + off_y
+                x1 = (r_outer * ratio) * math.cos(math.radians(a_start + ang_b)) + off_x
+                y1 = (r_outer * ratio) * math.sin(math.radians(a_start + ang_b)) + off_y
+                x2 = (r_outer * ratio) * math.cos(math.radians(a_end - ang_b)) + off_x
+                y2 = (r_outer * ratio) * math.sin(math.radians(a_end - ang_b)) + off_y
+                x3 = r_outer * math.cos(math.radians(a_end)) + off_x
+                y3 = r_outer * math.sin(math.radians(a_end)) + off_y
 
-            shp_list.append(
-                f"m {_format_num(x0)} {_format_num(y0)} "
-                f"b {_format_num(x1)} {_format_num(y1)} {_format_num(x2)} {_format_num(y2)} {_format_num(x3)} {_format_num(y3)} "
-                f"l {_format_num(x4)} {_format_num(y4)} "
-                f"b {_format_num(x5)} {_format_num(y5)} {_format_num(x6)} {_format_num(y6)} {_format_num(x7)} {_format_num(y7)} "
-                f"l {_format_num(x8)} {_format_num(y8)} "
-            )
+                shp_list.append(
+                    f"m {_format_num(off_x)} {_format_num(off_y)} "
+                    f"l {_format_num(x0)} {_format_num(y0)} "
+                    f"b {_format_num(x1)} {_format_num(y1)} {_format_num(x2)} {_format_num(y2)} {_format_num(x3)} {_format_num(y3)} "
+                    f"l {_format_num(off_x)} {_format_num(off_y)} "
+                )
+        else:
+            for i in range(1, part + 1):
+                a_start = angle * (i - 1)
+                a_end = angle * i
+                a_mid = (a_start + a_end) / 2.0
 
-    return _finish_multi_pieces(shp_list, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
+                off_x = sep_val * math.cos(math.radians(a_mid)) if abs(sep_val) > 0.001 else 0.0
+                off_y = sep_val * math.sin(math.radians(a_mid)) if abs(sep_val) > 0.001 else 0.0
+
+                x0 = r_outer * math.cos(math.radians(a_start)) + off_x
+                y0 = r_outer * math.sin(math.radians(a_start)) + off_y
+                x1 = (r_outer * ratio) * math.cos(math.radians(a_start + ang_b)) + off_x
+                y1 = (r_outer * ratio) * math.sin(math.radians(a_start + ang_b)) + off_y
+                x2 = (r_outer * ratio) * math.cos(math.radians(a_end - ang_b)) + off_x
+                y2 = (r_outer * ratio) * math.sin(math.radians(a_end - ang_b)) + off_y
+                x3 = r_outer * math.cos(math.radians(a_end)) + off_x
+                y3 = r_outer * math.sin(math.radians(a_end)) + off_y
+
+                x4 = r_inner * math.cos(math.radians(a_end)) + off_x
+                y4 = r_inner * math.sin(math.radians(a_end)) + off_y
+                x5 = (r_inner * ratio) * math.cos(math.radians(a_end - ang_b)) + off_x
+                y5 = (r_inner * ratio) * math.sin(math.radians(a_end - ang_b)) + off_y
+                x6 = (r_inner * ratio) * math.cos(math.radians(a_start + ang_b)) + off_x
+                y6 = (r_inner * ratio) * math.sin(math.radians(a_start + ang_b)) + off_y
+                x7 = r_inner * math.cos(math.radians(a_start)) + off_x
+                y7 = r_inner * math.sin(math.radians(a_start)) + off_y
+                x8 = x0
+                y8 = y0
+
+                shp_list.append(
+                    f"m {_format_num(x0)} {_format_num(y0)} "
+                    f"b {_format_num(x1)} {_format_num(y1)} {_format_num(x2)} {_format_num(y2)} {_format_num(x3)} {_format_num(y3)} "
+                    f"l {_format_num(x4)} {_format_num(y4)} "
+                    f"b {_format_num(x5)} {_format_num(y5)} {_format_num(x6)} {_format_num(y6)} {_format_num(x7)} {_format_num(y7)} "
+                    f"l {_format_num(x8)} {_format_num(y8)} "
+                )
+
+        full_pieces = _reorder_multi_pieces(shp_list, order=order, context=context)
+        _lru_cache_put(_MULTI_PIECES_FULL_CACHE, _MULTI_PIECES_FULL_MAX_CACHE, rosette_key, full_pieces)
+
+    tot = len(full_pieces)
+    vis_count = max(1, int(round(tot * t_clamped))) if t_clamped > 0.001 else 0
+    shp_parts = full_pieces[:vis_count]
+
+    return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
 
 
 def _resolve_direction_angle(angle_in, context=None, default=0.0):
@@ -6602,8 +6853,8 @@ def _resolve_direction_angle(angle_in, context=None, default=0.0):
         return default
 
 
-def _gen_multi8_tunnel_cascade(base_shape=None, size1=100.0, size2=10.0, loop=8, separation=0.0, angle=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
-    """multi8: Concentric progressive scaling cascade of any shape with spacing and angular direction with 270° offset (0° = Up)."""
+def _gen_multi8_tunnel_cascade(base_shape=None, size1=100.0, size2=10.0, loop=8, separation=0.0, angle=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False, order="normal"):
+    """multi8: Concentric progressive scaling cascade of any shape with spacing, angular direction, and appearance ordering."""
     if not base_shape or not str(base_shape).strip():
         base_shape = RAW_PRESET_SHAPES["rectangle"]
     else:
@@ -6616,38 +6867,53 @@ def _gen_multi8_tunnel_cascade(base_shape=None, size1=100.0, size2=10.0, loop=8,
     s2 = abs(float(size2)) if size2 is not None else 10.0
     sep_val = float(separation) if separation is not None else 0.0
     ang_deg = _resolve_direction_angle(angle, context, default=0.0)
-    rad = math.radians(ang_deg + 270.0)
-    cos_ang = math.cos(rad)
-    sin_ang = math.sin(rad)
 
     maxsize = max(s1, s2)
     minsize = min(s1, s2)
     t_clamped = max(0.0, min(1.0, float(t)))
-    visible_loops = max(1, int(round(loop_val * t_clamped))) if t_clamped > 0.001 else 0
-
-    bounds = _get_drawing_bbox(base_shape)
-    w = max(0.001, bounds[1] - bounds[0])
-    h = max(0.001, bounds[3] - bounds[2])
-    max_dim = max(w, h)
+    if t_clamped < 0.0001:
+        return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
 
     manip_mode = anchor if ("rel" in str(anchor).lower() or "pieza" in str(anchor).lower()) else "center"
 
-    def _scale_to(shp_code, dim):
-        sc = dim / max_dim
-        return shape_manipulator(context, drawing=shp_code, scale_x=sc, scale_y=sc, mode=manip_mode)
+    tunnel_key = ("multi8_tunnel", base_shape, round(maxsize, 2), round(minsize, 2), loop_val, round(sep_val, 2), round(ang_deg, 2), str(order), str(manip_mode))
+    cached = _MULTI_PIECES_FULL_CACHE.get(tunnel_key)
+    if cached is not None:
+        _MULTI_PIECES_FULL_CACHE.move_to_end(tunnel_key)
+        full_pieces = cached
+    else:
+        rad = math.radians(ang_deg + 270.0)
+        cos_ang = math.cos(rad)
+        sin_ang = math.sin(rad)
 
-    shp_max = _scale_to(base_shape, maxsize)
+        bounds = _get_drawing_bbox(base_shape)
+        w = max(0.001, bounds[1] - bounds[0])
+        h = max(0.001, bounds[3] - bounds[2])
+        max_dim = max(w, h)
 
-    result = []
-    for i in range(1, visible_loops + 1):
-        cur_size = maxsize - (maxsize - minsize) * (i - 1) / max(1, loop_val - 1)
-        cur_scale = cur_size / max(0.001, maxsize)
-        off_x = (i - 1) * sep_val * cos_ang
-        off_y = (i - 1) * sep_val * sin_ang
-        scaled = shape_manipulator(context, drawing=shp_max, scale_x=cur_scale, scale_y=cur_scale, offset_x=off_x, offset_y=off_y, mode=manip_mode)
-        result.append(scaled)
+        def _scale_to(shp_code, dim):
+            sc = dim / max_dim
+            return shape_manipulator(context, drawing=shp_code, scale_x=sc, scale_y=sc, mode=manip_mode)
 
-    return _finish_multi_pieces(result, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
+        shp_max = _scale_to(base_shape, maxsize)
+
+        result = []
+        for i in range(1, loop_val + 1):
+            cur_size = maxsize - (maxsize - minsize) * (i - 1) / max(1, loop_val - 1)
+            cur_scale = cur_size / max(0.001, maxsize)
+            off_x = (i - 1) * sep_val * cos_ang
+            off_y = (i - 1) * sep_val * sin_ang
+            scaled = shape_manipulator(context, drawing=shp_max, scale_x=cur_scale, scale_y=cur_scale, offset_x=off_x, offset_y=off_y, mode=manip_mode)
+            result.append(scaled)
+
+        full_pieces = _reorder_multi_pieces(result, order=order, context=context)
+        _lru_cache_put(_MULTI_PIECES_FULL_CACHE, _MULTI_PIECES_FULL_MAX_CACHE, tunnel_key, full_pieces)
+
+    tot = len(full_pieces)
+    vis_count = max(1, int(round(tot * t_clamped))) if t_clamped > 0.001 else 0
+    shp_parts = full_pieces[:vis_count]
+
+    return _finish_multi_pieces(shp_parts, anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(0.0, 0.0), t=t_clamped)
 
 
 def _gen_multi_banner(width=200.0, height=50.0, tip_style="Arrow", fold_w=0.0, bord=0.0, t=1.0, anchor="center", context=None, tags="", return_list=False):
@@ -7173,19 +7439,19 @@ def shape_multi(
     elif "cuadro" in mode_clean or "square" in mode_clean or "multi1" in mode_clean or "cuadrad" in mode_clean or "concentric_squares" in mode_clean or "pixel" in mode_clean:
         s_val = _eval_num_expr(size, context, 100.0) if (size is not None and size != "") else 100.0
         px_val = px if px is not None else kwargs.get("px_pattern", "4")
-        res = _gen_multi1_concentric_squares(size=s_val, px_pattern=px_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
+        res = _gen_multi1_concentric_squares(size=s_val, px_pattern=px_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "franja" in mode_clean or "diagonal" in mode_clean or "stripe" in mode_clean or "multi2" in mode_clean or "diagonal_stripes" in mode_clean:
         w_val = _eval_num_expr(width, context, 70.0) if (width is not None and width != "") else 70.0
         h_val = _eval_num_expr(height, context, 50.0) if (height is not None and height != "") else 50.0
         px_val = px if px is not None else kwargs.get("px_pattern", "6")
-        res = _gen_multi2_diagonal_stripes(width=w_val, height=h_val, px_pattern=px_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
+        res = _gen_multi2_diagonal_stripes(width=w_val, height=h_val, px_pattern=px_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "anillo" in mode_clean or "multi3" in mode_clean or "ring" in mode_clean or "concentric_rings" in mode_clean:
         base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shape", "")
         s_val = _eval_num_expr(size, context, 100.0) if (size is not None and size != "") else 100.0
         bord_val = bord if bord is not None else kwargs.get("bord_pattern", "4")
-        res = _gen_multi3_concentric_rings(base_shape=base_shp, size=s_val, bord_pattern=bord_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
+        res = _gen_multi3_concentric_rings(base_shape=base_shp, size=s_val, bord_pattern=bord_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "multi-forma" in mode_clean or "multiforma" in mode_clean or "multi-shape" in mode_clean or "multishape" in mode_clean or "multi5" in mode_clean or "multi_shape_mosaic" in mode_clean:
         base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shapes", kwargs.get("shape", ""))
@@ -7209,13 +7475,13 @@ def shape_multi(
         bord_val = _eval_num_expr(bord, context, 4.0) if (bord is not None and bord != "") else 4.0
         space_val = _eval_num_expr(separation if separation != 0.0 else space, context, 0.0)
         len_val = _eval_num_expr(length, context, 20.0) if (length is not None and length != "") else 20.0
-        res = _gen_multi6_segmented_border(base_shape=base_shp, width=w_val, height=h_val, bord=bord_val, space=space_val, length=len_val, separation=space_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
+        res = _gen_multi6_segmented_border(base_shape=base_shp, width=w_val, height=h_val, bord=bord_val, space=space_val, length=len_val, separation=space_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "roseta" in mode_clean or "rosette" in mode_clean or "pastel" in mode_clean or "radial" in mode_clean or "multi7" in mode_clean:
         parts_val = int(_eval_num_expr(parts, context, 12)) if (parts is not None and parts != "") else 12
         r_out_val = _eval_num_expr(r_out, context, 50.0) if (r_out is not None and r_out != "") else 50.0
         r_in_val = _eval_num_expr(r_in, context, 0.0) if (r_in is not None and r_in != "") else 0.0
-        res = _gen_multi7_radial_rosette(parts=parts_val, r_out=r_out_val, r_in=r_in_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
+        res = _gen_multi7_radial_rosette(parts=parts_val, r_out=r_out_val, r_in=r_in_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "tunel" in mode_clean or "cascada" in mode_clean or "multi8" in mode_clean or "tunnel" in mode_clean:
         base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shape", "")
@@ -7223,7 +7489,7 @@ def shape_multi(
         s2_val = _eval_num_expr(size2, context, 10.0) if (size2 is not None and size2 != "") else 10.0
         loop_val = int(_eval_num_expr(loop, context, 8)) if (loop is not None and loop != "") else 8
         ang_val = angle if angle is not None else kwargs.get("direction", kwargs.get("ang", 0.0))
-        res = _gen_multi8_tunnel_cascade(base_shape=base_shp, size1=s1_val, size2=s2_val, loop=loop_val, separation=sep_val, angle=ang_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list)
+        res = _gen_multi8_tunnel_cascade(base_shape=base_shp, size1=s1_val, size2=s2_val, loop=loop_val, separation=sep_val, angle=ang_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "banner" in mode_clean or "cartela" in mode_clean:
         w_val = _eval_num_expr(width, context, 200.0) if (width is not None and width != "") else 200.0
@@ -7351,7 +7617,7 @@ def shape_multi(
                 context['org_x'] = abs_x
                 context['org_y'] = abs_y
             final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=-piece_cx, offset_y=-piece_cy)
-        elif "org" in anc_clean:
+        elif "parent_org" in anc_clean or anc_clean == "org":
             if isinstance(context, dict):
                 context['x'] = abs_x
                 context['y'] = abs_y
@@ -7364,6 +7630,15 @@ def shape_multi(
                 context['org_x'] = parent_x
                 context['org_y'] = parent_y
             final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=-piece_cx, offset_y=-piece_cy)
+        elif "origin" in anc_clean or "topleft" in anc_clean:
+            if isinstance(context, dict):
+                context['pos_overridden'] = False
+                context['has_org'] = False
+                context['pos_x'] = parent_x
+                context['pos_y'] = parent_y
+                context['fx_pos_x'] = parent_x
+                context['fx_pos_y'] = parent_y
+            final_code = piece_code
         elif "pos" in anc_clean:
             if isinstance(context, dict):
                 context['x'] = abs_x
@@ -7535,28 +7810,72 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
     elif "subpath" in mode_clean or "sub-path" in mode_clean or "naive" in mode_clean:
         if not raw_shp:
             return ""
-        pieces = ClipperEngine.decompose_shape_subpaths(raw_shp, bbox_mode="marco", order=order_val)
-        if not pieces:
-            return ""
-        global_bbox = get_drawing_bbox(raw_shp)
         anchor_effective = "center" if anchor_clean == "relative" else anchor_clean
-        anchored_pieces = [apply_geometric_anchor(p, anchor=anchor_effective, context=context, ref_bbox=global_bbox) for p in pieces]
+        pos_tuple = (0.0, 0.0)
+        if isinstance(context, dict):
+            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+            try:
+                px = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
+            except:
+                px = 0.0
+            try:
+                py = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
+            except:
+                py = 0.0
+            pos_tuple = (px, py)
+
+        raw_shp_key = tuple(raw_shp) if isinstance(raw_shp, list) else str(raw_shp)
+        subpath_cache_key = ("subpaths", raw_shp_key, order_val, anchor_effective, pos_tuple if anchor_effective in ("absolute", "pos") else None)
+        cached_pieces = _SHAPE_DIVIDE_ISLANDS_CACHE.get(subpath_cache_key)
+        if cached_pieces is not None:
+            _SHAPE_DIVIDE_ISLANDS_CACHE.move_to_end(subpath_cache_key)
+            anchored_pieces = cached_pieces
+        else:
+            pieces = ClipperEngine.decompose_shape_subpaths(raw_shp, bbox_mode="marco", order=order_val)
+            if not pieces:
+                return ""
+            global_bbox = get_drawing_bbox(raw_shp)
+            anchored_pieces = [apply_geometric_anchor(p, anchor=anchor_effective, context=context, ref_bbox=global_bbox) for p in pieces]
+            _lru_cache_put(_SHAPE_DIVIDE_ISLANDS_CACHE, _SHAPE_DIVIDE_ISLANDS_MAX_CACHE, subpath_cache_key, anchored_pieces)
+
         if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
-            return anchored_pieces
+            return list(anchored_pieces)
         target_idx = max(1, min(len(anchored_pieces), idx_val)) - 1
         return anchored_pieces[target_idx]
 
     else:
         if not raw_shp:
             return ""
-        pieces = ClipperEngine.decompose_shape_islands(raw_shp, fill_rule=fill_clean, bbox_mode="marco", clean_self_intersect=auto_clean, order=order_val)
-        if not pieces:
-            return ""
-        global_bbox = get_drawing_bbox(raw_shp)
         anchor_effective = "center" if anchor_clean == "relative" else anchor_clean
-        anchored_pieces = [apply_geometric_anchor(p, anchor=anchor_effective, context=context, ref_bbox=global_bbox) for p in pieces]
+        pos_tuple = (0.0, 0.0)
+        if isinstance(context, dict):
+            unit = context.get('syl') or context.get('char') or context.get('word') or context.get('line') or context.get('active_unit')
+            try:
+                px = float(context.get('fx_pos_x', getattr(unit, 'x', getattr(unit, 'center', getattr(context.get('line', None), 'x', 0.0)))))
+            except:
+                px = 0.0
+            try:
+                py = float(context.get('fx_pos_y', getattr(unit, 'y', getattr(unit, 'middle', getattr(context.get('line', None), 'y', 0.0)))))
+            except:
+                py = 0.0
+            pos_tuple = (px, py)
+
+        raw_shp_key = tuple(raw_shp) if isinstance(raw_shp, list) else str(raw_shp)
+        divide_cache_key = ("divide", raw_shp_key, fill_clean, auto_clean, order_val, anchor_effective, pos_tuple if anchor_effective in ("absolute", "pos") else None)
+        cached_pieces = _SHAPE_DIVIDE_ISLANDS_CACHE.get(divide_cache_key)
+        if cached_pieces is not None:
+            _SHAPE_DIVIDE_ISLANDS_CACHE.move_to_end(divide_cache_key)
+            anchored_pieces = cached_pieces
+        else:
+            pieces = ClipperEngine.decompose_shape_islands(raw_shp, fill_rule=fill_clean, bbox_mode="marco", clean_self_intersect=auto_clean, order=order_val)
+            if not pieces:
+                return ""
+            global_bbox = get_drawing_bbox(raw_shp)
+            anchored_pieces = [apply_geometric_anchor(p, anchor=anchor_effective, context=context, ref_bbox=global_bbox) for p in pieces]
+            _lru_cache_put(_SHAPE_DIVIDE_ISLANDS_CACHE, _SHAPE_DIVIDE_ISLANDS_MAX_CACHE, divide_cache_key, anchored_pieces)
+
         if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
-            return anchored_pieces
+            return list(anchored_pieces)
         target_idx = max(1, min(len(anchored_pieces), idx_val)) - 1
         return anchored_pieces[target_idx]
 

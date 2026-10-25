@@ -17,7 +17,7 @@
 script_name        = "Pyxis Node Engine"
 script_description = "Visual Node-Based Karaoke Automation"
 script_author      = "Pyxis Dev Team"
-script_version     = "1.1.5"
+script_version     = "1.1.6"
 script_namespace   = "pyxis.NodeEngine"
 
 local ffi = require("ffi")

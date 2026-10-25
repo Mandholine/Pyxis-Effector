@@ -226,26 +226,121 @@ def sort_particles(items, order_code="79", get_xy=lambda item: (item[0], item[1]
     return items
 
 
-def particle_text_node(context, shape="", particle_shape="", density=10.0, redraw_dist=0.0, seed=1, scale=1.0, mode="outline_v2", order="79", anchor="pieces"):
+def redraw_and_close_assdraw(shape_str, redraw_dist=0.0, close_path=False):
+    """
+    Pre-closes vector contours (if close_path is True) and subdivides segments into
+    small linear segments of maximum length `redraw_dist` (if redraw_dist > 0),
+    transforming real cubic Bézier curves ('b') into polylines ('l').
+    When redraw_dist <= 0, the original curve/line geometry is preserved without alteration.
+
+    Args:
+        shape_str (str): ASSdraw vector string.
+        redraw_dist (float): Maximum segment length threshold for subdivision/polygonisation.
+        close_path (bool): Whether unclosed contours should be explicitly closed.
+
+    Returns:
+        str: Transformed ASSdraw vector string.
+    """
+    if not shape_str or not str(shape_str).strip():
+        return ""
+    from nodes.shape_nodes import parse_assdraw_segments, _eval_bezier_pt, _format_num
+    contours = parse_assdraw_segments(str(shape_str).strip())
+    if not contours:
+        return shape_str
+
+    is_close = bool(close_path)
+    r_dist = float(redraw_dist)
+
+    # 1. Pre-close contours if requested
+    if is_close:
+        for c in contours:
+            segs = c.get('segments', [])
+            if segs:
+                last_seg = segs[-1]
+                last_pt = last_seg['p1'] if last_seg['type'] == 'l' else last_seg['p3']
+                start_pt = c['start']
+                if math.hypot(last_pt[0] - start_pt[0], last_pt[1] - start_pt[1]) > 1e-4:
+                    segs.append({
+                        'type': 'l',
+                        'p0': (last_pt[0], last_pt[1]),
+                        'p1': (start_pt[0], start_pt[1])
+                    })
+
+    # 2. If redraw_dist <= 0, rebuild ASSdraw preserving closure if modified
+    if r_dist <= 1e-5:
+        if not is_close:
+            return shape_str
+        out_tokens = []
+        for c in contours:
+            out_tokens.append(f"m {_format_num(c['start'][0])} {_format_num(c['start'][1])}")
+            for seg in c.get('segments', []):
+                stype = seg.get('type', 'l')
+                if stype == 'l':
+                    p1 = seg['p1']
+                    out_tokens.append(f"l {_format_num(p1[0])} {_format_num(p1[1])}")
+                elif stype == 'b':
+                    p1, p2, p3 = seg['p1'], seg['p2'], seg['p3']
+                    out_tokens.append(f"b {_format_num(p1[0])} {_format_num(p1[1])} {_format_num(p2[0])} {_format_num(p2[1])} {_format_num(p3[0])} {_format_num(p3[1])}")
+        return " ".join(out_tokens) + " "
+
+    # 3. Subdivide lines and transform Bézier curves into linear mini-segments of max length r_dist
+    out_tokens = []
+    step_thresh = max(0.5, r_dist)
+
+    for c in contours:
+        start_pt = c.get('start', (0.0, 0.0))
+        out_tokens.append(f"m {_format_num(start_pt[0])} {_format_num(start_pt[1])}")
+
+        for seg in c.get('segments', []):
+            stype = seg.get('type', 'l')
+            if stype == 'l':
+                p0 = seg['p0']
+                p1 = seg['p1']
+                length = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+                if length > step_thresh:
+                    n_parts = max(1, int(round(length / step_thresh)))
+                    for k in range(1, n_parts + 1):
+                        u = k / float(n_parts)
+                        xk = p0[0] + u * (p1[0] - p0[0])
+                        yk = p0[1] + u * (p1[1] - p0[1])
+                        out_tokens.append(f"l {_format_num(xk)} {_format_num(yk)}")
+                else:
+                    out_tokens.append(f"l {_format_num(p1[0])} {_format_num(p1[1])}")
+
+            elif stype in ('b', 'c'):
+                p0, p1, p2, p3 = seg['p0'], seg['p1'], seg['p2'], seg['p3']
+                sub_pts = [_eval_bezier_pt(p0, p1, p2, p3, s_idx / 16.0) for s_idx in range(17)]
+                b_len = sum(math.hypot(sub_pts[i+1][0] - sub_pts[i][0], sub_pts[i+1][1] - sub_pts[i][1]) for i in range(16))
+                n_poly = max(1, int(round(b_len / step_thresh)))
+                for k in range(1, n_poly + 1):
+                    u = k / float(n_poly)
+                    bx, by = _eval_bezier_pt(p0, p1, p2, p3, u)
+                    out_tokens.append(f"l {_format_num(bx)} {_format_num(by)}")
+
+    return " ".join(out_tokens) + " "
+
+
+def particle_text_node(context, shape="", particle_shape="", density=10.0, redraw_dist=0.0, seed=0, scale=1.0, mode="outline_v2", order="79", anchor="pieces", close_path=False):
     """
     Generates discrete particle coordinates from an ASSdraw vector shape or text outline.
 
     Samples points along continuous perimeter segments or inside polygon bounds,
-    applying optional jitter displacement (`redraw_dist`), spatial ordering,
-    canonical piece/particle anchor projection, and injecting loop counters (`p_i`, `p_n`, `p_max`)
-    into the execution context.
+    applying optional arc-length redraw subdivision (`redraw_dist`), optional position
+    randomisation when `seed > 0`, spatial ordering, canonical piece/particle anchor projection,
+    and injecting loop counters (`p_i`, `p_n`, `p_max`) into the execution context.
 
     Args:
         context (dict or FxContext): Active iteration context containing line/unit metrics.
         shape (str): Inbound ASSdraw path or shape name. If empty, extracts from active text.
         particle_shape (str): Custom ASSdraw shape representing individual particle geometry.
         density (float or str): Step distance between sampled points in pixels.
-        redraw_dist (float or str): Maximum random displacement applied to each coordinate.
-        seed (int or str): Deterministic random number generator seed.
+        redraw_dist (float or str): Maximum segment length to subdivide curves into linear mini-segments (0 = original shape).
+        seed (int or str): Deterministic RNG seed. When > 0, activates position randomisation (±0.5*density px); when <= 0, no randomisation.
         scale (float or str): Uniform scaling factor applied to coordinates.
         mode (str): Generation mode: 'outline_v2'/'border' (perimeter) or 'inner_fill' (grid test).
         order (str): 2D spatial ordering or contour trajectory code (e.g. 'path', 'path_inv', '79', '5', 'cw', 'rand').
         anchor (str): Canonical anchor mode ('pieces', 'relative', 'parent_org', 'pos', 'absolute').
+        close_path (bool or str): Whether unclosed vector contours should be pre-closed.
 
     Returns:
         tuple[float, float, str, int]:
@@ -279,20 +374,40 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
 
     d_val = max(0.5, float(_eval_num_expr(density, context, 10.0)))
     r_val = max(0.0, float(_eval_num_expr(redraw_dist, context, 0.0)))
-    s_val = int(_eval_num_expr(seed, context, 1.0))
+    s_val = int(_eval_num_expr(seed, context, 0.0))
     sc_val = float(_eval_num_expr(scale, context, 1.0))
     mode_clean = str(mode or "Contorno v2").strip().lower()
 
-    cache_key = (id(unit) if unit else (id(line) if line else 0), shp_val, str(particle_shape or ""), d_val, r_val, s_val, sc_val, mode_clean, str(order))
+    if isinstance(close_path, (int, float, bool)):
+        is_close = bool(close_path)
+    else:
+        try:
+            is_close = str(close_path).strip().lower() in ("true", "1", "yes")
+        except Exception:
+            is_close = False
+
+    # Discard unit/line ID if the input shape is explicit ASSDraw or a static preset/text
+    # to allow high-performance particle cache sharing across syllables and lines.
+    ctx_id = 0
+    if not is_assdraw and not (shp_input and str(shp_input).strip()):
+        ctx_id = id(unit) if unit else (id(line) if line else 0)
+
+    cache_key = (ctx_id, shp_val, str(particle_shape or ""), d_val, r_val, s_val, sc_val, mode_clean, str(order), is_close)
     if cache_key in _GLOBAL_PARTICLE_PTS_CACHE:
         sampled_pts = _GLOBAL_PARTICLE_PTS_CACHE[cache_key]
         _GLOBAL_PARTICLE_PTS_CACHE.move_to_end(cache_key)
     else:
-        contours = ClipperEngine.parse_assdraw(shp_val)
+        effective_shp = redraw_and_close_assdraw(shp_val, redraw_dist=r_val, close_path=is_close)
+        contours = ClipperEngine.parse_assdraw(effective_shp)
         if not contours:
             contours = [np.array([[0,0], [100,0], [100,50], [0,50]], dtype=np.float64)]
 
-        np.random.seed(abs(s_val) % 100000)
+        if s_val > 0:
+            np.random.seed(abs(s_val) % 100000)
+            jitter_mag = 0.5 * d_val
+        else:
+            jitter_mag = 0.0
+
         sampled_pts = []
 
         if "relleno" in mode_clean or "interior" in mode_clean or "fill" in mode_clean or "inner" in mode_clean:
@@ -315,15 +430,16 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
                                 inside_count += 1
                     if inside_count % 2 == 1:
                         pt = np.array([gx, gy], dtype=np.float64)
-                        if r_val > 0:
-                            pt = pt + np.random.uniform(-r_val, r_val, size=2)
+                        if jitter_mag > 0.0:
+                            pt = pt + np.random.uniform(-jitter_mag, jitter_mag, size=2)
                         sampled_pts.append(pt * sc_val)
         else:
             for cnt in contours:
                 if len(cnt) < 2:
                     continue
                 
-                if np.linalg.norm(cnt[0] - cnt[-1]) > 1e-5:
+                is_closed_cnt = (np.linalg.norm(cnt[0] - cnt[-1]) <= 1e-5)
+                if is_close and not is_closed_cnt:
                     pts = np.vstack([cnt, cnt[0:1]])
                 else:
                     pts = cnt
@@ -352,8 +468,8 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
                         t = (target - cum_dists[idx]) / seg_len
                         pt = (1.0 - t) * pts[idx] + t * pts[idx + 1]
                     
-                    if r_val > 0:
-                        pt = pt + np.random.uniform(-r_val, r_val, size=2)
+                    if jitter_mag > 0.0:
+                        pt = pt + np.random.uniform(-jitter_mag, jitter_mag, size=2)
                     sampled_pts.append(pt * sc_val)
 
         if not sampled_pts:

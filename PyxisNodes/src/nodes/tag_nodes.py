@@ -2134,65 +2134,26 @@ def eval_tag_manipulator_node(context=None, *args, **kwargs):
     return _invert_ass_tags(raw_tags, styleref=styleref)
 
 
-def node_animation(
-    context=None,
-    frames="",
-    step_ms=41.7,
-    start_time="",
-    end_time="",
-    mode="FBF",
-    alpha_tag=r"\alpha",
-    var_name="an",
-    output_slot_index=0,
-    **kwargs
-):
-    """Animation node supporting Frame-by-Frame (FBF) and Synchronised Alpha Transformation modes.
+def resolve_animation_frames_list(frames="", context=None):
+    """Parses and resolves a raw frame sequence input into a list of ASSdraw vector shape strings.
 
-    Accepts lists, Lua tables, JSON arrays, or delimited strings of vector shapes
-    or typographic glyphs (converted to vector outlines via FontVectorEngine).
-    Manages loop cycle registration and context injection ({var_name}_i, {var_name}_n,
-    {var_name}_max, an_loop_count, maxloop, anim_step_ms) and returns appropriate
-    outputs per slot and mode:
-
-    Modes:
-    1. 'FBF' (Frame-by-Frame):
-       - Slot 0: Active frame vector shape (with \\an7 alignment prefix if absent).
-       - Slot 1: Active 1-based frame index number.
-       - Slot 2: Full list of processed vector shape frames.
-    2. 'Alpha' (Synchronised Transparency Transform):
-       - Generates cyclical stroboscopic \\t(...) blocks toggling between opaque (&H00&)
-         and transparent (&HFF&) states across the timeline using the target `alpha_tag`.
-       - Slot 0: Composite shape tagged with inline visibility transforms: {\\an7...\\p1}m...
-       - Slot 1: ASS visibility override tags alone.
-       - Slot 2: Active frame index.
-       - Slot 3: Full list of processed vector shape frames.
+    Supports Python lists/tuples, Lua tables, JSON arrays, delimited strings (newline,
+    semicolon, comma), preset shape identifiers (via `resolve_shape_value`), raw ASSdraw
+    vector paths (`m ...`), and typographic glyphs converted to outlines via `FontVectorEngine`.
 
     Args:
-        context (dict, optional): Active DAG execution context.
-        frames (Union[str, list, tuple, dict]): Frame sequence input.
-        step_ms (Union[float, str]): Duration per frame in milliseconds. Defaults to 41.7 (24 FPS).
-        start_time (Union[float, str]): Custom animation start timestamp. Defaults to effect_st.
-        end_time (Union[float, str]): Custom animation end timestamp. Defaults to effect_st + effect_dur.
-        mode (str): Animation mode ('FBF' or 'Alpha'). Defaults to 'FBF'.
-        alpha_tag (str): Transparency tag to modulate in Alpha mode ('\\alpha', '\\1a', etc.). Defaults to '\\alpha'.
-        var_name (str): Iterator and loop counter context prefix. Defaults to 'an'.
-        output_slot_index (int): Output connector pin index (0 to 3). Defaults to 0.
-        **kwargs: Additional fallback parameters (shape, text, st, et, modo).
+        frames (Union[str, list, tuple, dict]): Raw frame sequence specification.
+        context (dict, optional): Active execution or preview context.
 
     Returns:
-        Union[str, int, list]: Active shape string, ASS tag block, frame index, or frame list.
+        list[str]: Non-empty list of resolved ASSdraw vector shape strings.
     """
-    from node_engine import _eval_num_expr
     from font_vector_engine import FontVectorEngine
     from nodes.shape_nodes import resolve_shape_value
 
     ctx = context if isinstance(context, dict) else {}
-    var_prefix = str(var_name or "an").strip() or "an"
+    raw_input = frames if frames is not None else ""
 
-    # 1. Parse and extract frames
-    raw_input = frames if frames is not None and str(frames).strip() != "" else kwargs.get("shape", kwargs.get("shapes", kwargs.get("text", "")))
-    
-    # If raw_input is a variable name in context (e.g. "Shapes1", "$my_var", Lua tables)
     if isinstance(raw_input, str):
         s_candidate = raw_input.strip()
         if s_candidate in ctx:
@@ -2216,11 +2177,11 @@ def node_animation(
     elif isinstance(raw_input, str):
         s = raw_input.strip()
         if not s:
-            unit = ctx.get('active_unit') or ctx.get('syl') or ctx.get('char') or ctx.get('word')
-            txt = getattr(unit, 'text_stripped', getattr(unit, 'text', '')) if unit else ""
+            unit = ctx.get("active_unit") or ctx.get("syl") or ctx.get("char") or ctx.get("word")
+            txt = getattr(unit, "text_stripped", getattr(unit, "text", "")) if unit else ""
             if not txt:
-                line = ctx.get('active_line') or ctx.get('line')
-                txt = getattr(line, 'text_stripped', getattr(line, 'text', '')) if line else ""
+                line = ctx.get("active_line") or ctx.get("line")
+                txt = getattr(line, "text_stripped", getattr(line, "text", "")) if line else ""
             s = txt if txt else "circle"
 
         if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
@@ -2236,7 +2197,7 @@ def node_animation(
                     raw_items = [parsed]
             except Exception:
                 inner = s[1:-1].strip()
-                raw_items = [x.strip().strip('"').strip("'") for x in re.split(r'[,;\n]+', inner) if x.strip()]
+                raw_items = [x.strip().strip('"').strip("'") for x in re.split(r"[,;\n]+", inner) if x.strip()]
         elif "\n" in s:
             raw_items = [x.strip() for x in s.split("\n") if x.strip()]
         elif ";" in s:
@@ -2259,10 +2220,16 @@ def node_animation(
                 item_val = ctx[item_cand]
             elif item_cand.startswith("$") and item_cand[1:] in ctx:
                 item_val = ctx[item_cand[1:]]
-        
+
         item_str = str(item_val).strip()
         if not item_str:
             continue
+        # Strip leading ASS override tag blocks if a tagged shape was passed
+        if item_str.startswith("{") and "}" in item_str:
+            stripped_after_tags = re.sub(r"^(\{[^}]*\})+", "", item_str).strip()
+            if stripped_after_tags.startswith("m ") or stripped_after_tags.startswith("m-") or stripped_after_tags.startswith("m0"):
+                item_str = stripped_after_tags
+
         shp = resolve_shape_value(item_str, ctx)
         if shp and (shp.startswith("m ") or shp.startswith("m-") or shp.startswith("m0")):
             processed_shapes.append(shp)
@@ -2274,8 +2241,102 @@ def node_animation(
                 processed_shapes.append(shp if shp else item_str)
 
     if not processed_shapes:
-        processed_shapes = [resolve_shape_value("circle", ctx) or "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0 "]
+        processed_shapes = [
+            resolve_shape_value("circle", ctx)
+            or "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0 "
+        ]
 
+    return processed_shapes
+
+
+def map_animation_step_to_frame_index(step_idx_zero_based, num_frames, order="sequential", seed_base=0):
+    """Maps a 0-based animation step index to a 0-based frame index according to `order`.
+
+    Args:
+        step_idx_zero_based (int): Non-negative step counter (0, 1, 2, ...).
+        num_frames (int): Total number of unique frames in the sequence.
+        order (str): Playback sequence order ('sequential', 'reverse', 'pingpong', 'random').
+        seed_base (int, optional): Deterministic seed offset for 'random' order.
+
+    Returns:
+        int: Resolved 0-based frame index in `[0, num_frames - 1]`.
+    """
+    if num_frames <= 1:
+        return 0
+    step_i = max(0, int(step_idx_zero_based))
+    ord_mode = str(order or "sequential").strip().lower()
+    if ord_mode == "reverse":
+        return (num_frames - 1) - (step_i % num_frames)
+    elif ord_mode == "pingpong":
+        period = 2 * num_frames - 2
+        if period <= 0:
+            return 0
+        pos = step_i % period
+        return pos if pos < num_frames else period - pos
+    elif ord_mode == "random":
+        rng = random.Random(int(seed_base) * 10007 + step_i * 7919 + num_frames * 31)
+        return rng.randint(0, num_frames - 1)
+    return step_i % num_frames
+
+
+def node_animation(
+    context=None,
+    frames="",
+    step_ms=41.7,
+    start_time="",
+    end_time="",
+    mode="fbf",
+    alpha_tag=r"\alpha",
+    order="sequential",
+    var_name="an",
+    output_slot_index=0,
+    **kwargs
+):
+    """Animation node supporting Frame-by-Frame (fbf) and Synchronised Alpha Transformation (alpha) modes.
+
+    Accepts lists, Lua tables, JSON arrays, or delimited strings of vector shapes
+    or typographic glyphs (converted to vector outlines via FontVectorEngine).
+    Manages loop cycle registration and context injection ({var_name}_i, {var_name}_n,
+    {var_name}_max, an_loop_count, maxloop, anim_step_ms) and returns appropriate
+    outputs per slot and mode:
+
+    Modes:
+    1. 'fbf' (Frame-by-Frame):
+       - Slot 0: Active frame vector shape (with \\an7 alignment prefix if absent).
+       - Slot 1: Active 1-based frame index number.
+       - Slot 2: Full list of processed vector shape frames.
+    2. 'alpha' (Synchronised Transparency Transform):
+       - Generates cyclical stroboscopic \\t(...) blocks toggling between opaque (&H00&)
+         and transparent (&HFF&) states across the timeline using the target `alpha_tag`.
+       - Slot 0: Composite shape tagged with inline visibility transforms: {\\an7...\\p1}m...
+       - Slot 1: ASS visibility override tags alone.
+       - Slot 2: Active frame index.
+       - Slot 3: Full list of processed vector shape frames.
+
+    Args:
+        context (dict, optional): Active DAG execution context.
+        frames (Union[str, list, tuple, dict]): Frame sequence input.
+        step_ms (Union[float, str]): Duration per frame in milliseconds. Defaults to 41.7 (24 FPS).
+        start_time (Union[float, str]): Custom animation start timestamp. Defaults to effect_st.
+        end_time (Union[float, str]): Custom animation end timestamp. Defaults to effect_st + effect_dur.
+        mode (str): Animation mode ('fbf' or 'alpha'). Defaults to 'fbf'.
+        alpha_tag (str): Transparency tag to modulate in alpha mode ('\\alpha', '\\1a', etc.). Defaults to '\\alpha'.
+        order (str): Frame playback sequence order ('sequential', 'reverse', 'pingpong', 'random'). Defaults to 'sequential'.
+        var_name (str): Iterator and loop counter context prefix. Defaults to 'an'.
+        output_slot_index (int): Output connector pin index (0 to 3). Defaults to 0.
+        **kwargs: Additional parameters.
+
+    Returns:
+        Union[str, int, list]: Active shape string, ASS tag block, frame index, or frame list.
+    """
+    from node_engine import _eval_num_expr
+
+    ctx = context if isinstance(context, dict) else {}
+    var_prefix = str(var_name or "an").strip() or "an"
+
+    # 1. Parse and extract frames
+    raw_input = frames if frames is not None and str(frames).strip() != "" else kwargs.get("shape", kwargs.get("shapes", kwargs.get("text", "")))
+    processed_shapes = resolve_animation_frames_list(raw_input, ctx)
     num_frames = len(processed_shapes)
 
     # Resolve timing
@@ -2284,13 +2345,14 @@ def node_animation(
     except Exception:
         f_dur = 41.7
 
-    mode_str = str(kwargs.get("mode", kwargs.get("modo", mode or "FBF"))).strip().lower()
-    is_alpha_mode = "alpha" in mode_str or "alfa" in mode_str or "tag" in mode_str
+    mode_str = str(mode or "fbf").strip().lower()
+    is_alpha_mode = mode_str == "alpha"
+    order_str = str(order or "sequential").strip().lower()
 
-    unit = ctx.get('active_unit') or ctx.get('syl') or ctx.get('char') or ctx.get('word')
-    line = ctx.get('active_line') or ctx.get('line')
-    
-    # Use effect-calculated timing from Output (Salida) / fx context
+    unit = ctx.get("active_unit") or ctx.get("syl") or ctx.get("char") or ctx.get("word")
+    line = ctx.get("active_line") or ctx.get("line")
+
+    # Use effect-calculated timing from Output / fx context
     eff_st = float(ctx.get("effect_st", ctx.get("fx_start_time", ctx.get("fx_st", ctx.get("start_time", getattr(unit, "start_time", getattr(line, "start_time", 0.0)))))))
     eff_et = float(ctx.get("effect_et", ctx.get("fx_end_time", ctx.get("fx_et", ctx.get("end_time", getattr(unit, "end_time", getattr(line, "end_time", 0.0)))))))
     eff_dur = float(ctx.get("effect_dur", ctx.get("fx_dur", ctx.get("dur", ctx.get("duration", eff_et - eff_st)))))
@@ -2303,7 +2365,7 @@ def node_animation(
     st_raw_clean = str(st_raw).strip().lower()
     et_raw_clean = str(et_raw).strip().lower()
 
-    # Start time: local 0 means eff_st (relative to the effect calculated by Salida)
+    # Start time: local 0 means eff_st (relative to the effect calculated by Output)
     if st_raw_clean in ["", "0", "0.0", "start_time", "st", "effect_st", "fx_st", "fx_start_time", "fx.start_time", "fx.st"]:
         st_val = eff_st
     else:
@@ -2318,7 +2380,7 @@ def node_animation(
         except Exception:
             st_val = eff_st
 
-    # End time: local fx.dur means eff_st + eff_dur (relative to the effect calculated by Salida)
+    # End time: local fx.dur means eff_st + eff_dur (relative to the effect calculated by Output)
     if et_raw_clean in ["", "fx.dur", "dur", "duration", "effect_dur", "fx_dur", "end_time", "et", "effect_et", "fx_et", "fx_end_time", "fx.end_time", "fx.et"]:
         et_val = eff_st + eff_dur
     else:
@@ -2356,14 +2418,18 @@ def node_animation(
             context["maxloop"] = num_frames
             context.pop("anim_step_ms", None)
 
-    # 3. Resolve current iterator / index (cycles 1..num_frames continuously like a GIF)
+    # 3. Resolve current iterator / index according to sequence order
     iter_val = ctx.get(f"{var_prefix}_i") or ctx.get("an_i") or ctx.get("anim_i") or ctx.get("j") or ctx.get("fx_i") or ctx.get("i") or 1
     try:
         cur_idx = int(float(iter_val))
     except Exception:
         cur_idx = 1
 
-    active_frame_idx = (cur_idx - 1) % num_frames
+    seed_base = int(getattr(unit, "i", getattr(line, "i", 0)) or 0)
+    if not is_alpha_mode:
+        active_frame_idx = map_animation_step_to_frame_index(cur_idx - 1, num_frames, order_str, seed_base)
+    else:
+        active_frame_idx = (cur_idx - 1) % num_frames
 
     current_shape = processed_shapes[active_frame_idx]
     current_frame_num = active_frame_idx + 1
@@ -2374,7 +2440,7 @@ def node_animation(
         context["anim_i"] = current_frame_num
         context["an_j"] = cur_idx
 
-    # 5. Handle output slots per mode
+    # 4. Handle output slots per mode
     output_slot = int(output_slot_index or 0)
 
     if not is_alpha_mode:
@@ -2396,21 +2462,22 @@ def node_animation(
         raw_tag = str(alpha_tag or r"\alpha").strip()
         if not raw_tag.startswith("\\"):
             raw_tag = "\\" + raw_tag
-        if not (re.match(r'^\\[1-4]+a$', raw_tag) or raw_tag.lower() == r"\alpha"):
+        if not (re.match(r"^\\[1-4]+a$", raw_tag) or raw_tag.lower() == r"\alpha"):
             raw_tag = r"\alpha"
 
         tag_prefix = raw_tag
         tag_fx_parts = [r"\an7", f"{tag_prefix}&HFF&"]
 
-        num_loops = max(1, int(math.ceil(dur / (num_frames * f_dur))))
-        for k in range(num_loops + 1):
-            t1_f = f_dur * (num_frames * k + active_frame_idx)
-            t2_f = t1_f + 1.0
-            t3_f = f_dur * (num_frames * k + active_frame_idx + 1)
-            t4_f = t3_f + 1.0
-
+        for step_k in range(total_frames):
+            mapped_idx = map_animation_step_to_frame_index(step_k, num_frames, order_str, seed_base)
+            if mapped_idx != active_frame_idx:
+                continue
+            t1_f = f_dur * step_k
             if t1_f >= dur:
                 break
+            t2_f = t1_f + 1.0
+            t3_f = f_dur * (step_k + 1)
+            t4_f = t3_f + 1.0
 
             t1 = int(t1_f) if t1_f.is_integer() else round(t1_f, 2)
             t2 = int(t2_f) if t2_f.is_integer() else round(t2_f, 2)
@@ -2482,7 +2549,7 @@ def TagManipulatorNode(context=None, *args, **kwargs):
 NODE_REGISTRY["Functions/Tag Manipulator"] = TagManipulatorNode
 NODE_REGISTRY["Tag Manipulator"] = TagManipulatorNode
 
-@pyxis_node("Functions", "Animation", ["Frames / Text", "Step ms", "Start Time", "End Time"])
+@pyxis_node("Functions", "Animation", ["Shape list", "Step ms", "Start Time", "End Time"])
 def AnimationNode(context=None, *args, **kwargs):
     """Bridge node wrapper for Functions/Animation registration.
 

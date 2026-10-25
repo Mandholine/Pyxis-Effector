@@ -20,7 +20,7 @@ Serves as the Single Source of Truth (SSOT) for the Python backend runtime,
 IPC daemon, PyWebView window titles, and client authentication tokens.
 """
 
-PYXIS_VERSION = "1.1.5"
+PYXIS_VERSION = "1.1.6"
 PYXIS_STAGE = "Beta"
 PYXIS_STAGE_SHORT = "beta"
 
