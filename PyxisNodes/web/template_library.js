@@ -64,6 +64,9 @@
                 var p = (pMgr && pMgr.activePlayers && node.id !== undefined) ? pMgr.activePlayers[String(node.id)] : null;
                 if (p && p.isPinned) {
                     node.properties.is_pinned = true;
+                    if (node.size && node.size[0] > 0) {
+                        node.properties.pinned_width = Math.round(node.size[0]);
+                    }
                     if (p.originalSize) {
                         node.properties.previewer_width = Math.round(p.originalSize[0]);
                         node.properties.previewer_height = Math.round(p.originalSize[1]);

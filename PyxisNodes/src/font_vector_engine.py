@@ -23,7 +23,7 @@ import ctypes
 from ctypes import wintypes
 import platform
 import re
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple, List
 
 PT_MOVETO = 0x06
 PT_LINETO = 0x02
@@ -147,15 +147,20 @@ class FontVectorEngine:
         scale_x: Optional[float] = None,
         scale_y: Optional[float] = None,
         spacing: Optional[float] = None,
+        video_x_correct_factor: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Canonically extracts typographic properties from text and context.
 
 Hierarchically inspects:
-1. Explicit user parameters.
-2. Inline override tags (\\fn, \\fs, \\fscx, \\fscy, \\fsp, \\b, \\i) in unit or line text.
+1. Explicit user parameters (e.g., explicit scale_x/scale_y).
+2. Inline override tags (\\fn, \\fs, \\fsp, \\b, \\i) in unit or line text.
 3. `styleref` object in `active_line`, `active_unit`, `line`, or `context`.
 4. Size metrics (`unit.height`, `line.height`).
 5. Standard guaranteed fallbacks.
+
+Note on scaling: Horizontal and vertical scaling (scale_x, scale_y) default to 100.0
+without pre-scaling from styles or inline tags (delegating anamorphic scaling
+to the ASS renderer to prevent compounding scale distortion).
 """
         unit = context.get('active_unit') if isinstance(context, dict) else (context.get('unit') if isinstance(context, dict) else (context.get('syl') if isinstance(context, dict) else None))
         line = context.get('active_line') if isinstance(context, dict) else (context.get('line') if isinstance(context, dict) else None)
@@ -180,14 +185,15 @@ Hierarchically inspects:
         if not styleref and isinstance(context, dict):
             styleref = context.get('styleref') or context.get('style')
 
+        base_sc_x = 100.0
+        base_sc_y = 100.0
+
         style_override = getattr(unit, 'style_override', None) or getattr(line, 'style_override', None)
         if style_override is not None:
             base_fn = style_override.fontname
             base_fs = style_override.fontsize
             base_b = style_override.bold
             base_i = style_override.italic
-            base_sc_x = style_override.scale_x
-            base_sc_y = style_override.scale_y
             base_spacing = style_override.spacing
         elif isinstance(styleref, dict):
             base_fn = str(styleref.get('Fontname', styleref.get('fontname', 'Arial')))
@@ -199,14 +205,6 @@ Hierarchically inspects:
             base_b = str(raw_b).strip() in ['1', '-1', 'true', 'True'] if not isinstance(raw_b, bool) else raw_b
             raw_i = styleref.get('Italic', styleref.get('italic', False))
             base_i = str(raw_i).strip() in ['1', '-1', 'true', 'True'] if not isinstance(raw_i, bool) else raw_i
-            try:
-                base_sc_x = float(styleref.get('ScaleX', styleref.get('scale_x', 100.0)))
-            except Exception:
-                base_sc_x = 100.0
-            try:
-                base_sc_y = float(styleref.get('ScaleY', styleref.get('scale_y', 100.0)))
-            except Exception:
-                base_sc_y = 100.0
             try:
                 base_spacing = float(styleref.get('Spacing', styleref.get('spacing', 0.0)))
             except Exception:
@@ -220,14 +218,6 @@ Hierarchically inspects:
             base_b = bool(getattr(styleref, 'bold', False))
             base_i = bool(getattr(styleref, 'italic', False))
             try:
-                base_sc_x = float(getattr(styleref, 'scale_x', 100.0))
-            except Exception:
-                base_sc_x = 100.0
-            try:
-                base_sc_y = float(getattr(styleref, 'scale_y', 100.0))
-            except Exception:
-                base_sc_y = 100.0
-            try:
                 base_spacing = float(getattr(styleref, 'spacing', 0.0))
             except Exception:
                 base_spacing = 0.0
@@ -236,8 +226,6 @@ Hierarchically inspects:
             base_fs = float(getattr(unit, 'height', getattr(line, 'height', 40.0)) or 40.0)
             base_b = False
             base_i = False
-            base_sc_x = 100.0
-            base_sc_y = 100.0
             base_spacing = 0.0
 
         raw_text_src = (getattr(unit, 'text', '') or getattr(line, 'raw_text', '') or getattr(line, 'text', '') or '') if (unit or line) else ''
@@ -248,14 +236,6 @@ Hierarchically inspects:
             fs_m = re.search(r'\\fs(\d+(?:\.\d+)?)', raw_text_src)
             if fs_m:
                 try: base_fs = float(fs_m.group(1))
-                except Exception: pass
-            fscx_m = re.search(r'\\fscx(\d+(?:\.\d+)?)', raw_text_src)
-            if fscx_m:
-                try: base_sc_x = float(fscx_m.group(1))
-                except Exception: pass
-            fscy_m = re.search(r'\\fscy(\d+(?:\.\d+)?)', raw_text_src)
-            if fscy_m:
-                try: base_sc_y = float(fscy_m.group(1))
                 except Exception: pass
             fsp_m = re.search(r'\\fsp(-?\d+(?:\.\d+)?)', raw_text_src)
             if fsp_m:
@@ -276,13 +256,13 @@ Hierarchically inspects:
         b_final = bool(bold) if bold is not None else base_b
         i_final = bool(italic) if italic is not None else base_i
         try:
-            sc_x_final = float(scale_x) if (scale_x is not None and str(scale_x).strip() != "") else base_sc_x
+            sc_x_final = float(scale_x) if (scale_x is not None and str(scale_x).strip() != "") else 100.0
         except Exception:
-            sc_x_final = base_sc_x
+            sc_x_final = 100.0
         try:
-            sc_y_final = float(scale_y) if (scale_y is not None and str(scale_y).strip() != "") else base_sc_y
+            sc_y_final = float(scale_y) if (scale_y is not None and str(scale_y).strip() != "") else 100.0
         except Exception:
-            sc_y_final = base_sc_y
+            sc_y_final = 100.0
         try:
             spacing_final = float(spacing) if (spacing is not None and str(spacing).strip() != "") else base_spacing
         except Exception:
@@ -291,6 +271,17 @@ Hierarchically inspects:
             scale_final = float(scale) if scale is not None else 1.0
         except Exception:
             scale_final = 1.0
+
+        try:
+            if video_x_correct_factor is not None:
+                v_factor = float(video_x_correct_factor)
+            else:
+                # In standard ASS authoring, text-derived vector paths operate strictly within
+                # the PlayRes coordinate space without anamorphic pre-distortion so they retain
+                # exact 1:1 metric parity with typographic font glyphs.
+                v_factor = 1.0
+        except Exception:
+            v_factor = 1.0
 
         return {
             "text": txt_val,
@@ -302,6 +293,7 @@ Hierarchically inspects:
             "scale_x": sc_x_final,
             "scale_y": sc_y_final,
             "spacing": spacing_final,
+            "video_x_correct_factor": v_factor,
         }
 
     @classmethod
@@ -317,7 +309,8 @@ Hierarchically inspects:
         scale_x: Optional[float] = None,
         scale_y: Optional[float] = None,
         spacing: Optional[float] = None,
-        anchor: str = "typographic"
+        anchor: str = "typographic",
+        video_x_correct_factor: Optional[float] = None
     ) -> str:
         """
         Converts text string into ASSdraw vector commands using comprehensive node execution context.
@@ -336,7 +329,8 @@ Hierarchically inspects:
             scale_x=scale_x,
             scale_y=scale_y,
             spacing=spacing,
-            anchor=anchor
+            anchor=anchor,
+            video_x_correct_factor=video_x_correct_factor
         )
         return metrics.shape if metrics else ""
 
@@ -355,7 +349,8 @@ Hierarchically inspects:
         scale_x: Optional[float] = None,
         scale_y: Optional[float] = None,
         spacing: Optional[float] = None,
-        anchor: str = "typographic"
+        anchor: str = "typographic",
+        video_x_correct_factor: Optional[float] = None
     ) -> FontVectorMetrics:
         """
         Extracts complete non-destructive font and vector metrics using hierarchical context resolution.
@@ -373,7 +368,8 @@ Hierarchically inspects:
             scale=scale,
             scale_x=scale_x,
             scale_y=scale_y,
-            spacing=spacing
+            spacing=spacing,
+            video_x_correct_factor=video_x_correct_factor
         )
         if not params["text"]:
             return FontVectorMetrics()
@@ -388,7 +384,8 @@ Hierarchically inspects:
             scale_x=params["scale_x"],
             scale_y=params["scale_y"],
             spacing=params["spacing"],
-            anchor=anchor
+            anchor=anchor,
+            video_x_correct_factor=params.get("video_x_correct_factor", 1.0)
         )
 
     @classmethod
@@ -403,7 +400,8 @@ Hierarchically inspects:
         scale_x: float = 100.0,
         scale_y: float = 100.0,
         spacing: float = 0.0,
-        anchor: str = "typographic"
+        anchor: str = "typographic",
+        video_x_correct_factor: float = 1.0
     ) -> str:
         """
         Converts a text string into ASSdraw vector commands with normalisation caching.
@@ -419,6 +417,7 @@ Hierarchically inspects:
             scale_y: Vertical scale percentage.
             spacing: Inter-character tracking offset.
             anchor: Coordinate anchoring mode ('typographic', 'ink', 'origin', 'baseline').
+            video_x_correct_factor: Anamorphic aspect ratio correction factor (default 1.0).
 
         Returns:
             ASSdraw format path string.
@@ -433,7 +432,8 @@ Hierarchically inspects:
             scale_x=scale_x,
             scale_y=scale_y,
             spacing=spacing,
-            anchor=anchor
+            anchor=anchor,
+            video_x_correct_factor=video_x_correct_factor
         )
         return metrics.shape if metrics else ""
 
@@ -449,7 +449,8 @@ Hierarchically inspects:
         scale_x: float = 100.0,
         scale_y: float = 100.0,
         spacing: float = 0.0,
-        anchor: str = "typographic"
+        anchor: str = "typographic",
+        video_x_correct_factor: float = 1.0
     ) -> FontVectorMetrics:
         """
         Returns full vector and typography metrics with normalisation caching.
@@ -465,6 +466,7 @@ Hierarchically inspects:
             scale_y: Vertical scale percentage.
             spacing: Inter-character tracking offset.
             anchor: Coordinate anchoring mode ('typographic', 'ink', 'origin', 'baseline').
+            video_x_correct_factor: Anamorphic aspect ratio correction factor (default 1.0).
 
         Returns:
             FontVectorMetrics instance containing shapes and geometric bounding boxes.
@@ -497,8 +499,12 @@ Hierarchically inspects:
         except Exception:
             sp_val = 0.0
         anchor_val = str(anchor or "typographic").strip().lower()
+        try:
+            v_factor = round(float(video_x_correct_factor), 5) if video_x_correct_factor is not None else 1.0
+        except Exception:
+            v_factor = 1.0
 
-        cache_key = (text_str, fn_str, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val)
+        cache_key = (text_str, fn_str, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val, v_factor)
         if cache_key in cls._cache:
             return cls._cache[cache_key]
 
@@ -506,14 +512,22 @@ Hierarchically inspects:
         if platform.system() == "Windows":
             try:
                 res_metrics = cls._text_to_shape_gdi(
-                    text_str, font_name, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val
+                    text_str, font_name, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val, v_factor
                 )
             except Exception as e:
                 print(f"[FontVectorEngine GDI Warning] {e}")
 
         if not res_metrics or not res_metrics.shape or res_metrics.shape == "m 0 0":
+            try:
+                res_metrics = cls._text_to_shape_freetype(
+                    text_str, font_name, fs_val, b_val, i_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val, v_factor
+                )
+            except Exception as e:
+                print(f"[FontVectorEngine FreeType Warning] {e}")
+
+        if not res_metrics or not res_metrics.shape or res_metrics.shape == "m 0 0":
             res_metrics = cls._text_to_shape_fallback(
-                text_str, fs_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val
+                text_str, fs_val, sc_val, sc_x_val, sc_y_val, sp_val, anchor_val, v_factor
             )
 
         if len(cls._cache) >= cls.MAX_CACHE_SIZE:
@@ -535,7 +549,8 @@ Hierarchically inspects:
         scale_x: float = 100.0,
         scale_y: float = 100.0,
         spacing: float = 0.0,
-        anchor: str = "typographic"
+        anchor: str = "typographic",
+        video_x_correct_factor: float = 1.0
     ) -> FontVectorMetrics:
         """
         Extracts vector outlines via Win32 GDI paths and constructs ASSdraw commands ('m ... l ... b ...').
@@ -685,7 +700,7 @@ Hierarchically inspects:
         gdi32.GetTextExtentPoint32W(hdc, text_w, len(text_w), ctypes.byref(sz))
 
         num_points = gdi32.GetPath(hdc, None, None, 0)
-        scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0) * calib
+        scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0) * calib * float(video_x_correct_factor)
         scale_factor_y = (1.0 / 64.0) * float(scale) * (float(scale_y) / 100.0) * calib
 
         adv_w = round(total_cx * scale_factor_x, 3)
@@ -807,11 +822,12 @@ Hierarchically inspects:
         scale_x: float = 100.0,
         scale_y: float = 100.0,
         spacing: float = 0.0,
-        anchor: str = "typographic"
+        anchor: str = "typographic",
+        video_x_correct_factor: float = 1.0
     ) -> FontVectorMetrics:
         """Generates an approximate vector bounding box fallback centred at (0, 0) with metrics."""
         extra_sp = float(spacing) * max(0, len(text) - 1)
-        width = (float(len(text) * float(font_size) * 0.6) + extra_sp) * (float(scale_x) / 100.0) * float(scale)
+        width = (float(len(text) * float(font_size) * 0.6) + extra_sp) * (float(scale_x) / 100.0) * float(scale) * float(video_x_correct_factor)
         height = float(float(font_size) * (float(scale_y) / 100.0) * float(scale))
         hw, hh = round(width * 0.5, 2), round(height * 0.5, 2)
         shape_str = f"m {-hw} {-hh} l {hw} {-hh} l {hw} {hh} l {-hw} {hh}"
@@ -833,3 +849,220 @@ Hierarchically inspects:
             delta_x=0.0,
             delta_y=0.0
         )
+
+    @staticmethod
+    def _conic_to_cubic(
+        p0: Tuple[float, float],
+        p1: Tuple[float, float],
+        p2: Tuple[float, float]
+    ) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
+        """Elevates a quadratic Bézier curve (p0, p1, p2) to an exact cubic Bézier curve."""
+        c1 = (p0[0] + (2.0 / 3.0) * (p1[0] - p0[0]), p0[1] + (2.0 / 3.0) * (p1[1] - p0[1]))
+        c2 = (p2[0] + (2.0 / 3.0) * (p1[0] - p2[0]), p2[1] + (2.0 / 3.0) * (p1[1] - p2[1]))
+        return c1, c2, p2
+
+    @classmethod
+    def _text_to_shape_freetype(
+        cls,
+        text: str,
+        font_name: str,
+        font_size: float,
+        bold: bool,
+        italic: bool,
+        scale: float,
+        scale_x: float = 100.0,
+        scale_y: float = 100.0,
+        spacing: float = 0.0,
+        anchor: str = "typographic",
+        video_x_correct_factor: float = 1.0
+    ) -> FontVectorMetrics:
+        """
+        Extracts vector outlines via FreeType outline decomposition and constructs ASSdraw commands ('m ... l ... b ...').
+
+        Converts quadratic TrueType curves to cubic Bézier via degree elevation (_conic_to_cubic),
+        inverts the Y-axis to match ASS/GDI downward orientation, computes typographic vs ink
+        bounding boxes, and translates coordinates according to requested anchor.
+        """
+        try:
+            import freetype
+        except ImportError:
+            return FontVectorMetrics()
+
+        try:
+            from font_resolver import resolve_font_file
+            font_path = resolve_font_file(font_name, bold=bold, italic=italic)
+        except Exception:
+            font_path = None
+
+        if not font_path:
+            return FontVectorMetrics()
+
+        try:
+            face = freetype.Face(font_path)
+            face.set_char_size(int(round(font_size * 64.0)))
+        except Exception:
+            return FontVectorMetrics()
+
+        text_w = str(text).rstrip()
+        if not text_w:
+            return FontVectorMetrics()
+
+        commands: List[Tuple[str, Any]] = []
+        cur_pos = [0.0, 0.0]
+        all_points_x: List[float] = []
+        all_points_y: List[float] = []
+
+        cur_cursor_x = 0.0
+        sp_64 = float(spacing) * 64.0
+        asc = float(face.size.ascender)
+
+        for idx, ch in enumerate(text_w):
+            try:
+                face.load_char(ch, freetype.FT_LOAD_NO_BITMAP | freetype.FT_LOAD_DEFAULT)
+            except Exception:
+                continue
+
+            outline = face.glyph.outline
+            glyph_start_x = cur_cursor_x
+
+            def move_to(a, ctx):
+                x = a.x + glyph_start_x
+                y = asc - a.y
+                all_points_x.append(x)
+                all_points_y.append(y)
+                cur_pos[0], cur_pos[1] = x, y
+                commands.append(('m', (x, y)))
+
+            def line_to(a, ctx):
+                x = a.x + glyph_start_x
+                y = asc - a.y
+                all_points_x.append(x)
+                all_points_y.append(y)
+                cur_pos[0], cur_pos[1] = x, y
+                commands.append(('l', (x, y)))
+
+            def conic_to(a, b, ctx):
+                p0 = (cur_pos[0], cur_pos[1])
+                p1 = (a.x + glyph_start_x, asc - a.y)
+                p2 = (b.x + glyph_start_x, asc - b.y)
+                all_points_x.extend([p1[0], p2[0]])
+                all_points_y.extend([p1[1], p2[1]])
+                c1, c2, c3 = cls._conic_to_cubic(p0, p1, p2)
+                cur_pos[0], cur_pos[1] = p2[0], p2[1]
+                commands.append(('b', (c1, c2, c3)))
+
+            def cubic_to(a, b, c, ctx):
+                p1 = (a.x + glyph_start_x, asc - a.y)
+                p2 = (b.x + glyph_start_x, asc - b.y)
+                p3 = (c.x + glyph_start_x, asc - c.y)
+                all_points_x.extend([p1[0], p2[0], p3[0]])
+                all_points_y.extend([p1[1], p2[1], p3[1]])
+                cur_pos[0], cur_pos[1] = p3[0], p3[1]
+                commands.append(('b', (p1, p2, p3)))
+
+            try:
+                outline.decompose(context=None, move_to=move_to, line_to=line_to, conic_to=conic_to, cubic_to=cubic_to)
+            except Exception:
+                pass
+
+            adv_64 = float(face.glyph.metrics.horiAdvance)
+            if idx < len(text_w) - 1:
+                cur_cursor_x += adv_64 + sp_64
+            else:
+                cur_cursor_x += adv_64
+
+        scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0) * float(video_x_correct_factor)
+        scale_factor_y = (1.0 / 64.0) * float(scale) * (float(scale_y) / 100.0)
+
+        adv_w = round(cur_cursor_x * scale_factor_x, 3)
+        cell_h = round(float(face.size.height) * scale_factor_y, 3)
+        ascent_val = round(float(face.size.ascender) * scale_factor_y, 3)
+        descent_val = round(abs(float(face.size.descender)) * scale_factor_y, 3)
+
+        if not all_points_x:
+            return FontVectorMetrics(
+                shape="",
+                advance_width=adv_w,
+                cell_height=cell_h,
+                ascent=ascent_val,
+                descent=descent_val,
+                spacing=float(spacing)
+            )
+
+        min_px = min(all_points_x)
+        max_px = max(all_points_x)
+        min_py = min(all_points_y)
+        max_py = max(all_points_y)
+
+        lsb_val = round(min_px * scale_factor_x, 3)
+        rsb_val = round(adv_w - (max_px * scale_factor_x), 3)
+        ink_w = round(max(0.0, (max_px - min_px) * scale_factor_x), 3)
+        ink_h = round(max(0.0, (max_py - min_py) * scale_factor_y), 3)
+
+        typographic_cx = (cur_cursor_x * scale_factor_x) / 2.0
+        typographic_cy = (float(face.size.height) * scale_factor_y) / 2.0
+
+        ink_cx = ((min_px + max_px) * scale_factor_x) / 2.0
+        ink_cy = ((min_py + max_py) * scale_factor_y) / 2.0
+
+        delta_x = round(ink_cx - typographic_cx, 3)
+        delta_y = round(ink_cy - typographic_cy, 3)
+
+        ink_min_x = round(min_px * scale_factor_x - typographic_cx, 3)
+        ink_max_x = round(max_px * scale_factor_x - typographic_cx, 3)
+        ink_min_y = round(min_py * scale_factor_y - typographic_cy, 3)
+        ink_max_y = round(max_py * scale_factor_y - typographic_cy, 3)
+
+        anchor_clean = str(anchor).strip().lower()
+        if anchor_clean == "ink":
+            layout_cx = ink_cx
+            layout_cy = ink_cy
+        elif anchor_clean in ("origin", "baseline"):
+            layout_cx = 0.0
+            layout_cy = ascent_val
+        else:
+            layout_cx = typographic_cx
+            layout_cy = typographic_cy
+
+        ass_parts = []
+        for cmd, pts in commands:
+            if cmd == 'm':
+                x = round(pts[0] * scale_factor_x - layout_cx, 2)
+                y = round(pts[1] * scale_factor_y - layout_cy, 2)
+                ass_parts.append(f"m {x} {y}")
+            elif cmd == 'l':
+                x = round(pts[0] * scale_factor_x - layout_cx, 2)
+                y = round(pts[1] * scale_factor_y - layout_cy, 2)
+                ass_parts.append(f"l {x} {y}")
+            elif cmd == 'b':
+                c1, c2, c3 = pts
+                x1 = round(c1[0] * scale_factor_x - layout_cx, 2)
+                y1 = round(c1[1] * scale_factor_y - layout_cy, 2)
+                x2 = round(c2[0] * scale_factor_x - layout_cx, 2)
+                y2 = round(c2[1] * scale_factor_y - layout_cy, 2)
+                x3 = round(c3[0] * scale_factor_x - layout_cx, 2)
+                y3 = round(c3[1] * scale_factor_y - layout_cy, 2)
+                ass_parts.append(f"b {x1} {y1} {x2} {y2} {x3} {y3}")
+
+        raw_shape = " ".join(ass_parts)
+
+        return FontVectorMetrics(
+            shape=raw_shape,
+            advance_width=adv_w,
+            cell_height=cell_h,
+            ascent=ascent_val,
+            descent=descent_val,
+            spacing=float(spacing),
+            lsb=lsb_val,
+            rsb=rsb_val,
+            ink_min_x=ink_min_x,
+            ink_min_y=ink_min_y,
+            ink_max_x=ink_max_x,
+            ink_max_y=ink_max_y,
+            ink_width=ink_w,
+            ink_height=ink_h,
+            delta_x=delta_x,
+            delta_y=delta_y
+        )
+
+    text_to_shape_metrics = get_metrics

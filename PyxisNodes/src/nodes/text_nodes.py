@@ -606,7 +606,8 @@ def text_on_path_core(
         _map_dist_to_bezier_u,
         _eval_bezier_tangent,
         _eval_bezier_pt,
-        resolve_shape_value
+        resolve_shape_value,
+        split_shape_and_tags
     )
 
     ctx = context if isinstance(context, dict) else {}
@@ -626,7 +627,9 @@ def text_on_path_core(
         pos_s = f"\\pos({u_cx:.2f},{u_cy:.2f})".rstrip('0').rstrip('.')
         return pos_s, pos_s, "\\frz0", round(u_cx, 2), round(u_cy, 2), 0.0, 0.0
 
-    contours = parse_assdraw_segments(shp_val)
+    # Extract pure ASSdraw geometry for path segment discretization, discarding curve tags
+    _, pure_path = split_shape_and_tags(shp_val)
+    contours = parse_assdraw_segments(pure_path or shp_val)
     if not contours:
         u_cx = float(getattr(unit, 'center', getattr(unit, 'x', 0.0))) if unit else 0.0
         u_cy = float(getattr(unit, 'middle', getattr(unit, 'y', 0.0))) if unit else 0.0
@@ -996,7 +999,18 @@ def move_text_node(
         w_dot = 7.5
         w_space = 10.0
 
-    is_shape = bool(raw_text.strip().startswith("m ") or raw_text.strip().startswith(r"{\p1}") or raw_text.strip().startswith(r"\p1"))
+    try:
+        from nodes.shape_nodes import split_shape_and_tags
+        _, pure_text_check = split_shape_and_tags(raw_text)
+    except Exception:
+        pure_text_check = raw_text
+
+    is_shape = bool(
+        raw_text.strip().startswith("m ")
+        or raw_text.strip().startswith(r"{\p1}")
+        or raw_text.strip().startswith(r"\p1")
+        or (pure_text_check and pure_text_check.strip().startswith("m "))
+    )
     if not is_shape:
         trailing_spaces = len(raw_text) - len(raw_text.rstrip(' '))
         ini_x = w_dot + trailing_spaces * w_space
@@ -1032,7 +1046,12 @@ def move_text_node(
 
     pts = []
     if traj_raw:
-        pts = _parse_points_input(traj_raw, step_px=step_f)
+        try:
+            from nodes.shape_nodes import split_shape_and_tags
+            _, pure_traj = split_shape_and_tags(traj_raw)
+        except Exception:
+            pure_traj = traj_raw
+        pts = _parse_points_input(pure_traj or traj_raw, step_px=step_f)
 
     if pts:
         if anchor_mode == "first_point":
@@ -1136,7 +1155,13 @@ def move_text_node(
         mov_h2 = f"{{\\r\\alpha&HFF&{mov_x2}{''.join(transfo_nx)}}}."
     else:
         mov_h1 = f"{{\\p0\\r\\alpha&HFF&{mov_x1}{''.join(transfo_px)}}}."
-        text_block = f"{{\\r{add_tags}\\p1}}{raw_text}"
+        try:
+            from nodes.shape_nodes import split_shape_and_tags
+            shape_tags, pure_shape = split_shape_and_tags(raw_text)
+            cleaned_shape_tags = re.sub(r'\\p[0-9]+', '', shape_tags)
+            text_block = f"{{\\r{add_tags}{cleaned_shape_tags}\\p1}}{pure_shape}"
+        except Exception:
+            text_block = f"{{\\r{add_tags}\\p1}}{raw_text}"
         mov_h2 = f"{{\\p0\\r\\alpha&HFF&{mov_x2}{''.join(transfo_nx)}}}."
 
     mov_v1 = f"{{{mov_y1}{''.join(transfo_p)}\\p1}}m 0 0 m 0 100 {{\\p0}}\\N"

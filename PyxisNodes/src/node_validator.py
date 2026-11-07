@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import ast
 import difflib
+import keyword
+import os
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
 _KNOWN_GLOBAL_VARS: Set[str] = {
@@ -50,7 +52,7 @@ _KNOWN_GLOBAL_VARS: Set[str] = {
     "tp_i", "tp_n", "tp_max", "text_p_i", "text_p_n", "text_p_max",
     "ip_i", "ip_n", "ip_max", "img_p_i", "img_p_n", "img_p_max", "total_pixels",
     "c_i", "c_n", "c_max", "clip_i", "clip_n", "clip_max",
-    "an_i", "an_n", "an_max", "anim_i", "anim_n", "anim_max", "an_j",
+    "an_i", "an_n", "an_max",
 
     # 3. Spatial, Coordinates, and Box Dimensions
     "x", "y", "ox", "oy", "pos_x", "pos_y", "org_x", "org_y",
@@ -76,7 +78,8 @@ _KNOWN_GLOBAL_VARS: Set[str] = {
     "time_lead_in", "time_lead_out", "time_middle_1", "time_middle_2", "time_loop_1", "time_loop_2",
 
     # 5. ASS Subtitle Attributes & Context Helpers
-    "layer", "style", "actor", "text", "text_stripped", "margin_l", "margin_r", "margin_v", "effect",
+    "layer", "fx_layer", "style", "actor", "text", "text_stripped", "margin_l", "margin_r", "margin_v", "effect",
+    "margins", "queueid", "queue_id", "queueorder", "queue_order",
     "ratio", "module", "prog", "progress", "order", "prev", "next", "is_first", "is_last",
     "has_prev", "has_next", "val", "value", "v", "v1", "v2", "accel", "step", "seed",
     "return_raw",
@@ -212,12 +215,8 @@ _SUBLOOP_GENERATOR_VARS: Dict[str, Tuple[str, ...]] = {
 
     # 10. Animation
     "an_i": ("Functions/Animation", "Animation"),
-    "anim_i": ("Functions/Animation", "Animation"),
-    "an_j": ("Functions/Animation", "Animation"),
     "an_n": ("Functions/Animation", "Animation"),
     "an_max": ("Functions/Animation", "Animation"),
-    "anim_n": ("Functions/Animation", "Animation"),
-    "anim_max": ("Functions/Animation", "Animation"),
 }
 
 _SHAPE_PRESETS: Set[str] = {
@@ -254,16 +253,18 @@ def _is_drawing_or_shape(text: str) -> bool:
         text: Input string to test against shape catalog or drawing command syntax.
 
     Returns:
-        bool: True if the string matches a canonical shape preset or starts with an ASSdraw vector command ('m').
+        bool: True if the string matches a canonical shape preset ('shape.<preset>') or starts with an ASSdraw vector command ('m').
     """
     clean = text.strip()
     if not clean:
         return False
     clean_lower = clean.lower()
-    if clean_lower in _SHAPE_PRESETS:
-        return True
-    # Vector drawings must start with the move command 'm' (e.g. 'm 0 0', 'm-10 -20')
-    if re.match(r'^m\s*-?\d+', clean_lower) or clean_lower.startswith(('m ', 'm-')):
+    if clean_lower.startswith("shape."):
+        preset_name = clean_lower[6:]
+        if preset_name in _SHAPE_PRESETS or not preset_name:
+            return True
+    # Vector drawings must start with the move command 'm' (e.g. 'm 0 0', 'm-10 -20', 'm0 0')
+    if re.match(r'^m\s*-?\d+', clean_lower) or clean_lower.startswith(('m ', 'm-', 'm0')):
         return True
     return False
 
@@ -509,18 +510,31 @@ class GraphValidator:
          i18n localisation keys, and corrective suggestions.
     """
 
-    def __init__(self, graph_data: Dict[str, Any]):
+    def __init__(
+        self,
+        graph_data: Dict[str, Any],
+        subtitle_lines: Optional[List[Any]] = None,
+        extra_valid_vars: Optional[Set[str] | Iterable[str]] = None,
+        ass_path: Optional[str] = None
+    ):
         """
         Initialises the validator with raw serialised graph data from LiteGraph / Pyxis.
 
         Args:
             graph_data: Dictionary representing canvas state containing 'nodes' and 'links' lists.
+            subtitle_lines: Optional list of dialogue line items, objects, or raw ASS lines.
+            extra_valid_vars: Optional iterable of additional valid variable names.
+            ass_path: Optional path to active ASS file containing styles and events.
         """
         self.graph_data = graph_data if isinstance(graph_data, dict) else {}
         self.nodes: List[Dict[str, Any]] = self.graph_data.get("nodes", []) if isinstance(self.graph_data.get("nodes"), list) else []
         self.links: List[Any] = self.graph_data.get("links", []) if isinstance(self.graph_data.get("links"), list) else []
         self.issues: List[Dict[str, Any]] = []
         self.user_defined_vars: Set[str] = set()
+        self.subtitle_lines = subtitle_lines
+        self.extra_valid_vars: Set[str] = set(extra_valid_vars) if extra_valid_vars else set()
+        self.ass_path = ass_path
+        self.subtitle_line_vars: Set[str] = set()
         self.present_node_types: Set[str] = set()
         for n in self.nodes:
             if isinstance(n, dict):
@@ -650,14 +664,137 @@ class GraphValidator:
                 if v and v.isidentifier():
                     collected.add(v)
 
-            # 6. Functions/Animation
-            elif ntype in ("Functions/Animation", "Animation"):
-                v = str(props.get("var_name", "an")).strip()
-                if v and v.isidentifier():
-                    collected.add(f"{v}_i")
-                    collected.add(f"{v}_n")
-                    collected.add(f"{v}_max")
-                    collected.add(f"{v}_j")
+        # 6. Subtitle Line Metadata (actor, effect, and style fields from original lines)
+        self.subtitle_line_vars = self._collect_subtitle_line_vars()
+        collected.update(self.subtitle_line_vars)
+
+        return collected
+
+    def _extract_tokens_from_field(self, field_value: Any, out_set: Set[str]) -> None:
+        """Extracts valid Python identifier tokens from an ASS line metadata field."""
+        if not field_value:
+            return
+        val_str = str(field_value).strip()
+        if not val_str:
+            return
+        if val_str.isidentifier() and not keyword.iskeyword(val_str):
+            out_set.add(val_str)
+        for tok in re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', val_str):
+            if not keyword.iskeyword(tok):
+                out_set.add(tok)
+
+    def _extract_line_field_vars(self, line_item: Any, out_set: Set[str]) -> None:
+        """Extracts identifiers from actor, effect, and style fields of a line item."""
+        if not line_item:
+            return
+        # If it's a raw ASS Dialogue / Comment line string
+        if isinstance(line_item, str):
+            clean_line = line_item.strip()
+            if clean_line.startswith(("Dialogue:", "Comment:")):
+                parts = clean_line.split(":", 1)[1].split(",", 9)
+                if len(parts) >= 9:
+                    self._extract_tokens_from_field(parts[3], out_set)  # Style
+                    self._extract_tokens_from_field(parts[4], out_set)  # Actor / Name
+                    self._extract_tokens_from_field(parts[8], out_set)  # Effect
+            return
+
+        # If it's a dict (e.g. parsed DialogueItem from ASSParser or JSON)
+        if isinstance(line_item, dict):
+            raw = line_item.get("raw")
+            if raw and isinstance(raw, str):
+                self._extract_line_field_vars(raw, out_set)
+            self._extract_tokens_from_field(line_item.get("actor"), out_set)
+            self._extract_tokens_from_field(line_item.get("name"), out_set)
+            self._extract_tokens_from_field(line_item.get("effect"), out_set)
+            self._extract_tokens_from_field(line_item.get("style"), out_set)
+            self._extract_tokens_from_field(line_item.get("style_name"), out_set)
+            return
+
+        # If it's a PyxisLine or other line object
+        for attr in ("actor", "effect", "style_name", "style"):
+            val = getattr(line_item, attr, None)
+            if val is not None:
+                self._extract_tokens_from_field(val, out_set)
+        raw = getattr(line_item, "raw", None)
+        if raw and isinstance(raw, str):
+            self._extract_line_field_vars(raw, out_set)
+
+    def _harvest_ass_file_vars(self, filepath: str, out_set: Set[str]) -> None:
+        """Parses an ASS file to extract all style names, actors, and effects."""
+        if not filepath or not os.path.isfile(filepath):
+            return
+        try:
+            with open(filepath, "r", encoding="utf-8-sig", errors="replace") as fp:
+                for line in fp:
+                    line_s = line.strip()
+                    if not line_s or line_s.startswith(";"):
+                        continue
+                    if line_s.startswith("Style:"):
+                        payload = line_s.split(":", 1)[1].strip()
+                        style_name = payload.split(",", 1)[0].strip()
+                        self._extract_tokens_from_field(style_name, out_set)
+                    elif line_s.startswith(("Dialogue:", "Comment:")):
+                        parts = line_s.split(":", 1)[1].split(",", 9)
+                        if len(parts) >= 9:
+                            self._extract_tokens_from_field(parts[3], out_set)  # Style
+                            self._extract_tokens_from_field(parts[4], out_set)  # Actor
+                            self._extract_tokens_from_field(parts[8], out_set)  # Effect
+        except Exception:
+            pass
+
+    def _discover_active_ass_path(self) -> Optional[str]:
+        """Auto-discovers the most recently active ASS file from Pyxis user directory."""
+        try:
+            try:
+                from paths import get_user_data_dir
+                user_dir = get_user_data_dir()
+            except ImportError:
+                user_dir = os.path.join(os.environ.get("APPDATA", ""), "PyxisNodes")
+            if not user_dir or not os.path.isdir(user_dir):
+                return None
+
+            # 1. Search temp_cache for the newest Pyxis_temp_*.ass
+            cache_dir = os.path.join(user_dir, "temp_cache")
+            if os.path.isdir(cache_dir):
+                candidates = []
+                for fname in os.listdir(cache_dir):
+                    if fname.endswith(".ass") and fname.startswith("Pyxis_temp_"):
+                        fpath = os.path.join(cache_dir, fname)
+                        if os.path.isfile(fpath):
+                            candidates.append((os.path.getmtime(fpath), fpath))
+                if candidates:
+                    candidates.sort(key=lambda x: x[0], reverse=True)
+                    return candidates[0][1]
+
+            # 2. Check preview_base.ass
+            base_ass = os.path.join(user_dir, "preview_base.ass")
+            if os.path.isfile(base_ass):
+                return base_ass
+        except Exception:
+            pass
+        return None
+
+    def _collect_subtitle_line_vars(self) -> Set[str]:
+        """Collects valid variable identifiers from active subtitle lines, actors, and effects."""
+        collected: Set[str] = set()
+
+        # 1. Extra variables explicitly passed in
+        if self.extra_valid_vars:
+            for item in self.extra_valid_vars:
+                self._extract_tokens_from_field(item, collected)
+
+        # 2. Subtitle lines explicitly passed in
+        if self.subtitle_lines:
+            for item in self.subtitle_lines:
+                self._extract_line_field_vars(item, collected)
+
+        # 3. ASS file path (explicit or auto-discovered)
+        target_ass = self.ass_path
+        if not target_ass and not self.subtitle_lines:
+            target_ass = self._discover_active_ass_path()
+
+        if target_ass and os.path.isfile(target_ass):
+            self._harvest_ass_file_vars(target_ass, collected)
 
         return collected
 
@@ -892,6 +1029,8 @@ class GraphValidator:
             self._validate_filter_node(node_id, node_title, category, props)
         elif node_type in ("Basics/Number", "Number") or node_title == "Number":
             self._validate_number_node(node_id, node_title, category, props)
+        elif node_type in ("Basics/String", "String") or node_title == "String":
+            self._validate_string_node(node_id, node_title, category, props)
         elif node_type in ("Loops/MaxLoop", "MaxLoop") or node_title == "MaxLoop":
             self._validate_maxloop_node(node_id, node_title, category, props)
         elif node_type in ("Loops/Module", "Module") or node_title == "Module":
@@ -902,11 +1041,14 @@ class GraphValidator:
         # Inspect all string properties across any node for general syntax/delimiters/dark tags
         for prop_name, prop_val in props.items():
             if isinstance(prop_val, str) and prop_val.strip():
+                if prop_name in ("shape", "drawing", "points", "custom_shape", "path", "frames") or category == "Shape":
+                    allow_list_flag = prop_name in ("frames", "points") or node_type in ("Functions/Animation", "Animation")
+                    self._check_ass_drawing_commas(node_id, node_title, category, prop_name, prop_val, allow_list=allow_list_flag)
                 if node_type in ("System/Script Code", "Script Code") and prop_name == "script":
                     continue  # Script is already validated in _validate_script_node
                 if node_type in ("Variables/Define Vars", "Define Vars") and prop_name == "variables":
                     continue  # Variables string is already validated in _validate_defvars_node
-                if node_type in ("Basics/MultiTag", "MultiTag") and not prop_val.strip().startswith('\\'):
+                if node_type in ("Basics/MultiTag", "MultiTag") and not (prop_val.strip().startswith('\\') or prop_val.strip().startswith('{')):
                     continue  # Value expressions are already validated in _validate_multitag_node
                 if node_type in ("Functions/Conditioner", "Conditioner") and prop_name in ("condition", "if_true", "if_false"):
                     continue  # Condition and branches are already validated in _validate_conditioner_node
@@ -916,12 +1058,16 @@ class GraphValidator:
                     continue  # Filter expressions are already validated in _validate_filter_node
                 if (node_type in ("Basics/Number", "Number") or node_title == "Number") and prop_name == "value":
                     continue  # Number value expression is already validated in _validate_number_node
+                if (node_type in ("Basics/String", "String") or node_title == "String") and prop_name == "value":
+                    continue  # String value template is already validated in _validate_string_node
                 if (node_type in ("Loops/MaxLoop", "MaxLoop") or node_title == "MaxLoop") and prop_name in ("iterations", "step_ms", "start_time", "end_time", "var_name"):
                     continue  # MaxLoop expressions are already validated in _validate_maxloop_node
                 if (node_type in ("Loops/Module", "Module") or node_title == "Module") and prop_name in ("iter", "total", "sub_m"):
                     continue  # Module expressions are already validated in _validate_module_node
                 if (node_type in ("Functions/Interpolator", "Interpolator") or node_title == "Interpolator") and prop_name in ("iterator", "total", "accel", "v1", "v2"):
                     continue  # Interpolator expressions are already validated in _validate_interpolator_node
+                if node_type in ("System/Previewer", "Previewer") and prop_name in ("output_ids", "render_mode"):
+                    continue  # Previewer UI pass-through properties (Type C)
                 self._validate_string_property(node_id, node_title, category, prop_name, prop_val)
 
     def _validate_multitag_node(
@@ -945,7 +1091,7 @@ class GraphValidator:
                 continue
             if isinstance(prop_val, str) and prop_val.strip():
                 clean_val = prop_val.strip()
-                if clean_val.startswith('\\'):
+                if clean_val.startswith('\\') or clean_val.startswith('{'):
                     # Handled by _validate_string_property (ASS tag arguments)
                     continue
                 if _is_drawing_or_shape(clean_val):
@@ -1043,6 +1189,8 @@ class GraphValidator:
     ) -> None:
         """
         Validates numeric value expressions inside Basics/Number nodes.
+        Supports single numbers, AST mathematical expressions, and comma-separated lists
+        of expressions, stripping physical newlines to mirror node_engine evaluation.
 
         Args:
             node_id: Numerical ID of the node.
@@ -1052,9 +1200,38 @@ class GraphValidator:
         """
         val = props.get("value")
         if isinstance(val, str) and val.strip():
-            clean_val = val.strip()
-            self._check_delimiters_balance(node_id, node_title, category, "value", clean_val)
-            self._validate_expression(node_id, node_title, category, "value", clean_val)
+            clean_val = val.replace("\r\n", "").replace("\r", "").replace("\n", "").strip()
+            if not clean_val:
+                return
+            parts = [p.strip() for p in _split_top_level_commas(clean_val) if p.strip()]
+            for part in parts:
+                self._check_delimiters_balance(node_id, node_title, category, "value", part)
+                self._validate_expression(node_id, node_title, category, "value", part)
+
+    def _validate_string_node(
+        self,
+        node_id: Optional[int],
+        node_title: str,
+        category: str,
+        props: Dict[str, Any]
+    ) -> None:
+        """
+        Validates text and override templates inside Basics/String nodes.
+        Strips physical line breaks to mirror node_engine evaluation while
+        preserving literal ASS line break tags (\\n, \\N).
+
+        Args:
+            node_id: Numerical ID of the node.
+            node_title: Visual label of the node.
+            category: High-level classification category.
+            props: Dictionary of node properties.
+        """
+        val = props.get("value")
+        if isinstance(val, str) and val.strip():
+            clean_val = val.replace("\r\n", "").replace("\r", "").replace("\n", "")
+            if clean_val.strip():
+                self._check_ass_drawing_commas(node_id, node_title, category, "value", clean_val, allow_list=True)
+                self._validate_string_property(node_id, node_title, category, "value", clean_val)
 
     def _validate_maxloop_node(
         self,
@@ -1425,6 +1602,25 @@ class GraphValidator:
     # 4. Variables/Define Vars Validation
     # =========================================================================
 
+    _DEFVARS_RESERVED_VARS: Set[str] = {
+        "effect", "line_effect",
+        "actor", "line_actor",
+        "margins", "margin_l", "margin_r", "margin_v",
+        "line_margins", "line_margin_l", "line_margin_r", "line_margin_v",
+        "queueid", "queue_id",
+        "queueorder", "queue_order",
+    }
+
+    @classmethod
+    def _is_reserved_defvars_target(cls, target: str) -> bool:
+        """Return True if an assignment target in Define Vars references a reserved read-only system variable."""
+        t = str(target or "").strip().lower()
+        for pref in ("line.", "l.", "fx.", "syl.", "char.", "word."):
+            if t.startswith(pref):
+                t = t[len(pref):].strip()
+                break
+        return t in cls._DEFVARS_RESERVED_VARS
+
     def _validate_defvars_node(self, node_id: Optional[int], node_title: str, category: str, props: Dict[str, Any]) -> None:
         """
         Validates multi-line variable declarations and assignments inside Variables/Define Vars nodes.
@@ -1432,8 +1628,9 @@ class GraphValidator:
         Validation rules:
         1. Ensures each statement contains a valid assignment operator '='.
         2. Validates left-hand side identifier syntax (allowing comma-separated targets and dot properties like 'fx.pos_x').
-        3. Strips trailing Lua ('--') and Python ('#') comments outside quotes.
-        4. Verifies non-empty right-hand side expressions and routes them to '_validate_expression'.
+        3. Flags attempts to overwrite reserved system variables ('effect', 'actor', 'margins', 'margin_l', 'margin_r', 'margin_v', 'queueid', 'queueorder').
+        4. Strips trailing Lua ('--') and Python ('#') comments outside quotes.
+        5. Verifies non-empty right-hand side expressions and routes them to '_validate_expression'.
 
         Args:
             node_id: Numerical ID of the node.
@@ -1492,6 +1689,23 @@ class GraphValidator:
                     sug_key="diagnostics.sug.defvars_invalid_id",
                     params={"key": key}
                 )
+            else:
+                for target in targets:
+                    if self._is_reserved_defvars_target(target):
+                        self._add_issue(
+                            severity="warning",
+                            node_id=node_id,
+                            node_title=node_title,
+                            category=category,
+                            field="variables",
+                            line=idx,
+                            code_snippet=clean_line,
+                            error_msg=f"Reserved system variable '{target}' cannot be overridden in Define Vars.",
+                            suggestion="Variables 'effect', 'actor', 'margins' ('margin_l', 'margin_r', 'margin_v'), 'queueid', and 'queueorder' are read-only in Define Vars. Configure queues directly on the Output node.",
+                            msg_key="diagnostics.msg.defvars_reserved_var",
+                            sug_key="diagnostics.sug.defvars_reserved_var",
+                            params={"key": target}
+                        )
 
             # Strip inline Lua '--' or Python '#' comments outside quotes from expr
             expr_clean = expr
@@ -1949,6 +2163,7 @@ class GraphValidator:
             if tag_name_lower in ("clip", "iclip"):
                 # Check if it's a vector clip (starts with drawing command)
                 if _is_drawing_or_shape(inner_clean):
+                    self._check_ass_drawing_commas(node_id, node_title, category, f"{prop_name} (\\{tag_name})", inner_clean, allow_list=False)
                     continue
                 args = _split_top_level_commas(inner_clean)
                 if len(args) == 4:
@@ -1957,12 +2172,19 @@ class GraphValidator:
                             self._validate_expression(node_id, node_title, category, f"{prop_name} (\\{tag_name})", arg)
                 elif len(args) == 2:
                     self._validate_expression(node_id, node_title, category, f"{prop_name} (\\{tag_name})", args[0])
-                    if not _is_drawing_or_shape(args[1]):
+                    if _is_drawing_or_shape(args[1]):
+                        self._check_ass_drawing_commas(node_id, node_title, category, f"{prop_name} (\\{tag_name})", args[1], allow_list=False)
+                    else:
                         self._validate_expression(node_id, node_title, category, f"{prop_name} (\\{tag_name})", args[1])
                 elif len(args) == 1:
-                    if not _is_drawing_or_shape(args[0]):
+                    if _is_drawing_or_shape(args[0]):
+                        self._check_ass_drawing_commas(node_id, node_title, category, f"{prop_name} (\\{tag_name})", args[0], allow_list=False)
+                    else:
                         self._validate_expression(node_id, node_title, category, f"{prop_name} (\\{tag_name})", args[0])
                 else:
+                    if inner_clean.strip().lower().startswith(('m ', 'm-', 'm0')) or bool(re.match(r'^m\s*-?\d+', inner_clean.strip().lower())):
+                        self._check_ass_drawing_commas(node_id, node_title, category, f"{prop_name} (\\{tag_name})", inner_clean, allow_list=False)
+                        continue
                     self._add_issue(
                         severity="warning",
                         node_id=node_id,
@@ -1984,6 +2206,64 @@ class GraphValidator:
             for arg in args:
                 if arg:
                     self._validate_expression(node_id, node_title, category, f"{prop_name} (\\{tag_name})", arg)
+
+    def _check_ass_drawing_commas(
+        self,
+        node_id: Optional[int],
+        node_title: str,
+        category: str,
+        prop_name: str,
+        drawing_text: str,
+        allow_list: bool = False
+    ) -> None:
+        """
+        Inspects an ASSDraw vector command string to verify it does not contain illegal commas.
+
+        In the ASS specification, vector drawing coordinates and commands must be separated
+        exclusively by whitespace. Any comma in an ASSDraw contour is a syntax violation.
+
+        Args:
+            node_id: Numerical ID of the node.
+            node_title: Visual label of the node.
+            category: High-level classification category.
+            prop_name: Field or property name being validated.
+            drawing_text: Vector drawing text or sequence to inspect.
+            allow_list: If True, permits comma-separated lists of distinct drawings where each
+                        element starts with an ASSDraw move command ('m').
+        """
+        clean = drawing_text.strip()
+        if not clean or "," not in clean:
+            return
+
+        clean_lower = clean.lower()
+        is_ass_drawing = (
+            clean_lower.startswith(('m ', 'm-', 'm0'))
+            or bool(re.match(r'^m\s*-?\d+', clean_lower))
+        )
+        if not is_ass_drawing:
+            return
+
+        if allow_list:
+            parts = [p.strip() for p in clean.split(",") if p.strip()]
+            if len(parts) > 1 and all(
+                p.lower().startswith(('m ', 'm-', 'm0')) or bool(re.match(r'^m\s*-?\d+', p.lower()))
+                for p in parts
+            ):
+                return
+
+        self._add_issue(
+            severity="warning",
+            node_id=node_id,
+            node_title=node_title,
+            category=category,
+            field=prop_name,
+            line=None,
+            code_snippet=clean[:60] + ("..." if len(clean) > 60 else ""),
+            error_msg="ASSDraw vector drawing contains illegal commas in its coordinates.",
+            suggestion="In ASS format, drawing commands and coordinates must be separated exclusively by whitespace (e.g. 'm 0 0 l 10 10'). Replace commas with spaces.",
+            msg_key="diagnostics.msg.assdraw_contains_comma",
+            sug_key="diagnostics.sug.assdraw_contains_comma"
+        )
 
     # =========================================================================
     # 6. AST Expression Helper
@@ -2021,6 +2301,9 @@ class GraphValidator:
         clean_expr = expr_str.strip()
         if not clean_expr:
             return
+
+        # Replace physical line breaks with spaces so multi-line expressions compile via eval AST
+        clean_expr = clean_expr.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
 
         # 1. Check for boolean literal strings supported by eval_condition_bool
         clean_expr_lower = clean_expr.lower()

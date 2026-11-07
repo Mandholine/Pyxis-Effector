@@ -343,20 +343,16 @@
             const scale = canvas.ds ? canvas.ds.scale : 1.0;
             const offset = canvas.ds ? canvas.ds.offset : [0, 0];
 
-            const minSz = node.computeSize ? node.computeSize(curVal) : [200, 102];
-            const textNodeW = minSz[0];
-            const textNodeH = minSz[1];
+            const initialNodeW = node._manual_width !== undefined ? node._manual_width : ((node.size && node.size[0] > 0) ? node.size[0] : 220);
+            const initialNodeH = node._manual_height !== undefined ? node._manual_height : ((node.size && node.size[1] > 0) ? node.size[1] : 102);
 
-            const initialNodeW = Math.max(node._manual_width || 200, textNodeW);
-            const initialNodeH = Math.max(node._manual_height || 96, textNodeH);
-
-            node.size[0] = Math.max(node.size[0] || 200, initialNodeW);
-            node.size[1] = Math.max(node.size[1] || 96, initialNodeH);
+            node.size[0] = Math.max(200, initialNodeW);
+            node.size[1] = Math.max(102, initialNodeH);
 
             const screenX = rect.left + (node.pos[0] + margin + offset[0]) * scale;
             const screenY = rect.top + (node.pos[1] + drawY + offset[1]) * scale;
             const screenW = (node.size[0] - 24) * scale;
-            const screenH = Math.max(36, (node.size[1] - drawY - 26)) * scale;
+            const screenH = Math.max(28, (node.size[1] - drawY - 26)) * scale;
 
             node._is_editing_vars = true;
             if (canvas.draw) canvas.draw(true, true);
@@ -405,6 +401,21 @@
                 }
                 #pyxis-inline-vars-ace .ace_scroller {
                     padding: 0 !important;
+                    overflow-x: hidden !important;
+                }
+                #pyxis-inline-vars-ace .ace_scrollbar-h,
+                #pyxis-inline-vars-ace .ace_scrollbar-h * {
+                    display: none !important;
+                    height: 0px !important;
+                    max-height: 0px !important;
+                    visibility: hidden !important;
+                    pointer-events: none !important;
+                    overflow: hidden !important;
+                }
+                #pyxis-inline-vars-ace ::-webkit-scrollbar:horizontal {
+                    display: none !important;
+                    height: 0px !important;
+                    width: 0px !important;
                 }
                 #pyxis-inline-vars-ace .ace_content {
                     background: transparent !important;
@@ -448,6 +459,27 @@
                 #pyxis-inline-vars-ace .ace_selection {
                     background: rgba(139, 92, 246, 0.4) !important;
                 }
+                #pyxis-inline-vars-ace .ace_scrollbar-v {
+                    width: 6px !important;
+                    background: transparent !important;
+                }
+                #pyxis-inline-vars-ace ::-webkit-scrollbar {
+                    width: 5px !important;
+                }
+                #pyxis-inline-vars-ace ::-webkit-scrollbar-track {
+                    background: transparent !important;
+                }
+                #pyxis-inline-vars-ace ::-webkit-scrollbar-thumb {
+                    background: rgba(139, 92, 246, 0.45) !important;
+                    border-radius: 4px !important;
+                }
+                #pyxis-inline-vars-ace ::-webkit-scrollbar-thumb:hover {
+                    background: rgba(139, 92, 246, 0.85) !important;
+                }
+                #pyxis-inline-vars-ace {
+                    scrollbar-width: thin !important;
+                    scrollbar-color: rgba(139, 92, 246, 0.45) transparent !important;
+                }
             `;
 
             document.body.appendChild(container);
@@ -460,8 +492,20 @@
 
                 aceEditor = ace.edit(editorDiv);
                 aceEditor.setTheme("ace/theme/dracula");
-                if (aceEditor.session && aceEditor.session.setUseWorker) aceEditor.session.setUseWorker(false);
-                aceEditor.session.setMode("ace/mode/python");
+                if (aceEditor.session) {
+                    if (aceEditor.session.setUseWorker) aceEditor.session.setUseWorker(false);
+                    aceEditor.session.setMode("ace/mode/python");
+                    if (typeof aceEditor.session.setUseWrapMode === "function") {
+                        aceEditor.session.setUseWrapMode(true);
+                    }
+                    if (typeof aceEditor.session.setWrapLimitRange === "function") {
+                        aceEditor.session.setWrapLimitRange(null, null);
+                    }
+                    if (aceEditor.session.setOption) {
+                        aceEditor.session.setOption("indentedSoftWrap", false);
+                        aceEditor.session.setOption("wrap", true);
+                    }
+                }
                 aceEditor.setOptions({
                     useWorker: false,
                     showGutter: false,
@@ -474,17 +518,49 @@
                     enableSnippets: true,
                     tabSize: 4,
                     useSoftTabs: true,
-                    wrap: false
+                    wrap: true,
+                    indentedSoftWrap: false,
+                    hScrollBarAlwaysVisible: false
                 });
+
+                if (aceEditor.renderer) {
+                    if (typeof aceEditor.renderer.setHScrollBarAlwaysVisible === "function") {
+                        aceEditor.renderer.setHScrollBarAlwaysVisible(false);
+                    }
+                    if (aceEditor.renderer.scrollBarH) {
+                        aceEditor.renderer.scrollBarH.setVisible = function() {
+                            this.isVisible = false;
+                            if (this.element) {
+                                this.element.style.display = "none";
+                                this.element.style.height = "0px";
+                                this.element.style.visibility = "hidden";
+                            }
+                        };
+                        aceEditor.renderer.scrollBarH.getHeight = function() { return 0; };
+                        if (aceEditor.renderer.scrollBarH.element) {
+                            aceEditor.renderer.scrollBarH.element.style.display = "none";
+                            aceEditor.renderer.scrollBarH.element.style.height = "0px";
+                            aceEditor.renderer.scrollBarH.element.style.visibility = "hidden";
+                        }
+                    }
+                    if (typeof aceEditor.renderer.$getLongestLine === "function") {
+                        aceEditor.renderer.$getLongestLine = function() { return 0; };
+                    }
+                }
 
                 aceEditor.container.style.background = "#12161f";
                 aceEditor.container.style.lineHeight = lineHeightPx + "px";
                 aceEditor.renderer.setShowGutter(false);
                 aceEditor.renderer.lineHeight = lineHeightPx;
-                aceEditor.renderer.setPadding(Math.round(9 * scale));
+                aceEditor.renderer.setPadding(Math.round(10 * scale));
                 if (aceEditor.renderer.updateFontSize) aceEditor.renderer.updateFontSize();
 
                 window.__active_code_script_node = node;
+                if (typeof window.patchAceAutocompleteShiftEnter === "function") {
+                    window.patchAceAutocompleteShiftEnter();
+                } else if (typeof patchAceAutocompleteShiftEnter === "function") {
+                    patchAceAutocompleteShiftEnter();
+                }
                 const pyxisCompleter = getPyxisCodeCompleter();
                 const langTools = ace.require("ace/ext/language_tools");
                 if (langTools) {
@@ -496,11 +572,25 @@
                     aceEditor.completers = [pyxisCompleter];
                 }
 
+                if (aceEditor.completer && aceEditor.completer.keyboardHandler) {
+                    aceEditor.completer.keyboardHandler.bindKeys({
+                        "Shift-Return": function(ed) {
+                            if (ed && ed.completer) ed.completer.detach();
+                            if (ed) ed.insert("\n");
+                        },
+                        "Shift-Enter": function(ed) {
+                            if (ed && ed.completer) ed.completer.detach();
+                            if (ed) ed.insert("\n");
+                        }
+                    });
+                }
+
                 aceEditor.setValue(curVal, -1);
                 setTimeout(() => {
                     if (aceEditor) {
                         aceEditor.focus();
-                        aceEditor.navigateFileEnd();
+                        aceEditor.navigateFileStart();
+                        aceEditor.renderer.scrollToRow(0);
                     }
                 }, 30);
 
@@ -510,18 +600,8 @@
                     isSyncing = true;
                     try {
                         const val = aceEditor ? aceEditor.getValue() : "";
-                        const minSz = node.computeSize ? node.computeSize(val) : [200, 102];
-                        const textNodeW = minSz[0];
-                        const textNodeH = minSz[1];
-
-                        const reqNodeW = Math.max(node._manual_width || 200, textNodeW);
-                        const reqNodeH = Math.max(node._manual_height || 96, textNodeH);
-
                         node.properties[propertyName] = val;
                         if (varWidget) varWidget.value = val;
-
-                        node.size[0] = reqNodeW;
-                        node.size[1] = reqNodeH;
 
                         if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
                         if (canvas.draw) canvas.draw(true, true);
@@ -544,7 +624,7 @@
                         editorDiv.style.top = (2 * curScale) + "px";
                         editorDiv.style.width = "100%";
                         editorDiv.style.height = `calc(100% - ${(2 * curScale)}px)`;
-                        aceEditor.renderer.setPadding(Math.round(9 * curScale));
+                        aceEditor.renderer.setPadding(Math.round(10 * curScale));
 
                         aceEditor.resize();
                     } finally {
@@ -553,6 +633,17 @@
                 };
 
                 aceEditor.session.on('change', syncSizeAndCanvas);
+
+                aceEditor.commands.addCommand({
+                    name: "pyxisShiftEnterLineBreak",
+                    bindKey: { win: "Shift-Return|Shift-Enter", mac: "Shift-Return|Shift-Enter" },
+                    exec: function(ed) {
+                        if (ed.completer && ed.completer.activated) {
+                            ed.completer.detach();
+                        }
+                        ed.insert("\n");
+                    }
+                });
 
                 aceEditor.commands.addCommand({
                     name: "pyxisSaveAndClose",
@@ -579,11 +670,6 @@
                 const finalVal = aceEditor ? aceEditor.getValue() : "";
                 node.properties[propertyName] = finalVal;
                 if (varWidget) varWidget.value = finalVal;
-                if (node.computeSize) {
-                    const minSz = node.computeSize(finalVal);
-                    node.size[0] = Math.max(node.size[0] || 200, minSz[0]);
-                    node.size[1] = Math.max(node.size[1] || 96, minSz[1]);
-                }
                 if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                 if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
                 if (canvas.draw) canvas.draw(true, true);
@@ -655,43 +741,37 @@
             };
 
             node.computeSize = function(textVal) {
-                const text = String(textVal !== undefined ? textVal : (node.properties.variables || ""));
-                const lines = text.length > 0 ? text.split('\n') : [""];
-                
-                let maxTw = 0;
-                lines.forEach(l => {
-                    const tw = getExactTextWidth(l, "bold 12px Consolas, monospace");
-                    if (tw > maxTw) maxTw = tw;
-                });
+                const canvas = (this.graph && this.graph.canvas) || (typeof LGraphCanvas !== "undefined" && LGraphCanvas.active_canvas);
+                const isResizingThis = !!(canvas && canvas.resizing_node === this);
+                if (isResizingThis) {
+                    return [200, 102];
+                }
 
-                const lineCount = Math.max(1, lines.length);
-                const minReqW = Math.max(200, Math.ceil(maxTw + 44));
-                const drawY = (varWidget && varWidget.last_y !== undefined) ? varWidget.last_y : 48;
-                const minReqH = Math.max(96, drawY + lineCount * 20 + 12 + 26);
-
-                return [minReqW, minReqH];
+                const curW = (this._manual_width !== undefined) ? this._manual_width : ((this.size && this.size[0] > 0) ? this.size[0] : 220);
+                const curH = (this._manual_height !== undefined) ? this._manual_height : ((this.size && this.size[1] > 0) ? this.size[1] : 102);
+                return [Math.max(200, curW), Math.max(102, curH)];
             };
 
             node.onResize = function(size) {
-                const minSz = this.computeSize ? this.computeSize() : [200, 102];
-                // Límite estricto: el nodo nunca puede reducirse por debajo del contenido
-                size[0] = Math.max(minSz[0], size[0]);
-                size[1] = Math.max(minSz[1], size[1]);
-
-                if (Math.abs(size[0] - minSz[0]) <= 8) {
-                    delete this._manual_width;
-                } else {
-                    this._manual_width = size[0];
-                }
-                if (Math.abs(size[1] - minSz[1]) <= 8) {
-                    delete this._manual_height;
-                } else {
-                    this._manual_height = size[1];
-                }
+                size[0] = Math.max(200, size[0]);
+                size[1] = Math.max(102, size[1]);
+                this._manual_width = size[0];
+                this._manual_height = size[1];
             };
 
             varWidget.mouse = function(event, pos, node) {
                 if (event.type === "mousedown" || event.type === "click") {
+                    if (varWidget._scrollbar_info && pos) {
+                        const sb = varWidget._scrollbar_info;
+                        if (pos[0] >= sb.barX - 6 && pos[0] <= sb.barX + sb.barW + 6 && pos[1] >= sb.trackY && pos[1] <= sb.trackY + sb.trackH) {
+                            const ratio = Math.max(0, Math.min(1, (pos[1] - sb.trackY) / sb.trackH));
+                            varWidget._scroll_line = Math.round(ratio * sb.maxScroll);
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            const activeCanvas = (typeof LGraphCanvas !== "undefined" && LGraphCanvas.active_canvas);
+                            if (activeCanvas && activeCanvas.draw) activeCanvas.draw(true, true);
+                            return true;
+                        }
+                    }
                     openInlineDefinirVarsEditor(node, "variables");
                     return true;
                 }
@@ -708,16 +788,14 @@
             };
 
             node.updateVarsSize = function() {
-                if (node.computeSize) {
-                    const minSz = node.computeSize();
-                    node.size[0] = Math.max(node.size[0] || 200, minSz[0]);
-                    node.size[1] = Math.max(node.size[1] || 96, minSz[1]);
+                if (!node.size || node.size[0] < 200 || node.size[1] < 102) {
+                    node.size = [220, 102];
                 }
             };
 
             varWidget.computeSize = function(width) {
                 const minSz = node.computeSize ? node.computeSize() : [200, 102];
-                return [width - 24, Math.max(36, minSz[1] - 48 - 26)];
+                return [width - 24, Math.max(28, minSz[1] - 48 - 26)];
             };
 
             varWidget.draw = function(ctx, node, width, y, height) {
@@ -727,11 +805,34 @@
                 }
                 const text = String(node.properties.variables || varWidget.value || "");
                 const trimmed = text.trim();
-                const lines = trimmed ? text.split('\n') : [];
                 const margin = 12;
                 const wWidth = width - 24;
+                const availableTextW = Math.max(80, wWidth - 20);
+
+                let lines = [];
+                if (varWidget._cached_var_text === text &&
+                    typeof varWidget._cached_var_w === "number" &&
+                    Math.abs(varWidget._cached_var_w - availableTextW) < 0.5 &&
+                    Array.isArray(varWidget._cached_var_lines)) {
+                    lines = varWidget._cached_var_lines;
+                } else {
+                    const rawLines = trimmed ? text.split('\n') : [];
+                    rawLines.forEach(function(l) {
+                        if (typeof containsAssdrawDrawing === "function" && containsAssdrawDrawing(l)) {
+                            const wrapped = typeof wrapTextToPixelWidth === "function"
+                                ? wrapTextToPixelWidth(l, availableTextW, "bold 12px Consolas, monospace")
+                                : [l];
+                            wrapped.forEach(function(wl) { lines.push(wl); });
+                        } else {
+                            lines.push(l);
+                        }
+                    });
+                    varWidget._cached_var_text = text;
+                    varWidget._cached_var_w = availableTextW;
+                    varWidget._cached_var_lines = lines;
+                }
                 // La caja se adapta al interior del nodo reservando 26px para el icono de ayuda
-                const wHeight = Math.max(36, node.size[1] - y - 26);
+                const wHeight = Math.max(28, node.size[1] - y - 26);
 
                 ctx.save();
                 ctx.fillStyle = "#12161f";
@@ -744,6 +845,7 @@
                 ctx.stroke();
 
                 if (!trimmed) {
+                    delete varWidget._scrollbar_info;
                     ctx.fillStyle = "#64748b";
                     ctx.font = "italic 11px sans-serif";
                     ctx.textAlign = "left";
@@ -759,10 +861,67 @@
                     ctx.font = "bold 12px Consolas, monospace";
                     ctx.textAlign = "left";
 
-                    for (let i = 0; i < lines.length; i++) {
-                        renderPythonHighlightedLine(ctx, lines[i], margin + 10, y + 17 + i * 20);
+                    const lineHeight = 20;
+                    const availableH = wHeight - 10;
+                    const maxVisibleLines = Math.max(1, Math.floor(availableH / lineHeight));
+                    const totalLines = lines.length;
+                    const isOverflowing = totalLines > maxVisibleLines;
+                    const maxScroll = Math.max(0, totalLines - maxVisibleLines);
+                    varWidget._max_scroll_lines = maxScroll;
+
+                    if (varWidget._scroll_line === undefined || isNaN(varWidget._scroll_line)) {
+                        varWidget._scroll_line = 0;
+                    } else {
+                        varWidget._scroll_line = Math.max(0, Math.min(varWidget._scroll_line, maxScroll));
+                    }
+
+                    const startLine = varWidget._scroll_line;
+
+                    for (let i = 0; i < maxVisibleLines; i++) {
+                        const lineIdx = startLine + i;
+                        if (lineIdx >= totalLines) break;
+                        let lineText = lines[lineIdx] || "";
+                        if (isOverflowing && i === maxVisibleLines - 1 && lineIdx < totalLines - 1) {
+                            if (!lineText.endsWith("...")) {
+                                lineText = lineText.length > 20 ? (lineText.substring(0, lineText.length - 3) + "...") : (lineText + "...");
+                            }
+                        }
+                        renderPythonHighlightedLine(ctx, lineText, margin + 10, y + 17 + i * lineHeight);
                     }
                     ctx.restore();
+
+                    // Minimalist scrollbar rendered on top of box
+                    if (isOverflowing) {
+                        const trackPadding = 4;
+                        const barW = 4;
+                        const barX = margin + wWidth - barW - 4;
+                        const trackY = y + trackPadding;
+                        const trackH = Math.max(12, wHeight - trackPadding * 2);
+
+                        varWidget._scrollbar_info = { barX, barW, trackY, trackH, maxScroll, boxX: margin, boxY: y, boxW: wWidth, boxH: wHeight };
+
+                        ctx.save();
+                        // Track groove
+                        ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+                        ctx.beginPath();
+                        if (ctx.roundRect) ctx.roundRect(barX, trackY, barW, trackH, barW / 2);
+                        else ctx.rect(barX, trackY, barW, trackH);
+                        ctx.fill();
+
+                        // Thumb
+                        const thumbH = Math.max(12, Math.round((maxVisibleLines / totalLines) * trackH));
+                        const maxTravel = trackH - thumbH;
+                        const thumbY = trackY + (maxScroll > 0 ? (startLine / maxScroll) * maxTravel : 0);
+
+                        ctx.fillStyle = "rgba(139, 92, 246, 0.6)";
+                        ctx.beginPath();
+                        if (ctx.roundRect) ctx.roundRect(barX, thumbY, barW, thumbH, barW / 2);
+                        else ctx.rect(barX, thumbY, barW, thumbH);
+                        ctx.fill();
+                        ctx.restore();
+                    } else {
+                        delete varWidget._scrollbar_info;
+                    }
                 }
                 ctx.restore();
             };

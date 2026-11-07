@@ -53,7 +53,7 @@ system_node(
     "System", "Previewer", node_kind="preview", color="#2563EB",
     inputs=["Output"],
     outputs=[],
-    properties={"output_ids": ""},
+    properties={"output_ids": "", "render_mode": "typesetting"},
     widgets=[
         {"type": "text", "name": "Output IDs", "property": "output_ids"}
     ]

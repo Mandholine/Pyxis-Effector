@@ -10,13 +10,14 @@
 
 <p align="center">
   <a href="https://github.com/Mandholine/Pyxis-Effector/releases">
-    <img src="https://img.shields.io/badge/version-1.1.6-blue.svg" alt="Version">
+    <img src="https://img.shields.io/badge/version-1.1.7-blue.svg" alt="Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/licence-GPL--3.0-green.svg" alt="GPL-3.0 Licence">
   </a>
   <img src="https://img.shields.io/badge/Aegisub-Automation%204-orange.svg" alt="Aegisub">
   <img src="https://img.shields.io/badge/Python-3.11-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="Platform">
 </p>
 
 <p align="center">
@@ -55,14 +56,14 @@ The project is named after the **Pyxis** constellation (The Mariner's Compass), 
 ## Key Features
 
 * **Modular DAG Visual Canvas:** Interactive visual effect composition by interconnecting data and context ports without requiring mandatory sequential scripting.
-* **Hybrid Execution Architecture:** Optimised Python 3.11 runtime supporting multi-process parallel evaluation and OpenCL GPU acceleration.
+* **Hybrid & Native Multiplatform Architecture:** Optimised Python 3.11 runtime supporting native multiplatform execution (Windows, Linux, macOS), multi-process parallel evaluation, and OpenCL GPU acceleration.
 * **Real-Time Synchronised Preview:** Integrated canvas player powered by WebAssembly-compiled ASS rendering (JASSUB/libass) and ArtPlayer.js.
-* **Vector Morphology and Polygons:** Glyph outline conversion, bitmap raster vectorisation via Potrace, and boolean polygon operations (union, difference, intersection, xor, offsetting) via Clipper2.
+* **Vector Morphology and Polygons:** Glyph outline conversion (via GDI/Uniscribe on Windows and FreeType on Linux/macOS), bitmap raster vectorisation via Potrace, and boolean polygon operations (union, difference, intersection, xor, offsetting) via Clipper2.
 * **Spectral Acoustic Analysis:** Root Mean Square (RMS) power envelopes, acoustic peaks, frequency band filtering, and Fast Fourier Transform (FFT) linked to project audio.
 * **Dual Scripting Environment:** Imperative `System/Script Code` nodes with native execution support for Python 3.11 and Lua 5.1/LuaJIT via a low-latency bidirectional C bridge (Lupa).
 * **Pre-Generation Linter and Diagnostics:** Static syntax validator (`node_validator.py`) with real-time AST analysis for ASS Dark Tags, undeclared variables, and topological integrity.
-* **ASS Render Telemetry and Profiling (`libass` + QPC):** Multi-process frame-by-frame profiling of subtitle render costs, frame budget consumption, and bitmap memory, with an interactive workload heatmap in the player.
-* **Persistence and Template Management:** Full graph export/import, session isolation, and user template storage in `%APPDATA%\PyxisNodes\`.
+* **Native ASS Render Telemetry and Profiling (`libass` + QPC/POSIX timers):** Multi-process frame-by-frame profiling of subtitle render costs, frame budget consumption, and bitmap memory, with an interactive workload heatmap in the player.
+* **Persistence and Template Management:** Full graph export/import, session isolation, and user template storage in the user data directory (`%APPDATA%\PyxisNodes\` on Windows, `$XDG_DATA_HOME/PyxisNodes/` or `~/.local/share/PyxisNodes/` on Linux and macOS).
 
 ---
 
@@ -90,15 +91,19 @@ Pyxis Effector includes a comprehensive technical manual structured across 12 mo
 ## Quick Installation and Usage
 
 ### System Requirements
-* Windows 10 / 11 (64-bit).
-* Aegisub 3.2.x, 3.3.x, or 3.4.x (standard or portable installation).
-* Microsoft Visual C++ Redistributable (2015-2022 x64).
+* **Operating Systems:** Windows 10 / 11 (64-bit), Linux (x86_64, aarch64), or macOS 11+ (Apple Silicon and Intel).
+* **Aegisub:** Aegisub 3.2.x, 3.3.x, or 3.4.x (standard or portable installation).
+* **System Libraries:**
+  * Windows: Microsoft Visual C++ Redistributable (2015-2022 x64).
+  * Linux: WebKitGTK (`libwebkit2gtk-4.0` / `4.1`) or Qt6 (`PyQt6-WebEngine`), and `libass`.
 
 ### Installation Instructions
 1. Download the latest release package from the repository's [**Releases**](https://github.com/Mandholine/Pyxis-Effector/releases) section.
 2. Copy the `Pyxis_engine.lua` script and the `PyxisNodes` directory into your Aegisub automation autoload folder:
-   * **Standard User Installation:** `%APPDATA%\Aegisub\automation\autoload\`
-   * **System-Wide Installation:** `C:\Program Files\Aegisub\automation\autoload\`
+   * **Windows (Standard User):** `%APPDATA%\Aegisub\automation\autoload\`
+   * **Windows (System-Wide):** `C:\Program Files\Aegisub\automation\autoload\`
+   * **Linux:** `~/.local/share/aegisub/automation/autoload/` (or `~/.aegisub/automation/autoload/`)
+   * **macOS:** `~/Library/Application Support/Aegisub/automation/autoload/`
    * **Portable Aegisub:** `<Aegisub_Folder>\automation\autoload\`
 3. Launch Aegisub and execute the macro from the top menu:
    * **Automation** $\to$ **Pyxis Node Engine**
@@ -109,6 +114,7 @@ Pyxis Effector includes a comprehensive technical manual structured across 12 mo
 * **Trota** ([@mandholine](https://github.com/Mandholine)): Visual node UI design and implementation, Python engine architecture, Kara Effector ecosystem extensions, and technical documentation.
 * **Itachi / Effector** ([@effector2](https://github.com/effector2)): Lua core function libraries, kinematic algorithms, and automation logic. Historical developer of legacy Kara Effector.
 * **Zaph** ([@pholguinc](https://github.com/pholguinc)): Architectural design for the initial Python-Lua communication and interoperability bridge.
+* **Zagon** ([@TheRealZagon](https://github.com/TheRealZagon)): Conceptualisation, early portability architecture, and prototype implementation for Linux and macOS, substantially facilitating the cross-platform transition for Pyxis Effector (XDG standardisation, POSIX Lua bridge, build automation, and standalone packaging).
 
 ---
 
@@ -126,12 +132,18 @@ Pyxis Effector integrates and builds upon the following open-source libraries an
 * [**Ace Editor**](https://github.com/ajaxorg/ace): Embedded code editor for scripting nodes (BSD Licence).
 * [**ArtPlayer.js**](https://artplayer.org/): HTML5 multimedia video player (MIT Licence).
 * [**JASSUB**](https://github.com/ThaUnknown/jassub) / [**libass**](https://github.com/libass/libass): WebAssembly-compiled ASS subtitle renderer (MIT / ISC / GPL Licences).
+* [**assytics / libass_profiler**](https://github.com/N0r01/specter-fansub-tools/tree/main/assytics): Subtitle render profiling and telemetry benchmark utility originally developed by **N0r01** (specter-fansub-tools), serving as the foundation for the native C99 profiler in Pyxis Effector.
 * [**Clipper2**](https://github.com/AngusJohnson/Clipper2) / [**PyClipper**](https://github.com/fonttools/pyclipper): Polygon clipping, boolean operations, and contour offsetting engine (BSL-1.0 Licence).
 * [**Potrace**](https://potrace.sourceforge.net/): Bitmap-to-vector curve tracing utility (GPL v2+ Licence).
 * [**KaTeX**](https://katex.org/): Fast mathematical formula typesetting engine for interface and documentation (MIT Licence).
 * [**Marked.js**](https://marked.js.org/): Markdown parser and compiler for integrated documentation and tooltips (MIT Licence).
 * [**Lupa**](https://github.com/scoder/lupa): High-performance C bridge connecting Python to LuaJIT / Lua 5.1 (MIT Licence).
-* [**PyWebView**](https://pywebview.flowrl.com/): Lightweight desktop webview window wrapper for Windows (BSD-3 Licence).
+* [**PyWebView**](https://pywebview.flowrl.com/): Native desktop webview window wrapper for Windows (WebView2), Linux (WebKitGTK / Qt WebEngine), and macOS (WebKit Cocoa) (BSD-3 Licence).
+* [**FreeType**](https://freetype.org/) / [**freetype-py**](https://github.com/rougier/freetype-py): Cross-platform font rendering engine, Bézier contour decomposition, and 26.6 sub-pixel metrics (FTL / GPLv2 Licences).
+* [**NumPy**](https://numpy.org/): Fundamental package for array computing and audio FFT analysis (BSD-3 Licence).
+* [**Pillow**](https://python-pillow.org/): Image processing and raster sampling library (HPND Licence).
+* [**Bottle**](https://bottlepy.org/): Lightweight WSGI micro web framework for local IPC daemon services (MIT Licence).
+* [**psutil**](https://github.com/giampaolo/psutil): Cross-platform process and system monitoring library (BSD-3 Licence).
 * [**FFmpeg**](https://ffmpeg.org/): Multimedia decoding, PCM stream extraction, and video processing (LGPL v2.1+ / GPL v2+ Licences).
 * [**Python Runtime (Embedded)**](https://www.python.org/): Embedded Python Software Foundation distribution (PSF Licence).
 

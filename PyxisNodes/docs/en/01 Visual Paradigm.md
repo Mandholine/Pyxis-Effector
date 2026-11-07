@@ -69,6 +69,16 @@ The `Main Loop` node establishes the base iteration unit (`iterator`):
 
 The `blank_mode` property (`no_blank` / `with_blanks`) controls whether whitespace characters are omitted from the iteration or processed as elements with metric advance width but without a visible glyph.
 
+#### Default Absolute Timing Resolution
+Each iteration of the base domain automatically computes the projected timestamps on the video timeline. When the terminal `Output` node receives no connections on its `Start Time` and `End Time` ports (and no explicit override of `st` or `et` is specified in `Define Vars`), the emitted ASS dialogue line assumes the following canonical default boundaries:
+
+| Domain (`iterator`) | Event Start Time ($t_{\text{start}}$) | Event End Time ($t_{\text{end}}$) | Net Duration ($t_{\text{dur}}$) |
+| :--- | :--- | :--- | :--- |
+| **`line`** | $\text{line.start\_time}$ | $\text{line.end\_time}$ | $\text{line.dur}$ |
+| **`syl`** | $\text{line.start\_time} + \text{syl.start\_time}$ | $\text{line.start\_time} + \text{syl.end\_time}$ | $\text{syl.dur}$ |
+| **`char`** | $\text{line.start\_time} + \text{syl.start\_time} + \text{char.start\_time}$ | $\text{line.start\_time} + \text{syl.start\_time} + \text{char.end\_time}$ | $\text{char.dur}$ |
+| **`word`** | $\text{line.start\_time} + \text{word.start\_time}$ | $\text{line.start\_time} + \text{word.end\_time}$ | $\text{word.dur}$ |
+
 ### Phase 3: Sub-Loop Multiplication (`MaxLoop`) and Topological Generator Nesting
 To generate volumetric effects (motion trails, particle swarms, delayed echo replicas, or frame-by-frame *FBF* animations), the flow passes through one or more `MaxLoop` nodes. This node multiplies the current unit by $N$ sub-iterations, injecting a local counter (by default `j` from $1 \dots N$) and subdividing time intervals.
 
@@ -81,6 +91,12 @@ Connected data nodes compute `\pos` coordinates, morphological vector deformatio
 
 ### Phase 5: Assembly, Isolation, and Emission (`Output`)
 The terminal `Output` node gathers processed execution streams, consolidates tag blocks from the `Tags` port and vector drawings/text from the `Return` port, resolves syntactic tag collisions, applies rendering layers (`Layer`), and emits the resulting subtitle lines directly into the active Aegisub document.
+
+#### Principle of Sovereign Global Timing Overrides and Metric Invariance
+When the user explicitly defines `st` or `et` via variable nodes (`Define Vars`) or connects the `Start Time` / `End Time` input ports on `Output`:
+1. **Temporal Sovereignty:** The overridden values dictate directly and absolutely the on-screen lifespan of the generated ASS event on the global video timeline ($t_{\text{start}}$ and $t_{\text{end}}$ of the line).
+2. **Relative Metric Invariance (*Ground Truth*):** The intrinsic properties of the active units (`syl.start_time`, `syl.dur`, `char.start_time`, `char.dur`, `word.start_time`, etc.) remain **100% unaltered and invariant**. They are neither added nor compounded onto the user-overridden timestamps.
+3. **Advanced Production Workflow:** This architecture allows generating shapes, particles, or vector paths associated with each syllable or character (`Main Loop: syl` or `Main Loop: char`) whose visual lifespan spans the complete dialogue line (e.g. by setting `st = line.start_time` and `et = line.end_time`), without the syllable's relative start time shifting or offsetting the generated line's start timestamp.
 
 #### Multi-Output Architecture and Context Isolation
 When an effect requires generating concurrent rendering layers (for example, a shadow, a glyph body, and particles), multiple `System/Output` nodes are instantiated on the same canvas:

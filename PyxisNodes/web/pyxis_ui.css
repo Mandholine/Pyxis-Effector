@@ -1841,6 +1841,24 @@ body {
     color: var(--text-inverse) !important;
 }
 
+.litegraph.litecontextmenu .litemenu-entry .property_name {
+    display: inline-block !important;
+    text-align: left !important;
+    min-width: 60px !important;
+    margin-right: 12px !important;
+}
+
+.litegraph.litecontextmenu .litemenu-entry .property_value,
+.litegraph .litemenu-entry .property_value,
+.graphmenu-entry .property_value {
+    max-width: 220px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    display: inline-block !important;
+    vertical-align: middle !important;
+}
+
 /* =============================================================================
    PYXIS SCRIPT CODE EDITOR MODAL
    ============================================================================= */
@@ -2750,7 +2768,7 @@ body {
 .pyxis-header-buttons {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     flex-shrink: 0;
 }
 
@@ -2805,6 +2823,13 @@ body {
 .pyxis-header-icon-btn:active {
     transform: translateY(0) scale(0.95);
     box-shadow: 0 0 4px var(--accent-glow, rgba(139, 92, 246, 0.4));
+}
+
+.pyxis-header-icon-btn.is-mpv-mode {
+    background: color-mix(in srgb, var(--accent-primary, #38bdf8) 28%, var(--bg-card, rgba(15, 23, 42, 0.92)));
+    border-color: var(--doc-accent-bright, var(--accent-primary, #38bdf8));
+    color: var(--doc-accent-bright, #7dd3fc);
+    box-shadow: 0 0 10px var(--accent-glow, rgba(56, 189, 248, 0.45)), 0 3px 8px rgba(0, 0, 0, 0.5);
 }
 
 .pyxis-header-icon-btn.disabled,
@@ -3138,6 +3163,27 @@ div.JASSUB,
     margin: 0 !important;
     padding: 0 !important;
     pointer-events: none !important;
+    z-index: 25 !important;
+}
+
+/* Screen-space High-DPI subtitle overlay for mpv render mode */
+.pyxis-artplayer-box .pyxis-video-frame > div.JASSUB.is-mpv-screen-space,
+div.JASSUB.is-mpv-screen-space {
+    position: absolute !important;
+    top: 50% !important;
+    left: 50% !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: var(--mpv-jassub-w, 100%) !important;
+    height: var(--mpv-jassub-h, 100%) !important;
+    margin-left: var(--mpv-jassub-ml, 0px) !important;
+    margin-top: var(--mpv-jassub-mt, 0px) !important;
+    margin-right: 0 !important;
+    margin-bottom: 0 !important;
+    padding: 0 !important;
+    pointer-events: none !important;
+    transform-origin: center center !important;
+    will-change: transform !important;
     z-index: 25 !important;
 }
 
@@ -3745,10 +3791,17 @@ canvas.pyxis-pbar-heatmap:hover {
     display: block !important;
 }
 
+.pyxis-pbtn.pyxis-pbtn-rendermode svg,
 .pyxis-pbtn.pyxis-pbtn-refresh svg,
 .pyxis-pbtn.pyxis-pbtn-hardsub svg {
     fill: none !important;
     stroke: currentColor !important;
+}
+
+.pyxis-pbtn.pyxis-pbtn-rendermode.is-mpv-mode {
+    color: var(--doc-accent-bright, #7dd3fc);
+    background: color-mix(in srgb, var(--accent-primary, #38bdf8) 22%, transparent);
+    box-shadow: 0 0 10px var(--accent-glow, rgba(56, 189, 248, 0.35));
 }
 
 .pyxis-pbtn.disabled,
@@ -7778,6 +7831,32 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     opacity: 0.6;
     letter-spacing: 1px;
 }
+
+/* =============================================================================
+   Tier 7: Global Toast Notification Container & Viewport Safety Offsets
+   ============================================================================= */
+#pyxis-toast-container,
+.pyxis-toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 50000000;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    pointer-events: none;
+    transition: bottom 0.22s cubic-bezier(0.16, 1, 0.3, 1), right 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Elevate toasts above transport controls when player fullscreen or cockpit is active */
+body:has(.pyxis-player-fullscreen) #pyxis-toast-container,
+body.pyxis-player-fullscreen-active #pyxis-toast-container,
+body:has(.is-telemetry-cockpit-open) #pyxis-toast-container,
+:fullscreen #pyxis-toast-container {
+    bottom: 84px !important;
+    right: 24px !important;
+}
+
 
 
 

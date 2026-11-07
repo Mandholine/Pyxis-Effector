@@ -29,7 +29,7 @@
 (function (window) {
     "use strict";
 
-    window.PYXIS_VERSION = "1.1.6";
+    window.PYXIS_VERSION = "1.1.7";
     window.PYXIS_STAGE = "Beta";
     window.PYXIS_STAGE_SHORT = "beta";
     window.PYXIS_VERSION_STRING = "v" + window.PYXIS_VERSION;

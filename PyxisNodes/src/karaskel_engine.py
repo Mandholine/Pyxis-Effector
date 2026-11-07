@@ -857,7 +857,12 @@ class KaraskelEngine:
                     furi.highlights = [hl]
                     furi.isfuri = True
                     if has_overrides and active_state is not None:
-                        furi.style_override = active_state.copy()
+                        furi_override = active_state.copy()
+                        # Position, move, and origin belong strictly to line scope in ASS
+                        furi_override.has_pos = False
+                        furi_override.has_move = False
+                        furi_override.has_org = False
+                        furi.style_override = furi_override
 
                     line.furi.append(furi)
                     worksyl.furi.append(furi)
@@ -879,13 +884,22 @@ class KaraskelEngine:
                 worksyl.prespace = prespace
                 worksyl.postspace = postspace
                 if has_overrides and active_state is not None:
-                    worksyl.style_override = active_state.copy()
+                    syl_override = active_state.copy()
+                    # Position, move, and origin belong strictly to line scope in ASS
+                    syl_override.has_pos = False
+                    syl_override.has_move = False
+                    syl_override.has_org = False
+                    worksyl.style_override = syl_override
             else:
                 worksyl.duration += token["duration"]
                 worksyl.kdur += token["duration"] / 10.0
                 worksyl.end_time = token["end_time"]
                 if has_overrides and active_state is not None:
-                    worksyl.style_override = active_state.copy()
+                    syl_override = active_state.copy()
+                    syl_override.has_pos = False
+                    syl_override.has_move = False
+                    syl_override.has_org = False
+                    worksyl.style_override = syl_override
 
         line.kara.append(worksyl)
 
@@ -1057,9 +1071,9 @@ class KaraskelEngine:
 
         align = line.align_override if line.align_override is not None else int(styleref.get("Alignment") or styleref.get("align") or 2)
 
-        if line.has_pos:
-            line.x = line.pos_x
-            line.y = line.pos_y
+        if line.has_pos or line.has_move:
+            line.x = line.pos_x if line.has_pos else line.move_x1
+            line.y = line.pos_y if line.has_pos else line.move_y1
 
             if align in (1, 4, 7):
                 line.left = line.x

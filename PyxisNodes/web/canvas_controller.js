@@ -84,7 +84,8 @@
             if (!toastContainer) {
                 toastContainer = document.createElement("div");
                 toastContainer.id = "pyxis-toast-container";
-                toastContainer.style.cssText = "position: fixed; bottom: 20px; right: 20px; z-index: 50000000; display: flex; flex-direction: column; gap: 6px; pointer-events: none;";
+                toastContainer.className = "pyxis-toast-container";
+                toastContainer.style.cssText = "position: fixed; z-index: 50000000; display: flex; flex-direction: column; gap: 6px; pointer-events: none;";
                 document.body.appendChild(toastContainer);
             }
 
@@ -119,7 +120,7 @@
                 iconSvg = `<svg style="width:14px;height:14px;color:#ef4444;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
             }
 
-            toast.style.cssText = `background: ${bgColor}; border: 1px solid ${borderColor}; color: ${textColor}; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; font-family: sans-serif; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.4); pointer-events: auto; opacity: 0; transform: translateY(8px); transition: all 0.2s ease;`;
+            toast.style.cssText = `background: ${bgColor}; border: 1px solid ${borderColor}; color: ${textColor}; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; font-family: sans-serif; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.4); pointer-events: none; opacity: 0; transform: translateY(8px); transition: all 0.2s ease;`;
             toast.innerHTML = `${iconSvg}<span ${isKey ? `data-i18n="${message}"` : ""}>${finalMsg}</span>`;
             
             toastContainer.appendChild(toast);
@@ -678,7 +679,9 @@
         }
 
         function closeAllActiveNodeEditors(save = true) {
+            let hadActiveEditor = false;
             if (typeof currentPromptFinish === "function") {
+                hadActiveEditor = true;
                 try {
                     currentPromptFinish(save);
                 } catch(e) {}
@@ -686,6 +689,7 @@
             }
             const promptOverlay = document.getElementById("pyxis-inline-input-overlay");
             if (promptOverlay && promptOverlay.style.display !== "none") {
+                hadActiveEditor = true;
                 promptOverlay.style.display = "none";
                 promptOverlay.onkeydown = null;
                 promptOverlay.onblur = null;
@@ -695,6 +699,7 @@
 
             const multiLine = document.getElementById("pyxis-inline-textarea-overlay");
             if (multiLine && multiLine.style.display !== "none") {
+                hadActiveEditor = true;
                 multiLine.onkeydown = null;
                 multiLine.onblur = null;
                 multiLine.oninput = null;
@@ -708,6 +713,7 @@
 
             const singleLine = document.getElementById("pyxis-inline-text-editor");
             if (singleLine) {
+                hadActiveEditor = true;
                 singleLine.onblur = null;
                 singleLine.onkeydown = null;
                 singleLine.oninput = null;
@@ -720,6 +726,7 @@
 
             const varsEditor = document.getElementById("pyxis-inline-vars-editor-container");
             if (varsEditor) {
+                hadActiveEditor = true;
                 if (typeof varsEditor._saveAndClose === "function") {
                     try { varsEditor._saveAndClose(); } catch(e) {}
                 } else if (varsEditor.parentNode) {
@@ -729,6 +736,7 @@
 
             const canvasObj = LGraphCanvas.active_canvas || window.canvas;
             if (canvasObj && canvasObj.prompt_box) {
+                hadActiveEditor = true;
                 try {
                     if (typeof canvasObj.prompt_box.close === "function") {
                         canvasObj.prompt_box.close();
@@ -736,13 +744,17 @@
                 } catch(e) {}
                 canvasObj.prompt_box = null;
             }
-            document.querySelectorAll(".graphdialog").forEach(d => {
-                try {
-                    if (typeof d.close === "function") d.close();
-                    else if (d.parentNode) d.parentNode.removeChild(d);
-                } catch(e) {}
-            });
-            if (typeof window.updateTemplateUIState === "function") {
+            const dialogs = document.querySelectorAll(".graphdialog");
+            if (dialogs.length > 0) {
+                hadActiveEditor = true;
+                dialogs.forEach(d => {
+                    try {
+                        if (typeof d.close === "function") d.close();
+                        else if (d.parentNode) d.parentNode.removeChild(d);
+                    } catch(e) {}
+                });
+            }
+            if (hadActiveEditor && typeof window.updateTemplateUIState === "function") {
                 setTimeout(window.updateTemplateUIState, 50);
             }
         }
@@ -1265,7 +1277,21 @@
         }
 
         window.addEventListener("wheel", function(e) {
-            if (e.target && (e.target.closest && (e.target.closest('#pyxis-inline-vars-editor-container') || e.target.closest('.ace_editor')))) {
+            if (e.target && typeof e.target.closest === "function" && (
+                e.target.closest('#pyxis-inline-vars-editor-container') ||
+                e.target.closest('.ace_editor') ||
+                e.target.closest('#pyxis-inline-text-editor') ||
+                e.target.closest('#pyxis-help-window') ||
+                e.target.closest('#pyxis-diagnostics-panel') ||
+                e.target.closest('#pyxis-debug-console-overlay') ||
+                e.target.closest('#pyxis-telemetry-overlay') ||
+                e.target.closest('.pyxis-modal-overlay') ||
+                e.target.closest('.pyxis-template-overlay') ||
+                e.target.closest('.pyxis-settings-overlay') ||
+                e.target.closest('.pyxis-theme-settings-overlay') ||
+                e.target.closest('.pyxis-mesh-picker-overlay') ||
+                e.target.closest('.litecontextmenu')
+            )) {
                 return;
             }
             if (typeof closeAllActiveNodeEditors === "function") {
@@ -2373,6 +2399,9 @@
                         // Preservar propiedades cargadas del template
                     } else if (activeP && activeP.isPinned) {
                         n.properties.is_pinned = true;
+                        if (n.size && n.size[0] > 0) {
+                            n.properties.pinned_width = Math.round(n.size[0]);
+                        }
                         if (activeP.originalSize) {
                             n.properties.previewer_width = Math.round(activeP.originalSize[0]);
                             n.properties.previewer_height = Math.round(activeP.originalSize[1]);
@@ -2393,6 +2422,7 @@
                         }
                     } else if (n.size && Array.isArray(n.size) && n.size[0] > 0 && n.size[1] >= 140) {
                         n.properties.is_pinned = false;
+                        delete n.properties.pinned_width;
                         delete n.properties.floating_x;
                         delete n.properties.floating_y;
                         delete n.properties.floating_width;

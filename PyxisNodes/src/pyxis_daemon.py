@@ -24,6 +24,8 @@ session state persistence, parent process lifecycle tracking, and graceful termi
 
 import json
 import os
+import subprocess
+import sys
 import time
 import threading
 import urllib.request
@@ -110,8 +112,13 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
                 file_path = None
                 if self.path.startswith("/bg_media/"):
                     f_name = parsed.path.replace("/bg_media/", "").strip()
-                    appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
-                    file_path = os.path.join(appdata_dir, "PyxisNodes", "bg_media", f_name)
+                    try:
+                        from paths import get_user_data_dir
+                        user_data_dir = get_user_data_dir()
+                    except Exception:
+                        appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+                        user_data_dir = os.path.join(appdata_dir, "PyxisNodes")
+                    file_path = os.path.join(user_data_dir, "bg_media", f_name)
                 else:
                     params = parse_qs(parsed.query)
                     file_path = params.get("path", [None])[0]
@@ -260,7 +267,14 @@ class PyxisDaemonServer:
             return
         PyxisDaemonHandler.daemon_context = self
         try:
+            try:
+                from process_utils import start_parent_watchdog
+                start_parent_watchdog()
+            except Exception:
+                pass
+
             self.server = HTTPServer(("127.0.0.1", port), PyxisDaemonHandler)
+            self.server.daemon_threads = True
             self.running = True
             self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
             self.server_thread.start()
@@ -286,10 +300,11 @@ class PyxisDaemonServer:
 
     @staticmethod
     def is_pid_alive(pid):
-        """Determine whether a specific process identifier is currently running on Windows.
+        """Determine whether a specific process identifier is currently running across platforms.
 
-        Employs psutil inspection if available, falling back to Win32 kernel32.OpenProcess
-        and kernel32.GetExitCodeProcess with STILL_ACTIVE (259) status verification.
+        Employs psutil inspection if available. On POSIX (Linux/macOS), checks process existence
+        via os.kill(pid, 0). On Windows, falls back to Win32 kernel32.OpenProcess and
+        kernel32.GetExitCodeProcess with STILL_ACTIVE (259) status verification.
 
         Args:
             pid: Numeric process identifier.
@@ -300,13 +315,30 @@ class PyxisDaemonServer:
         if not pid:
             return True
         try:
+            int_pid = int(pid)
+        except (ValueError, TypeError):
+            return False
+
+        if int_pid <= 0:
+            return False
+
+        try:
             import psutil
-            if psutil.pid_exists(int(pid)):
-                proc = psutil.Process(int(pid))
+            if psutil.pid_exists(int_pid):
+                proc = psutil.Process(int_pid)
                 return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
             return False
         except Exception:
             pass
+
+        if os.name != "nt":
+            try:
+                os.kill(int_pid, 0)
+                return True
+            except PermissionError:
+                return True
+            except (ProcessLookupError, ValueError, OSError):
+                return False
 
         try:
             import ctypes
@@ -315,7 +347,7 @@ class PyxisDaemonServer:
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             STILL_ACTIVE = 259
 
-            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int_pid)
             if not handle:
                 return False
             exit_code = wintypes.DWORD()
@@ -427,13 +459,13 @@ class PyxisDaemonServer:
 
     @classmethod
     def bring_to_foreground(cls, title=None, is_maximized=False):
-        """Forces the Pyxis window to the foreground using Win32 API calls.
+        """Forces the Pyxis window to the foreground across platforms.
 
-        Enumerates top-level windows matching the current process ID and window
-        title, sets appropriate high-resolution and low-resolution window icons,
-        attaches thread input to bypass Windows focus-stealing restrictions,
-        restores/maximises the window, and flashes z-order positioning
-        via HWND_TOPMOST / HWND_NOTOPMOST toggling.
+        On macOS, activates the application using Cocoa AppKit or osascript fallback.
+        On Linux, activates the window using wmctrl or xdotool.
+        On Windows, enumerates top-level windows matching the current process ID and window
+        title, sets window icons, attaches thread input to bypass focus restrictions,
+        restores/maximises the window, and sets z-order positioning.
 
         Args:
             title (str, optional): Target window title to match. Defaults to None.
@@ -444,6 +476,58 @@ class PyxisDaemonServer:
             bool: True if the window was located and successfully brought to the
                 foreground, False otherwise.
         """
+        if sys.platform == "darwin":
+            try:
+                import AppKit
+                AppKit.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+                return True
+            except Exception:
+                pass
+            try:
+                my_pid = os.getpid()
+                script = f'tell application "System Events" to set frontmost of first process whose unix id is {my_pid} to true'
+                res = subprocess.run(
+                    ["osascript", "-e", script],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2,
+                )
+                return res.returncode == 0
+            except Exception:
+                return False
+
+        if os.name != "nt":
+            import shutil
+            target_title = str(title) if title else "Pyxis Node Engine"
+            if shutil.which("wmctrl"):
+                try:
+                    res = subprocess.run(
+                        ["wmctrl", "-a", target_title],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=2,
+                    )
+                    if res.returncode == 0:
+                        return True
+                except Exception:
+                    pass
+            if shutil.which("xdotool"):
+                try:
+                    res = subprocess.run(
+                        ["xdotool", "search", "--name", target_title, "windowactivate"],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=2,
+                    )
+                    if res.returncode == 0:
+                        return True
+                except Exception:
+                    pass
+            return False
+
         try:
             import ctypes
             user32 = ctypes.windll.user32

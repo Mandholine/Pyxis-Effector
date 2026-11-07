@@ -46,6 +46,10 @@
         function isCompactTextPropOrVal(propKey, val) {
             const p = String(propKey || "").toLowerCase();
             if (p === "formato" || p === "format" || p.includes("format")) return false;
+            // Value unit nodes (String, Number) and ASSDraw drawings should display wrapped paragraphs rather than compact ellipses
+            if (typeof containsAssdrawDrawing === "function" && containsAssdrawDrawing(val)) {
+                return false;
+            }
             if (p === "shape" || p === "forma" || p === "frames" || p === "drawing" || p === "code" || p === "code_val" || p === "shp" || p === "shp_val" || p.includes("drawing") || p.includes("dibujo") || (p.includes("shape") && !p.includes("format"))) {
                 return true;
             }
@@ -58,21 +62,40 @@
         }
 
         let __pyxis_measure_canvas_ctx = null;
+        const __pyxis_text_width_cache = new Map();
+        const __PYXIS_TEXT_WIDTH_CACHE_MAX = 1200;
+
         function getExactTextWidth(text, font) {
             if (!text) return 0;
+            const strVal = String(text);
+            let f = font || "bold 11px Consolas, monospace";
+            if (f === "bold 11px monospace") f = "bold 11px Consolas, monospace";
+            const cacheKey = strVal + "|" + f;
+            const cached = __pyxis_text_width_cache.get(cacheKey);
+            if (cached !== undefined) return cached;
+
+            let measured = 0;
             try {
                 if (!__pyxis_measure_canvas_ctx) {
                     const canvas = document.createElement("canvas");
                     __pyxis_measure_canvas_ctx = canvas.getContext("2d");
                 }
                 if (__pyxis_measure_canvas_ctx) {
-                    let f = font || "bold 11px Consolas, monospace";
-                    if (f === "bold 11px monospace") f = "bold 11px Consolas, monospace";
                     __pyxis_measure_canvas_ctx.font = f;
-                    return __pyxis_measure_canvas_ctx.measureText(String(text)).width;
+                    measured = __pyxis_measure_canvas_ctx.measureText(strVal).width;
+                } else {
+                    measured = strVal.length * 7.2;
                 }
-            } catch(e) {}
-            return String(text).length * 7.2;
+            } catch(e) {
+                measured = strVal.length * 7.2;
+            }
+
+            if (__pyxis_text_width_cache.size >= __PYXIS_TEXT_WIDTH_CACHE_MAX) {
+                const firstKey = __pyxis_text_width_cache.keys().next().value;
+                __pyxis_text_width_cache.delete(firstKey);
+            }
+            __pyxis_text_width_cache.set(cacheKey, measured);
+            return measured;
         }
 
         function formatPathForDisplay(val, maxPxWidth, font) {
@@ -102,7 +125,7 @@
             }
             const isPreviewNode = !!((node.type && (String(node.type).toLowerCase().includes("preview") || String(node.type).toLowerCase().includes("previsualizador"))) || (node.title && String(node.title).toLowerCase().includes("previsualizador")));
             if (isPreviewNode) {
-                return 155;
+                return 182;
             }
             let max_out_w = 0;
             const outputs = node.outputs || [];
@@ -135,6 +158,16 @@
                 return Math.max(80, nodeW - 24 - rightReserve);
             }
 
+            const isValueUnitNode = !!(node && (
+                node.type === "String" || node.type === "Number" || node.type === "Número" || node.type === "Texto" ||
+                (node.title && (node.title === "String" || node.title === "Number" || node.title === "Número" || node.title === "Texto"))
+            ));
+            if (isValueUnitNode) {
+                const rightReserve = (typeof getNodeRightReserve === "function") ? getNodeRightReserve(node) : 24;
+                const margin = (widget && widget._boxX !== undefined) ? widget._boxX : 28;
+                return Math.max(65, nodeW - margin - rightReserve);
+            }
+
             const isSalidaNode = !!(node && (node.title === "Output" || (node.type && String(node.type).includes("Output"))));
             const margin = isFormatDinamico ? 12 : 22;
             const rightReserve = getNodeRightReserve(node);
@@ -143,20 +176,29 @@
             let dispText = curVal.length > 0 ? curVal : ((window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot(rawDisp) : rawDisp);
             const isPathProp = isFilePathPropOrVal(propKey, curVal);
             const isCompactProp = !isFormatDinamico && isCompactTextPropOrVal(propKey, curVal);
+            const isAssdraw = typeof containsAssdrawDrawing === "function" && containsAssdrawDrawing(curVal);
+
+            const minBoxW = isSalidaNode ? 75 : 65;
+            let textWidth = 0;
             if (curVal.length > 0 && isPathProp) {
                 const parts = curVal.replace(/\\/g, "/").split("/");
                 dispText = ".../" + (parts[parts.length - 1] || curVal);
+                textWidth = Math.min(65, getExactTextWidth(dispText, "bold 11px Consolas, monospace"));
             } else if (curVal.length > 0 && isCompactProp) {
                 dispText = curVal.length > 10 ? (curVal.substring(0, 10) + "...") : curVal;
-            }
-            
-            let textWidth = getExactTextWidth(dispText, "bold 11px Consolas, monospace");
-            if (isPathProp || isCompactProp) {
-                textWidth = Math.min(65, textWidth);
+                textWidth = Math.min(65, getExactTextWidth(dispText, "bold 11px Consolas, monospace"));
+            } else if (curVal.length > 0 && isAssdraw) {
+                const targetW = (node && node.size && node.size[0] > 0) ? (node.size[0] - margin - rightReserve) : 260;
+                textWidth = Math.max(minBoxW, targetW - 28);
+            } else {
+                textWidth = getExactTextWidth(dispText, "bold 11px Consolas, monospace");
             }
 
-            const minBoxW = isSalidaNode ? 75 : 65;
             const calcW = Math.max(minBoxW, Math.ceil(textWidth + 28));
+            const isPreviewNode = !!(node && ((node.type && (String(node.type).toLowerCase().includes("preview") || String(node.type).toLowerCase().includes("previsualizador"))) || (node.title && String(node.title).toLowerCase().includes("previsualizador"))));
+            if (isPreviewNode) {
+                return Math.max(80, calcW);
+            }
             const isImgNode = !!(node && (node.type === "IMG to Shape" || node.type === "Shape/IMG to Shape" || node.type === "IMG to pixels" || node.type === "Functions/IMG to pixels" || node.type === "Animation" || node.type === "Functions/Animation" || (node.title && (node.title.includes("IMG to") || node.title.includes("Animation")))));
             const cardReserve = isImgNode ? (rightReserve + 150 + 35) : rightReserve;
             const maxW = Math.max(minBoxW, nodeW - margin - cardReserve);
@@ -188,13 +230,15 @@
             const scale = canvas.ds ? canvas.ds.scale : 1.0;
             const offset = canvas.ds ? canvas.ds.offset : [0, 0];
 
-            const wWidth = getInlineBoxWidth(node, widget, titleName, propertyName);
+            const nodeW = (node && node.size && node.size[0]) ? node.size[0] : 200;
+            const wWidth = getInlineBoxWidth(node, widget, titleName, propertyName, nodeW);
             const wHeight = 18;
 
-            const screenX = rect.left + (node.pos[0] + margin + offset[0]) * scale;
-            const screenY = rect.top + (node.pos[1] + drawY + offset[1]) * scale;
-            const screenW = wWidth * scale;
-            const screenH = wHeight * scale;
+            const halfStroke = 0.75 * scale;
+            const screenX = rect.left + (node.pos[0] + margin + offset[0]) * scale - halfStroke;
+            const screenY = rect.top + (node.pos[1] + drawY + offset[1]) * scale - halfStroke;
+            const screenW = (wWidth * scale) + (1.5 * scale);
+            const screenH = (wHeight * scale) + (1.5 * scale);
 
             if (widget) widget._is_inline_editing = true;
             if (canvas.draw) canvas.draw(true, true);
@@ -257,6 +301,10 @@
                     const minSz = node.computeSize();
                     if (minSz && Array.isArray(minSz)) {
                         const isPreview = !!((node.type && (String(node.type).toLowerCase().includes("preview") || String(node.type).toLowerCase().includes("previsualizador"))) || (node.title && String(node.title).toLowerCase().includes("previsualizador")));
+                        const isAnimNode = Boolean(
+                            (node.type && (node.type === "Animation" || node.type === "Functions/Animation")) ||
+                            (node.title && String(node.title).includes("Animation"))
+                        );
                         if (isPreview && node.size) {
                             const keepW = Math.max(node.size[0] || 0, minSz[0]);
                             const keepH = node.size[1] || 330;
@@ -283,7 +331,24 @@
                                     p.applyTransform();
                                 }
                             }
-                        } else {
+                        } else if (isAnimNode || (node._customSize && Array.isArray(node._customSize))) {
+                            const curW = Math.max(
+                                (node._customSize && node._customSize[0] > 0) ? node._customSize[0] : 0,
+                                (node._manual_width !== undefined) ? node._manual_width : 0,
+                                (node.size && node.size[0] > 0) ? node.size[0] : 0
+                            );
+                            const curH = Math.max(
+                                (node._customSize && node._customSize[1] > 0) ? node._customSize[1] : 0,
+                                (node._manual_height !== undefined) ? node._manual_height : 0,
+                                (node.size && node.size[1] > 0) ? node.size[1] : 0
+                            );
+                            const finalW = Math.max(curW, minSz[0]);
+                            const finalH = Math.max(curH, minSz[1]);
+                            node.size = [finalW, finalH];
+                            node._customSize = [finalW, finalH];
+                            if (node._manual_width !== undefined) node._manual_width = finalW;
+                            if (node._manual_height !== undefined) node._manual_height = finalH;
+                        } else if (!node._manual_width && !node._manual_height) {
                             node.size = [minSz[0], minSz[1]];
                         }
                     }
@@ -295,13 +360,13 @@
                 const newRect = canvas.canvas.getBoundingClientRect();
                 const newScale = canvas.ds ? canvas.ds.scale : 1.0;
                 const newOffset = canvas.ds ? canvas.ds.offset : [0, 0];
-                const newW = getInlineBoxWidth(node, widget, titleName, propertyName);
-                const newH = 18;
+                const newW = getInlineBoxWidth(node, widget, titleName, propertyName, (node.size && node.size[0]) ? node.size[0] : 200);
 
-                const newScreenX = newRect.left + (node.pos[0] + margin + newOffset[0]) * newScale;
-                const newScreenY = newRect.top + (node.pos[1] + drawY + newOffset[1]) * newScale;
-                const newScreenW = newW * newScale;
-                const newScreenH = newH * newScale;
+                const newHalfStroke = 0.75 * newScale;
+                const newScreenX = newRect.left + (node.pos[0] + margin + newOffset[0]) * newScale - newHalfStroke;
+                const newScreenY = newRect.top + (node.pos[1] + drawY + newOffset[1]) * newScale - newHalfStroke;
+                const newScreenW = (newW * newScale) + (1.5 * newScale);
+                const newScreenH = (18 * newScale) + (1.5 * newScale);
 
                 inputEl.style.left = newScreenX + "px";
                 inputEl.style.top = newScreenY + "px";
@@ -327,6 +392,10 @@
                     const minSz = node.computeSize();
                     if (minSz && Array.isArray(minSz)) {
                         const isPreview = !!((node.type && (String(node.type).toLowerCase().includes("preview") || String(node.type).toLowerCase().includes("previsualizador"))) || (node.title && String(node.title).toLowerCase().includes("previsualizador")));
+                        const isAnimNode = Boolean(
+                            (node.type && (node.type === "Animation" || node.type === "Functions/Animation")) ||
+                            (node.title && String(node.title).includes("Animation"))
+                        );
                         if (isPreview && node.size) {
                             const keepW = Math.max(node.size[0] || 0, minSz[0]);
                             const keepH = node.size[1] || 330;
@@ -353,7 +422,24 @@
                                     p.applyTransform();
                                 }
                             }
-                        } else {
+                        } else if (isAnimNode || (node._customSize && Array.isArray(node._customSize))) {
+                            const curW = Math.max(
+                                (node._customSize && node._customSize[0] > 0) ? node._customSize[0] : 0,
+                                (node._manual_width !== undefined) ? node._manual_width : 0,
+                                (node.size && node.size[0] > 0) ? node.size[0] : 0
+                            );
+                            const curH = Math.max(
+                                (node._customSize && node._customSize[1] > 0) ? node._customSize[1] : 0,
+                                (node._manual_height !== undefined) ? node._manual_height : 0,
+                                (node.size && node.size[1] > 0) ? node.size[1] : 0
+                            );
+                            const finalW = Math.max(curW, minSz[0]);
+                            const finalH = Math.max(curH, minSz[1]);
+                            node.size = [finalW, finalH];
+                            node._customSize = [finalW, finalH];
+                            if (node._manual_width !== undefined) node._manual_width = finalW;
+                            if (node._manual_height !== undefined) node._manual_height = finalH;
+                        } else if (!node._manual_width && !node._manual_height) {
                             node.size = [minSz[0], minSz[1]];
                         }
                     }
@@ -376,10 +462,20 @@
                 } else if (e.key === "Escape") {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (widget) delete widget._is_inline_editing;
+                    if (node.properties && propKey) node.properties[propKey] = curVal;
+                    if (widget) {
+                        widget.value = curVal;
+                        delete widget._is_inline_editing;
+                    }
+                    if (typeof node.computeSize === "function" && !node._manual_width && !node._manual_height) {
+                        const minSz = node.computeSize();
+                        if (minSz && Array.isArray(minSz)) node.size = [minSz[0], minSz[1]];
+                    }
                     inputEl.onblur = null;
                     inputEl.remove();
+                    if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
+                    if (canvas.draw) canvas.draw(true, true);
                 }
             };
 
@@ -414,13 +510,15 @@
                     if (pos && widget.isPointInside && !widget.isPointInside(pos[0], pos[1], node)) {
                         return false;
                     }
-                    openInlineSingleLineEditor(node, widget, propertyName, titleName, event);
+                    const propKey = propertyName || widget.property;
+                    openInlineSingleLineEditor(node, widget, propKey, titleName, event);
                     return true;
                 }
             };
 
             widget.callback = function(value, canvas, node, pos, event) {
-                openInlineSingleLineEditor(node, widget, propertyName, titleName, event);
+                const propKey = propertyName || widget.property;
+                openInlineSingleLineEditor(node, widget, propKey, titleName, event);
             };
 
             widget.computeSize = function(width) {
@@ -436,16 +534,20 @@
                     : (widget.value !== undefined ? widget.value : ""));
                 
                 const isFormatDinamico = node && (node.type === "Dynamic Format" || (node.title && String(node.title).includes("Format Din")));
+                const isSalidaNode = !!(node && (node.title === "Output" || (node.type && String(node.type).includes("Output"))));
                 const margin = (widget._boxX !== undefined) ? widget._boxX : (isFormatDinamico ? 12 : 22);
                 const wWidth = getInlineBoxWidth(node, widget, titleName, propertyName, width);
                 const rawDisp = widget.name || titleName || "";
                 let dispText = curVal.length > 0 ? curVal : (widget._crossCol ? "0" : ((window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot(rawDisp) : rawDisp));
+
                 if (curVal.length > 0 && isFilePathPropOrVal(propKey, curVal)) {
                     dispText = formatPathForDisplay(curVal, wWidth - 16, "bold 11px Consolas, monospace");
                 } else if (curVal.length > 0 && !isFormatDinamico && isCompactTextPropOrVal(propKey, curVal)) {
                     dispText = curVal.length > 10 ? (curVal.substring(0, 10) + "...") : curVal;
                 }
+
                 const wHeight = 18;
+                widget._boxH = wHeight;
                 const borderRadius = 5;
 
                 ctx.save();
@@ -456,7 +558,9 @@
                 if (ctx.roundRect) ctx.roundRect(margin, drawY, wWidth, wHeight, borderRadius);
                 else ctx.rect(margin, drawY, wWidth, wHeight);
                 ctx.fill();
-                ctx.stroke();
+                if (!widget._is_inline_editing) {
+                    ctx.stroke();
+                }
 
                 ctx.beginPath();
                 if (ctx.roundRect) ctx.roundRect(margin + 2, drawY + 2, wWidth - 4, wHeight - 4, Math.max(4, borderRadius - 2));
@@ -468,7 +572,6 @@
                     ctx.font = "bold 11px Consolas, monospace";
                     ctx.textAlign = "left";
 
-                    const isSalidaNode = !!(node && (node.title === "Output" || (node.type && String(node.type).includes("Output"))));
                     const textPadLeft = (widget._boxX !== undefined) ? 6 : (isSalidaNode ? 6 : (isFormatDinamico ? 6 : 8));
                     ctx.fillText(dispText, margin + textPadLeft, drawY + 13);
                 }
@@ -1441,6 +1544,39 @@
                 );
             }
 
+            function getHoveredScrollableNodeWidget(e) {
+                const cObj = (window.LGraphCanvas && window.LGraphCanvas.active_canvas) || window.canvas || window.graphcanvas;
+                if (!cObj || !cObj.canvas || !cObj.graph) return null;
+                if (e && e.target && e.target !== cObj.canvas) return null;
+
+                const rect = cObj.canvas.getBoundingClientRect();
+                const scale = (cObj.ds && cObj.ds.scale) ? cObj.ds.scale : 1.0;
+                const offset = (cObj.ds && cObj.ds.offset) ? cObj.ds.offset : [0, 0];
+                const graphX = (e.clientX - rect.left) / scale - offset[0];
+                const graphY = (e.clientY - rect.top) / scale - offset[1];
+
+                const node = cObj.graph.getNodeOnPos(graphX, graphY, cObj.visible_nodes, 5);
+                if (!node || !node.pos || !node.widgets) return null;
+
+                const lx = graphX - node.pos[0];
+                const ly = graphY - node.pos[1];
+
+                for (let i = 0; i < node.widgets.length; i++) {
+                    const w = node.widgets[i];
+                    if (w && w._scrollbar_info && w._max_scroll_lines > 0) {
+                        const sb = w._scrollbar_info;
+                        const boxX = sb.boxX !== undefined ? sb.boxX : 12;
+                        const boxY = sb.boxY !== undefined ? sb.boxY : w.y;
+                        const boxW = sb.boxW !== undefined ? sb.boxW : (node.size[0] - 24);
+                        const boxH = sb.boxH !== undefined ? sb.boxH : 36;
+                        if (lx >= boxX && lx <= boxX + boxW && ly >= boxY && ly <= boxY + boxH) {
+                            return { node, widget: w, cObj };
+                        }
+                    }
+                }
+                return null;
+            }
+
             function getHoveredImgPreviewCardFromEvent(e) {
                 const cObj = (window.LGraphCanvas && window.LGraphCanvas.active_canvas) || window.canvas || window.graphcanvas;
                 if (!cObj || !cObj.canvas || !cObj.graph) return null;
@@ -1465,6 +1601,31 @@
             }
 
             window.addEventListener("wheel", function(e) {
+                const scrollHit = getHoveredScrollableNodeWidget(e);
+                if (scrollHit) {
+                    let delta = 0;
+                    if (e.deltaY != null && e.deltaY !== 0) delta = e.deltaY;
+                    else if (e.wheelDeltaY != null && e.wheelDeltaY !== 0) delta = -e.wheelDeltaY;
+                    else if (e.wheelDelta != null && e.wheelDelta !== 0) delta = -e.wheelDelta;
+                    else if (e.detail != null && e.detail !== 0) delta = e.detail * 60;
+                    if (delta !== 0) {
+                        const step = delta > 0 ? 1 : -1;
+                        const cur = scrollHit.widget._scroll_line || 0;
+                        const next = Math.max(0, Math.min(cur + step, scrollHit.widget._max_scroll_lines));
+                        if (next !== cur) {
+                            scrollHit.widget._scroll_line = next;
+                            if (scrollHit.node.setDirtyCanvas) scrollHit.node.setDirtyCanvas(true, true);
+                            if (scrollHit.cObj && scrollHit.cObj.draw) scrollHit.cObj.draw(true, true);
+                        }
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (typeof e.stopImmediatePropagation === "function") {
+                        e.stopImmediatePropagation();
+                    }
+                    return;
+                }
+
                 const hit = getHoveredImgPreviewCardFromEvent(e);
                 if (!hit) return;
 
@@ -1721,20 +1882,24 @@
                     { name: "Shape list", default: "", property: "frames" },
                     { name: "Step (ms)", default: "41.7", property: "step_ms" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "relative", property: "anchor", type: "button" }
                 ],
                 "fbf": [
                     { name: "Shape list", default: "", property: "frames" },
                     { name: "Step (ms)", default: "41.7", property: "step_ms" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "relative", property: "anchor", type: "button" }
                 ],
                 "alpha": [
                     { name: "Shape list", default: "", property: "frames" },
                     { name: "Step (ms)", default: "41.7", property: "step_ms" },
                     { name: "Start Time", default: "", property: "start_time" },
                     { name: "End Time", default: "", property: "end_time" },
-                    { name: "Alpha Tag", default: "\\alpha", property: "alpha_tag", type: "button" }
+                    { name: "Anchor", default: "relative", property: "anchor", type: "button" },
+                    { name: "Alpha Tag", default: "\\alpha", property: "alpha_tag", type: "button" },
+                    { name: "base", default: "0", property: "base" }
                 ]
             },
             "Functions/Animation": {
@@ -1742,20 +1907,24 @@
                     { name: "Shape list", default: "", property: "frames" },
                     { name: "Step (ms)", default: "41.7", property: "step_ms" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "relative", property: "anchor", type: "button" }
                 ],
                 "fbf": [
                     { name: "Shape list", default: "", property: "frames" },
                     { name: "Step (ms)", default: "41.7", property: "step_ms" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "relative", property: "anchor", type: "button" }
                 ],
                 "alpha": [
                     { name: "Shape list", default: "", property: "frames" },
                     { name: "Step (ms)", default: "41.7", property: "step_ms" },
                     { name: "Start Time", default: "", property: "start_time" },
                     { name: "End Time", default: "", property: "end_time" },
-                    { name: "Alpha Tag", default: "\\alpha", property: "alpha_tag", type: "button" }
+                    { name: "Anchor", default: "relative", property: "anchor", type: "button" },
+                    { name: "Alpha Tag", default: "\\alpha", property: "alpha_tag", type: "button" },
+                    { name: "base", default: "0", property: "base" }
                 ]
             },
             "Time to Frame": {
@@ -2691,7 +2860,8 @@
                 "Borders": [
                     { name: "Shape / Text", default: "", property: "shape" },
                     { name: "Factor (t)", default: "1.0", property: "t" },
-                    { name: "Offset (px)", default: "2.0", property: "offset_border" }
+                    { name: "Offset (px)", default: "2.0", property: "offset_border" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "Deform": [
                     { name: "Shape / Text", default: "", property: "shape" },
@@ -3828,22 +3998,45 @@
                 ],
                 "Fusion (Tags)": [
                     { name: "Shape In", default: "", property: "shape" },
+                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
                     { name: "Tag Mode", default: "ipol", property: "tagmode", type: "button" },
+                    { name: "Tags", default: "", property: "tags" },
+                    { name: "Accel", default: "1.0", property: "accel" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order" }
+                ],
+                "Fusion (Tags) (ipol)": [
+                    { name: "Shape In", default: "", property: "shape" },
+                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
+                    { name: "Tag Mode", default: "ipol", property: "tagmode", type: "button" },
+                    { name: "Tags", default: "", property: "tags" },
+                    { name: "Accel", default: "1.0", property: "accel" },
+                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
+                    { name: "Order", default: "79", property: "order" }
+                ],
+                "Fusion (Tags) (line)": [
+                    { name: "Shape In", default: "", property: "shape" },
+                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
+                    { name: "Tag Mode", default: "line", property: "tagmode", type: "button" },
                     { name: "Tags", default: "", property: "tags" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Order", default: "79", property: "order" }
                 ],
                 "FUSION": [
                     { name: "Shape In", default: "", property: "shape" },
+                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
                     { name: "Tag Mode", default: "ipol", property: "tagmode", type: "button" },
                     { name: "Tags", default: "", property: "tags" },
+                    { name: "Accel", default: "1.0", property: "accel" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Order", default: "79", property: "order" }
                 ],
                 "Fusión (Tags)": [
                     { name: "Shape In", default: "", property: "shape" },
+                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
                     { name: "Tag Mode", default: "ipol", property: "tagmode", type: "button" },
                     { name: "Tags", default: "", property: "tags" },
+                    { name: "Accel", default: "1.0", property: "accel" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Order", default: "79", property: "order" }
                 ],
@@ -4194,9 +4387,16 @@
             piece: [
                 { full: "pieces", short: "Pieces" },
                 { full: "relative", short: "Relative" },
+                { full: "origin", short: "Origin" },
+                { full: "center", short: "Center" },
                 { full: "parent_org", short: "Parent Org" },
                 { full: "pos", short: "Pos" },
                 { full: "absolute", short: "Absolute" }
+            ],
+            anim: [
+                { full: "relative", short: "Relative" },
+                { full: "center", short: "Center" },
+                { full: "origin", short: "Origin" }
             ],
             trajectory: [
                 { full: "center", short: "Center" },
@@ -4273,6 +4473,15 @@
                 } else if (nodeKey === "Frame to Time" || nodeKey === "Time/Frame to Time" || nodeKey === "Frame a Tiempo") {
                     const secMode = node.properties ? (node.properties["source"] || "Custom") : "Custom";
                     specList = (MODE_INPUT_SPECS[nodeKey] && MODE_INPUT_SPECS[nodeKey][secMode]) || (MODE_INPUT_SPECS["Frame to Time"] && MODE_INPUT_SPECS["Frame to Time"][secMode]) || MODE_INPUT_SPECS["Frame to Time"]["DEFAULT"];
+                } else if (nodeKey === "Union & Divide" || nodeKey === "Shape/Union & Divide" || nodeKey === "Unión y División" || title.includes("Union & Divide") || title.includes("Unión y División")) {
+                    const isFusion = (curMode === "Fusion (Tags)" || curMode === "FUSION" || curMode === "Fusión (Tags)");
+                    if (isFusion) {
+                        const tagMode = String((node.properties && node.properties.tagmode) ? node.properties.tagmode : "ipol").toLowerCase();
+                        const fusionKey = (tagMode === "line") ? "Fusion (Tags) (line)" : "Fusion (Tags) (ipol)";
+                        specList = (MODE_INPUT_SPECS[nodeKey] && MODE_INPUT_SPECS[nodeKey][fusionKey]) || (MODE_INPUT_SPECS["Union & Divide"] && MODE_INPUT_SPECS["Union & Divide"][fusionKey]) || getSpecFromSpecsTable(nodeKey, curMode);
+                    } else {
+                        specList = getSpecFromSpecsTable(nodeKey, curMode);
+                    }
                 } else {
                     specList = getSpecFromSpecsTable(nodeKey, curMode);
                 }
@@ -4512,8 +4721,37 @@
                     }
                     if (node.computeSize) {
                         const sz = node.computeSize();
-                        node.size[0] = Math.max(node.size[0], sz[0]);
-                        node.size[1] = sz[1];
+                        const isAnimNode = Boolean(
+                            nodeKey === "Animation" || 
+                            nodeKey === "Functions/Animation" || 
+                            (node.type && (node.type === "Animation" || node.type === "Functions/Animation")) ||
+                            (title && title.includes("Animation"))
+                        );
+                        if (isAnimNode) {
+                            const curW = Math.max(
+                                (node._customSize && node._customSize[0] > 0) ? node._customSize[0] : 0,
+                                (node._manual_width !== undefined) ? node._manual_width : 0,
+                                (node.size && node.size[0] > 0) ? node.size[0] : 0
+                            );
+                            const curH = Math.max(
+                                (node._customSize && node._customSize[1] > 0) ? node._customSize[1] : 0,
+                                (node._manual_height !== undefined) ? node._manual_height : 0,
+                                (node.size && node.size[1] > 0) ? node.size[1] : 0
+                            );
+                            node.size[0] = Math.max(curW, sz[0]);
+                            node.size[1] = Math.max(curH, sz[1]);
+                            node._customSize = [node.size[0], node.size[1]];
+                            if (node._manual_width !== undefined) node._manual_width = node.size[0];
+                            if (node._manual_height !== undefined) node._manual_height = node.size[1];
+                        } else {
+                            const isFixedWNode = Boolean(title && (title.includes("Concentric") || title.includes("Bordes")));
+                            if (isFixedWNode) {
+                                node.size[0] = sz[0];
+                            } else {
+                                node.size[0] = Math.max(node.size[0], sz[0]);
+                            }
+                            node.size[1] = sz[1];
+                        }
                     }
                     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
@@ -4754,6 +4992,9 @@
                     } else if (portName === "Anchor" || portName === "Anclaje") {
                         function getAnchorListAndDef(targetNode) {
                             const t = String((targetNode && (targetNode.title || targetNode.type)) || "");
+                            if (t.includes("Animation") || (targetNode.type && String(targetNode.type).includes("Animation"))) {
+                                return { list: ANCHOR_PROFILES.anim, def: "relative" };
+                            }
                             if (t.includes("IMG to pixels") || (targetNode.type && String(targetNode.type).includes("IMG to pixels"))) {
                                 return { list: ANCHOR_PROFILES.cardinal, def: "center" };
                             }
@@ -4916,6 +5157,7 @@
                             node.properties.mode = nextObj.full;
                             if (node.properties.modo !== undefined) delete node.properties.modo;
                             w.value = nextObj.full;
+                            if (node.computeSize) node.size = node.computeSize();
                             if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                             if (canvas && canvas.draw) canvas.draw(true, true);
                             if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("border-mode-change");
@@ -5562,7 +5804,19 @@
                             { full: "\\1c", short: "\\1c" },
                             { full: "\\2c", short: "\\2c" },
                             { full: "\\3c", short: "\\3c" },
-                            { full: "\\4c", short: "\\4c" }
+                            { full: "\\4c", short: "\\4c" },
+                            { full: "\\12c", short: "\\12c" },
+                            { full: "\\13c", short: "\\13c" },
+                            { full: "\\14c", short: "\\14c" },
+                            { full: "\\23c", short: "\\23c" },
+                            { full: "\\24c", short: "\\24c" },
+                            { full: "\\34c", short: "\\34c" },
+                            { full: "\\123c", short: "\\123c" },
+                            { full: "\\124c", short: "\\124c" },
+                            { full: "\\134c", short: "\\134c" },
+                            { full: "\\234c", short: "\\234c" },
+                            { full: "\\1234c", short: "\\1234c" },
+                            { full: "\\c", short: "\\c" }
                         ];
                         w.draw = function(ctx, n, width, y, height) {
                             const drawY = (w.last_y !== undefined) ? w.last_y : y;
@@ -5579,7 +5833,7 @@
 
                             const labelW = ctx.measureText(tagLabel).width;
                             const btnX = Math.round(22 + labelW + 8);
-                            const btnW = 54;
+                            const btnW = 58;
                             const btnH = 18;
                             w._btnX = btnX; w._btnW = btnW;
 
@@ -5860,9 +6114,62 @@
                             const nextObj = TAG_MODES[nextIdx];
                             node.properties.tagmode = nextObj.full;
                             w.value = nextObj.full;
+                            updateNodeModeInputs(node);
+                            if (node.computeSize) node.size = node.computeSize();
                             if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                             if (canvas && canvas.draw) canvas.draw(true, true);
                             if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("tagmode-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (portName === "Split" || portName === "División" || propKey === "split_mode") {
+                        const isEs = !!(window.PyxisI18n && window.PyxisI18n.currentLang === "es");
+                        const SPLIT_MODES = [
+                            { full: "islands", short: isEs ? "Isla" : "Islands" },
+                            { full: "path", short: "Path" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curM = String((n.properties && n.properties.split_mode) ? n.properties.split_mode : (w.value || "islands")).toLowerCase();
+                            const isPath = (curM === "path" || curM === "subpaths" || curM === "subpath");
+                            const isEsLang = !!(window.PyxisI18n && window.PyxisI18n.currentLang === "es");
+                            const mObj = isPath ? { full: "path", short: "Path" } : { full: "islands", short: isEsLang ? "Isla" : "Islands" };
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#94a3b8";
+                            ctx.textAlign = "left";
+                            const splitLabel = (window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot("Split:") : "Split:";
+                            ctx.fillText(splitLabel, 22, drawY + 13);
+
+                            const labelW = ctx.measureText(splitLabel).width;
+                            const btnX = Math.round(22 + labelW + 6);
+                            const btnW = 58;
+                            const btnH = 18;
+                            w._btnX = btnX; w._btnW = btnW;
+
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#8b5cf6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#a7f3d0";
+                            ctx.textAlign = "center";
+                            ctx.fillText(mObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curM = String((node.properties && node.properties.split_mode) ? node.properties.split_mode : "islands").toLowerCase();
+                            const isPath = (curM === "path" || curM === "subpaths" || curM === "subpath");
+                            const nextObj = isPath ? SPLIT_MODES[0] : SPLIT_MODES[1];
+                            node.properties.split_mode = nextObj.full;
+                            w.value = nextObj.full;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("split_mode-change");
                             if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                         };
                     }
@@ -5986,9 +6293,29 @@ remainingOldInputs.forEach(unmatchedInp => {
             });
 
             if (node.computeSize) {
-                const curW = (node.size && node.size[0] > 0) ? node.size[0] : 0;
+                const isAnimNode = Boolean(
+                    nodeKey === "Animation" || 
+                    nodeKey === "Functions/Animation" || 
+                    (node.type && (node.type === "Animation" || node.type === "Functions/Animation")) ||
+                    (title && title.includes("Animation"))
+                );
+                const curW = Math.max(
+                    (node._customSize && node._customSize[0] > 0) ? node._customSize[0] : 0,
+                    (node.size && node.size[0] > 0) ? node.size[0] : 0
+                );
+                const curH = Math.max(
+                    (node._customSize && node._customSize[1] > 0) ? node._customSize[1] : 0,
+                    (node.size && node.size[1] > 0) ? node.size[1] : 0
+                );
                 const sz = node.computeSize();
-                node.size = [Math.max(curW, sz[0]), sz[1]];
+                if (isAnimNode) {
+                    const finalW = Math.max(curW, sz[0]);
+                    const finalH = Math.max(curH, sz[1]);
+                    node.size = [finalW, finalH];
+                    node._customSize = [finalW, finalH];
+                } else {
+                    node.size = [Math.max(curW, sz[0]), sz[1]];
+                }
             }
         }
 
@@ -6074,7 +6401,7 @@ remainingOldInputs.forEach(unmatchedInp => {
                     if (node_name === "Lead In" || node_name === "Lead Out" || node_name === "Middle 1" || node_name === "Middle 2" || node_name === "Loop 1" || node_name === "Loop 2") req_w = Math.max(req_w, 140);
                     else if (node_name === "Benchmark Math") req_w = Math.max(req_w, 225);
                     else if (node_name === "Slicer" || node_name === "Multi" || title_text === "Slicer" || title_text === "Multi") req_w = Math.max(req_w, 235);
-                    else if (node_name.includes("Bordes") || title_text.includes("Bordes") || node_name.includes("Concentric") || title_text.includes("Concentric")) req_w = Math.max(req_w, 235);
+                    else if (node_name.includes("Bordes") || title_text.includes("Bordes") || node_name.includes("Concentric") || title_text.includes("Concentric")) req_w = 235;
                     else if (node_name === "Modulator" || title_text === "Modulator" || title_text === "Modulador" || (this.type && this.type.includes("Audio"))) req_w = Math.max(req_w, 225);
                     else if (node_name.includes("MultiRandom") || node_name.includes("MultiTag")) req_w = Math.max(req_w, 210);
                     else if (node_name.includes("module") || title_text.includes("module")) req_w = Math.max(req_w, 145);
@@ -6101,19 +6428,27 @@ remainingOldInputs.forEach(unmatchedInp => {
                             if (propVal !== undefined && propVal !== null) {
                                 const text = String(propVal);
                                 if (text.length > 0) {
-                                    const lines = text.split('\n');
+                                    const isAss = typeof containsAssdrawDrawing === "function" && containsAssdrawDrawing(text);
                                     let max_line_tw = 0;
-                                    lines.forEach(l => {
-                                        const tw = getExactTextWidth(l, "bold 11px Consolas, monospace");
-                                        if (tw > max_line_tw) max_line_tw = tw;
-                                    });
+                                    if (isAss) {
+                                        max_line_tw = 150;
+                                    } else {
+                                        const lines = text.split('\n');
+                                        lines.forEach(l => {
+                                            const tw = getExactTextWidth(l, "bold 11px Consolas, monospace");
+                                            if (tw > max_line_tw) max_line_tw = tw;
+                                        });
+                                    }
                                     if (max_line_tw > 0) {
                                         const right_space = getNodeRightReserve(this);
                                         const boxW = Math.max(65, Math.ceil(max_line_tw + 28));
                                         req_w = Math.max(req_w, 22 + boxW + right_space);
                                     }
-                                    if (propKey === "variables" && lines.length > 1) {
-                                        multiline_extra_h = (lines.length - 1) * 22;
+                                    if (propKey === "variables" && !isAss) {
+                                        const lines = text.split('\n');
+                                        if (lines.length > 1) {
+                                            multiline_extra_h = (lines.length - 1) * 22;
+                                        }
                                     }
                                 }
                             }
@@ -6128,12 +6463,17 @@ remainingOldInputs.forEach(unmatchedInp => {
                             if (w && w.value !== undefined && w.value !== null) {
                                 const wText = String(w.value);
                                 if (wText.length > 0) {
-                                    const lines = wText.split('\n');
+                                    const isAss = typeof containsAssdrawDrawing === "function" && containsAssdrawDrawing(wText);
                                     let max_line_tw = 0;
-                                    lines.forEach(l => {
-                                        const tw = getExactTextWidth(l, "bold 11px Consolas, monospace");
-                                        if (tw > max_line_tw) max_line_tw = tw;
-                                    });
+                                    if (isAss) {
+                                        max_line_tw = 150;
+                                    } else {
+                                        const lines = wText.split('\n');
+                                        lines.forEach(l => {
+                                            const tw = getExactTextWidth(l, "bold 11px Consolas, monospace");
+                                            if (tw > max_line_tw) max_line_tw = tw;
+                                        });
+                                    }
                                     if (max_line_tw > 0) {
                                         const right_space = getNodeRightReserve(this);
                                         const boxW = Math.max(65, Math.ceil(max_line_tw + 28));
@@ -6417,7 +6757,7 @@ remainingOldInputs.forEach(unmatchedInp => {
                 },
                 "Number": {
                     "node_kind": "data", "inputs": [], "outputs": ["Number"], "color": "#1A5F4C",
-                    "properties": { "value": "0" }, "widgets": [{ "type": "text", "name": "Value", "property": "value" }]
+                    "properties": { "value": "" }, "widgets": [{ "type": "text", "name": "Value", "property": "value" }]
                 },
                 "Color Picker": {
                     "node_kind": "data", "inputs": [], "outputs": ["Color List", "ASS Color"], "color": "#1A4A5F",
@@ -6579,8 +6919,8 @@ remainingOldInputs.forEach(unmatchedInp => {
                     "widgets": []
                 },
                 "Animation": {
-                    "node_kind": "data", "inputs": ["Shape list", "Step ms", "Start Time", "End Time"], "outputs": ["Shape", "Frame", "Frames List"], "color": "#8B5CF6",
-                    "properties": { "mode": "fbf", "frames": "", "step_ms": "41.7", "start_time": "", "end_time": "", "alpha_tag": "\\alpha", "order": "sequential", "var_name": "an" },
+                    "node_kind": "data", "inputs": ["Shape list", "Step ms", "Start Time", "End Time", "Anchor"], "outputs": ["Shape", "Frame", "Frames List"], "color": "#8B5CF6",
+                    "properties": { "mode": "fbf", "frames": "", "step_ms": "41.7", "start_time": "", "end_time": "", "alpha_tag": "\\alpha", "order": "sequential", "anchor": "relative", "base": "0" },
                     "widgets": []
                 },
                 "Glitter": {
@@ -6627,7 +6967,7 @@ remainingOldInputs.forEach(unmatchedInp => {
                 },
                 "Union & Divide": {
                     "node_kind": "data", "inputs": ["Shape In", "Fill Rule", "Auto-Intersect", "Anchor", "Order"], "outputs": ["Shape Out", "Out List", "BBox Data"], "color": "#5B2C6F",
-                    "properties": { "shape": "", "shape_b": "", "fill_type": "evenodd", "clean_self_intersect": "1", "mode": "divide", "anchor": "pieces", "order": "79", "tagmode": "ipol", "tags": "" },
+                    "properties": { "shape": "", "shape_b": "", "fill_type": "evenodd", "clean_self_intersect": "1", "mode": "divide", "anchor": "pieces", "order": "79", "tagmode": "ipol", "tags": "", "accel": "1.0" },
                     "widgets": []
                 }
             },
@@ -7008,7 +7348,10 @@ remainingOldInputs.forEach(unmatchedInp => {
                                                 if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                             }
                                         } else {
-                                            p.node.size = [300, 54];
+                                            const minSz = (typeof p.node.computeSize === 'function') ? p.node.computeSize() : [284, 54];
+                                            const minW = Math.max(270, minSz ? minSz[0] : 284);
+                                            const curW = (p.node.size && p.node.size[0]) ? p.node.size[0] : minW;
+                                            p.node.size = [Math.max(curW, minW), 54];
                                             if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                             if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                         }
@@ -7077,7 +7420,10 @@ remainingOldInputs.forEach(unmatchedInp => {
                                                 if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                             }
                                         } else {
-                                            p.node.size = [300, 54];
+                                            const minSz = (typeof p.node.computeSize === 'function') ? p.node.computeSize() : [284, 54];
+                                            const minW = Math.max(270, minSz ? minSz[0] : 284);
+                                            const curW = (p.node.size && p.node.size[0]) ? p.node.size[0] : minW;
+                                            p.node.size = [Math.max(curW, minW), 54];
                                             if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                             if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                         }

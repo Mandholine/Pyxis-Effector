@@ -45,7 +45,10 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
-import winreg
+if sys.platform == "win32":
+    import winreg
+else:
+    winreg = None
 from datetime import datetime
 
 logger = logging.getLogger("pyxis.dependency_checker")
@@ -70,6 +73,9 @@ def check_dotnet_installed() -> tuple[bool, int]:
     Dependencies & Couplings:
         - Called by ensure_dependencies().
     """
+    if winreg is None:
+        return True, 0
+
     try:
         with winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
@@ -98,6 +104,9 @@ def check_webview2_installed() -> tuple[bool, str]:
     Dependencies & Couplings:
         - Called by ensure_dependencies() and install_webview2_bootstrapper().
     """
+    if winreg is None:
+        return True, "N/A - POSIX Platform"
+
     candidate_paths = [
         (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_GUID}"),
         (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_GUID}"),
@@ -207,8 +216,12 @@ def _show_native_message(title: str, text: str, style: int = 0) -> int:
 
     Returns:
         int: Win32 button identifier chosen by the user (e.g. IDYES=6, IDNO=7, IDOK=1).
-             Safe fallback to stderr if ctypes fails.
+             Safe fallback to stderr if ctypes fails or on non-Windows platforms.
     """
+    if sys.platform != "win32":
+        print(f"[{title}] {text}", file=sys.stderr)
+        return 0
+
     try:
         user32 = ctypes.windll.user32
         return int(user32.MessageBoxW(0, text, title, style))
@@ -353,6 +366,42 @@ def ensure_dependencies(config_path: str, interactive: bool = True) -> bool:
         - Called by main.py prior to webview.create_window() instantiation.
     """
     unblock_runtime_binaries()
+
+    if sys.platform != "win32":
+        # On POSIX platforms (Linux / macOS), verify that a pywebview backend is available
+        if sys.platform == "darwin":
+            try:
+                import objc  # noqa: F401
+                import WebKit  # noqa: F401
+            except ImportError:
+                logger.warning(
+                    "[Pyxis POSIX Preflight] PyObjC WebKit bindings may be missing. "
+                    "If the GUI fails to open, run: pip install pyobjc-framework-WebKit"
+                )
+        else:
+            has_webkit = False
+            try:
+                import gi
+                gi.require_version("WebKit2", "4.1")
+                from gi.repository import WebKit2  # noqa: F401
+                has_webkit = True
+            except Exception:
+                try:
+                    import gi
+                    gi.require_version("WebKit2", "4.0")
+                    from gi.repository import WebKit2  # noqa: F401
+                    has_webkit = True
+                except Exception:
+                    pass
+            if not has_webkit:
+                try:
+                    import qtpy  # noqa: F401
+                except ImportError:
+                    logger.warning(
+                        "[Pyxis POSIX Preflight] Neither WebKit2GTK nor Qt WebEngine was detected. "
+                        "On Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0 or sudo apt install python3-pyqt6.qtwebengine"
+                    )
+        return True
 
     # 1. Quick Cache Check: 0 ms overhead on subsequent launches
     cached = get_cached_dependency_status(config_path)

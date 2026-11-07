@@ -24,6 +24,109 @@
  * @license GPL-3.0-or-later
  */
 
+        function containsAssdrawDrawing(val) {
+            if (!val || typeof val !== "string") return false;
+            const str = val.trim();
+            if (/^m\s+[-?\d]/i.test(str) || /^m\s*[-?\d]/i.test(str) || str.startsWith("m ") || str.startsWith("m-") || str.startsWith("m0")) {
+                return true;
+            }
+            if (/\bm\s+[-?\d]/i.test(str) && (/\b[lbcs]\s+[-?\d]/i.test(str) || str.includes(" b ") || str.includes(" l ") || str.includes(" c ") || str.includes(" s "))) {
+                return true;
+            }
+            if (str.includes("m ") && (str.includes(" l ") || str.includes(" b ") || str.includes(" c ") || str.includes(" s "))) {
+                return true;
+            }
+            return false;
+        }
+        window.containsAssdrawDrawing = containsAssdrawDrawing;
+
+        function wrapTextToPixelWidth(text, maxPixelWidth, font) {
+            if (!text || typeof text !== "string") return [""];
+            const maxW = Math.max(20, maxPixelWidth || 300);
+            const fontStr = font || "bold 12px Consolas, monospace";
+
+            const rawLines = text.split("\n");
+            const result = [];
+            const maxResultLines = 200; // Cap to prevent massive arrays for huge text
+
+            for (let i = 0; i < rawLines.length; i++) {
+                if (result.length >= maxResultLines) {
+                    result.push("...");
+                    break;
+                }
+                const line = rawLines[i];
+                if (!line) {
+                    result.push("");
+                    continue;
+                }
+                if (getExactTextWidth(line, fontStr) <= maxW) {
+                    result.push(line);
+                    continue;
+                }
+                const tokens = line.split(" ");
+                let current = "";
+                for (let j = 0; j < tokens.length; j++) {
+                    if (result.length >= maxResultLines) {
+                        current = "";
+                        result.push("...");
+                        break;
+                    }
+                    const token = tokens[j];
+                    if (token === "" && j > 0) {
+                        const testSpace = current + " ";
+                        if (getExactTextWidth(testSpace, fontStr) <= maxW) {
+                            current = testSpace;
+                        } else {
+                            result.push(current);
+                            current = "";
+                        }
+                        continue;
+                    }
+                    const testLine = current ? (current + " " + token) : token;
+                    if (getExactTextWidth(testLine, fontStr) <= maxW) {
+                        current = testLine;
+                    } else {
+                        if (current) {
+                            result.push(current);
+                            current = "";
+                            if (result.length >= maxResultLines) {
+                                result.push("...");
+                                break;
+                            }
+                        }
+                        if (getExactTextWidth(token, fontStr) <= maxW) {
+                            current = token;
+                        } else {
+                            // Character-level fallback matching CSS overflow-wrap / word-break: break-word
+                            let sub = "";
+                            for (let c = 0; c < token.length; c++) {
+                                if (result.length >= maxResultLines) {
+                                    sub = "";
+                                    result.push("...");
+                                    break;
+                                }
+                                const ch = token[c];
+                                const nextSub = sub + ch;
+                                if (sub && getExactTextWidth(nextSub, fontStr) > maxW) {
+                                    result.push(sub);
+                                    sub = ch;
+                                } else {
+                                    sub = nextSub;
+                                }
+                            }
+                            current = sub;
+                        }
+                    }
+                }
+                if (current) {
+                    result.push(current);
+                }
+            }
+
+            return result.length > 0 ? result : [""];
+        }
+        window.wrapTextToPixelWidth = wrapTextToPixelWidth;
+
         function getRandomLivePreview(node) {
             const modo = String(node.properties.mode || "R");
             const modoKey = modo.toLowerCase();
@@ -720,8 +823,21 @@ function setupDynamicInlineNode(node) {
                                             if (ancW) ancW.value = this.properties.anchor;
                                         }
                                     }
+                                    const isAnimNodeOrder = (modeInfo.key === "Animation" || modeInfo.key === "Functions/Animation" || titleStr.includes("Animation") || (this.type && String(this.type).includes("Animation")));
+                                    const prevWOrder = Math.max((this._customSize && this._customSize[0] > 0) ? this._customSize[0] : 0, (this.size && this.size[0] > 0) ? this.size[0] : 0);
+                                    const prevHOrder = Math.max((this._customSize && this._customSize[1] > 0) ? this._customSize[1] : 0, (this.size && this.size[1] > 0) ? this.size[1] : 0);
                                     updateNodeModeInputs(this);
-                                    if (this.computeSize) this.size = this.computeSize();
+                                    if (this.computeSize) {
+                                        const sz = this.computeSize();
+                                        if (isAnimNodeOrder) {
+                                            const finalW = Math.max(prevWOrder, sz[0]);
+                                            const finalH = Math.max(prevHOrder, sz[1]);
+                                            this.size = [finalW, finalH];
+                                            this._customSize = [finalW, finalH];
+                                        } else {
+                                            this.size = this.computeSize();
+                                        }
+                                    }
                                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                                     if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("mode-cycle-order");
                                     if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
@@ -743,8 +859,22 @@ function setupDynamicInlineNode(node) {
                                             this.properties[entry.secondaryPropKey] = map[0].full;
                                         }
                                     }
+                                    const titleStr = String(this.title || this.type || "");
+                                    const isAnimNodeMode = (modeInfo.key === "Animation" || modeInfo.key === "Functions/Animation" || titleStr.includes("Animation") || (this.type && String(this.type).includes("Animation")));
+                                    const prevWMode = Math.max((this._customSize && this._customSize[0] > 0) ? this._customSize[0] : 0, (this.size && this.size[0] > 0) ? this.size[0] : 0);
+                                    const prevHMode = Math.max((this._customSize && this._customSize[1] > 0) ? this._customSize[1] : 0, (this.size && this.size[1] > 0) ? this.size[1] : 0);
                                     updateNodeModeInputs(this);
-                                    if (this.computeSize) this.size = this.computeSize();
+                                    if (this.computeSize) {
+                                        const sz = this.computeSize();
+                                        if (isAnimNodeMode) {
+                                            const finalW = Math.max(prevWMode, sz[0]);
+                                            const finalH = Math.max(prevHMode, sz[1]);
+                                            this.size = [finalW, finalH];
+                                            this._customSize = [finalW, finalH];
+                                        } else {
+                                            this.size = this.computeSize();
+                                        }
+                                    }
                                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                                     if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("mode-cycle-osc");
                                     if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
@@ -910,7 +1040,10 @@ function setupDynamicInlineNode(node) {
                 updateNodeModeInputs(this);
                 if (this.computeSize) {
                     const sz = this.computeSize();
-                    if (this.size && Array.isArray(this.size)) {
+                    const isFixedWNode = Boolean(this.title && (String(this.title).includes("Concentric") || String(this.title).includes("Bordes")));
+                    if (isFixedWNode) {
+                        this.size = [sz[0], sz[1]];
+                    } else if (this.size && Array.isArray(this.size)) {
                         this.size[0] = Math.max(this.size[0], sz[0]);
                         this.size[1] = sz[1];
                     } else {
@@ -1053,7 +1186,7 @@ function setupDynamicInlineNode(node) {
                     req_w = Math.max(req_w, 215);
                     req_h = 60;
                 } else if (titleText.includes("Bordes") || titleText.includes("Concentric")) {
-                    req_w = Math.max(req_w, 235);
+                    req_w = 235;
                 } else if (titleText === "Modulator" || titleText === "Modulador" || (this.type && String(this.type).includes("Modulator"))) {
                     req_w = Math.max(req_w, 225);
                 } else if (titleText.includes("Curva") || titleText.includes("Bezier")) {
@@ -1413,42 +1546,441 @@ function setupDynamicInlineNode(node) {
         }
 
 
+        function openInlineValueUnitEditor(node, widget, propertyName, titleName, event) {
+            const existing = document.getElementById("pyxis-inline-text-editor");
+            if (existing) {
+                if (typeof existing._saveAndClose === "function") existing._saveAndClose();
+                else existing.remove();
+            }
+
+            const canvas = (typeof LGraphCanvas !== "undefined" && LGraphCanvas.active_canvas) || window.canvas || window.graphcanvas;
+            if (!canvas || !canvas.canvas) return;
+
+            const propKey = propertyName || widget.property || "value";
+            const curVal = String((node.properties && propKey && node.properties[propKey] !== undefined)
+                ? node.properties[propKey]
+                : (widget.value !== undefined ? widget.value : ""));
+
+            const drawY = (widget.last_y !== undefined) ? widget.last_y : ((widget.y !== undefined) ? widget.y : 11);
+            const margin = (widget && widget._boxX !== undefined) ? widget._boxX : 28;
+            const textPadLeft = 6;
+            const textPadRight = 6;
+            const textPadTop = 2.5;
+
+            const rect = canvas.canvas.getBoundingClientRect();
+            const scale = canvas.ds ? canvas.ds.scale : 1.0;
+            const offset = canvas.ds ? canvas.ds.offset : [0, 0];
+
+            const nodeW = (node && node.size && node.size[0]) ? node.size[0] : 184;
+            const wWidth = getInlineBoxWidth(node, widget, titleName, propertyName, nodeW);
+            const maxAllowedH = (node && node.size && node.size[1]) ? Math.max(38, node.size[1] - drawY - 8) : 38;
+            const wHeight = maxAllowedH;
+
+            const halfStroke = 0.75 * scale;
+            const screenX = rect.left + (node.pos[0] + margin + offset[0]) * scale - halfStroke;
+            const screenY = rect.top + (node.pos[1] + drawY + offset[1]) * scale - halfStroke;
+            const screenW = (wWidth * scale) + (1.5 * scale);
+            const screenH = (wHeight * scale) + (1.5 * scale);
+
+            if (widget) widget._is_inline_editing = true;
+            if (canvas.draw) canvas.draw(true, true);
+
+            const inputEl = document.createElement("textarea");
+            inputEl.id = "pyxis-inline-text-editor";
+            inputEl.name = "pyxis-inline-text-editor";
+            inputEl.spellcheck = false;
+            inputEl.autocomplete = "off";
+            inputEl.autocorrect = "off";
+            inputEl.autocapitalize = "off";
+            inputEl.value = curVal;
+            const rawPlaceholder = widget.name || titleName || "Value";
+            inputEl.placeholder = (window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot(rawPlaceholder) : rawPlaceholder;
+
+            inputEl.style.resize = "none";
+            inputEl.style.overflowY = "auto";
+            inputEl.style.overflowX = "hidden";
+            inputEl.style.whiteSpace = "pre-wrap";
+            inputEl.style.overflowWrap = "anywhere";
+            inputEl.style.wordBreak = "break-all";
+            inputEl.style.lineBreak = "anywhere";
+            inputEl.style.hyphens = "none";
+            inputEl.style.scrollbarWidth = "none";
+
+            inputEl.style.position = "fixed";
+            inputEl.style.left = screenX + "px";
+            inputEl.style.top = screenY + "px";
+            inputEl.style.width = screenW + "px";
+            inputEl.style.height = screenH + "px";
+            inputEl.style.boxSizing = "border-box";
+            inputEl.style.borderRadius = (5 * scale) + "px";
+            inputEl.style.background = "#12161f";
+            inputEl.style.border = (1.5 * scale) + "px solid #8b5cf6";
+            inputEl.style.color = "#a7f3d0";
+            inputEl.style.fontFamily = "Consolas, monospace";
+            inputEl.style.fontSize = (11 * scale) + "px";
+            inputEl.style.fontWeight = "bold";
+            inputEl.style.letterSpacing = "0px";
+            inputEl.style.fontFeatureSettings = "'liga' 0, 'calt' 0";
+            inputEl.style.fontVariantLigatures = "none";
+            inputEl.style.webkitFontSmoothing = "antialiased";
+            inputEl.style.mozOsxFontSmoothing = "grayscale";
+            inputEl.style.textRendering = "optimizeLegibility";
+            inputEl.style.margin = "0";
+
+            const padLeftPx = Math.max(0, (textPadLeft - 0.5) * scale);
+            const padRightPx = Math.max(0, (textPadRight - 0.5) * scale);
+            const padTopPx = Math.max(0, textPadTop * scale);
+            inputEl.style.padding = `${padTopPx}px ${padRightPx}px 0px ${padLeftPx}px`;
+            inputEl.style.lineHeight = (16 * scale) + "px";
+
+            inputEl.style.zIndex = "90000";
+            inputEl.style.outline = "none";
+            inputEl.style.boxShadow = "0 0 10px rgba(139, 92, 246, 0.6)";
+
+            inputEl.addEventListener("wheel", function(e) {
+                e.stopPropagation();
+            }, { passive: false });
+
+            document.body.appendChild(inputEl);
+            const targetContentW = Math.max(20, wWidth - 9.5) * scale;
+            const calibratedPadRight = Math.max(0, inputEl.clientWidth - padLeftPx - targetContentW);
+            inputEl.style.padding = `${padTopPx}px ${calibratedPadRight}px 0px ${padLeftPx}px`;
+
+            let isMounting = true;
+            setTimeout(() => {
+                isMounting = false;
+                inputEl.focus();
+                const len = inputEl.value.length;
+                inputEl.setSelectionRange(len, len);
+                const curScale = canvas.ds ? canvas.ds.scale : scale;
+                const linePx = 16 * curScale;
+                if (widget && typeof widget._scroll_line === "number" && widget._scroll_line > 0) {
+                    inputEl.scrollTop = widget._scroll_line * linePx;
+                } else {
+                    inputEl.scrollTop = 0;
+                }
+            }, 30);
+
+            inputEl.oninput = function() {
+                const cleanVal = String(inputEl.value || "").replace(/\r/g, "");
+                if (node.properties && propKey) node.properties[propKey] = cleanVal;
+                if (widget) {
+                    widget.value = cleanVal;
+                    delete widget._cached_wrap_text;
+                }
+
+                if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
+                if (canvas.draw) canvas.draw(true, true);
+
+                const newRect = canvas.canvas.getBoundingClientRect();
+                const newScale = canvas.ds ? canvas.ds.scale : 1.0;
+                const newOffset = canvas.ds ? canvas.ds.offset : [0, 0];
+                const newW = getInlineBoxWidth(node, widget, titleName, propertyName);
+                const newH = (node && node.size && node.size[1]) ? Math.max(38, node.size[1] - drawY - 8) : 38;
+
+                const curHalfStroke = 0.75 * newScale;
+                const newScreenX = newRect.left + (node.pos[0] + margin + newOffset[0]) * newScale - curHalfStroke;
+                const newScreenY = newRect.top + (node.pos[1] + drawY + newOffset[1]) * newScale - curHalfStroke;
+                const newScreenW = (newW * newScale) + (1.5 * newScale);
+                const newScreenH = (newH * newScale) + (1.5 * newScale);
+
+                inputEl.style.left = newScreenX + "px";
+                inputEl.style.top = newScreenY + "px";
+                inputEl.style.width = newScreenW + "px";
+                inputEl.style.height = newScreenH + "px";
+                inputEl.style.borderRadius = (5 * newScale) + "px";
+                inputEl.style.border = (1.5 * newScale) + "px solid #8b5cf6";
+                inputEl.style.fontSize = (11 * newScale) + "px";
+                const curPadLeftPx = Math.max(0, (textPadLeft - 0.5) * newScale);
+                const curTargetContentW = Math.max(20, newW - 9.5) * newScale;
+                const curPadRightPx = Math.max(0, inputEl.clientWidth - curPadLeftPx - curTargetContentW);
+                const curPadTopPx = Math.max(0, textPadTop * newScale);
+                inputEl.style.padding = `${curPadTopPx}px ${curPadRightPx}px 0px ${curPadLeftPx}px`;
+                inputEl.style.lineHeight = (16 * newScale) + "px";
+            };
+
+            function saveAndClose() {
+                const curScale = canvas.ds ? canvas.ds.scale : scale;
+                const linePx = 16 * curScale;
+                if (widget) {
+                    if (linePx > 0) {
+                        widget._scroll_line = Math.max(0, Math.round(inputEl.scrollTop / linePx));
+                    }
+                    delete widget._is_inline_editing;
+                    delete widget._cached_wrap_text;
+                }
+                const cleanVal = String(inputEl.value || "").replace(/\r/g, "");
+                if (node.properties && propKey) node.properties[propKey] = cleanVal;
+                widget.value = cleanVal;
+
+                if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
+                if (canvas.draw) canvas.draw(true, true);
+                if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("inline-text-edit");
+                if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                inputEl.onblur = null;
+                inputEl.remove();
+            }
+            inputEl._saveAndClose = saveAndClose;
+
+            inputEl.onkeydown = function(e) {
+                if (e.key === "Enter") {
+                    if (e.shiftKey) {
+                        return;
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    saveAndClose();
+                } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (node.properties && propKey) node.properties[propKey] = curVal;
+                    if (widget) {
+                        widget.value = curVal;
+                        delete widget._is_inline_editing;
+                        delete widget._cached_wrap_text;
+                    }
+                    inputEl.onblur = null;
+                    inputEl.remove();
+                    if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                    if (canvas.setDirtyCanvas) canvas.setDirtyCanvas(true, true);
+                    if (canvas.draw) canvas.draw(true, true);
+                }
+            };
+
+            inputEl.onblur = function() {
+                if (isMounting) {
+                    inputEl.focus();
+                    return;
+                }
+                saveAndClose();
+            };
+        }
+
+        function setupValueUnitTextWidget(node, widget, titleName, propertyName) {
+            if (!widget) return;
+
+            widget.type = "custom";
+            const propKey = propertyName || widget.property || "value";
+            widget.property = propKey;
+
+            widget.isPointInside = function(x, y, n) {
+                const targetNode = n || node;
+                const margin = (widget._boxX !== undefined) ? widget._boxX : 28;
+                const nodeWidth = (targetNode && targetNode.size && targetNode.size[0]) ? targetNode.size[0] : 184;
+                const wWidth = getInlineBoxWidth(targetNode, widget, titleName, propertyName, nodeWidth);
+                const drawY = (widget.last_y !== undefined) ? widget.last_y : ((widget.y !== undefined) ? widget.y : 11);
+                const maxAllowedH = (targetNode && targetNode.size && targetNode.size[1]) ? Math.max(38, targetNode.size[1] - drawY - 8) : 38;
+                const wHeight = (widget._boxH !== undefined) ? widget._boxH : maxAllowedH;
+                return x >= margin && x <= margin + wWidth && y >= drawY && y <= drawY + wHeight;
+            };
+
+            widget.mouse = function(event, pos, node) {
+                if (event.type === "mousedown" || event.type === "click") {
+                    if (pos && widget.isPointInside && !widget.isPointInside(pos[0], pos[1], node)) {
+                        return false;
+                    }
+                    if (widget._scrollbar_info && pos) {
+                        const sb = widget._scrollbar_info;
+                        if (pos[0] >= sb.barX - 6 && pos[0] <= sb.barX + sb.barW + 6 && pos[1] >= sb.trackY && pos[1] <= sb.trackY + sb.trackH) {
+                            const ratio = Math.max(0, Math.min(1, (pos[1] - sb.trackY) / sb.trackH));
+                            widget._scroll_line = Math.round(ratio * sb.maxScroll);
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            const activeCanvas = (typeof LGraphCanvas !== "undefined" && LGraphCanvas.active_canvas);
+                            if (activeCanvas && activeCanvas.draw) activeCanvas.draw(true, true);
+                            return true;
+                        }
+                    }
+                    openInlineValueUnitEditor(node, widget, propKey, titleName, event);
+                    return true;
+                }
+            };
+
+            widget.callback = function(value, canvas, node, pos, event) {
+                openInlineValueUnitEditor(node, widget, propKey, titleName, event);
+            };
+
+            widget.computeSize = function(width) {
+                const wWidth = getInlineBoxWidth(node, widget, titleName, propertyName, width);
+                const drawY = (widget.last_y !== undefined) ? widget.last_y : ((widget.y !== undefined) ? widget.y : 11);
+                const maxAllowedH = (node && node.size && node.size[1]) ? Math.max(38, node.size[1] - drawY - 8) : 38;
+                return [wWidth + 22, maxAllowedH];
+            };
+
+            widget.draw = function(ctx, node, width, y, height) {
+                const drawY = (widget.last_y !== undefined) ? widget.last_y : ((widget.y !== undefined) ? widget.y : y);
+                const curVal = String((node.properties && propKey && node.properties[propKey] !== undefined)
+                    ? node.properties[propKey]
+                    : (widget.value !== undefined ? widget.value : ""));
+
+                const margin = (widget._boxX !== undefined) ? widget._boxX : 28;
+                const wWidth = getInlineBoxWidth(node, widget, titleName, propertyName, width);
+                const rawDisp = widget.name || titleName || "Value";
+                let dispText = curVal.length > 0 ? curVal : ((window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot(rawDisp) : rawDisp);
+
+                const textPadLeft = 6;
+                const textPadRight = 6;
+                const textPadTop = 2.5;
+                const textToWrap = curVal.length > 0 ? curVal : dispText;
+
+                const maxAllowedH = (node && node.size && node.size[1]) ? Math.max(38, node.size[1] - drawY - 8) : 38;
+                const wHeight = maxAllowedH;
+                widget._boxH = wHeight;
+                const borderRadius = 5;
+
+                const lineH = 16;
+                const availableH = wHeight - 6;
+                const maxVisibleLines = Math.max(1, Math.floor(availableH / lineH));
+
+                // Exact inner content width matching textarea layout box ((wWidth + 1.5) - 2px border - 11px padding = wWidth - 9.5)
+                const availableTextW = Math.max(20, wWidth - 9.5);
+
+                let wrappedLines = null;
+                if (widget._cached_wrap_text === textToWrap &&
+                    typeof widget._cached_wrap_w === "number" &&
+                    Math.abs(widget._cached_wrap_w - availableTextW) < 0.5 &&
+                    Array.isArray(widget._cached_wrapped_lines)) {
+                    wrappedLines = widget._cached_wrapped_lines;
+                } else {
+                    wrappedLines = typeof wrapTextToPixelWidth === "function"
+                        ? wrapTextToPixelWidth(textToWrap, availableTextW, "bold 11px Consolas, monospace")
+                        : [textToWrap];
+                    widget._cached_wrap_text = textToWrap;
+                    widget._cached_wrap_w = availableTextW;
+                    widget._cached_wrapped_lines = wrappedLines;
+                }
+
+                ctx.save();
+                ctx.fillStyle = "#12161f";
+                ctx.strokeStyle = "#8b5cf6";
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(margin, drawY, wWidth, wHeight, borderRadius);
+                else ctx.rect(margin, drawY, wWidth, wHeight);
+                ctx.fill();
+                if (!widget._is_inline_editing) {
+                    ctx.stroke();
+                }
+
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(margin + 2, drawY + 2, wWidth - 4, wHeight - 4, Math.max(4, borderRadius - 2));
+                else ctx.rect(margin + 2, drawY + 2, wWidth - 4, wHeight - 4);
+                ctx.clip();
+
+                if (!widget._is_inline_editing) {
+                    ctx.fillStyle = curVal.length > 0 ? "#a7f3d0" : "#64748b";
+                    ctx.font = "bold 11px Consolas, monospace";
+                    ctx.textAlign = "left";
+
+                    const totalLines = wrappedLines.length;
+                    const isOverflowing = totalLines > maxVisibleLines;
+                    const maxScroll = Math.max(0, totalLines - maxVisibleLines);
+                    widget._max_scroll_lines = maxScroll;
+
+                    if (widget._scroll_line === undefined || isNaN(widget._scroll_line)) {
+                        widget._scroll_line = 0;
+                    } else {
+                        widget._scroll_line = Math.max(0, Math.min(widget._scroll_line, maxScroll));
+                    }
+
+                    const startLine = widget._scroll_line;
+
+                    for (let lineIdx = 0; lineIdx < maxVisibleLines; lineIdx++) {
+                        const curIdx = startLine + lineIdx;
+                        if (curIdx >= totalLines) break;
+                        let lineTxt = wrappedLines[curIdx] || "";
+                        if (isOverflowing && lineIdx === maxVisibleLines - 1 && curIdx < totalLines - 1) {
+                            if (!lineTxt.endsWith("...")) {
+                                lineTxt = lineTxt.length > 18 ? (lineTxt.substring(0, lineTxt.length - 3) + "...") : (lineTxt + "...");
+                            }
+                        }
+                        ctx.fillText(lineTxt, margin + textPadLeft, drawY + textPadTop + 11.5 + lineIdx * lineH);
+                    }
+                }
+                ctx.restore();
+
+                // Minimalist scrollbar
+                if (!widget._is_inline_editing && wrappedLines && wrappedLines.length > 1) {
+                    const totalLines = wrappedLines.length;
+                    const isOverflowing = totalLines > maxVisibleLines;
+                    if (isOverflowing) {
+                        const maxScroll = Math.max(0, totalLines - maxVisibleLines);
+                        const trackPadding = 3;
+                        const barW = 3.5;
+                        const barX = margin + wWidth - barW - 3;
+                        const trackY = drawY + trackPadding;
+                        const trackH = Math.max(8, wHeight - trackPadding * 2);
+
+                        widget._scrollbar_info = { barX, barW, trackY, trackH, maxScroll, boxX: margin, boxY: drawY, boxW: wWidth, boxH: wHeight };
+
+                        ctx.save();
+                        ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+                        ctx.beginPath();
+                        if (ctx.roundRect) ctx.roundRect(barX, trackY, barW, trackH, barW / 2);
+                        else ctx.rect(barX, trackY, barW, trackH);
+                        ctx.fill();
+
+                        const thumbH = Math.max(8, Math.round((maxVisibleLines / totalLines) * trackH));
+                        const maxTravel = trackH - thumbH;
+                        const curScroll = widget._scroll_line || 0;
+                        const thumbY = trackY + (maxScroll > 0 ? (curScroll / maxScroll) * maxTravel : 0);
+
+                        ctx.fillStyle = "rgba(139, 92, 246, 0.6)";
+                        ctx.beginPath();
+                        if (ctx.roundRect) ctx.roundRect(barX, thumbY, barW, thumbH, barW / 2);
+                        else ctx.rect(barX, thumbY, barW, thumbH);
+                        ctx.fill();
+                        ctx.restore();
+                    } else {
+                        delete widget._scrollbar_info;
+                    }
+                }
+            };
+        }
+
         function setupValueUnitNode(node) {
             if (!node) return;
             const titleStr = String(node.title || node.type || "");
+            const isNumberNode = titleStr.includes("Number") || titleStr.includes("Número");
             const propKey = "value";
             if (!node.properties) node.properties = {};
             if (node.properties[propKey] === undefined) {
-                node.properties[propKey] = (titleStr.includes("Number") || titleStr.includes("Número")) ? "0" : "";
+                node.properties[propKey] = "";
             }
 
             node.widgets = [];
             const curVal = String(node.properties[propKey]);
             const w = node.addWidget("text", "Value", curVal, function(val) {
-                const cleanVal = String(val || "").replace(/[\r\n]+/g, " ");
+                const cleanVal = String(val || "").replace(/\r/g, "");
                 node.properties[propKey] = cleanVal;
-                if (node.computeSize) {
-                    const sz = node.computeSize();
-                    node.size[0] = Math.max(node.size[0], sz[0]);
-                    node.size[1] = sz[1];
-                }
                 if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
             });
             w.property = propKey;
             w.y = 11;
             w.last_y = 11;
-            setupSingleLineTextWidget(node, w, "Value", propKey);
+            w._boxX = 28;
+            setupValueUnitTextWidget(node, w, "Value", propKey);
 
             node.computeSize = function() {
-                const props = this.properties || node.properties || {};
-                const valStr = String(props[propKey] !== undefined ? props[propKey] : "");
-                const textWidth = getExactTextWidth(valStr || "0", "bold 11px Consolas, monospace");
-                const boxW = Math.max(65, Math.ceil(textWidth + 28));
-                const right_space = getNodeRightReserve(this);
-                const req_w = Math.max(140, 22 + boxW + right_space);
-                const req_h = 62;
-                return [req_w, req_h];
+                const canvas = (this.graph && this.graph.canvas) || (typeof LGraphCanvas !== "undefined" && LGraphCanvas.active_canvas);
+                const isResizingThis = !!(canvas && canvas.resizing_node === this);
+                if (isResizingThis) {
+                    return [184, 60];
+                }
+
+                const defaultW = 184;
+                const defaultH = 60;
+                const curW = (this._manual_width !== undefined) ? this._manual_width : defaultW;
+                const curH = (this._manual_height !== undefined) ? this._manual_height : defaultH;
+                return [Math.max(184, curW), Math.max(60, curH)];
+            };
+
+            node.onResize = function(size) {
+                size[0] = Math.max(184, size[0]);
+                size[1] = Math.max(60, size[1]);
+                this._manual_width = size[0];
+                this._manual_height = size[1];
             };
 
             const oldDraw = node.onDrawForeground;
@@ -1459,6 +1991,7 @@ function setupDynamicInlineNode(node) {
                 if (this.widgets && this.widgets[0]) {
                     this.widgets[0].y = 11;
                     this.widgets[0].last_y = 11;
+                    this.widgets[0]._boxX = 28;
                 }
                 if (this.outputs && this.outputs[0]) {
                     this.outputs[0].pos = [this.size[0] - 10, 20];
@@ -1468,6 +2001,11 @@ function setupDynamicInlineNode(node) {
             const oldConfigure = node.onConfigure;
             node.onConfigure = function(info) {
                 if (oldConfigure) oldConfigure.call(this, info);
+                if (info && info.size && Array.isArray(info.size)) {
+                    this._manual_width = info.size[0];
+                    this._manual_height = info.size[1];
+                    this.size = [info.size[0], info.size[1]];
+                }
                 if (this.widgets && this.widgets[0]) {
                     const pKey = this.widgets[0].property || propKey;
                     if (this.properties && this.properties[pKey] !== undefined) {
@@ -1478,7 +2016,9 @@ function setupDynamicInlineNode(node) {
                 if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
             };
 
-            if (node.computeSize) {
+            if (node._manual_width === undefined && node._manual_height === undefined) {
+                node.size = [184, 60];
+            } else if (node.computeSize) {
                 node.size = node.computeSize();
             }
             if (node.setDirtyCanvas && node.graph) node.setDirtyCanvas(true, true);
@@ -3141,5 +3681,7 @@ function setupDynamicInlineNode(node) {
         window.setupConcatenateNode = setupConcatenateNode;
         window.setupFormatDinamicoNode = setupDynamicFormatNode;
         window.setupDynamicFormatNode = setupDynamicFormatNode;
+        window.setupValueUnitNode = setupValueUnitNode;
+        window.setupValueUnitTextWidget = setupValueUnitTextWidget;
 
 

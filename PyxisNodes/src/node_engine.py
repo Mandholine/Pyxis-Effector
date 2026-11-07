@@ -122,7 +122,7 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional 
     except Exception:
         pass
 
-    def _parse_tag_dict (s_raw ):
+    def _parse_tag_dict (s_raw ,prefix =""):
         if not s_raw :return {}
         s =re .sub (r'[\{\}]','',str (s_raw )).strip ()
         if not s: return {}
@@ -161,7 +161,7 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional 
             elif m_str .startswith ('\\clip'):k ='clip'
             elif m_str .startswith ('\\fad')or m_str .startswith ('\\fade'):k ='fad'
             elif m_str .startswith ('\\t'):
-                k =f't_{t_cnt }'
+                k =f'{prefix}t_{t_cnt }'
                 t_cnt +=1 
             elif m_str .startswith ('\\an')or (m_str .startswith ('\\a')and not m_str .startswith ('\\alpha')and not re.match(r'^\\[1-4]a', m_str)):k ='an'
             elif m_str .startswith ('\\1c')or m_str .startswith ('\\c'):k ='1c'
@@ -200,13 +200,13 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional 
             elif re.match(r'^\\s(?![a-zA-Z])', m_str):k ='s'
             elif m_str .startswith ('\\r'):k ='r'
             else :
-                k =f"tag_{t_cnt}_{m_str}"
+                k =f"{prefix}tag_{t_cnt}_{m_str}"
                 t_cnt +=1
             t_dict [k ]=m_str 
         return t_dict 
 
-    ret_dict =_parse_tag_dict (clean_return_tags )
-    port_dict =_parse_tag_dict (clean_port_tags )
+    ret_dict =_parse_tag_dict (clean_return_tags ,prefix ="ret_")
+    port_dict =_parse_tag_dict (clean_port_tags ,prefix ="port_")
 
     if 'move' in port_dict and 'pos' in ret_dict:
         del ret_dict['pos']
@@ -224,6 +224,7 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional 
     1 if k in ('pos','move')else 
     2 if k =='org'else 
     3 if k in ('1c','2c','3c','4c','alpha','1a','2a','3a','4a')else 
+    8 if k .startswith (('t_','ret_t_','port_t_'))else 
     9 if k =='p'else 5 
     ))
 
@@ -340,15 +341,24 @@ def _format_tagged_item (tag_prefix :str ,val )->str :
     return f"{clean_prefix }{s_val }"
 
 
+import functools
+
+_CLEAN_KEY_TRANS = str.maketrans({
+    'ñ': 'n', 'º': '', '°': '', '(': '', ')': '', ',': '',
+    '[': '', ']': '', '\\': '', '/': '_', '-': '_', '.': '',
+    'í': 'i', 'á': 'a', 'é': 'e', 'ó': 'o', 'ú': 'u'
+})
+_RE_CLEAN_SPACES = re.compile(r'\s+')
+_RE_CLEAN_UNDERSCORES = re.compile(r'_+')
+
+
+@functools.lru_cache(maxsize=4096)
 def _clean_key (k ):
     """Normalise property or input port names to lowercase snake_case without accents or symbols."""
-    s =str (k ).lower ().strip ()
-    s =s .replace ('ñ','n').replace ('º','').replace ('°','').replace ('(','').replace (')','').replace (',','')
-    s =s .replace ('[','').replace (']','').replace ('\\','').replace ('/','_').replace ('-','_').replace ('.','')
-    s =s .replace ('ión','ion').replace ('í','i').replace ('á','a').replace ('é','e').replace ('ó','o').replace ('ú','u')
-    s =re .sub (r'\s+','_',s )
-    s =re .sub (r'_+','_',s )
-    return s .strip ('_')
+    s = str(k).lower().strip().translate(_CLEAN_KEY_TRANS)
+    s = _RE_CLEAN_SPACES.sub('_', s)
+    s = _RE_CLEAN_UNDERSCORES.sub('_', s)
+    return s.strip('_')
 
 
 def _get_prop_value (props ,key ,default =""):
@@ -357,9 +367,14 @@ def _get_prop_value (props ,key ,default =""):
         return default 
     if key in props and props [key ]is not None and str (props [key ]).strip ()!="":
         return props [key ]
+    k_lower = key.lower()
+    if k_lower in props and props [k_lower ]is not None and str (props [k_lower ]).strip ()!="":
+        return props [k_lower ]
 
     ck =_clean_key (key )
     for p ,v in props .items ():
+        if p == '_clean_props':
+            continue
         if v is not None and str (v ).strip ()!="":
             if _clean_key (p )==ck :
                 return v 
@@ -389,15 +404,41 @@ class ShapePresetsNamespace:
         return "ShapePresetsNamespace"
 
 
+# Reserved system metadata variables that cannot be overridden via Variables/Define Vars.
+# These attributes belong strictly to the original ASS dialogue event or Output queue routing.
+_DEFVARS_RESERVED_SYSTEM_VARS = frozenset({
+    "effect", "line_effect",
+    "actor", "line_actor",
+    "margins", "margin_l", "margin_r", "margin_v",
+    "line_margins", "line_margin_l", "line_margin_r", "line_margin_v",
+    "queueid", "queue_id",
+    "queueorder", "queue_order",
+})
+
+
+def _is_reserved_defvars_target(key: str) -> bool:
+    """Return True if an assignment target in Define Vars references a reserved system variable."""
+    k = str(key or "").strip().lower()
+    for pref in ("line.", "l.", "fx.", "syl.", "char.", "word."):
+        if k.startswith(pref):
+            k = k[len(pref):].strip()
+            break
+    return k in _DEFVARS_RESERVED_SYSTEM_VARS
+
+
 def _apply_fx_setting(name, value, context):
-    """Mutate effect parameters and synchronise active unit coordinate and timing state.
+    """Mutate effect parameters and synchronise active unit coordinates while shielding ground-truth metrics.
 
     Updates particle and effect context variables (coordinates, boundaries, timings,
-    alignment, and iteration counters) whilst synchronising attributes on the active
-    PyxisUnit instance.
+    alignment, layer, and iteration counters) whilst synchronising spatial coordinates
+    (x, y, center, middle) on the active PyxisUnit instance and marking canonical override flags
+    (`pos_overridden`, `st_overridden`, `et_overridden`, `align_overridden`, `layer_overridden`).
+    Subtitle timing attributes (start_time, end_time, dur, duration, layer) on active_unit are
+    strictly shielded from in-place mutation to preserve immutable karaoke ground-truth metrics
+    and ensure sovereign global timing overrides across downstream loop iterations.
 
     Args:
-        name: Parameter identifier to update (e.g. 'pos_x', 'dur', 'align', 'i').
+        name: Parameter identifier to update (e.g. 'pos_x', 'st', 'et', 'align', 'layer', 'i').
         value: Numerical, boolean or string value to assign.
         context: Active execution dictionary containing graph state and unit references.
     """
@@ -428,52 +469,63 @@ def _apply_fx_setting(name, value, context):
             except Exception: pass
             try: setattr(u, "middle", val)
             except Exception: pass
-    elif name in ("start_time", "st", "time_start"):
+    elif name in ("start_time", "st", "time_start", "fx_start_time", "fx_st"):
         val = float(value)
         context["fx_start_time"] = val
+        context["fx_st"] = val
+        context["effect_st"] = val
         context["start_time"] = val
         context["st"] = val
         context["val_start"] = val
-        if u:
-            try: setattr(u, "start_time", val)
-            except Exception: pass
-            try: setattr(u, "st", val)
-            except Exception: pass
-    elif name in ("end_time", "et", "time_end", "time_fin"):
+        context["st_overridden"] = True
+        context["defvars_st"] = val
+        # Do not mutate active unit ground-truth timing attributes (start_time, st).
+        # Subtitle units (syl, char, word, line) must preserve their original karaoke metrics.
+    elif name in ("end_time", "et", "time_end", "time_fin", "fx_end_time", "fx_et"):
         val = float(value)
         context["fx_end_time"] = val
+        context["fx_et"] = val
+        context["effect_et"] = val
         context["end_time"] = val
         context["et"] = val
         context["val_end"] = val
-        if u:
-            try: setattr(u, "end_time", val)
-            except Exception: pass
-            try: setattr(u, "et", val)
-            except Exception: pass
-    elif name in ("dur", "duration", "time_dur"):
+        context["et_overridden"] = True
+        context["defvars_et"] = val
+        # Do not mutate active unit ground-truth timing attributes (end_time, et).
+    elif name in ("dur", "duration", "time_dur", "fx_dur"):
         val = float(value)
         context["fx_dur"] = val
         context["dur"] = val
         context["duration"] = val
         context["val_dur"] = val
-        if u:
-            try: setattr(u, "dur", val)
-            except Exception: pass
-            try: setattr(u, "duration", val)
-            except Exception: pass
+        # Do not mutate active unit ground-truth duration metrics (dur, duration).
     elif name in ("org_x", "fx_org_x"):
         val = float(value)
         context["fx_org_x"] = val
         context["org_x"] = val
         context["has_org"] = True
+        context["org_overridden"] = True
+        context["defvars_org_x"] = val
     elif name in ("org_y", "fx_org_y"):
         val = float(value)
         context["fx_org_y"] = val
         context["org_y"] = val
         context["has_org"] = True
-    elif name in ("align", "fx_align"):
-        val = int(value)
+        context["org_overridden"] = True
+        context["defvars_org_y"] = val
+    elif name in ("align", "fx_align", "an"):
+        val = max(1, min(9, int(round(float(value)))))
         context["fx_align"] = val
+        context["align"] = val
+        context["an"] = val
+        context["align_overridden"] = True
+        context["defvars_align"] = val
+    elif name in ("layer", "fx_layer"):
+        val = int(round(float(value)))
+        context["fx_layer"] = val
+        context["layer"] = val
+        context["layer_overridden"] = True
+        context["defvars_layer"] = val
     elif name == "origin_align":
         val = int(value)
         context["origin_align"] = val
@@ -500,6 +552,14 @@ def _apply_set_vars_to_context_helper(vars_str, context, active_unit=None):
     routing targets into specific namespaces (`fx.*`, `syl.*`, `char.*`, `word.*`,
     `line.*`) with automated alias propagation.
 
+    Canonical Precedence & Reserved Variable Protection:
+        - System variables `st`, `et`, `start_time`, `end_time`, `align`, and `layer` (and their
+          `fx.*` aliases) are mutable at Level 2 (Define Vars): they override Level 1 (Original Line/Unit)
+          but yield to Level 3 (Return / explicit Output ports) and Level 4 (ASS Tags).
+        - Reserved system variables (`effect`, `actor`, `margins`, `margin_l`, `margin_r`,
+          `margin_v`, `queueid`, `queue_id`, `queueorder`, `queue_order`) are strictly read-only
+          in Define Vars; any assignment targeting them is ignored and protected against side-effects.
+
     Args:
         vars_str: String containing one or multiple assignment statements or script lines.
         context: Active execution dictionary receiving the evaluated variables.
@@ -510,6 +570,72 @@ def _apply_set_vars_to_context_helper(vars_str, context, active_unit=None):
     from nodes.code_nodes import execute_python_script, _propagate_alias_changes
     line_obj = context.get('line') or context.get('l')
 
+    # Snapshot reserved system state so sandboxed evaluation cannot mutate immutable line/queue properties
+    reserved_ctx_keys = (
+        "effect", "line_effect", "actor", "line_actor",
+        "margins", "margin_l", "margin_r", "margin_v",
+        "line_margins", "line_margin_l", "line_margin_r", "line_margin_v",
+        "queueid", "queue_id", "queueorder", "queue_order",
+    )
+    saved_ctx_reserved = {rk: context[rk] for rk in reserved_ctx_keys if rk in context}
+    saved_line_reserved = {}
+    if line_obj is not None:
+        for l_rk in ("effect", "actor", "margin_l", "margin_r", "margin_v"):
+            if hasattr(line_obj, l_rk):
+                saved_line_reserved[l_rk] = getattr(line_obj, l_rk)
+
+    def _restore_reserved():
+        for rk in reserved_ctx_keys:
+            if rk in saved_ctx_reserved:
+                context[rk] = saved_ctx_reserved[rk]
+            elif rk in context:
+                del context[rk]
+        if line_obj is not None:
+            for l_rk, l_rv in saved_line_reserved.items():
+                try:
+                    setattr(line_obj, l_rk, l_rv)
+                except Exception:
+                    pass
+
+    def _assign_single_target(target_key, val_typed):
+        if _is_reserved_defvars_target(target_key):
+            return
+        if target_key.startswith("fx."):
+            fx_field = target_key[3:].strip()
+            _apply_fx_setting(fx_field, val_typed, context)
+            _propagate_alias_changes(context, [fx_field, f"fx_{fx_field}"], active_unit, line_obj)
+        elif target_key.startswith(("syl.", "char.", "word.")):
+            unit_prefix, unit_attr = target_key.split(".", 1)
+            unit_prefix = unit_prefix.strip()
+            unit_attr = unit_attr.strip()
+            u_target = context.get(unit_prefix) or (active_unit if unit_prefix == "syl" else None)
+            if u_target and hasattr(u_target, unit_attr):
+                try:
+                    setattr(u_target, unit_attr, val_typed)
+                except Exception:
+                    pass
+            context[f"{unit_prefix}_{unit_attr}"] = val_typed
+            context[unit_attr] = val_typed
+            if unit_attr in ("st", "start_time", "et", "end_time", "align", "an", "layer", "x", "y", "pos_x", "pos_y"):
+                _apply_fx_setting(unit_attr, val_typed, context)
+            _propagate_alias_changes(context, [unit_attr, f"{unit_prefix}_{unit_attr}"], active_unit, line_obj)
+        elif target_key.startswith(("line.", "l.", "L.")):
+            l_attr = target_key.split(".", 1)[1].strip()
+            if line_obj and hasattr(line_obj, l_attr) and l_attr not in ("start_time", "end_time", "st", "et", "dur", "duration", "layer"):
+                try:
+                    setattr(line_obj, l_attr, val_typed)
+                except Exception:
+                    pass
+            context[f"line_{l_attr}"] = val_typed
+            context[l_attr] = val_typed
+            if l_attr in ("st", "start_time", "et", "end_time", "align", "an", "layer", "x", "y", "pos_x", "pos_y"):
+                _apply_fx_setting(l_attr, val_typed, context)
+            _propagate_alias_changes(context, [l_attr, f"line_{l_attr}"], active_unit, line_obj)
+        else:
+            context[target_key] = val_typed
+            _apply_fx_setting(target_key, val_typed, context)
+            _propagate_alias_changes(context, [target_key], active_unit, line_obj)
+
     for part in str(vars_str).replace(';', '\n').split('\n'):
         part_clean = part.strip()
         if not part_clean or part_clean.startswith('#') or part_clean.startswith('--'):
@@ -519,61 +645,46 @@ def _apply_set_vars_to_context_helper(vars_str, context, active_unit=None):
             key = key.strip()
             val_expr = val_expr.strip()
             if key and val_expr:
-                eval_res = execute_python_script(context, val_expr, {})
+                targets = [t.strip() for t in key.split(',') if t.strip()]
+                if not targets or all(_is_reserved_defvars_target(t) for t in targets):
+                    continue
+
+                _EVAL_SENTINEL = object()
+                eval_res = _EVAL_SENTINEL
+                try:
+                    from string_evaluator import eval_python_expr
+                    eval_res = eval_python_expr(val_expr, context, default=_EVAL_SENTINEL)
+                except Exception:
+                    eval_res = _EVAL_SENTINEL
+
+                if eval_res is _EVAL_SENTINEL:
+                    eval_res = execute_python_script(context, val_expr, {})
+                _restore_reserved()
                 if not str(eval_res).startswith("[Err Python Script:"):
-                    try:
-                        res_str = str(eval_res).strip()
-                        if res_str.replace('.', '', 1).replace('-', '', 1).isdigit():
-                            val_typed = float(res_str) if '.' in res_str else int(res_str)
-                        else:
-                            val_typed = eval_res
-                    except Exception:
-                        val_typed = eval_res
+                    from utils import to_pyxis_num
+                    val_typed = to_pyxis_num(eval_res, default=eval_res)
                 else:
                     val_typed = val_expr
 
-                if key.startswith("fx."):
-                    fx_field = key[3:].strip()
-                    _apply_fx_setting(fx_field, val_typed, context)
-                    _propagate_alias_changes(context, [fx_field, f"fx_{fx_field}"], active_unit, line_obj)
-                elif key.startswith(("syl.", "char.", "word.")):
-                    unit_prefix, unit_attr = key.split(".", 1)
-                    unit_prefix = unit_prefix.strip()
-                    unit_attr = unit_attr.strip()
-                    u_target = context.get(unit_prefix) or (active_unit if unit_prefix == "syl" else None)
-                    if u_target and hasattr(u_target, unit_attr):
-                        try:
-                            setattr(u_target, unit_attr, val_typed)
-                        except Exception:
-                            pass
-                    context[f"{unit_prefix}_{unit_attr}"] = val_typed
-                    context[unit_attr] = val_typed
-                    _propagate_alias_changes(context, [unit_attr, f"{unit_prefix}_{unit_attr}"], active_unit, line_obj)
-                elif key.startswith(("line.", "l.", "L.")):
-                    l_attr = key.split(".", 1)[1].strip()
-                    if line_obj and hasattr(line_obj, l_attr):
-                        try:
-                            setattr(line_obj, l_attr, val_typed)
-                        except Exception:
-                            pass
-                    context[f"line_{l_attr}"] = val_typed
-                    context[l_attr] = val_typed
-                    _propagate_alias_changes(context, [l_attr, f"line_{l_attr}"], active_unit, line_obj)
+                if len(targets) > 1 and isinstance(val_typed, (list, tuple)) and len(val_typed) == len(targets):
+                    for t_k, t_v in zip(targets, val_typed):
+                        _assign_single_target(t_k, t_v)
                 else:
-                    context[key] = val_typed
-                    _apply_fx_setting(key, val_typed, context)
-                    _propagate_alias_changes(context, [key], active_unit, line_obj)
+                    for t_k in targets:
+                        _assign_single_target(t_k, val_typed)
+                _restore_reserved()
         else:
             execute_python_script(context, part_clean, {})
+            _restore_reserved()
 
 
 class FxContext:
     """Proxy object providing transparent access and mutation over effect and particle variables.
 
     Exposes effect coordinates, temporal spans (start, end, duration), metric boundaries,
-    and iteration counters (fx.pos_x, fx.pos_y, fx.dur, fx.i, fx.n). Intercepts mutations
-    via `__setattr__` to dispatch to `_apply_fx_setting`, and resolves missing metrics by
-    evaluating active unit and line fallbacks.
+    alignment, layer, and iteration counters (fx.pos_x, fx.pos_y, fx.dur, fx.align, fx.layer,
+    fx.i, fx.n). Intercepts mutations via `__setattr__` to dispatch to `_apply_fx_setting`,
+    and resolves missing metrics by evaluating active unit and line fallbacks.
     """
     def __init__ (self ,ctx ):
         object.__setattr__(self, "_ctx", ctx if isinstance (ctx ,dict )else {})
@@ -633,8 +744,11 @@ class FxContext:
             return self ._ctx .get ("fx_pos_x",self ._ctx .get ("x",0.0 ))
         if name in ("y","pos_y"):
             return self ._ctx .get ("fx_pos_y",self ._ctx .get ("y",0.0 ))
-        if name =="align":
-            return self ._ctx .get ("fx_align",5 )
+        if name in ("align", "an"):
+            return self ._ctx .get ("fx_align",self ._ctx .get ("align",5 ))
+        if name == "layer":
+            l_obj = self._ctx.get("line")
+            return self._ctx.get("fx_layer", self._ctx.get("layer", getattr(l_obj, "layer", 0) if l_obj else 0))
 
 
         if name =="i":
@@ -1153,16 +1267,32 @@ def _eval_num_expr(val, context=None, default=0.0):
     except (ValueError ,TypeError ):
         pass 
 
+    if isinstance(context, dict):
+        if val_str in context:
+            cv = context[val_str]
+            if isinstance(cv, (int, float)):
+                return float(cv)
+        u = context.get('active_unit')
+        if u is not None and hasattr(u, val_str):
+            uv = getattr(u, val_str)
+            if isinstance(uv, (int, float)):
+                return float(uv)
+
     try :
-        from string_evaluator import _transform_outside_quotes
+        from string_evaluator import _transform_outside_quotes, _prepare_eval_locals
         frame_dur = context.get("frame_dur", context.get("fd", 41.708)) if isinstance(context, dict) else 41.708
         ratio = context.get("ratio", context.get("module", 1.0)) if isinstance(context, dict) else 1.0
         def _preproc_seg(seg):
-            seg = seg.replace("~=", "!=")
-            seg = re.sub(r'&[hH]([0-9a-fA-F]+)&?', r'0x\1', seg)
-            seg = re.sub(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*f\b', rf'(\1 * {frame_dur})', seg)
-            seg = re.sub(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*r\b', rf'(\1 * {ratio})', seg)
-            seg = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*(li|lo|m1|m2|l1|l2)\b', r'\1 * \2', seg)
+            if "~=" in seg:
+                seg = seg.replace("~=", "!=")
+            if "&" in seg:
+                seg = re.sub(r'&[hH]([0-9a-fA-F]+)&?', r'0x\1', seg)
+            if "f" in seg:
+                seg = re.sub(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*f\b', rf'(\1 * {frame_dur})', seg)
+            if "r" in seg:
+                seg = re.sub(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*r\b', rf'(\1 * {ratio})', seg)
+            if "li" in seg or "lo" in seg or "m1" in seg or "m2" in seg or "l1" in seg or "l2" in seg:
+                seg = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*(li|lo|m1|m2|l1|l2)\b', r'\1 * \2', seg)
             return seg
         clean_expr = _transform_outside_quotes(val_str, _preproc_seg)
 
@@ -1176,176 +1306,11 @@ def _eval_num_expr(val, context=None, default=0.0):
             _EVAL_EXPR_CACHE [clean_expr ]=code_obj 
 
         eval_globals =_get_static_eval_globals ()
-        eval_locals =dict (context )if isinstance (context ,dict )else {}
-        eval_locals ["context"]=eval_locals 
-        for k ,v in list (eval_locals .items ()):
-            if isinstance (v ,dict )and not isinstance (v ,AttrDict ):
-                eval_locals [k ]=AttrDict (v )
-
-        try:
-            from nodes.code_nodes import PyxisTimeModifier
-            from nodes.time_nodes import time_lead_in, time_lead_out, time_middle_1, time_middle_2, time_loop_1, time_loop_2
-            eval_locals ["time_lead_in"]=lambda delay=40, base=None: time_lead_in(context, delay=delay, base=base)
-            eval_locals ["time_lead_out"]=lambda delay=40, base=None: time_lead_out(context, delay=delay, base=base)
-            eval_locals ["time_middle_1"]=lambda delay=30, base=None: time_middle_1(context, delay=delay, base=base)
-            eval_locals ["time_middle_2"]=lambda delay=30, base=None: time_middle_2(context, delay=delay, base=base)
-            eval_locals ["time_loop_1"]=lambda delay=30, mode="leadin", base=None: time_loop_1(context, delay=delay, mode=mode, base=base)
-            eval_locals ["time_loop_2"]=lambda delay=30, mode="leadin", base=None: time_loop_2(context, delay=delay, mode=mode, base=base)
-
-            eval_locals ["li"]=PyxisTimeModifier(time_lead_in, context, default_delay=40.0)
-            eval_locals ["lo"]=PyxisTimeModifier(time_lead_out, context, default_delay=40.0)
-            eval_locals ["m1"]=PyxisTimeModifier(time_middle_1, context, default_delay=30.0)
-            eval_locals ["m2"]=PyxisTimeModifier(time_middle_2, context, default_delay=30.0)
-            eval_locals ["l1"]=PyxisTimeModifier(time_loop_1, context, default_delay=30.0, mode="leadin")
-            eval_locals ["l2"]=PyxisTimeModifier(time_loop_2, context, default_delay=30.0, mode="leadin")
-
-            from nodes.time_nodes import PyxisSyncHelper, calculate_sync_gap
-            eval_locals["sync"] = PyxisSyncHelper(context)
-            eval_locals["calculate_sync_gap"] = lambda *a, **kw: calculate_sync_gap(context, *a, **kw)
-            for k_alias in ("order", "style", "actor", "effect", "layer"):
-                eval_locals.setdefault(k_alias, k_alias)
-        except Exception:
-            pass
-
-        eval_locals ["audio_rms"]=lambda *args ,**kwargs :eval_globals ["audio_rms"](*args ,context =context ,**kwargs )
-        eval_locals ["audio_peak"]=lambda *args ,**kwargs :eval_globals ["audio_peak"](*args ,context =context ,**kwargs )
-        eval_locals ["audio_band"]=lambda *args ,**kwargs :eval_globals ["audio_band"](*args ,context =context ,**kwargs )
-        eval_locals ["audio_fft"]=lambda *args ,**kwargs :eval_globals ["audio_fft"](*args ,context =context ,**kwargs )
-
-        by_cls = eval_globals.get("PyxisByDispatcher")
-        if by_cls:
-            eval_locals["by"] = by_cls(context)
-
-        def _make_rnd_caller(mode_name, default_step=None):
-            def _caller(*args, **kwargs):
-                by_val = kwargs.get("by", kwargs.get("iter", kwargs.get("iterator", None)))
-                if len(args) == 0:
-                    mn = kwargs.get("min_val", kwargs.get("min", None))
-                    mx = kwargs.get("max_val", kwargs.get("max", None))
-                    st = kwargs.get("step", default_step)
-                elif len(args) == 1:
-                    mn, mx, st = args[0], None, kwargs.get("step", default_step)
-                elif len(args) == 2:
-                    mn, mx, st = args[0], args[1], kwargs.get("step", default_step)
-                else:
-                    mn, mx, st = args[0], args[1], args[2]
-                fn = eval_globals.get("math_random_master", eval_globals.get("R"))
-                if callable(fn):
-                    clean_kw = {k: v for k, v in kwargs.items() if k not in ("min_val", "min", "max_val", "max", "step", "by", "iter", "iterator")}
-                    return fn(context, mode=mode_name, min_val=mn, max_val=mx, step=st, by=by_val, **clean_kw)
-                return 0.0
-            return _caller
-
-        eval_locals["R"] = _make_rnd_caller("R", 1.0)
-        eval_locals["Rs"] = _make_rnd_caller("Rs", 1.0)
-        eval_locals["Rc"] = _make_rnd_caller("Rc", 0.01)
-        eval_locals["Rd"] = _make_rnd_caller("Rd", 0.1)
-        eval_locals["Rm"] = _make_rnd_caller("Rm", 0.001)
-        eval_locals["Rds"] = _make_rnd_caller("Rds", 0.1)
-        eval_locals["Rcs"] = _make_rnd_caller("Rcs", 0.01)
-        eval_locals["Rms"] = _make_rnd_caller("Rms", 0.001)
-        eval_locals["Rr"] = _make_rnd_caller("Rr", 1.0)
-        eval_locals["Rstep"] = _make_rnd_caller("Rstep", 45.0)
-        eval_locals["R2d"] = _make_rnd_caller("R2d", 1.0)
-        eval_locals["Rbool"] = lambda prob=50.0, **kw: eval_globals["math_random_master"](context, mode="Rbool", min_val=prob, **kw)
-        eval_locals["Rcolor"] = lambda c1="#FFFFFF", c2="#000000", **kw: eval_globals["math_random_master"](context, mode="Rcolor", min_val=c1, max_val=c2, **kw)
-        eval_locals["Re"] = lambda options="", **kw: eval_globals["math_random_master"](context, mode="Re", options=options, **kw)
-        eval_locals["Rfake"] = lambda *a, **kw: eval_globals["math_random_master"](context, mode="Rfake", *a, **kw)
-        eval_locals["rand"] = eval_locals["R"]
-
-        if "active_unit"in eval_locals and eval_locals ["active_unit"]:
-            unit_obj =eval_locals ["active_unit"]
-            if "syl" not in eval_locals or eval_locals["syl"] is None or isinstance(eval_locals["syl"], int):
-                syl_candidate = getattr(unit_obj, "_syl_obj", None)
-                if syl_candidate is not None and not isinstance(syl_candidate, int):
-                    eval_locals["syl"] = syl_candidate
-                else:
-                    eval_locals["syl"] = unit_obj 
-            if "char" not in eval_locals and getattr(unit_obj, "char", None) is not None:
-                eval_locals["char"] = getattr(unit_obj, "char")
-            if "word" not in eval_locals and getattr(unit_obj, "word", None) is not None:
-                eval_locals["word"] = getattr(unit_obj, "word")
-            if "line"not in eval_locals and hasattr (unit_obj ,"line")and unit_obj .line :
-                eval_locals ["line"]=unit_obj .line 
-
-        if "line"in eval_locals and eval_locals ["line"]is not None :
-            eval_locals .setdefault ("l",eval_locals ["line"])
-        elif "l"in eval_locals and eval_locals ["l"]is not None :
-            eval_locals .setdefault ("line",eval_locals ["l"])
-
-        if "maxj"not in eval_locals :
-            eval_locals ["maxj"]=eval_locals .get ("fx_n",eval_locals .get ("maxloop",1 ))
-        if "maxloop"not in eval_locals :
-            eval_locals ["maxloop"]=eval_locals .get ("maxj",eval_locals .get ("fx_n",1 ))
-        if "j"not in eval_locals and "fx_i"in eval_locals :
-            eval_locals ["j"]=eval_locals ["fx_i"]
-        eval_locals.setdefault("j", 1)
-
-        _fx_i_def = eval_locals.get("fx_i", 1)
-        _fx_n_def = eval_locals.get("fx_n", eval_locals.get("maxloop", 1))
-        for short_p, long_p in (
-            ("s", "slice"), ("d", "divide"), ("b", "ring"), ("a", "array"),
-            ("m", "multi"), ("p", "particle"), ("tp", "text_p"), ("ip", "img_p"),
-            ("c", "clip"), ("an", "anim")
-        ):
-            si_k, sn_k, sm_k = f"{short_p}_i", f"{short_p}_n", f"{short_p}_max"
-            li_k, ln_k, lm_k = f"{long_p}_i", f"{long_p}_n", f"{long_p}_max"
-            i_val_p = eval_locals.get(si_k, eval_locals.get(li_k, _fx_i_def if "fx_i" in eval_locals else 1))
-            n_val_p = eval_locals.get(sn_k, eval_locals.get(ln_k, _fx_n_def if "fx_n" in eval_locals else 1))
-            m_val_p = eval_locals.get(sm_k, eval_locals.get(lm_k, n_val_p))
-            eval_locals.setdefault(si_k, i_val_p)
-            eval_locals.setdefault(li_k, i_val_p)
-            eval_locals.setdefault(sn_k, n_val_p)
-            eval_locals.setdefault(ln_k, n_val_p)
-            eval_locals.setdefault(sm_k, m_val_p)
-            eval_locals.setdefault(lm_k, m_val_p)
-        eval_locals.setdefault("total_pixels", eval_locals.get("ip_n", 1))
-        eval_locals.setdefault("c_col", 1)
-        eval_locals.setdefault("c_row", 1)
-        eval_locals.setdefault("an_j", eval_locals.get("an_i", 1))
-
-        active_unit_loc = eval_locals.get("active_unit") or eval_locals.get("syl") or eval_locals.get("char") or eval_locals.get("word")
-        raw_prev = getattr(active_unit_loc, "prev", None) if active_unit_loc and hasattr(active_unit_loc, "prev") else eval_locals.get("prev")
-        raw_next = getattr(active_unit_loc, "next", None) if active_unit_loc and hasattr(active_unit_loc, "next") else eval_locals.get("next")
-        try:
-            from models import AdjacentUnitProxy, InkNamespace
-            prev_proxy = AdjacentUnitProxy("prev", raw_prev)
-            next_proxy = AdjacentUnitProxy("next", raw_next)
-            prev_exists = bool(prev_proxy)
-            next_exists = bool(next_proxy)
-            eval_locals["prev"] = prev_proxy
-            eval_locals["next"] = next_proxy
-            eval_locals["ink"] = InkNamespace(eval_locals)
-        except Exception:
-            prev_exists = (raw_prev is not None)
-            next_exists = (raw_next is not None)
-
-        i_val_u = int(eval_locals.get("i", getattr(active_unit_loc, "i", 1) if active_unit_loc else 1))
-        n_val_u = int(eval_locals.get("n", getattr(active_unit_loc, "n", 1) if active_unit_loc else 1))
-        eval_locals.setdefault("is_first", (i_val_u == 1) or (not prev_exists))
-        eval_locals.setdefault("is_last", (i_val_u == n_val_u) or (not next_exists))
-        eval_locals.setdefault("has_prev", prev_exists)
-        eval_locals.setdefault("has_next", next_exists)
-
-        if not (isinstance(context, dict) and callable(context.get("remember")) and callable(context.get("recall"))):
-            target_ctx = context if isinstance(context, dict) else eval_locals
-            mem_store = target_ctx.get("_memory")
-            if not isinstance(mem_store, dict):
-                mem_store = target_ctx.get("memory")
-            if not isinstance(mem_store, dict):
-                mem_store = {}
-            target_ctx["_memory"] = mem_store
-            target_ctx["memory"] = mem_store
-            eval_locals["_memory"] = mem_store
-            eval_locals["memory"] = mem_store
-            eval_locals["remember"] = lambda k_m, v_m, cond=True: (mem_store.__setitem__(str(k_m), v_m) or v_m) if cond else v_m
-            eval_locals["recall"] = lambda k_m, d_m=0.0: mem_store.get(str(k_m), d_m)
-
-        if "fx"not in eval_locals or eval_locals ["fx"]is None or not isinstance (eval_locals ["fx"],FxContext )or eval_locals ["fx"]._ctx is not eval_locals :
-            eval_locals ["fx"]=FxContext (eval_locals )
-
-        res =eval (code_obj ,eval_globals ,eval_locals )
-        return float (res )if res is not None else float (default )
+        eval_locals = _prepare_eval_locals(context)
+        res = eval(code_obj, eval_globals, eval_locals)
+        return float(res) if res is not None else float(default)
+    except Exception :
+        return default
     except Exception :
         return default 
 
@@ -1387,7 +1352,7 @@ class GraphEngine:
     Coordinates graph traversal, node evaluation, unit data binding, loop chains,
     telemetry profiling, and ASS dialogue line generation across subtitle units.
     """
-    def __init__ (self ,graph_data =None ,rx =1280 ,ry =720 ,fd =41.708 ,default_audio_source =""):
+    def __init__ (self ,graph_data =None ,rx =1280 ,ry =720 ,fd =41.708 ,default_audio_source ="", video_x_correct_factor =1.0 ):
         """Initialise the GraphEngine with graph topology, project dimensions, and audio settings.
 
         Args:
@@ -1396,14 +1361,38 @@ class GraphEngine:
             ry: Vertical video resolution in pixels (e.g. 720 or 1080).
             fd: Frame duration in milliseconds (default 41.708 ms for 23.976 fps).
             default_audio_source: Path to audio file or media track used by audio nodes.
+            video_x_correct_factor: Anamorphic horizontal aspect ratio correction factor (default 1.0).
         """
         if graph_data is None :
             graph_data ={"nodes":[],"links":[]}
         self .raw_graph =graph_data 
         self .nodes ={n ['id']:n for n in graph_data .get ('nodes',[])}
         self .links =graph_data .get ('links',[])
+        self .links_by_id = {l[0]: l for l in self.links if isinstance(l, (list, tuple)) and len(l) >= 2}
+        self ._leaf_side_effect_nodes = []
+        for n_id, n in self.nodes.items():
+            if isinstance(n, dict):
+                props = n.get('properties')
+                if isinstance(props, dict) and '_clean_props' not in props:
+                    props['_clean_props'] = {_clean_key(k): v for k, v in props.items()}
+                inputs_list = n.get('inputs', [])
+                if isinstance(inputs_list, list):
+                    clean_inputs = {}
+                    for i, inp_obj in enumerate(inputs_list):
+                        if isinstance(inp_obj, dict):
+                            inp_name = inp_obj.get("name", "")
+                            if inp_name:
+                                clean_inputs[_clean_key(inp_name)] = (i, inp_obj)
+                            inp_prop = inp_obj.get("property", "")
+                            if inp_prop:
+                                clean_inputs[_clean_key(inp_prop)] = (i, inp_obj)
+                    n['_clean_inputs_map'] = clean_inputs
+                n_type = str(n.get('type', ''))
+                if n_type in ("Variables/Memory", "Memory", "System/Script Code", "Script Code"):
+                    self._leaf_side_effect_nodes.append((n_id, n, n_type))
         self .all_generated_lines =[]
         self .rx ,self .ry ,self .fd =rx ,ry ,fd 
+        self .video_x_correct_factor = float(video_x_correct_factor) if video_x_correct_factor is not None else 1.0
         self .default_audio_source =default_audio_source 
         self .is_cancelled =False 
         self ._cancel_check_counter =0 
@@ -1440,6 +1429,58 @@ class GraphEngine:
             Retrieved value or `default`.
         """
         return self .memory .get (str (key ),default )
+
+    def _get_node_input_or_prop (self, node, props, port_name_or_aliases, context, default_val=""):
+        """Resolves port or property values in O(1) time using pre-indexed port maps.
+
+        Args:
+            node: Node dictionary in the graph.
+            props: Property dictionary of the node.
+            port_name_or_aliases: Port name or sequence of alias names to query.
+            context: Active execution dictionary.
+            default_val: Fallback value returned if no input or property defines a value.
+
+        Returns:
+            Resolved string or object value.
+        """
+        if isinstance(port_name_or_aliases, str):
+            aliases = [port_name_or_aliases]
+        else:
+            aliases = list(port_name_or_aliases)
+
+        clean_inputs = node.get('_clean_inputs_map')
+        if clean_inputs is None:
+            clean_inputs = {}
+            for i, inp_obj in enumerate(node.get("inputs", [])):
+                if isinstance(inp_obj, dict):
+                    inp_name = inp_obj.get("name", "")
+                    if inp_name:
+                        clean_inputs[_clean_key(inp_name)] = (i, inp_obj)
+                    inp_prop = inp_obj.get("property", "")
+                    if inp_prop:
+                        clean_inputs[_clean_key(inp_prop)] = (i, inp_obj)
+            node['_clean_inputs_map'] = clean_inputs
+
+        for alias in aliases:
+            clean_alias = _clean_key(alias)
+            if clean_alias in clean_inputs:
+                i, inp_obj = clean_inputs[clean_alias]
+                val = self.get_input_value(node, i, context)
+                if val != "":
+                    return val
+                if "value" in inp_obj and inp_obj["value"] is not None and str(inp_obj["value"]).strip() != "":
+                    return str(inp_obj["value"])
+                widget_obj = inp_obj.get("widget", {})
+                if isinstance(widget_obj, dict) and "value" in widget_obj and widget_obj["value"] is not None and str(widget_obj["value"]).strip() != "":
+                    return str(widget_obj["value"])
+
+        for alias in aliases:
+            clean_alias = _clean_key(alias)
+            prop_val = _get_prop_value(props, clean_alias, "")
+            if prop_val != "":
+                return str(prop_val)
+
+        return str(default_val)
 
     def is_port_connected (self ,target_node ,input_index ):
         """Check whether a specific input port on a target node has an active incoming link.
@@ -1491,8 +1532,8 @@ class GraphEngine:
                         if val !="":
                             if str (val ).strip ().lower ().startswith ("shape."):
                                 from nodes .shape_nodes import resolve_shape_value 
-                            return resolve_shape_value (val ,context )
-                        return str (val )
+                                return resolve_shape_value (val ,context )
+                            return str (val )
                     if 'value'in inp and inp ['value']is not None and str (inp ['value']).strip ()!="":
                         raw_val =str (inp ['value']).strip ()
                         if raw_val .lower ().startswith ("shape."):
@@ -1513,7 +1554,7 @@ class GraphEngine:
 
             results =[]
             for l_id in link_ids :
-                link =next ((l for l in self .links if l [0 ]==l_id ),None )
+                link = self.links_by_id.get(l_id)
                 if link :
                     val =self .evaluate_data_node (link [1 ],context ,output_slot_index =link [2 ])
                     if val is not None and str (val )!="":
@@ -1581,6 +1622,7 @@ class GraphEngine:
         """
         context ['active_unit']=unit 
         context ['default_audio_source']=self .default_audio_source 
+        context ['video_x_correct_factor'] = getattr(self, 'video_x_correct_factor', context.get('video_x_correct_factor', 1.0))
         if unit :
             if not context .get ('syl'):
                 context ['syl']=getattr (unit ,'syl',unit )
@@ -1650,7 +1692,9 @@ class GraphEngine:
                     origin_align =5 
 
             context ['origin_align']=origin_align 
-            context ['fx_align']=5 
+            if not context .get ('align_overridden'):
+                context ['fx_align']=5 
+                context ['align']=5 
 
             if origin_align in (7 ,4 ,1 ):
                 final_x =u_left 
@@ -1666,10 +1710,11 @@ class GraphEngine:
             else :
                 final_y =u_middle if u_middle !=0.0 else u_y 
 
-            context ['fx_pos_x']=round (final_x ,3 )
-            context ['fx_pos_y']=round (final_y ,3 )
-            context ['x']=final_x 
-            context ['y']=final_y 
+            if not context .get ('pos_overridden'):
+                context ['fx_pos_x']=round (final_x ,3 )
+                context ['fx_pos_y']=round (final_y ,3 )
+                context ['x']=final_x 
+                context ['y']=final_y 
 
             context ['val_left']=round (u_left ,3 )
             context ['val_center']=round (u_center ,3 )
@@ -1731,13 +1776,16 @@ class GraphEngine:
             unit_rel_st = s_st
             unit_rel_et = s_et
 
-        context['fx_start_time'] = unit_abs_st
-        context['fx_end_time'] = unit_abs_et
-        context['fx_dur'] = unit_dur
         context['unit_abs_start_time'] = unit_abs_st
         context['unit_abs_end_time'] = unit_abs_et
+        eff_st = float(context.get('defvars_st', unit_abs_st)) if context.get('st_overridden') else unit_abs_st
+        eff_et = float(context.get('defvars_et', unit_abs_et)) if context.get('et_overridden') else unit_abs_et
+        eff_dur = max(0.0, eff_et - eff_st) if (context.get('st_overridden') or context.get('et_overridden')) else unit_dur
+        context['fx_start_time'] = eff_st
+        context['fx_end_time'] = eff_et
+        context['fx_dur'] = eff_dur
 
-        ini = line_st - unit_abs_st
+        ini = line_st - eff_st
         context['ini'] = ini
 
         if isinstance(syl_obj, PyxisUnit):
@@ -1773,12 +1821,12 @@ class GraphEngine:
             word_obj.word_end = round(word_obj.word_start + w_dur, 3)
             word_obj.word_mid = round(word_obj.word_start + w_dur / 2.0, 3)
 
-        context ['start_time']=unit_rel_st 
-        context ['end_time']=unit_rel_et 
-        context ['st']=unit_rel_st 
-        context ['et']=unit_rel_et 
-        context ['dur']=unit_dur 
-        context ['duration']=unit_dur 
+        context ['start_time']=eff_st 
+        context ['end_time']=eff_et 
+        context ['st']=eff_st 
+        context ['et']=eff_et 
+        context ['dur']=eff_dur 
+        context ['duration']=eff_dur 
         context ['val_start']=unit_rel_st 
         context ['val_end']=unit_rel_et 
         context ['val_dur']=unit_dur 
@@ -1797,7 +1845,13 @@ class GraphEngine:
         context['has_next'] = (next_obj is not None)
         context ['syl_start_time']=float (getattr (getattr (unit ,'syl',unit ),'start_time',unit_rel_st ))
         context ['syl_end_time']=float (getattr (getattr (unit ,'syl',unit ),'end_time',unit_rel_et ))
-        context ['fx_align']=5 
+        if not context .get ('align_overridden'):
+            context ['fx_align']=5 
+            context ['align']=5 
+        if not context .get ('layer_overridden'):
+            base_layer = int(getattr(line_obj, 'layer', 0)) if line_obj else 0
+            context ['layer']=base_layer 
+            context ['fx_layer']=base_layer 
         if 'line'in context and context ['line']:
             context ['l']=context ['line']
         from models import InkNamespace
@@ -1831,9 +1885,11 @@ class GraphEngine:
     def _apply_defaults (self ,active_unit ,layer_raw ,st_raw ,et_raw ,tags_raw ,return_raw ,context =None ):
         """Apply final default values, positioning, and formatting rules to generated ASS line components.
 
-        Resolves timing markers, validates shape outputs (injecting `\\p1` and neutral scale `\\fscx100\\fscy100`),
-        synthesises `\\pos` and `\\org` coordinates according to canonical precedence rules, merges
-        leading tags with port tags, and ensures valid ASS override block structure.
+        Resolves timing markers, layer, and alignment following the canonical 4-level precedence hierarchy
+        (Level 1: Original Line/Unit < Level 2: Define Vars < Level 3: Return / Output ports < Level 4: Tags),
+        validates shape outputs (injecting `\\p1` and neutral scale `\\fscx100\\fscy100`), synthesises `\\pos`
+        and `\\org` coordinates according to canonical precedence rules, merges leading tags with port tags,
+        and ensures valid ASS override block structure.
 
         Args:
             active_unit: Subtitle unit being rendered.
@@ -1849,10 +1905,15 @@ class GraphEngine:
         """
         line_obj = context.get('line') if context else getattr(active_unit, 'line', None)
         line_st = float(getattr(line_obj, 'start_time', 0.0)) if line_obj else 0.0
-        default_st = context.get('unit_abs_start_time', line_st + getattr(active_unit, 'start_time', 0)) if context else (line_st + getattr(active_unit, 'start_time', 0))
-        default_et = context.get('unit_abs_end_time', line_st + getattr(active_unit, 'end_time', 0)) if context else (line_st + getattr(active_unit, 'end_time', 0))
+        base_st = context.get('unit_abs_start_time', line_st + getattr(active_unit, 'start_time', 0)) if context else (line_st + getattr(active_unit, 'start_time', 0))
+        base_et = context.get('unit_abs_end_time', line_st + getattr(active_unit, 'end_time', 0)) if context else (line_st + getattr(active_unit, 'end_time', 0))
+        base_layer = 0
 
-        layer =_to_int_or_default (layer_raw ,0 ,context =context )
+        default_layer = context.get('defvars_layer', base_layer) if (context and context.get('layer_overridden')) else base_layer
+        default_st = context.get('defvars_st', base_st) if (context and context.get('st_overridden')) else base_st
+        default_et = context.get('defvars_et', base_et) if (context and context.get('et_overridden')) else base_et
+
+        layer = _to_int_or_default(layer_raw, default_layer, context=context)
         if context and (context.get('in_fbf_loop') or context.get('in_anim_loop') or context.get('anim_step_ms')) and 'st' in context:
             st = _to_int_or_default(context['st'], default_st, context=context)
         else:
@@ -1962,11 +2023,11 @@ class GraphEngine:
             if not (p_matches and int(p_matches[-1]) > 0):
                 tags_raw += r"\p1"
 
-            # Jerarquía canónica de 4 niveles para escala de shapes:
-            # [Nivel 1]: Si no es un shape -> hereda del estilo (no se inyecta nada).
-            # [Nivel 2]: Estilo ASS (\fscx y \fscy de Style.ScaleX / Style.ScaleY).
-            # [Nivel 3]: Default neutro para shapes (\fscx100\fscy100) para neutralizar la escala del estilo.
-            # [Nivel 4]: Tag explícito dado por el usuario en Tags/Return (máxima prioridad, no se sobrescribe).
+            # Canonical 4-level hierarchy for shape scaling:
+            # [Level 1]: If not a shape -> inherits from style (nothing injected).
+            # [Level 2]: ASS style (\fscx and \fscy from Style.ScaleX / Style.ScaleY).
+            # [Level 3]: Neutral default for shapes (\fscx100\fscy100) to neutralise style scaling.
+            # [Level 4]: Explicit tag provided by user in Tags/Return (highest priority, not overwritten).
             if not re.search(r'\\fscx', tags_raw):
                 tags_raw = r"\fscx100" + tags_raw
             if not re.search(r'\\fscy', tags_raw):
@@ -1981,8 +2042,21 @@ class GraphEngine:
         except Exception:
             origin_align = 5
 
+        # Canonical 4-level precedence for \an alignment:
+        # [Level 1]: Default ASS alignment (5).
+        # [Level 2]: Define Vars override (align / fx.align / an).
+        # [Level 3]: Return override (context['fx_align'] / context['align'] or leading {\an<N>} in Return).
+        # [Level 4]: Explicit \an<N> tag in Output.Tags (merged above via merge_ass_tags, highest priority).
         if not _AN_RE.search(tags_raw):
-            tags_raw = r"\an5" + tags_raw
+            eff_align = 5
+            try:
+                raw_align = ctx.get('fx_align', ctx.get('align', ctx.get('defvars_align', 5))) if ctx.get('align_overridden') else ctx.get('fx_align', ctx.get('align', 5))
+                eff_align = int(round(float(raw_align)))
+                if eff_align < 1 or eff_align > 9:
+                    eff_align = 5
+            except Exception:
+                eff_align = 5
+            tags_raw = f"\\an{eff_align}" + tags_raw
 
         tags_raw = re.sub(r'\\{2,}', r'\\', tags_raw)
 
@@ -2014,28 +2088,56 @@ class GraphEngine:
             except Exception:
                 return str(v)
 
-        # Regla de precedencia canónica para \pos / \move:
-        # 1. Si Tags ya trae \pos o \move, prevalece Tags (no se sobrescribe).
-        # 2. Si no, si Return/context trae pos_overridden, se inyecta la posición de Return.
-        # 3. Si no, se inyecta la posición por defecto.
+        # Canonical precedence rule for \pos / \move:
+        # 1. If tags_raw already contains \pos or \move, it strictly prevails (original line pos/move is ignored).
+        # 2. Else if Return/context brings pos_overridden, inject Return position.
+        # 3. Else if the original line had \move, synthesize relative \move for the active unit.
+        # 4. Else, synthesize relative \pos for the active unit (default_orig_x, default_orig_y).
         if not re.search(r'\\pos\([^)]*\)', tags_raw) and not re.search(r'\\move\([^)]*\)', tags_raw):
             if ctx.get('pos_overridden'):
                 pos_x = ctx.get('pos_x', ctx.get('x', default_orig_x))
                 pos_y = ctx.get('pos_y', ctx.get('y', default_orig_y))
+                tags_raw += f"\\pos({_fmt_coord(pos_x)},{_fmt_coord(pos_y)})"
+            elif line_obj and getattr(line_obj, 'has_move', False):
+                l_x = float(getattr(line_obj, 'x', getattr(line_obj, 'center', default_orig_x)))
+                l_y = float(getattr(line_obj, 'y', getattr(line_obj, 'middle', default_orig_y)))
+                delta_x = default_orig_x - l_x
+                delta_y = default_orig_y - l_y
+                u_x1 = float(getattr(line_obj, 'move_x1', l_x)) + delta_x
+                u_y1 = float(getattr(line_obj, 'move_y1', l_y)) + delta_y
+                u_x2 = float(getattr(line_obj, 'move_x2', l_x)) + delta_x
+                u_y2 = float(getattr(line_obj, 'move_y2', l_y)) + delta_y
+                t1 = getattr(line_obj, 'move_t1', None)
+                t2 = getattr(line_obj, 'move_t2', None)
+                if t1 is not None and t2 is not None:
+                    tags_raw += f"\\move({_fmt_coord(u_x1)},{_fmt_coord(u_y1)},{_fmt_coord(u_x2)},{_fmt_coord(u_y2)},{t1},{t2})"
+                else:
+                    tags_raw += f"\\move({_fmt_coord(u_x1)},{_fmt_coord(u_y1)},{_fmt_coord(u_x2)},{_fmt_coord(u_y2)})"
             else:
                 pos_x = default_orig_x
                 pos_y = default_orig_y
-            tags_raw += f"\\pos({_fmt_coord(pos_x)},{_fmt_coord(pos_y)})"
+                tags_raw += f"\\pos({_fmt_coord(pos_x)},{_fmt_coord(pos_y)})"
 
-        # Regla de precedencia canónica para \org:
-        # 1. Si Tags ya trae \org, prevalece Tags (no se sobrescribe ni se elimina).
-        # 2. Si no, si Return/context trae has_org == True, se inyecta el \org de Return.
-        # 3. Si no, no se inyecta ningún \org.
+        # Canonical precedence rule for \org:
+        # 1. If tags_raw already contains \org, it strictly prevails (original line org is ignored).
+        # 2. Else if Return/context brings has_org == True, inject Return \org.
+        # 3. Else if the original line had \org, synthesize relative \org for the active unit (Option A: relative offset).
+        # 4. Else, do not inject any \org.
         if not re.search(r'\\org\([^)]*\)', tags_raw):
             if ctx.get('has_org'):
                 org_x = ctx.get('org_x', ctx.get('x', default_orig_x))
                 org_y = ctx.get('org_y', ctx.get('y', default_orig_y))
                 tags_raw += f"\\org({_fmt_coord(org_x)},{_fmt_coord(org_y)})"
+            elif line_obj and getattr(line_obj, 'has_org', False):
+                l_x = float(getattr(line_obj, 'x', getattr(line_obj, 'center', default_orig_x)))
+                l_y = float(getattr(line_obj, 'y', getattr(line_obj, 'middle', default_orig_y)))
+                l_org_x = float(getattr(line_obj, 'org_x', l_x))
+                l_org_y = float(getattr(line_obj, 'org_y', l_y))
+                delta_ox = l_org_x - l_x
+                delta_oy = l_org_y - l_y
+                u_org_x = default_orig_x + delta_ox
+                u_org_y = default_orig_y + delta_oy
+                tags_raw += f"\\org({_fmt_coord(u_org_x)},{_fmt_coord(u_org_y)})"
 
         tags_raw = merge_ass_tags(return_tags_str="", port_tags_str=tags_raw, context=ctx)
 
@@ -2103,7 +2205,7 @@ class GraphEngine:
                 current_node =origin_node 
                 input_port_index =0 
             elif node_type in ["Variables/Define Vars","Define Vars"]:
-                chain .append ({'type':'set_vars','val':props .get ('variables','')})
+                chain .append ({'type':'set_vars','val':props .get ('variables',''),'node':origin_node,'id':origin_node .get ('id',0)})
                 current_node =origin_node 
                 input_port_index =0 
             elif node_type in ["System/Script Code","Script Code"]:
@@ -2142,6 +2244,8 @@ class GraphEngine:
         Returns:
             Evaluated data result (scalar, string, list, or shape).
         """
+        if context is not None and isinstance(context, dict):
+            context["_active_node_id"] = node_id
         if _PROFILER_ENABLED :
             _t0 =time .perf_counter ()
             res =self ._evaluate_data_node_body (node_id ,context ,output_slot_index )
@@ -2171,6 +2275,8 @@ class GraphEngine:
         Returns:
             Evaluated result value (string, float, list, or ASSdraw vector path).
         """
+        if context is not None and isinstance(context, dict):
+            context["_active_node_id"] = node_id
         node =self .nodes [node_id ]
         node_type =node ['type']
         props =node .get ('properties',{})
@@ -2317,18 +2423,34 @@ class GraphEngine:
                 return ""
 
         elif node_type in ["Basics/Number", "Number"] or name == "Number":
-            val_raw = _get_prop_value(props, "value", "0")
-            res = _eval_num_expr(val_raw, context, default=0.0)
-            if isinstance(res, (int, float)):
-                if float(res).is_integer():
-                    return str(int(res))
-                return f"{res:.4f}".rstrip('0').rstrip('.')
-            return str(res)
+            val_raw = str(_get_prop_value(props, "value", "0"))
+            val_clean = val_raw.replace("\r\n", "").replace("\r", "").replace("\n", "")
+            if not val_clean.strip():
+                return "0"
+            from string_evaluator import _split_top_level_commas
+            parts = [p.strip() for p in _split_top_level_commas(val_clean) if p.strip()]
+            if len(parts) > 1:
+                eval_parts = []
+                for p in parts:
+                    res = _eval_num_expr(p, context, default=0.0)
+                    if isinstance(res, (int, float)):
+                        eval_parts.append(str(int(res)) if float(res).is_integer() else f"{res:.4f}".rstrip('0').rstrip('.'))
+                    else:
+                        eval_parts.append(str(res))
+                return ", ".join(eval_parts)
+            else:
+                res = _eval_num_expr(parts[0] if parts else val_clean, context, default=0.0)
+                if isinstance(res, (int, float)):
+                    if float(res).is_integer():
+                        return str(int(res))
+                    return f"{res:.4f}".rstrip('0').rstrip('.')
+                return str(res)
 
         elif node_type in ["Basics/String", "String"] or name == "String":
             from string_evaluator import eval_string_template
             val_raw = str(_get_prop_value(props, "value", ""))
-            return eval_string_template(val_raw, context)
+            val_clean = val_raw.replace("\r\n", "").replace("\r", "").replace("\n", "")
+            return eval_string_template(val_clean, context)
 
         elif node_type in ["Tag Manipulator", "Tags/Tag Manipulator", "Functions/Tag Manipulator"] or name == "Tag Manipulator":
             try:
@@ -2583,66 +2705,12 @@ class GraphEngine:
         #   7. Dispatches multi-slot outputs (0: Piece/Clip, 1: X, 2: Y, 3: Col, 4: Row).
         # -------------------------------------------------------------------------
         if node_type in ["Shape/Slicer", "Slicer"]:
-            try :
-                modo_alias_map ={
-                "hex":"hex","hexagonal":"hex","malla hexagonal":"hex",
-                "tri":"tri","triangular":"tri","malla triangular":"tri",
-                "dia":"dia","diamante":"dia","diamond":"dia","rombos":"dia",
-                "ring":"ring","rings":"ring","anillos":"ring",
-                "ray":"ray","rays":"ray","radial":"ray","rayos":"ray",
-                "quad":"quad","quadtree":"quad",
-                "bez":"bez","bézier":"bez","bezier":"bez","ondas":"bez",
-                "jigsaw":"jigsaw","puzzle":"jigsaw","rompecabezas":"jigsaw",
-                "voronoi":"voronoi","vor":"voronoi","cristales":"voronoi",
-                "ashlar":"ashlar","mamposteria":"ashlar",
-                "brick":"brick","ladrillo":"brick","ladrillos":"brick",
-                "mondrian":"mondrian",
-                "herringbone":"herringbone","espiga":"herringbone","zig-zag":"herringbone",
-                "delaunay":"delaunay","low-poly":"delaunay","lowpoly":"delaunay",
-                "scallop":"scallop","escamas":"scallop",
-                "web":"web","spiderweb":"web","telaraña":"web",
-                "rhombille":"rhombille","cubos":"rhombille","cubes":"rhombille",
-                "octagon":"octagon","mosaico":"octagon","octogonos":"octagon",
-                "kagome":"kagome","trihexagonal":"kagome",
-                "truchet":"truchet","tuberias":"truchet","laberinto":"truchet",
-                "circuit":"circuit","circuito":"circuit","tech":"circuit",
-                "pattern":"pattern","patrón":"pattern","patron":"pattern","modular":"modular",
-                "rejilla 1d/2d":"grid","grid":"grid","grid 1d/2d":"grid"
-                }
-
+            try:
                 modo = props.get("mode", "grid")
-                modo_str =str (modo ).strip ()
-                modo_key =modo_str .lower ()
-                norm_engine_mode =modo_alias_map .get (modo_key ,modo_str )
-
-                inputs_list =node .get ("inputs",[])
+                norm_engine_mode = str(modo).strip().lower()
 
                 def get_val (port_name_or_aliases ,default_val =""):
-                    if isinstance (port_name_or_aliases ,str ):
-                        aliases =[port_name_or_aliases ]
-                    else :
-                        aliases =list (port_name_or_aliases )
-
-                    for alias in aliases :
-                        clean_alias =_clean_key (alias )
-                        for i ,inp_obj in enumerate (inputs_list ):
-                            inp_name =inp_obj .get ("name","")
-                            if _clean_key (inp_name )==clean_alias :
-                                val =self .get_input_value (node ,i ,context )
-                                if val !="":return val 
-                                if "value"in inp_obj and inp_obj ["value"]is not None and str (inp_obj ["value"]).strip ()!="":
-                                    return str (inp_obj ["value"])
-                                widget_obj =inp_obj .get ("widget",{})
-                                if isinstance (widget_obj ,dict )and "value"in widget_obj and widget_obj ["value"]is not None and str (widget_obj ["value"]).strip ()!="":
-                                    return str (widget_obj ["value"])
-
-                    for alias in aliases :
-                        clean_alias =_clean_key (alias )
-                        prop_val =_get_prop_value (props ,clean_alias ,"")
-                        if prop_val !="":
-                            return str (prop_val )
-
-                    return str (default_val )
+                    return self ._get_node_input_or_prop (node ,props ,port_name_or_aliases ,context ,default_val )
 
                 if isinstance(context, dict):
                     context['pos_overridden'] = False
@@ -2650,10 +2718,14 @@ class GraphEngine:
                 upstream_overridden = bool(context.get('pos_overridden')) if isinstance(context, dict) else False
                 upstream_px = float(context.get('pos_x', 0.0)) if isinstance(context, dict) else 0.0
                 upstream_py = float(context.get('pos_y', 0.0)) if isinstance(context, dict) else 0.0
-                from nodes .shape_nodes import resolve_shape_value 
+                from nodes .shape_nodes import resolve_shape_value, split_shape_and_tags, merge_override_tags 
                 shp =resolve_shape_value (shp ,context )
                 if not shp :
                     shp ='m 0 0 l 100 0 l 100 100 l 0 100'
+
+                source_tags, clean_shape = split_shape_and_tags(shp)
+                if not clean_shape:
+                    clean_shape = 'm 0 0 l 100 0 l 100 100 l 0 100'
 
                 def safe_float (v ,default =0.0 ):
                     if v is None or str (v ).strip ()=="":return default 
@@ -2730,7 +2802,7 @@ class GraphEngine:
                 slicer_node_id =node .get ('id',0 )
                 slicer_sig =(
                 slicer_node_id ,
-                str (shp ),
+                str (clean_shape ),
                 norm_engine_mode ,
                 cols ,rows ,
                 size_x ,size_y ,
@@ -2759,14 +2831,14 @@ class GraphEngine:
                     pieces =unit_cache [slicer_sig ]
                 else :
                     pieces =ClipperEngine .slice_grid (
-                    shp ,cols =cols ,rows =rows ,size_x =size_x ,size_y =size_y ,
+                    clean_shape ,cols =cols ,rows =rows ,size_x =size_x ,size_y =size_y ,
                     scale_x =scale_x ,scale_y =scale_y ,offset_x =off_x ,offset_y =off_y ,
                     angle =angle ,overlap =overlap ,accel =accel_x ,accel_x =accel_x ,accel_y =accel_y ,order =order ,
                     text_scale =text_scale ,pre_offset =pre_offset ,engine_mode =norm_engine_mode ,
                     pattern_shape =pattern_shape 
                     )
                     if not pieces :
-                        pieces =[{"code":shp ,"cx":0 ,"cy":0 ,"col":1 ,"row":1 }]
+                        pieces =[{"code":clean_shape ,"cx":0 ,"cy":0 ,"col":1 ,"row":1 }]
                     unit_cache [slicer_sig ]=pieces 
 
                 if not isinstance (context .get ('_slicer_pieces'),dict ):
@@ -2818,7 +2890,7 @@ class GraphEngine:
                     elif "clip" in out_mode:
                         final_res = f"\\clip({combined_code})"
                     else:
-                        final_res = combined_code
+                        final_res = f"{source_tags}{combined_code}" if source_tags else combined_code
 
                     if output_slot_index == 1: return str(parent_x)
                     elif output_slot_index == 2: return str(parent_y)
@@ -2844,6 +2916,10 @@ class GraphEngine:
                         context['pos_y'] = upstream_py
                 anc_res = resolve_piece_anchor(code_val, piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
                 formatted_code = anc_res['formatted_code']
+                if source_tags:
+                    anc_tags, pure_code = split_shape_and_tags(formatted_code)
+                    final_tags = merge_override_tags(source_tags, anc_tags)
+                    formatted_code = f"{final_tags}{pure_code}"
                 if isinstance(context, dict):
                     context['col'] = piece.get("col", 1)
                     context['row'] = piece.get("row", 1)
@@ -2890,7 +2966,7 @@ class GraphEngine:
         # -------------------------------------------------------------------------
         if node_type in ["Shape/Manipulator", "Manipulator"]:
             try :
-                modo =str (props .get ("mode",props .get ("modo","scale"))).strip ()
+                modo =str (props .get ("mode","scale")).strip ()
                 shp_val =self .get_input_value (node ,0 ,context )
                 if shp_val =="":shp_val =str (_get_prop_value (props ,"shape","")).strip ()
                 from nodes .shape_nodes import resolve_shape_value ,shape_manipulator 
@@ -2901,11 +2977,11 @@ class GraphEngine:
                     shp_val =getattr (unit ,'text_stripped',getattr (unit ,'text',''))or getattr (line ,'text_stripped',getattr (line ,'text',''))
 
                 modo_clean =modo .lower ()
-                if "borde"in modo_clean or "border"in modo_clean :
-                    t_val =_eval_num_expr (self .get_input_value (node ,1 ,context )or _get_prop_value (props ,"t","1.0"),context ,1.0 )
-                    offset_border =_eval_num_expr (self .get_input_value (node ,2 ,context )or _get_prop_value (props ,"offset_border","2.0"),context ,2.0 )
-                    anchor =str (_get_prop_value (props ,"anchor","center")).strip ()
-                    return shape_manipulator (context ,drawing =shp_val ,offset_border =offset_border ,mode =anchor ,op_mode ="Borders",t =t_val )
+                if "borde" in modo_clean or "border" in modo_clean:
+                    t_val = _eval_num_expr(self.get_input_value(node, 1, context) if self.is_port_connected(node, 1) else _get_prop_value(props, "t", "1.0"), context, 1.0)
+                    offset_border = _eval_num_expr(self.get_input_value(node, 2, context) if self.is_port_connected(node, 2) else _get_prop_value(props, "offset_border", "2.0"), context, 2.0)
+                    anchor = str((self.get_input_value(node, 3, context) if self.is_port_connected(node, 3) else "") or _get_prop_value(props, "anchor", "center")).strip()
+                    return shape_manipulator(context, drawing=shp_val, offset_border=offset_border, mode=anchor, op_mode="Borders", t=t_val)
                 elif "deform"in modo_clean :
                     t_val =_eval_num_expr (self .get_input_value (node ,1 ,context )or _get_prop_value (props ,"t","1.0"),context ,1.0 )
                     offset_x =_eval_num_expr (self .get_input_value (node ,2 ,context )or _get_prop_value (props ,"offset_x","0"),context ,0.0 )
@@ -2977,7 +3053,7 @@ class GraphEngine:
         # -------------------------------------------------------------------------
         if node_type in ["Shape/Filter", "Filter"]:
             try :
-                modo =str (props .get ("mode",props .get ("modo","vertices"))).strip ()
+                modo =str (props .get ("mode","vertices")).strip ()
                 shp_val =self .get_input_value (node ,0 ,context )
                 if shp_val =="":shp_val =str (_get_prop_value (props ,"shape","")).strip ()
                 from nodes .shape_nodes import resolve_shape_value ,shape_filter 
@@ -3034,7 +3110,7 @@ class GraphEngine:
         # -------------------------------------------------------------------------
         if node_type in ["Shape/Transform", "Transform"]:
             try :
-                modo =str (props .get ("mode",props .get ("modo","inflate"))).strip ()
+                modo =str (props .get ("mode","inflate")).strip ()
                 shp_val =self .get_input_value (node ,0 ,context )
                 if shp_val =="":shp_val =str (_get_prop_value (props ,"shape","")).strip ()
                 from nodes .shape_nodes import resolve_shape_value ,shape_transform 
@@ -3277,7 +3353,7 @@ class GraphEngine:
                     upstream_overridden = bool(context.get('pos_overridden')) if isinstance(context, dict) else False
                     upstream_px = float(context.get('pos_x', 0.0)) if isinstance(context, dict) else 0.0
                     upstream_py = float(context.get('pos_y', 0.0)) if isinstance(context, dict) else 0.0
-                    if not shp_val or str (shp_val ).strip ()=="":shp_val =str (_get_prop_value (props ,"shape","")).strip ()
+                    if not shp_val or str (shp_val ).strip ()=="":shp_val =str (_get_prop_value (props ,"shape",_get_prop_value (props ,"drawing",""))).strip ()
                     shp_val =resolve_shape_value (shp_val ,context )
                     size_val =_eval_num_expr (self .get_input_value (node ,1 ,context )or _get_prop_value (props ,"size","100.0"),context ,100.0 )
                     bord_val =self .get_input_value (node ,2 ,context )
@@ -3295,7 +3371,7 @@ class GraphEngine:
                     upstream_overridden = bool(context.get('pos_overridden')) if isinstance(context, dict) else False
                     upstream_px = float(context.get('pos_x', 0.0)) if isinstance(context, dict) else 0.0
                     upstream_py = float(context.get('pos_y', 0.0)) if isinstance(context, dict) else 0.0
-                    if not shp_val or str (shp_val ).strip ()=="":shp_val =str (_get_prop_value (props ,"shape","")).strip ()
+                    if not shp_val or str (shp_val ).strip ()=="":shp_val =str (_get_prop_value (props ,"shape",_get_prop_value (props ,"drawing",""))).strip ()
                     w_val =_eval_num_expr (self .get_input_value (node ,1 ,context )or _get_prop_value (props ,"width","60.0"),context ,60.0 )
                     h_val =_eval_num_expr (self .get_input_value (node ,2 ,context )or _get_prop_value (props ,"height","50.0"),context ,50.0 )
                     dx_val =_eval_num_expr (self .get_input_value (node ,3 ,context )or _get_prop_value (props ,"dx","0.0"),context ,0.0 )
@@ -3327,7 +3403,7 @@ class GraphEngine:
                         upstream_overridden = bool(context.get('pos_overridden')) if isinstance(context, dict) else False
                         upstream_px = float(context.get('pos_x', 0.0)) if isinstance(context, dict) else 0.0
                         upstream_py = float(context.get('pos_y', 0.0)) if isinstance(context, dict) else 0.0
-                        if not shp_val or str (shp_val ).strip ()=="":shp_val =str (_get_prop_value (props ,"shape","")).strip ()
+                        if not shp_val or str (shp_val ).strip ()=="":shp_val =str (_get_prop_value (props ,"shape",_get_prop_value (props ,"drawing",""))).strip ()
                         w_val =_eval_num_expr (self .get_input_value (node ,1 ,context )or _get_prop_value (props ,"width","104.0"),context ,104.0 )
                         h_val =_eval_num_expr (self .get_input_value (node ,2 ,context )or _get_prop_value (props ,"height","104.0"),context ,104.0 )
                         bord_val =_eval_num_expr (self .get_input_value (node ,3 ,context )or _get_prop_value (props ,"bord","4.0"),context ,4.0 )
@@ -3337,7 +3413,7 @@ class GraphEngine:
                         anc_val =self .get_input_value (node ,7 ,context )
                         if anc_val is None or str (anc_val ).strip ()=="":anc_val =_get_prop_value (props ,"anchor","center")
                     else :
-                        shp_val =str (_get_prop_value (props ,"shape","")).strip ()
+                        shp_val =str (_get_prop_value (props ,"shape",_get_prop_value (props ,"drawing",""))).strip ()
                         w_val =_eval_num_expr (self .get_input_value (node ,0 ,context )or _get_prop_value (props ,"width","104.0"),context ,104.0 )
                         h_val =_eval_num_expr (self .get_input_value (node ,1 ,context )or _get_prop_value (props ,"height","104.0"),context ,104.0 )
                         bord_val =_eval_num_expr (self .get_input_value (node ,2 ,context )or _get_prop_value (props ,"bord","4.0"),context ,4.0 )
@@ -3366,7 +3442,7 @@ class GraphEngine:
                     upstream_overridden = bool(context.get('pos_overridden')) if isinstance(context, dict) else False
                     upstream_px = float(context.get('pos_x', 0.0)) if isinstance(context, dict) else 0.0
                     upstream_py = float(context.get('pos_y', 0.0)) if isinstance(context, dict) else 0.0
-                    if not shp_val or str (shp_val ).strip ()=="":shp_val =str (_get_prop_value (props ,"shape","")).strip ()
+                    if not shp_val or str (shp_val ).strip ()=="":shp_val =str (_get_prop_value (props ,"shape",_get_prop_value (props ,"drawing",""))).strip ()
                     shp_val =resolve_shape_value (shp_val ,context )
                     s1_val =_eval_num_expr (self .get_input_value (node ,1 ,context )or _get_prop_value (props ,"size1","100.0"),context ,100.0 )
                     s2_val =_eval_num_expr (self .get_input_value (node ,2 ,context )or _get_prop_value (props ,"size2","10.0"),context ,10.0 )
@@ -4597,6 +4673,8 @@ class GraphEngine:
                 is_single_out = is_union or is_fusion
 
                 anchor_raw ="pieces"
+                split_mode_raw = "islands"
+                accel_raw = "1.0"
                 if is_union :
                     is_conn_1 =self .is_port_connected (node ,1 )
                     shp_b_raw =self .get_input_value (node ,1 ,context )
@@ -4611,18 +4689,16 @@ class GraphEngine:
                     else :anchor_raw =str (_get_prop_value (props ,"anchor","pieces")).strip ()
                 elif is_fusion :
                     shp_b_raw =""
-                    p1_val =self .get_input_value (node ,1 ,context )
-                    if p1_val !="":tagmode_raw =str (p1_val ).strip ()
-                    else :tagmode_raw =str (props .get ("tagmode","ipol")).strip ()
-                    p2_val =self .get_input_value (node ,2 ,context )
-                    if p2_val !="":tags_raw =str (p2_val ).strip ()
-                    else :tags_raw =str (props .get ("tags","")).strip ()
-                    p3_val =self .get_input_value (node ,3 ,context )
-                    if p3_val !="":anchor_raw =str (p3_val ).strip ()
-                    else :anchor_raw =str (props .get ("anchor","pieces")).strip ()
-                    p4_val =self .get_input_value (node ,4 ,context )
-                    if p4_val !="":order_raw =str (p4_val ).strip ()
-                    else :order_raw =str (props .get ("order","79")).strip ()
+                    split_mode_raw = str(_get_prop_value(props, "split_mode", "islands")).strip().lower()
+                    p1_val = self.get_named_input_or_prop(node, "tagmode", default_slot_idx=1, default_val=props.get("tagmode", "ipol"), context=context)
+                    tagmode_raw = str(p1_val).strip() if p1_val != "" else "ipol"
+                    p2_val = self.get_named_input_or_prop(node, "tags", default_slot_idx=2, default_val=props.get("tags", ""), context=context)
+                    tags_raw = str(p2_val).strip() if p2_val != "" else ""
+                    accel_raw = str(self.get_named_input_or_prop(node, "accel", default_slot_idx=3, default_val=props.get("accel", "1.0"), context=context)).strip()
+                    p3_val = self.get_named_input_or_prop(node, "anchor", default_slot_idx=4, default_val=props.get("anchor", "pieces"), context=context)
+                    anchor_raw = str(p3_val).strip() if p3_val != "" else "pieces"
+                    p4_val = self.get_named_input_or_prop(node, "order", default_slot_idx=5, default_val=props.get("order", "79"), context=context)
+                    order_raw = str(p4_val).strip() if p4_val != "" else "79"
 
                     if tagmode_raw .lower ()not in ("ipol","line")and (any (c in tagmode_raw for c in ['\\','#','&',',','{'])or len (tagmode_raw )>10 ):
                         if not tags_raw :
@@ -4654,7 +4730,7 @@ class GraphEngine:
                 from nodes .shape_nodes import shape_union_divide_node ,get_drawing_bbox 
                 from clipper_engine import ClipperEngine 
 
-                memo_key = f"_sud_eval_{node_id}_{hash(str(shp_raw))}_{hash(str(shp_b_raw))}_{hash(str(tags_raw))}_{hash(str(tagmode_raw))}_{hash(str(order_raw))}_{mode_raw}_{anchor_raw}_{fill_type_raw}_{clean_raw}"
+                memo_key = f"_sud_eval_{node_id}_{hash(str(shp_raw))}_{hash(str(shp_b_raw))}_{hash(str(tags_raw))}_{hash(str(tagmode_raw))}_{hash(str(order_raw))}_{mode_raw}_{anchor_raw}_{fill_type_raw}_{clean_raw}_{split_mode_raw}_{hash(str(accel_raw))}"
                 cached_res = context.get(memo_key) if isinstance(context, dict) else None
 
                 if cached_res is None:
@@ -4663,14 +4739,16 @@ class GraphEngine:
                         drawing=shp_raw,
                         shape_b=shp_b_raw,
                         mode=mode_raw,
-                    anchor =anchor_raw ,
-                    fill_type =fill_type_raw ,
-                    clean_self_intersect =clean_raw ,
-                    index_j =d_val ,
-                    tags =tags_raw ,
-                    tagmode =tagmode_raw ,
-                    order =order_raw ,
-                    return_all_pieces =True 
+                        anchor=anchor_raw,
+                        fill_type=fill_type_raw,
+                        clean_self_intersect=clean_raw,
+                        index_j=d_val,
+                        tags=tags_raw,
+                        tagmode=tagmode_raw,
+                        order=order_raw,
+                        split_mode=split_mode_raw,
+                        accel=accel_raw,
+                        return_all_pieces=True
                     )
                     if isinstance (pieces ,list ):
                         all_pieces =pieces 
@@ -4821,7 +4899,7 @@ class GraphEngine:
                 cached_entry =context .get (memo_key )if isinstance (context ,dict )else None 
 
                 if cached_entry is None :
-                    modo_raw = str(props.get("mode", props.get("modo", "grid"))).strip()
+                    modo_raw = str(props.get("mode", "grid")).strip()
                     out_mode_raw = str(props.get("out_mode", "loops")).strip()
                     mode_norm = modo_raw.lower()
 
@@ -5271,27 +5349,8 @@ class GraphEngine:
         # -------------------------------------------------------------------------
         elif node_type in ["Audio/Modulator", "Modulator"]:
             try :
-                inputs_list =node .get ("inputs",[])
                 def get_val (port_name_or_aliases ,default_val =""):
-                    if isinstance (port_name_or_aliases ,str ):
-                        aliases =[port_name_or_aliases ]
-                    else :
-                        aliases =list (port_name_or_aliases )
-                    for alias in aliases :
-                        clean_alias =_clean_key (alias )
-                        for i ,inp_obj in enumerate (inputs_list ):
-                            inp_name =inp_obj .get ("name","")
-                            if _clean_key (inp_name )==clean_alias :
-                                val =self .get_input_value (node ,i ,context )
-                                if val !="":return val 
-                                if "value"in inp_obj and inp_obj ["value"]is not None and str (inp_obj ["value"]).strip ()!="":
-                                    return str (inp_obj ["value"])
-                    for alias in aliases :
-                        clean_alias =_clean_key (alias )
-                        prop_val =_get_prop_value (props ,clean_alias ,"")
-                        if prop_val !="":
-                            return str (prop_val )
-                    return str (default_val )
+                    return self ._get_node_input_or_prop (node ,props ,port_name_or_aliases ,context ,default_val )
 
                 audio_path_raw =get_val (["Audio Path","audio_path"],"")
                 tag_raw =get_val (["Tag","tag_name"],"fscy")
@@ -5349,27 +5408,8 @@ class GraphEngine:
         # -------------------------------------------------------------------------
         elif node_type in ["Audio/Waveform", "Waveform"]:
             try :
-                inputs_list =node .get ("inputs",[])
                 def get_val (port_name_or_aliases ,default_val =""):
-                    if isinstance (port_name_or_aliases ,str ):
-                        aliases =[port_name_or_aliases ]
-                    else :
-                        aliases =list (port_name_or_aliases )
-                    for alias in aliases :
-                        clean_alias =_clean_key (alias )
-                        for i ,inp_obj in enumerate (inputs_list ):
-                            inp_name =inp_obj .get ("name","")
-                            if _clean_key (inp_name )==clean_alias :
-                                val =self .get_input_value (node ,i ,context )
-                                if val !="":return val 
-                                if "value"in inp_obj and inp_obj ["value"]is not None and str (inp_obj ["value"]).strip ()!="":
-                                    return str (inp_obj ["value"])
-                    for alias in aliases :
-                        clean_alias =_clean_key (alias )
-                        prop_val =_get_prop_value (props ,clean_alias ,"")
-                        if prop_val !="":
-                            return str (prop_val )
-                    return str (default_val )
+                    return self ._get_node_input_or_prop (node ,props ,port_name_or_aliases ,context ,default_val )
 
                 audio_path_raw =get_val (["Audio Path","audio_path"],"")
                 ancho_raw =get_val (["Width","width"],"400")
@@ -5425,30 +5465,8 @@ class GraphEngine:
         # -------------------------------------------------------------------------
         elif node_type in ["Functions/Tag Oscillator","Tag Oscillator"]:
             try :
-                inputs_list =node .get ("inputs",[])
-
                 def get_val_by_name_or_prop (port_name ,prop_key ,default_val =""):
-                    clean_target =_clean_key (port_name )
-                    clean_prop =_clean_key (prop_key )
-
-
-                    for i ,inp_obj in enumerate (inputs_list ):
-                        inp_name =inp_obj .get ("name","")
-                        inp_prop =inp_obj .get ("property","")
-
-                        if _clean_key (inp_name )==clean_target or _clean_key (inp_prop )==clean_prop or clean_prop ==_clean_key (inp_name ):
-                            val =self .get_input_value (node ,i ,context )
-                            if val is not None and str (val ).strip ()!="":
-                                return val 
-                            if "value"in inp_obj and inp_obj ["value"]is not None and str (inp_obj ["value"]).strip ()!="":
-                                return str (inp_obj ["value"])
-
-
-                    prop_val =_get_prop_value (props ,prop_key ,"")
-                    if prop_val is not None and str (prop_val ).strip ()!="":
-                        return str (prop_val )
-
-                    return default_val 
+                    return self ._get_node_input_or_prop (node ,props ,[port_name ,prop_key ],context ,default_val )
 
                 st_val =get_val_by_name_or_prop ("Start Time","start_time","")
                 et_val =get_val_by_name_or_prop ("End Time","end_time","")
@@ -5851,7 +5869,15 @@ class GraphEngine:
                 elif output_slot_index ==3 :return str (abs_y )
                 elif output_slot_index ==4 :return str (total_pts )
 
-                return f"{{\\pos({abs_x },{abs_y })}}{particle_ass_shape }"
+                try:
+                    from nodes.shape_nodes import split_shape_and_tags, merge_override_tags
+                    p_tags, _ = split_shape_and_tags(p_shp)
+                except Exception:
+                    p_tags = ""
+
+                pos_override = f"\\pos({abs_x},{abs_y})"
+                merged_tags_block = merge_override_tags(p_tags, pos_override)
+                return f"{merged_tags_block}{particle_ass_shape}"
             except Exception as e :
                 return f"[Err Particles: {e }]"
 
@@ -5968,17 +5994,40 @@ class GraphEngine:
         if node_type in ["Basics/String", "String"] or name == "String":
             from string_evaluator import eval_string_template
             val_raw = str(_get_prop_value(props, "value", ""))
-            return eval_string_template(val_raw, context)
+            val_clean = val_raw.replace("\r\n", "").replace("\r", "").replace("\n", "")
+            return eval_string_template(val_clean, context)
 
         if node_type in ["Basics/Number", "Number"] or name == "Number":
-            raw_val =_get_prop_value (props ,"value",0 )
-            res =_eval_num_expr (raw_val ,context ,default =0.0 )
-            if isinstance (res ,float )and res .is_integer ():
-                return str (int (res ))
-            return f"{res :.4f}".rstrip ('0').rstrip ('.')
+            raw_val = str(_get_prop_value(props, "value", "0"))
+            val_clean = raw_val.replace("\r\n", "").replace("\r", "").replace("\n", "")
+            if not val_clean.strip():
+                return "0"
+            from string_evaluator import _split_top_level_commas
+            parts = [p.strip() for p in _split_top_level_commas(val_clean) if p.strip()]
+            if len(parts) > 1:
+                eval_parts = []
+                for p in parts:
+                    res = _eval_num_expr(p, context, default=0.0)
+                    if isinstance(res, (int, float)):
+                        eval_parts.append(str(int(res)) if float(res).is_integer() else f"{res:.4f}".rstrip('0').rstrip('.'))
+                    else:
+                        eval_parts.append(str(res))
+                return ", ".join(eval_parts)
+            else:
+                res = _eval_num_expr(parts[0] if parts else val_clean, context, default=0.0)
+                if isinstance(res, (int, float)):
+                    if float(res).is_integer():
+                        return str(int(res))
+                    return f"{res:.4f}".rstrip('0').rstrip('.')
+                return str(res)
 
         if node_type in ["Variables/Get Var", "Get Var"]:
-            return context .get (props .get ("var_name",""),"")
+            v_name = str(props.get("var_name", "")).strip()
+            if not v_name:
+                return ""
+            if v_name in context:
+                return context[v_name]
+            return _eval_sys_var(v_name, context)
 
         # -------------------------------------------------------------------------
         # Variables/Define Vars: Context Variable Injection Engine
@@ -6311,13 +6360,16 @@ class GraphEngine:
                     v1 ,v2 =val_list [seg_idx ],val_list [seg_idx +1 ]
                     str1 ,str2 =str (v1 ).strip (),str (v2 ).strip ()
 
+                    from nodes.shape_nodes import split_shape_and_tags
+                    t1, clean1 = split_shape_and_tags(str1)
+                    t2, clean2 = split_shape_and_tags(str2)
 
-                    if re .search (r'\bm\s+-?\d+',str1 )and re .search (r'\bm\s+-?\d+',str2 ):
+                    if re .search (r'\bm\s+-?\d+',clean1 )and re .search (r'\bm\s+-?\d+',clean2 ):
                         try :
                             from clipper_engine import ClipperEngine 
                             import numpy as np 
-                            cnts1 =ClipperEngine .parse_assdraw (str1 )
-                            cnts2 =ClipperEngine .parse_assdraw (str2 )
+                            cnts1 =ClipperEngine .parse_assdraw (clean1 )
+                            cnts2 =ClipperEngine .parse_assdraw (clean2 )
                             if cnts1 and cnts2 :
                                 all_pts1 =np .vstack (cnts1 )
                                 all_pts2 =np .vstack (cnts2 )
@@ -6451,14 +6503,13 @@ class GraphEngine:
         # -------------------------------------------------------------------------
         # Architectural Role:
         #   Generates frame-by-frame (fbf) animated sprite sequences and transitions,
-        #   injecting animation loop index variables an_i and anim_i.
+        #   injecting animation loop index variable an_i.
         # -------------------------------------------------------------------------
         elif node_type in ["Functions/Animation", "Animation"]:
             try:
                 an_idx_cur = context.get(f'_gen_idx_{node_id}') if isinstance(context, dict) else None
-                if an_idx_cur is not None:
+                if an_idx_cur is not None and isinstance(context, dict):
                     context['an_i'] = an_idx_cur
-                    context['anim_i'] = an_idx_cur
 
                 raw_frames = self.get_input_value(node, 0, context)
                 if raw_frames == "":
@@ -6477,16 +6528,13 @@ class GraphEngine:
                     raw_et = _get_prop_value(props, "end_time", "")
 
                 mode_val = _get_prop_value(props, "mode", "fbf")
-                alpha_tag_val = _get_prop_value(props, "alpha_tag", r"\alpha")
+                alpha_tag_val = self.get_named_input_or_prop(node, "alpha_tag", default_slot_idx=5, default_val=r"\alpha", context=context)
                 order_val = _get_prop_value(props, "order", "sequential")
-                var_name_val = _get_prop_value(props, "var_name", "an")
+                anchor_val = self.get_named_input_or_prop(node, "anchor", default_slot_idx=4, default_val="relative", context=context)
+                base_val = self.get_named_input_or_prop(node, "base", default_slot_idx=6, default_val="0", context=context)
 
                 if isinstance(context, dict) and an_idx_cur is not None:
                     context['an_i'] = an_idx_cur
-                    context['anim_i'] = an_idx_cur
-                    v_clean = str(var_name_val).strip()
-                    if v_clean:
-                        context[f"{v_clean}_i"] = an_idx_cur
 
                 from nodes.tag_nodes import node_animation
                 return node_animation(
@@ -6498,8 +6546,9 @@ class GraphEngine:
                     mode=mode_val,
                     alpha_tag=alpha_tag_val,
                     order=order_val,
-                    var_name=var_name_val,
-                    output_slot_index=output_slot_index
+                    output_slot_index=output_slot_index,
+                    anchor=anchor_val,
+                    base=base_val
                 )
             except Exception as e:
                 import traceback
@@ -6651,8 +6700,8 @@ class GraphEngine:
         "Functions/Clip Gradient":  {"i": ("c_i", "clip_i"),           "n": ("c_n", "c_max", "clip_n", "clip_max"),                    "count_keys": ("cg_loop_count", "c_n")},
         "Shape/Clip Gradient":      {"i": ("c_i", "clip_i"),           "n": ("c_n", "c_max", "clip_n", "clip_max"),                    "count_keys": ("cg_loop_count", "c_n")},
         "Clip Gradient":            {"i": ("c_i", "clip_i"),           "n": ("c_n", "c_max", "clip_n", "clip_max"),                    "count_keys": ("cg_loop_count", "c_n")},
-        "Functions/Animation":      {"i": ("an_i", "anim_i"),          "n": ("an_n", "an_max", "anim_n", "anim_max"),                  "count_keys": ("an_loop_count", "an_n")},
-        "Animation":                {"i": ("an_i", "anim_i"),          "n": ("an_n", "an_max", "anim_n", "anim_max"),                  "count_keys": ("an_loop_count", "an_n")},
+        "Functions/Animation":      {"i": ("an_i",),                   "n": ("an_n", "an_max"),                                         "count_keys": ("an_loop_count", "an_n")},
+        "Animation":                {"i": ("an_i",),                   "n": ("an_n", "an_max"),                                         "count_keys": ("an_loop_count", "an_n")},
     }
 
     def _trace_generator_pipeline(self, output_node, context=None):
@@ -6782,15 +6831,16 @@ class GraphEngine:
         if context.get("_return_stage_resolved"):
             return
         active_vars = context.get("_active_set_vars", [])
-        for v_str in active_vars:
-            self._apply_set_vars_to_context(v_str, context, active_unit)
+        if not context.get("_set_vars_applied"):
+            for v_str in active_vars:
+                self._apply_set_vars_to_context(v_str, context, active_unit)
 
         is_ret_conn = self.is_port_connected(output_node, 5)
         context["_return_port_connected"] = is_ret_conn
         if is_ret_conn:
             inp_5 = output_node.get("inputs", [])[5] if len(output_node.get("inputs", [])) > 5 else None
             link_id = inp_5.get("link") if isinstance(inp_5, dict) else None
-            link_obj = next((l for l in self.links if l[0] == link_id), None) if link_id is not None else None
+            link_obj = self.links_by_id.get(link_id) if link_id is not None else None
             src_node = self.nodes.get(link_obj[1]) if link_obj else None
             src_type = str(src_node.get("type", "")).lower() if src_node else ""
             context["_return_node_is_shape"] = any(
@@ -6913,17 +6963,8 @@ class GraphEngine:
                 num_f = max(1, int(probe_ctx.get("an_n", gen_n)))
                 cur_f = ((gen_j - 1) % num_f) + 1
                 iter_ctx["an_i"] = cur_f
-                iter_ctx["anim_i"] = cur_f
                 iter_ctx["an_n"] = num_f
                 iter_ctx["an_max"] = num_f
-                iter_ctx["anim_n"] = num_f
-                iter_ctx["anim_max"] = num_f
-                iter_ctx["an_j"] = gen_j
-                custom_v = str((gen_node.get("properties") or {}).get("var_name", "an")).strip()
-                if custom_v:
-                    iter_ctx[f"{custom_v}_i"] = cur_f
-                    iter_ctx[f"{custom_v}_n"] = num_f
-                    iter_ctx[f"{custom_v}_max"] = num_f
                 if anim_step:
                     base_st = float(probe_ctx.get("anim_base_st", context.get("start_time", getattr(active_unit, "start_time", 0.0))))
                     frame_st = base_st + (gen_j - 1) * anim_step
@@ -6941,16 +6982,18 @@ class GraphEngine:
                     iter_ctx["fx_dur"] = anim_step
                     iter_ctx["anim_step_ms"] = anim_step
 
-            if "j" not in context:
-                iter_ctx["j"] = gen_j
-                iter_ctx["maxj"] = gen_n
-            iter_ctx["fx_i"] = gen_j
-            iter_ctx["fx_n"] = gen_n
+            if gen_type not in ("Functions/Animation", "Animation"):
+                if "j" not in context:
+                    iter_ctx["j"] = gen_j
+                    iter_ctx["maxj"] = gen_n
+                iter_ctx["fx_i"] = gen_j
+                iter_ctx["fx_n"] = gen_n
             iter_ctx["fx"] = FxContext(iter_ctx)
 
             active_vars = iter_ctx.get("_active_set_vars", [])
             for v_str in active_vars:
                 self._apply_set_vars_to_context(v_str, iter_ctx, active_unit)
+            iter_ctx["_set_vars_applied"] = True
 
             self._execute_subloops_recursive(
                 pipeline, idx + 1, iter_ctx, output_node, active_unit,
@@ -7006,12 +7049,12 @@ class GraphEngine:
         props = output_node.get("properties", {})
 
         active_vars = context.get("_active_set_vars", [])
-        for v_str in active_vars:
-            self._apply_set_vars_to_context(v_str, context, active_unit)
+        if not context.get("_set_vars_applied"):
+            for v_str in active_vars:
+                self._apply_set_vars_to_context(v_str, context, active_unit)
 
         # Execute persistent memory and side-effect scripting nodes per leaf
-        for n_id, n_obj in self.nodes.items():
-            node_type = n_obj.get("type", "")
+        for n_id, n_obj, node_type in self._leaf_side_effect_nodes:
             if node_type in ["Variables/Memory", "Memory"]:
                 mode = str(n_obj.get("properties", {}).get("mode", "")).strip()
                 if "Remember" in mode:
@@ -7020,14 +7063,20 @@ class GraphEngine:
                 self.evaluate_data_node(n_id, context)
 
         # 1. Resolve Layer, Start Time, and End Time within active leaf context
-        layer_val = self.get_input_value(output_node, 1, context)
-        if _is_empty_value(layer_val):
-            layer_val = layer_in
-
+        # Hierarchy: Level 1 (Original Line/Unit) < Level 2 (Define Vars) < Level 3 (Return / Output ports) < Level 4 (Tags)
         line_obj = context.get('line') if context else getattr(active_unit, 'line', None)
         line_st = float(getattr(line_obj, 'start_time', 0.0)) if line_obj else 0.0
-        default_st = context.get('unit_abs_start_time', line_st + getattr(active_unit, 'start_time', 0)) if context else (line_st + getattr(active_unit, 'start_time', 0))
-        default_et = context.get('unit_abs_end_time', line_st + getattr(active_unit, 'end_time', 0)) if context else (line_st + getattr(active_unit, 'end_time', 0))
+        base_st = context.get('unit_abs_start_time', line_st + getattr(active_unit, 'start_time', 0)) if context else (line_st + getattr(active_unit, 'start_time', 0))
+        base_et = context.get('unit_abs_end_time', line_st + getattr(active_unit, 'end_time', 0)) if context else (line_st + getattr(active_unit, 'end_time', 0))
+        base_layer = 0
+
+        default_layer = context.get('defvars_layer', base_layer) if (context and context.get('layer_overridden')) else base_layer
+        default_st = context.get('defvars_st', base_st) if (context and context.get('st_overridden')) else base_st
+        default_et = context.get('defvars_et', base_et) if (context and context.get('et_overridden')) else base_et
+
+        layer_val = self.get_input_value(output_node, 1, context)
+        if _is_empty_value(layer_val):
+            layer_val = layer_in if not _is_empty_value(layer_in) else default_layer
 
         st_val = self.get_input_value(output_node, 2, context)
         if _is_empty_value(st_val):
@@ -7108,12 +7157,16 @@ class GraphEngine:
             word_obj.word_mid = round(word_obj.word_start + w_dur / 2.0, 3)
 
         # 2. Evaluate Return Stage (Geometry / Vector Shapes / Plain Text)
+        pre_ret_st = float(context.get('st', st_num))
+        pre_ret_et = float(context.get('et', et_num))
+        pre_ret_layer = context.get('fx_layer', context.get('layer', default_layer))
+
         is_ret_conn = self.is_port_connected(output_node, 5)
         context["_return_port_connected"] = is_ret_conn
         if is_ret_conn:
             inp_5 = output_node.get("inputs", [])[5] if len(output_node.get("inputs", [])) > 5 else None
             link_id = inp_5.get("link") if isinstance(inp_5, dict) else None
-            link_obj = next((l for l in self.links if l[0] == link_id), None) if link_id else None
+            link_obj = self.links_by_id.get(link_id) if link_id else None
             src_node = self.nodes.get(link_obj[1]) if link_obj else None
             src_type = str(src_node.get("type", "")).lower() if src_node else ""
             context["_return_node_is_shape"] = any(
@@ -7130,21 +7183,24 @@ class GraphEngine:
 
         context["return_raw"] = return_str
 
-        active_vars = context.get("_active_set_vars", [])
-        for v_str in active_vars:
-            self._apply_set_vars_to_context(v_str, context, active_unit)
+        # If the Return stage mutated timing or layer in context (Level 3 precedence) and the explicit
+        # Output port was left empty, promote the Return-mutated value over Define Vars (Level 2).
+        post_ret_st = float(context.get('st', st_num))
+        post_ret_et = float(context.get('et', et_num))
+        post_ret_layer = context.get('fx_layer', context.get('layer', pre_ret_layer))
+        if _is_empty_value(self.get_input_value(output_node, 2, context)) and post_ret_st != pre_ret_st:
+            st_num = _to_int_or_default(post_ret_st, default_st, context=context)
+        if _is_empty_value(self.get_input_value(output_node, 3, context)) and post_ret_et != pre_ret_et:
+            et_num = _to_int_or_default(post_ret_et, default_et, context=context)
+        if _is_empty_value(self.get_input_value(output_node, 1, context)) and post_ret_layer != pre_ret_layer:
+            layer_val = post_ret_layer
 
         # 3. Evaluate Tags, Queues, and Defaults
-        if "an" not in context:
-            an_probe_ctx = context.copy()
-            an_probe_ctx["fx"] = FxContext(an_probe_ctx)
-            tags_probe = self.get_input_value(output_node, 4, an_probe_ctx)
-            if tags_probe:
-                m_an = re.findall(r"\\an([1-9])", str(tags_probe))
-                if m_an:
-                    context["an"] = int(m_an[-1])
-
         tags_str = self.get_input_value(output_node, 4, context)
+        if "an" not in context and tags_str:
+            m_an = re.findall(r"\\an([1-9])", str(tags_str))
+            if m_an:
+                context["an"] = int(m_an[-1])
         loop_tags = str(context.get("loop_tags") or context.get("script_tags") or "").strip()
         if loop_tags:
             tags_str = merge_ass_tags(tags_str, loop_tags, context=context) if tags_str else loop_tags
@@ -7288,7 +7344,9 @@ class GraphEngine:
             except Exception :
                 origin_align =5 
             context ['origin_align']=origin_align 
-            context ['fx_align']=5 
+            if not context .get ('align_overridden'):
+                context ['fx_align']=5 
+                context ['align']=5 
 
             u_left =float (context .get ('val_left',getattr (active_unit ,'left',getattr (active_unit ,'center',0.0 ))if active_unit else 0.0 ))
             u_center =float (context .get ('val_center',getattr (active_unit ,'center',0.0 )if active_unit else 0.0 ))
@@ -7311,8 +7369,9 @@ class GraphEngine:
             else :
                 orig_y =u_middle 
 
-            context ['fx_pos_x']=round (orig_x ,3 )
-            context ['fx_pos_y']=round (orig_y ,3 )
+            if not context .get ('pos_overridden'):
+                context ['fx_pos_x']=round (orig_x ,3 )
+                context ['fx_pos_y']=round (orig_y ,3 )
             context ['_base_unit_x']=float (u_center )
             context ['_base_unit_y']=float (u_middle )
 
@@ -7321,8 +7380,10 @@ class GraphEngine:
 
             line_obj = context.get('line') if context else getattr(active_unit, 'line', None)
             line_st = float(getattr(line_obj, 'start_time', 0.0)) if line_obj else 0.0
-            default_st = context.get('unit_abs_start_time', line_st + getattr(active_unit, 'start_time', 0)) if context else (line_st + getattr(active_unit, 'start_time', 0))
-            default_et = context.get('unit_abs_end_time', line_st + getattr(active_unit, 'end_time', 0)) if context else (line_st + getattr(active_unit, 'end_time', 0))
+            base_st = context.get('unit_abs_start_time', line_st + getattr(active_unit, 'start_time', 0)) if context else (line_st + getattr(active_unit, 'start_time', 0))
+            base_et = context.get('unit_abs_end_time', line_st + getattr(active_unit, 'end_time', 0)) if context else (line_st + getattr(active_unit, 'end_time', 0))
+            default_st = context.get('defvars_st', base_st) if context.get('st_overridden') else base_st
+            default_et = context.get('defvars_et', base_et) if context.get('et_overridden') else base_et
 
             st_interim = _to_int_or_default(st_in, default_st, context=context)
             context["effect_st"] = float(st_interim)
@@ -7537,6 +7598,9 @@ class GraphEngine:
         elif current_loop ['type']=='set_vars':
             if self .is_cancelled :return 
             ctx =context .copy ()
+            node_id_val = current_loop.get('id') or (current_loop.get('node', {}).get('id') if isinstance(current_loop.get('node'), dict) else 0)
+            if node_id_val:
+                ctx['_active_node_id'] = node_id_val
             vars_str =str (current_loop .get ('val')or '')
             active_vars = list(ctx.get('_active_set_vars', []))
             if vars_str and vars_str not in active_vars:
@@ -7598,7 +7662,7 @@ class GraphEngine:
                 - 'is_heavy': Boolean flag set True if total lines exceed 30,000.
         """
         from ass_parser import KaraokeProcessor 
-        processor =KaraokeProcessor (self .rx ,self .ry ,self .fd )
+        processor =KaraokeProcessor (self .rx ,self .ry ,self .fd ,video_x_correct_factor =getattr (self ,'video_x_correct_factor',1.0 ))
 
         parsed_lines =[]
         selected_styles =set (global_selected_styles )if global_selected_styles is not None else set ()
@@ -7948,7 +8012,41 @@ class GraphEngine:
         "is_heavy":total_estimated_lines >=30000 
         }
 
-    def process_single (self ,dialogue_items ,styles ,progress_callback =None ,check_cancel_callback =None ,allow_fallback_select_all =True ,global_selected_styles =None ,chunk_indices =None ):
+    def _is_graph_temporally_cullable(self) -> bool:
+        """Determines if the active node graph is safe for viewport temporal culling.
+
+        Disables culling if stateful accumulation nodes (e.g. Variables/Memory,
+        Basics/Once, Functions/Sequence) or persistent state functions (remember/recall)
+        are detected within the topology.
+
+        Returns:
+            bool: True if node execution across lines is strictly stateless and cullable.
+        """
+        stateful_types = {
+            "variables_memory", "basics_once", "functions_sequence"
+        }
+        for n in self.nodes.values():
+            n_type = str(n.get("type", "")).lower().replace(" ", "_").replace("/", "_")
+            if any(st in n_type for st in stateful_types):
+                return False
+            props = n.get("properties", {})
+            if isinstance(props, dict):
+                script = str(props.get("script", "") or props.get("variables", "") or "")
+                if "remember" in script or "recall" in script:
+                    return False
+        return True
+
+    def process_single(
+        self,
+        dialogue_items,
+        styles,
+        progress_callback=None,
+        check_cancel_callback=None,
+        allow_fallback_select_all=True,
+        global_selected_styles=None,
+        chunk_indices=None,
+        preview_time_window=None
+    ):
         """Executes the graph evaluation pipeline deterministically in a single process or worker thread.
 
         Processing Lifecycle:
@@ -7971,6 +8069,7 @@ class GraphEngine:
             allow_fallback_select_all: Whether to process all lines if no lines are explicitly selected.
             global_selected_styles: Optional set of style names to restrict execution scope.
             chunk_indices: Optional set of line indices ('i') assigned to this worker chunk.
+            preview_time_window: Optional tuple of (start_ms, end_ms) for viewport temporal culling.
 
         Returns:
             List of generated ASS line dictionaries appended to `self.all_generated_lines`.
@@ -8065,7 +8164,7 @@ class GraphEngine:
         self ._once_cache ={}
 
         from ass_parser import KaraokeProcessor 
-        processor =KaraokeProcessor (self .rx ,self .ry ,self .fd )
+        processor =KaraokeProcessor (self .rx ,self .ry ,self .fd ,video_x_correct_factor =getattr (self ,'video_x_correct_factor',1.0 ))
 
         parsed_lines =[]
         selected_styles =set (global_selected_styles )if global_selected_styles is not None else set ()
@@ -8104,10 +8203,36 @@ class GraphEngine:
                     l .is_selected =True 
             selected_lines_list =[l for l in parsed_lines if not getattr(l, 'is_comment', False)]
 
+        subtitle_line_vars = set()
+        if styles and isinstance(styles, dict):
+            for st_name in styles.keys():
+                st_clean = str(st_name).strip()
+                if st_clean.isidentifier():
+                    subtitle_line_vars.add(st_clean)
+        for d_item in dialogue_items:
+            raw_val = d_item.get("raw") if isinstance(d_item, dict) else getattr(d_item, "raw", None)
+            if isinstance(raw_val, str) and raw_val.startswith(("Dialogue:", "Comment:")):
+                p_parts = raw_val.split(":", 1)[1].split(",", 9)
+                if len(p_parts) >= 9:
+                    for idx_f in (3, 4, 8):
+                        f_str = p_parts[idx_f].strip()
+                        if f_str.isidentifier():
+                            subtitle_line_vars.add(f_str)
 
 
 
-        total_work_units =0 
+
+        win_min, win_max = None, None
+        if preview_time_window is not None:
+            try:
+                w_start, w_end = float(preview_time_window[0]), float(preview_time_window[1])
+                margin = 5000.0  # 5-second temporal boundary safety margin
+                win_min = w_start - margin
+                win_max = w_end + margin
+            except Exception:
+                win_min, win_max = None, None
+
+        total_work_units = 0 
         for out_node in output_nodes :
             props =out_node .get ('properties',{})
             apply_to =props .get ('apply_to','Selected Lines')
@@ -8128,6 +8253,8 @@ class GraphEngine:
                 if chunk_indices is not None and getattr(pyxis_line, 'i', None) not in chunk_indices: continue
                 if apply_to in ["Selected Lines","Sel. Lines"]and not pyxis_line .is_selected :continue 
                 if apply_to =="Style Lines"and pyxis_line .style_name not in selected_styles :continue 
+                if win_min is not None and (getattr(pyxis_line, 'end_time', 0.0) < win_min or getattr(pyxis_line, 'start_time', 0.0) > win_max):
+                    continue
 
                 if base_type in ['syl','char','word']:
                     units =getattr (pyxis_line ,base_type +"s",[])
@@ -8164,9 +8291,11 @@ class GraphEngine:
                 if chunk_indices is not None and getattr(pyxis_line, 'i', None) not in chunk_indices: continue
                 if apply_to in ["Selected Lines","Sel. Lines"]and not pyxis_line .is_selected :continue 
                 if apply_to =="Style Lines"and pyxis_line .style_name not in selected_styles :continue 
+                if win_min is not None and (getattr(pyxis_line, 'end_time', 0.0) < win_min or getattr(pyxis_line, 'start_time', 0.0) > win_max):
+                    continue 
                 self .execute_loops_recursive (
                 loop_chain ,
-                {'line':pyxis_line ,'processor':processor ,'all_lines':parsed_lines ,'selected_lines':selected_lines_list ,'target_lines':target_lines_list ,'_scoped_rnd_cache':{}, 'frame_dur': self.fd, 'fd': self.fd},
+                {'line':pyxis_line ,'processor':processor ,'all_lines':parsed_lines ,'selected_lines':selected_lines_list ,'target_lines':target_lines_list ,'_scoped_rnd_cache':{}, 'frame_dur': self.fd, 'fd': self.fd, 'video_x_correct_factor': getattr(self, 'video_x_correct_factor', getattr(processor, 'video_x_correct_factor', 1.0)), '_subtitle_line_vars': subtitle_line_vars},
                 out_node ,
                 None ,
                 check_cancel_callback ,
@@ -8185,7 +8314,15 @@ class GraphEngine:
             self ._local_line_batch =0 
         return self .all_generated_lines 
 
-    def process (self ,dialogue_items ,styles ,progress_callback =None ,check_cancel_callback =None ,use_multiprocessing =True ):
+    def process(
+        self,
+        dialogue_items,
+        styles,
+        progress_callback=None,
+        check_cancel_callback=None,
+        use_multiprocessing=True,
+        preview_time_window=None
+    ):
         """Master orchestrator for evaluating the node graph and compiling final ASS dialogue lines.
 
         Execution Architecture and Multiprocessing Pipeline:
@@ -8220,12 +8357,19 @@ class GraphEngine:
             progress_callback: Optional callable for streaming progress payloads to the UI.
             check_cancel_callback: Optional callable returning True when the user requests cancellation.
             use_multiprocessing: Boolean flag to enable or disable parallel ProcessPoolExecutor dispatch.
+            preview_time_window: Optional tuple of (start_ms, end_ms) for viewport temporal culling.
 
         Returns:
             List of formatted ASS dialogue lines ready for injection into Aegisub or preview rendering.
         """
-        self .all_generated_lines =[]
-        self .is_cancelled =False 
+        self.all_generated_lines = []
+        self.is_cancelled = False
+
+        if preview_time_window is not None:
+            if not self._is_graph_temporally_cullable():
+                preview_time_window = None
+            else:
+                use_multiprocessing = False 
 
         cpu_cores =os .cpu_count ()or 1 
         num_items =len (dialogue_items )
@@ -8312,11 +8456,41 @@ class GraphEngine:
         active_indices =all_non_comment_indices if (any_out_uses_all or not selected_or_style_indices )else selected_or_style_indices 
         num_active =len (active_indices )
 
-        if use_multiprocessing and num_active >1 and cpu_cores >1 :
+        # Adaptive multiprocessing evaluation:
+        # On Windows (os.name == "nt"), CPython multiprocessing uses 'spawn', which introduces
+        # a static startup overhead (~400-800ms) to launch child processes and import modules.
+        # For lightweight workloads (few lines and small line counts), single-threaded execution is faster.
+        should_use_mp = use_multiprocessing and num_active > 1 and cpu_cores > 1
+        est_info = None
+        if should_use_mp and os.name == "nt":
+            if num_active < 4:
+                est_info = self.estimate_workload(
+                    non_comment_items,
+                    styles,
+                    allow_fallback_select_all=allow_fallback_select_all,
+                    global_selected_styles=global_selected_styles
+                )
+                est_lines = est_info.get("estimated_lines", 0)
+                has_heavy = est_info.get("has_particles", False) or est_info.get("has_slicer", False)
+                if est_lines < 600 and not has_heavy:
+                    should_use_mp = False
+
+        if should_use_mp:
             stop_monitor =threading .Event ()
             monitor_th =None 
             try :
                 max_workers =min (cpu_cores ,num_active )
+                if os.name == "nt":
+                    if est_info is None:
+                        est_info = self.estimate_workload(
+                            non_comment_items,
+                            styles,
+                            allow_fallback_select_all=allow_fallback_select_all,
+                            global_selected_styles=global_selected_styles
+                        )
+                    est_lines_cnt = est_info.get("estimated_lines", 100)
+                    # Limit worker count to avoid excessive spawn overhead when workload per worker is trivial
+                    max_workers = min(max_workers, max(2, est_lines_cnt // 350))
 
                 shared_line_counter =multiprocessing .Value ('i',0 )
                 shared_cancel_flag =multiprocessing .Value ('b',False )
@@ -8341,11 +8515,13 @@ class GraphEngine:
                         target_out ,
                         allow_fallback_select_all ,
                         list (global_selected_styles ),
-                        chunk_indices 
+                        chunk_indices ,
+                        getattr (self ,'video_x_correct_factor',1.0 )
                     ))
 
                 if callable (progress_callback )or callable (check_cancel_callback ):
-                    est_info =self .estimate_workload (non_comment_items ,styles ,allow_fallback_select_all =allow_fallback_select_all ,global_selected_styles =global_selected_styles )
+                    if est_info is None:
+                        est_info =self .estimate_workload (non_comment_items ,styles ,allow_fallback_select_all =allow_fallback_select_all ,global_selected_styles =global_selected_styles )
                     est_lines =max (10 ,est_info .get ('estimated_lines',100 ))
 
                     t_loop_start =time .perf_counter ()
@@ -8421,13 +8597,14 @@ class GraphEngine:
 
             except Exception as mp_err :
                 print (f"[Pyxis Multiprocessing Warning] Falling back to sequential mode: {mp_err }",flush =True )
-                self .process_single (
-                dialogue_items ,
-                styles ,
-                progress_callback ,
-                check_cancel_callback ,
-                allow_fallback_select_all =allow_fallback_select_all ,
-                global_selected_styles =global_selected_styles 
+                self.process_single(
+                    dialogue_items,
+                    styles,
+                    progress_callback,
+                    check_cancel_callback,
+                    allow_fallback_select_all=allow_fallback_select_all,
+                    global_selected_styles=global_selected_styles,
+                    preview_time_window=preview_time_window
                 )
             finally :
                 stop_monitor .set ()
@@ -8435,13 +8612,14 @@ class GraphEngine:
                     monitor_th .join (timeout =0.1 )
                 _GLOBAL_ACTIVE_EXECUTOR =None 
         else :
-            self .process_single (
-            dialogue_items ,
-            styles ,
-            progress_callback ,
-            check_cancel_callback ,
-            allow_fallback_select_all =allow_fallback_select_all ,
-            global_selected_styles =global_selected_styles 
+            self.process_single(
+                dialogue_items,
+                styles,
+                progress_callback,
+                check_cancel_callback,
+                allow_fallback_select_all=allow_fallback_select_all,
+                global_selected_styles=global_selected_styles,
+                preview_time_window=preview_time_window
             )
 
         total_final_lines =len (self .all_generated_lines )
@@ -8534,8 +8712,11 @@ def _process_line_chunk_worker (payload ):
         allow_fallback_select_all =True 
         global_selected_styles =None 
         chunk_indices =None 
+        video_x_correct_factor =1.0 
 
-        if len (payload )>=12 :
+        if len (payload )>=13 :
+            graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches ,target_output_id ,allow_fallback_select_all ,global_selected_styles ,chunk_indices ,video_x_correct_factor =payload [:13 ]
+        elif len (payload )>=12 :
             graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches ,target_output_id ,allow_fallback_select_all ,global_selected_styles ,chunk_indices =payload [:12 ]
         elif len (payload )>=11 :
             graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches ,target_output_id ,allow_fallback_select_all ,global_selected_styles =payload [:11 ]
@@ -8551,7 +8732,7 @@ def _process_line_chunk_worker (payload ):
             _GLOBAL_PARTICLE_PTS_CACHE .update (particle_caches [0 ])
             _GLOBAL_PARTICLE_IMG_CACHE .update (particle_caches [1 ])
 
-        worker_engine =GraphEngine (graph_data ,rx ,ry ,fd ,default_audio_source =default_audio_source )
+        worker_engine =GraphEngine (graph_data ,rx ,ry ,fd ,default_audio_source =default_audio_source ,video_x_correct_factor =video_x_correct_factor )
         worker_engine .shared_line_counter =_WORKER_LINE_COUNTER 
         worker_engine .shared_cancel_flag =_WORKER_CANCEL_FLAG 
         if target_output_id is not None :

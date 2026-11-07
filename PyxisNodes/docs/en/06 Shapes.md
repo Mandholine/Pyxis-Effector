@@ -40,7 +40,10 @@ The catalogue comprises 80 precalculated vector primitives normalised within a b
 ### 1.3. Output Ports (*Outputs*)
 1. **`[1.1] Shape`:** Emits the ASSdraw vector code centred at `(0, 0)` ready to feed `System/Output (Return)` or downstream vector processing nodes (`Stroke`, `Manipulator`, `Slicer`).
 
-### 1.4. Practical Production Example
+### 1.4. Automatic Anamorphic Compensation
+When the ASS script is paired with anamorphic video material (`PlayResX / PlayResY != DAR`, e.g. DVD 720x480 displayed at 16:9), `Shape/Library` automatically scales the horizontal $X$ coordinates of each geometric preset by `video_x_correct_factor`. This guarantees that symmetric shapes such as `circle`, `square`, `star`, or `gear` render genuinely circular and equilateral on screen after the player applies display aspect stretching, avoiding elliptical distortion or the need for corrective `\fscx` tags.
+
+### 1.5. Practical Production Example
 * **Vector Icon Emission with Scale and Rotation:**
   Connecting `Shape` to the `Return` socket of `System/Output` with `category: stars`, `shape: star`:
   
@@ -85,7 +88,7 @@ The catalogue comprises 80 precalculated vector primitives normalised within a b
 ### 2.2. Universal Parameters and Global Controls
 These parameters and configuration buttons apply across all slicing modes:
 
-1. **`[2.1] Shape`:** Vector ASSdraw path or text glyph to slice. If unwired and empty, automatically retrieves the active context's shape (syllable, word, or line).
+1. **`[2.1] Shape`:** Vector ASSdraw path or text glyph to slice. Supports both pure vector paths and strings with prepended ASS styling tags (e.g. `{\1c&HFFFFFF&\bord2}m ...`). The engine automatically isolates clean geometry for Clipper2 processing without cache pollution and restores the inherited parent tags onto each resulting piece (in `Loops` mode merged with anchor positioning, or in `Shape` mode prepended to the composite drawing; pure geometry is emitted in `\clip`/`\iclip` modes). If unwired and empty, automatically retrieves the active context's shape (syllable, word, or line).
 2. **`[2.2] Text Scale`:** Pre-scaling factor applied to the input shape prior to subdivision and slicing.
 3. **`[2.3] Pre-Offset`:** Perimeter offset (*dilation / erosion*) applied to original contours before boolean slicing.
 4. **`[2.4] Anchor` (Anchor Point, Positioning, and Injected Origin):** Selector button defining the local coordinate system of each piece and how `\pos(x,y)` and `\org(x,y)` tags are injected into context:
@@ -249,6 +252,10 @@ These parameters and configuration buttons apply across all slicing modes:
   ```
   Each Voronoi piece rotates around its individual centroid and collapses progressively with an angular deflection proportional to `s_i`, maintaining the local anchor without shifting the overall drawing origin.
 
+> [!NOTE]
+> **Automatic Sanitisation of Degenerate Contours:**
+> In complex vector imports or converted typography silhouettes, parasitic contours, duplicate vertices, or collapsed strokes whose mathematical surface area is $0.0$ can occasionally occur. `Shape/Slicer` and the underlying `ClipperEngine` automatically filter out and discard these collapsed contours prior to executing boolean tessellation in C++, preventing invalid path fatal errors (*The path is invalid for clipping*) and ensuring seamless, robust slicing across all animation frames.
+
 ---
 
 ## 3. Node `Shape/Manipulator` (Spatial Transformation and Deformation)
@@ -267,7 +274,7 @@ These parameters and configuration buttons apply across all slicing modes:
 ---
 
 ### 3.2. Common Universal Parameters
-1. **`Shape / Text`:** Vector ASSdraw path or text. If unwired, defaults to active context glyph (syllable, word, or line).
+1. **Shape / Text:** Vector ASSdraw path or text. Supports strings with ASS tag prefixes (acting as a transparent filter pipeline) or pure vector commands. If unwired, defaults to active context glyph (syllable, word, or line). or line).
 2. **`Factor (t)`:** Parametric progress factor ($0.0 \to 1.0$) for animating continuous transformations.
 3. **`Anchor` (Monolithic Shape Reference System):**
    * **`center`:** Centres shape mass at local origin `(0, 0)` (ink centroid).
@@ -285,8 +292,8 @@ These parameters and configuration buttons apply across all slicing modes:
 
 #### 2. `Borders` (Perimeter Expansion / Contraction) Mode
 Dilates or erodes closed contours via Clipper morphological offset.
-* **`Offset (px)` (`offset_border`):** Pixel offset distance (positive expands outwards; negative contracts inwards; default: `2.0`).
-* **`Factor (t)` / `Anchor`:** Universal parameters.
+* **`Offset (px)` (`offset_border`):** Pixel offset distance (positive expands outwards; negative erodes/contracts inwards; dissolves cleanly to an empty string or tag prefix upon complete erosion; default: `2.0`).
+* **`Factor (t)` / `Anchor`:** Universal parameters (`center`, `origin`, `relative`, `absolute`).
 
 #### 3. `Deform` (Asymmetric Directional Deformation) Mode
 Applies directional distortion vectors.
@@ -327,7 +334,7 @@ $$\text{Clipper Offset (Offset Border)} \longrightarrow \text{Resampling (Densit
 * **`Skew X` / `Skew Y`:** Transverse shear/skew factors along $X$ and $Y$ axes.
 * **`Rotate X` / `Rotate Y` / `Rotate Z`:** Euler rotation angles in degrees across all 3 Cartesian axes with conical perspective projection ($fov$).
 * **`Offset X` / `Offset Y`:** Cartesian translation in pixels.
-* **`Offset Border`:** Prior geometric contour offset distance via Clipper in pixels (positive dilates/expands; negative erodes/contracts; default: `0.0`).
+* **`Offset Border`:** Prior geometric contour offset distance via Clipper in pixels (positive dilates/expands; negative erodes/contracts; dissolves cleanly to empty upon complete erosion; default: `0.0`).
 * **`Axis`:** Specular mirror reflection axis (`none`, `x`, `y`, `xy`).
 * **`Density`:** Prior Bézier resampling step (default: `0` for disabled; $> 0$ for px-step subdivision).
 * **`Anchor`:** Spatial anchor reference (`center`, `origin`, `relative`, `absolute`).
@@ -518,7 +525,7 @@ Transforms vector typography into vibrating analogue chalk or electrical outline
 ---
 
 ### 5.2. Universal Parameters & Silhouette Overlay Behaviour
-* **`Shape / Text`:** Input vector path or text.
+* **Shape / Text:** Input vector path or text. Supports strings with ASS tag prefixes (acting as a transparent filter pipeline) or pure vector commands.xt.
 * **`Factor (t)`:** Progress factor ($0.0 \to 1.0$) animating the transition.
 * **`Anchor` (Spatial Morph Alignment):**
   * **Automatic Normalisation:** Target shape is proportionally scaled and overlaid onto source shape. Bounding box evolves smoothly: $W(t) = W_A(1-t) + W_B(t)$ and $H(t) = H_A(1-t) + H_B(t)$.
@@ -766,10 +773,10 @@ The node delegates path dilation to Clipper2's bilateral offset engine:
 ### 9.2. Mode-Specific Inputs and Parameters
 
 #### 1. `[DIVIDE]` (PolyTree Divide) Mode
-* **`[2.1] Shape In`:** Input ASSdraw path or text.
+* **`[2.1] Shape In`:** Input ASSdraw path or text. Supports leading ASS tag prefixes (such as `{\pos(...)\1c...}`), which are isolated for geometric computation and cleanly inherited by each resulting piece.
 * **`[2.2] Rule:` (`fill_type`):** Winding fill rule (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
 * **`[2.3] Clean:` (`clean_self_intersect`):** Auto-cleaning of self-intersecting edges (`Auto (1)`, `Off (0)`).
-* **`[2.4] Anchor` (`Pieces`):** Anchor selector (`Pieces`, `Relative`, `Parent Org`, `Pos`, `Absolute`).
+* **`[2.4] Anchor` (`Pieces`):** Anchor selector (`Pieces` recentres each piece at its local centroid, `Relative` preserves original coordinates, `Center` globally centres shape at (0, 0), `Origin` aligns top-left bounding box to (0, 0), `Parent Org`, `Pos`, `Absolute`).
 * **`[2.5] Order:` (`order`):** Spatial piece ordering (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
 
 #### 2. `[UNION]` (Boolean Union) Mode
@@ -784,11 +791,19 @@ The node delegates path dilation to Clipper2's bilateral offset engine:
 #### 4. `[FUSION]` (Tag Fusion with Keyframes) Mode
 Packages multiple islands into a single ASS line, reducing line count:
 * **`[2.1] Shape In`:** Multi-path shape, text, or list of shapes.
-* **`[2.2] Tag Mode:` (`tagmode`):**
+* **`[2.2] Split:` (`split_mode`):** Input shape decomposition selector prior to applying tag blocks:
+  * **`[Islands]` (`islands`, default):** Decomposes the silhouette into genuine topological islands via Clipper2 PolyTree (`decompose_shape_islands`). Contiguous pieces sharing cut boundaries or touching edges are unified into an outer silhouette with their internal cut-out holes preserved.
+  * **`[Path]` (`path`):** Decomposes the silhouette directly by each move `m` command via `decompose_shape_subpaths` without boolean union. Preserves touching adjacent slices generated by `Shape/Slicer` (in `Shape` mode) or overlapping paths, enabling each segment to receive its independent tag block or colour styling.
+* **`[2.3] Tag Mode:` (`tagmode`):**
   * **`ipol` (Progressive Interpolated):** Treats tag list as *keyframes*, interpolating smoothly between start and end ($0.0 \to 1.0$) for colour gradients (`\1c`), rotations (`\frz`), alphas (`\alpha`), or blur (`\blur`).
   * **`line` (Strict 1:1 Linear):** Maps tag blocks 1-to-1 to each piece in order. Extra pieces receive `{\p1}`; excess tags are discarded.
-* **`[2.3] Tags` (`tags`):** Comma-separated ASS tags or hexadecimal colour list (e.g. `\1c&H0000FF&, \1c&H00FF00&, \1c&HFF0000&`).
-* **`[2.4] Anchor` / `[2.5] Order:`:** Spatial parameters (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
+* **`[2.4] Tags` (`tags`):** Comma-separated ASS tags or hexadecimal colour list (e.g. `\1c&H0000FF&, \1c&H00FF00&, \1c&HFF0000&`).
+* **`[2.5] Accel` (`accel`):** Non-linear acceleration exponent for progressive tag and colour keyframe interpolation (Type A, default: `1.0`). Dynamically exposed exclusively when `Tag Mode` is set to `ipol` (in `line` mode, the port and input field are automatically hidden). On the canvas UI, this control is presented as a clean inline text box without a side label, displaying the descriptive placeholder *"Accel"* when empty. It modulates the normalised progression curve ($t \in [0.0, 1.0]$) via the power function $t' = t^{\text{accel}}$:
+  * $\text{accel} = 1.0$: Traditional uniform linear interpolation (homogeneous distribution of tints and numerical tag values).
+  * $\text{accel} > 1.0$ (e.g. `2.0`, `3.0`): Ease-in acceleration curve (initial concentration). Starting keyframe attributes linger across earlier pieces, concentrating transition rate towards final pieces.
+  * $\text{accel} < 1.0$ (e.g. `0.5`, `0.3`): Ease-out deceleration curve (rapid onset). The transition unfolds swiftly across early pieces and plateaus gently towards the finish.
+  * Accepts dynamic mathematical expressions and context variables (e.g. `1.0 + 0.5 * fx.i`). When left empty, falls back cleanly to the canonical default `1.0`.
+* **`[2.6] Anchor` / `[2.7] Order:`:** Spatial parameters (`Pieces`, `Relative`, `Center`, `Origin`, `Parent Org`, `Pos`, `Absolute` / `79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`). In `Fusion (Tags)` mode, the engine applies canonical VSFilter/libass glyph compensation ($dx = -\text{sum\_w}$, $dy = -(\text{max\_h} - h_i)$) to counteract typesetting caret advance and baseline droop introduced by ASS formatting when interleaving style blocks, stripping redundant `\pos` tags from intermediate blocks to preserve single-line positioning, seamlessly merging upstream input tag prefixes (such as `\alpha` and `\t(...)` animations from `Functions/Animation`), and atomically isolating inline `{...}` blocks when chained into downstream transformation nodes (`Shape/Manipulator`, `Shape/Transform`, `Shape/Filter`).
 
 ---
 
@@ -849,7 +864,7 @@ Pairing `Union & Divide (FUSION)` with `Concatenate (Zip)` enables parallel mult
 ---
 
 ### 10.2. Input Ports and Dynamic Configuration Controls
-1. **`[2.1] Shape A (Subject)`:** Primary base vector shape or subject upon which the Boolean or morphological operation is executed. If omitted, falls back to the active context geometry.
+1. **`[2.1] Shape A (Subject)`:** Primary base vector shape or subject upon which the Boolean or morphological operation is executed. Supports leading ASS tag prefixes (such as `{\pos(...)\1c...}`), which are automatically isolated for Boolean evaluation and preserved at the front of the resulting shape. If omitted, falls back to the active context geometry.
 2. **`[2.2] Shape B (Clip)`:** Secondary vector shape acting as a cutting mask, Minkowski pattern, or second operand.
 3. **`[2.3] Subj Fill:` (`subj_fill`):** Cyclic button for subject shape A winding fill rule (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
 4. **`[2.4] Clip Fill:` (`clip_fill`):** Cyclic button for cutting shape B winding fill rule (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
@@ -917,7 +932,7 @@ Pairing `Union & Divide (FUSION)` with `Concatenate (Zip)` enables parallel mult
 ---
 
 ### 11.2. Universal Parameters (All Modes)
-1. **`[2.1] Particle`:** Base ASSdraw vector shape or particle code.
+1. **`[2.1] Particle`:** Base ASSdraw vector shape or particle code. Supports paths with prepended styling tags (e.g. `{\1c&H00FFFF&\bord1}m ...`). The engine extracts pure geometry for bounding box and scale calculations, and in `[LOOPS]` mode preserves and injects these styling tags into each piece emitted via the `Piece` port, seamlessly merging them with the selected anchor positioning.
 2. **`[2.6] Scale`:** Particle scale multiplier ($1.0 = 100\%$).
 3. **`[2.7] Factor (t)` (`t` / `progress`):** Progress factor ($0.0 \to 1.0$) controlling visible count: $\text{Visible} = \text{round}(\text{Total} \cdot t)$.
 4. **`[2.8] Anchor`:** Spatial reference (`Piece`, `Relative`, `Parent Org`, `Pos`, `Absolute`). In `Formation` mode, `Relative` preserves the native typographic origin `(0, 0)` without ink-box recentring, guaranteeing 1:1 pixel-perfect alignment over text.
@@ -934,7 +949,7 @@ Pairing `Union & Divide (FUSION)` with `Concatenate (Zip)` enables parallel mult
 * **`[2.4] Spacing X` / `[2.5] Spacing Y`:** Inter-cell spacing in pixels.
 
 #### 2. `[FORM]` Mode
-* **`[2.2] Formation`:** Guide ASSdraw path or text silhouette.
+* **`[2.2] Formation`:** Guide ASSdraw path or text silhouette. If the input silhouette contains prepended ASS tags, they are rigorously discarded (canonical spatial guide isolation) extracting only the clean vector contour for ray-casting and lattice sampling without styling bleed or visual artefacts.
 * **`[2.3] Explosion` (`explosion`):** Radial dispersion or centrifugal expansion factor outwards from the silhouette centre (default: `0`). At `0`, particles are placed with 1:1 geometric precision on the guide silhouette without altering outer boundaries. Positive values disperse particles radially outward. Supports transparent backward compatibility with the previous `spacing` property.
 
 #### 3. `[RINGS]` Mode
@@ -1098,6 +1113,7 @@ The node incorporates 10 dedicated geometric algorithms:
     * **`radial_rosette`:** Angular radial `["cw", "ccw", "5", "odd_even", "rand"]`.
     * **`tunnel_cascade`:** Depth cascade `["normal", "invert", "odd_even", "rand"]`.
     * **`polygonal_mosaic` / `multi_shape_mosaic`:** Full two-dimensional matrix catalogue (Cartesian Numpad, radial, and stochastic).
+11. **Geometry Isolation & Style Inheritance:** When connecting a base shape in `concentric_rings`, `multi_shape_mosaic`, `segmented_border`, or `tunnel_cascade` modes, the engine automatically extracts clean vector geometry to feed Clipper2 and scaling transforms without cache pollution. In `segmented_border` mode, the silhouette acts as a perimeter guide and its styling tags are discarded entirely (canonical spatial guide isolation). In modes where the input shape is the replicated element (`concentric_rings`, `tunnel_cascade`), generated pieces inherit styles from the parent drawing in `Loops` mode or prepend them to the unified drawing in `Shape` mode, unless an explicit string is connected to the `Tags` socket.
 
 > [!NOTE]
 > **High-Performance LRU Cache Architecture:** `Shape/Multi` implements a spatial memoisation system decoupled from `Factor (t)`. The complete structural geometry and piece ordering are computed once and retained across dedicated 512-slot LRU caches (`_MULTI_CONCENTRIC_RINGS_CACHE`, `_MULTI_SEGMENTED_BORDER_CACHE`, `_MULTI_PIECES_FULL_CACHE`, `_GLOBAL_MULTI_GRID_CACHE`). When modulating `t` frame-by-frame or across sub-loops, subsequent invocations retrieve pieces in $\mathcal{O}(1)$ time and execute an instantaneous slice, accelerating generation up to 10x–50x on intricate contours or typography.

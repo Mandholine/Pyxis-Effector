@@ -1,0 +1,5 @@
+# Pyxis Effector - Linux Qt Fallback Backend
+qtpy>=2.4
+PyQt6>=6.6
+PyQt6-WebEngine>=6.6
+

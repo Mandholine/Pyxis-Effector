@@ -1750,15 +1750,26 @@
             return null;
         }
 
+        const _PYXIS_BBOX_CACHE = new Map();
+        const _PYXIS_PATH2D_CACHE = new Map();
+        const _PYXIS_CACHE_MAX_ENTRIES = 600;
+
         function getAssPathBBox(assPath) {
             if (!assPath) return { minX: 0, minY: 0, maxX: 100, maxY: 100, w: 100, h: 100, cx: 50, cy: 50 };
+            const cached = _PYXIS_BBOX_CACHE.get(assPath);
+            if (cached) return cached;
+
             const tokens = assPath.trim().split(/\s+/);
             const nums = [];
             for (let i = 0; i < tokens.length; i++) {
                 const n = parseFloat(tokens[i]);
                 if (!isNaN(n)) nums.push(n);
             }
-            if (nums.length < 2) return { minX: 0, minY: 0, maxX: 100, maxY: 100, w: 100, h: 100, cx: 50, cy: 50 };
+            if (nums.length < 2) {
+                const def = { minX: 0, minY: 0, maxX: 100, maxY: 100, w: 100, h: 100, cx: 50, cy: 50 };
+                _PYXIS_BBOX_CACHE.set(assPath, def);
+                return def;
+            }
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
             for (let i = 0; i < nums.length - 1; i += 2) {
                 const x = nums[i];
@@ -1768,10 +1779,14 @@
                 if (y < minY) minY = y;
                 if (y > maxY) maxY = y;
             }
-            if (!isFinite(minX) || !isFinite(minY)) return { minX: 0, minY: 0, maxX: 100, maxY: 100, w: 100, h: 100, cx: 50, cy: 50 };
+            if (!isFinite(minX) || !isFinite(minY)) {
+                const def = { minX: 0, minY: 0, maxX: 100, maxY: 100, w: 100, h: 100, cx: 50, cy: 50 };
+                _PYXIS_BBOX_CACHE.set(assPath, def);
+                return def;
+            }
             const w = Math.max(0.001, maxX - minX);
             const h = Math.max(0.001, maxY - minY);
-            return {
+            const res = {
                 minX: minX,
                 minY: minY,
                 maxX: maxX,
@@ -1781,6 +1796,30 @@
                 cx: (minX + maxX) / 2,
                 cy: (minY + maxY) / 2
             };
+
+            if (_PYXIS_BBOX_CACHE.size >= _PYXIS_CACHE_MAX_ENTRIES) {
+                const firstKey = _PYXIS_BBOX_CACHE.keys().next().value;
+                _PYXIS_BBOX_CACHE.delete(firstKey);
+            }
+            _PYXIS_BBOX_CACHE.set(assPath, res);
+            return res;
+        }
+
+        function getOrCreateAssPath2D(assPath) {
+            if (!assPath) return null;
+            let p2d = _PYXIS_PATH2D_CACHE.get(assPath);
+            if (p2d) return p2d;
+
+            const svgD = assPathToSvg(assPath);
+            if (!svgD) return null;
+            p2d = new Path2D(svgD);
+
+            if (_PYXIS_PATH2D_CACHE.size >= _PYXIS_CACHE_MAX_ENTRIES) {
+                const firstKey = _PYXIS_PATH2D_CACHE.keys().next().value;
+                _PYXIS_PATH2D_CACHE.delete(firstKey);
+            }
+            _PYXIS_PATH2D_CACHE.set(assPath, p2d);
+            return p2d;
         }
 
         function assPathToSvg(assPath) {
@@ -1964,4 +2003,150 @@
             };
             document.addEventListener("keydown", escKeyHandler);
         }
+
+        function showFFmpegDownloadModal(onCompleteCallback) {
+            const existing = document.querySelector(".pyxis-ffmpeg-modal-overlay");
+            if (existing) existing.remove();
+
+            const overlay = document.createElement("div");
+            overlay.className = "pyxis-modal-overlay pyxis-ffmpeg-modal-overlay";
+
+            const container = document.createElement("div");
+            container.className = "pyxis-modal-dialog pyxis-ffmpeg-modal-dialog";
+            container.style.width = "460px";
+            container.style.padding = "16px 20px";
+            container.style.gap = "10px";
+            container.style.borderRadius = "12px";
+            container.style.boxShadow = "0 16px 40px rgba(0, 0, 0, 0.6)";
+
+            const titleText = window.t ? window.t("ffmpeg.title") : "FFmpeg Native Provisioning";
+            const descText = window.t ? window.t("ffmpeg.desc") : "FFmpeg is required to process audio, render waveforms, and preview or export videos with hardsub subtitles. Would you like to download the official native build for your system? (~190 MB)";
+            const dlBtnText = window.t ? window.t("ffmpeg.download_btn") : "Download FFmpeg";
+            const cancelBtnText = window.t ? window.t("ffmpeg.cancel_btn") : "Cancel";
+
+            container.innerHTML = `
+                <div class="pyxis-modal-header" style="padding-bottom:10px; margin-bottom:0; border-bottom:1px solid var(--border-subtle, rgba(255,255,255,0.08));">
+                    <div class="pyxis-modal-title" style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:15px; color:var(--accent-primary, #22858c);">
+                        <svg class="svg-icon" viewBox="0 0 24 24" style="width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0;">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/>
+                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        <span>${titleText}</span>
+                    </div>
+                    <button class="pyxis-modal-close" id="btn-ffmpeg-modal-close" style="background:transparent; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; line-height:1; padding:2px 6px;">&times;</button>
+                </div>
+                <div id="ffmpeg-modal-body" style="font-size:13px; line-height:1.45; color:var(--text-secondary); margin-bottom:0;">
+                    ${descText}
+                </div>
+                <div id="ffmpeg-modal-progress-wrap" style="display:none; margin:0;">
+                    <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:5px; color:var(--text-main);">
+                        <span id="ffmpeg-progress-status">Starting download...</span>
+                        <span id="ffmpeg-progress-pct" style="font-weight:600; color:var(--accent-primary, #22858c);">0%</span>
+                    </div>
+                    <div style="width:100%; height:7px; background:var(--bg-input, rgba(0,0,0,0.3)); border-radius:4px; overflow:hidden;">
+                        <div id="ffmpeg-progress-bar" style="width:0%; height:100%; background:var(--accent-primary, #22858c); transition:width 0.2s ease;"></div>
+                    </div>
+                </div>
+                <div id="ffmpeg-modal-actions" style="display:flex; justify-content:flex-end; gap:10px; margin-top:2px;">
+                    <button id="btn-ffmpeg-cancel" class="pyxis-btn pyxis-btn-secondary" style="padding:6px 14px; border-radius:6px; cursor:pointer; font-size:13px;">${cancelBtnText}</button>
+                    <button id="btn-ffmpeg-download" class="pyxis-btn pyxis-btn-primary" style="padding:6px 16px; border-radius:6px; cursor:pointer; font-weight:600; font-size:13px;">${dlBtnText}</button>
+                </div>
+            `;
+
+            overlay.appendChild(container);
+            document.body.appendChild(overlay);
+
+            let pollInterval = null;
+            function cleanup() {
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                }
+                overlay.remove();
+            }
+
+            const btnClose = container.querySelector("#btn-ffmpeg-modal-close");
+            const btnCancel = container.querySelector("#btn-ffmpeg-cancel");
+            const btnDownload = container.querySelector("#btn-ffmpeg-download");
+            const progressWrap = container.querySelector("#ffmpeg-modal-progress-wrap");
+            const progressBar = container.querySelector("#ffmpeg-progress-bar");
+            const progressStatus = container.querySelector("#ffmpeg-progress-status");
+            const progressPct = container.querySelector("#ffmpeg-progress-pct");
+            const actionsWrap = container.querySelector("#ffmpeg-modal-actions");
+
+            if (btnClose) btnClose.onclick = () => { cleanup(); if (onCompleteCallback) onCompleteCallback(false); };
+            if (btnCancel) btnCancel.onclick = () => { cleanup(); if (onCompleteCallback) onCompleteCallback(false); };
+
+            if (btnDownload) {
+                btnDownload.onclick = async () => {
+                    actionsWrap.style.display = "none";
+                    progressWrap.style.display = "block";
+                    if (btnClose) btnClose.disabled = true;
+
+                    if (!window.pywebview || !window.pywebview.api || !window.pywebview.api.start_ffmpeg_download) {
+                        progressStatus.textContent = "Error: Backend API unavailable.";
+                        return;
+                    }
+
+                    await window.pywebview.api.start_ffmpeg_download();
+
+                    pollInterval = setInterval(async () => {
+                        try {
+                            const state = await window.pywebview.api.get_ffmpeg_download_progress();
+                            if (!state) return;
+
+                            const pct = Math.max(0, Math.min(100, state.progress || 0));
+                            progressBar.style.width = pct + "%";
+                            progressPct.textContent = pct + "%";
+
+                            if (state.status === "resolving") {
+                                progressStatus.textContent = window.t ? window.t("ffmpeg.status_resolving") : "Resolving release...";
+                            } else if (state.status === "downloading") {
+                                progressStatus.textContent = state.detail || (window.t ? window.t("ffmpeg.status_downloading", { percent: pct }) : `Downloading (${pct}%)...`);
+                            } else if (state.status === "verifying") {
+                                progressStatus.textContent = window.t ? window.t("ffmpeg.status_verifying") : "Verifying SHA-256...";
+                            } else if (state.status === "extracting") {
+                                progressStatus.textContent = window.t ? window.t("ffmpeg.status_extracting") : "Extracting native binary...";
+                            } else if (state.status === "ready") {
+                                clearInterval(pollInterval);
+                                pollInterval = null;
+                                progressBar.style.width = "100%";
+                                progressPct.textContent = "100%";
+                                progressStatus.textContent = window.t ? window.t("ffmpeg.status_ready") : "FFmpeg installed successfully!";
+                                progressStatus.style.color = "var(--color-success, #4caf50)";
+                                setTimeout(() => {
+                                    cleanup();
+                                    if (window.showPyxisToast) {
+                                        window.showPyxisToast(window.t ? window.t("ffmpeg.status_ready") : "FFmpeg installed successfully!", "success");
+                                    }
+                                    if (onCompleteCallback) onCompleteCallback(true);
+                                }, 1200);
+                            } else if (state.status === "error") {
+                                clearInterval(pollInterval);
+                                pollInterval = null;
+                                progressStatus.textContent = (window.t ? window.t("ffmpeg.status_error", { error: state.error }) : ("Error: " + state.error));
+                                progressStatus.style.color = "var(--color-danger, #f44336)";
+                                actionsWrap.style.display = "flex";
+                                if (btnCancel) btnCancel.textContent = window.t ? window.t("preview.cancel") : "Close";
+                                if (btnDownload) {
+                                    btnDownload.textContent = "Retry";
+                                    btnDownload.disabled = false;
+                                }
+                                if (btnClose) btnClose.disabled = false;
+                            }
+                        } catch (err) {
+                            console.error("[Pyxis FFmpeg Poll Error]", err);
+                        }
+                    }, 300);
+                };
+            }
+        }
+
+        window.getAssPathBBox = getAssPathBBox;
+        window.getOrCreateAssPath2D = getOrCreateAssPath2D;
+        window.assPathToSvg = assPathToSvg;
+        window.openShapesLibGridPicker = openShapesLibGridPicker;
+        window.showFFmpegDownloadModal = showFFmpegDownloadModal;
+
 

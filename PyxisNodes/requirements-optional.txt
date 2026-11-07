@@ -1,0 +1,3 @@
+# Pyxis Effector - Optional Hardware Acceleration
+pyopencl>=2024.1
+

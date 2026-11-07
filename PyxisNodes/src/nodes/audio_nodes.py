@@ -19,6 +19,7 @@
 import math
 import os
 import re
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from audio_engine import AudioData, AudioEngine
@@ -163,11 +164,14 @@ def _eval_val(val: Any, context: Optional[dict] = None, default: float = 0.0) ->
 
 
 _RESOLVED_AUDIO_CACHE: Dict[str, AudioData] = {}
+_AUDIO_SERIES_CACHE: OrderedDict = OrderedDict()
+_MAX_AUDIO_SERIES_CACHE: int = 512
 
 
 def clear_resolved_audio_cache():
-    """Clears the audio path resolution cache."""
+    """Clears the audio path resolution and acoustic series caches."""
     _RESOLVED_AUDIO_CACHE.clear()
+    _AUDIO_SERIES_CACHE.clear()
 
 
 def resolve_audio_data(audio_path: Optional[str] = None, context: Optional[dict] = None) -> Optional[AudioData]:
@@ -414,38 +418,58 @@ def audio_modulator_master(
     mode_clean = str(modo_val or "RMS").strip().lower()
 
     if audio_obj:
-        for k in range(num_steps + 1):
-            t0 = st + k * step
-            t1 = min(et, t0 + step)
-            if t0 >= et:
-                t0 = max(st, et - 1)
-                t1 = et
+        series_cache_key = (
+            id(audio_obj),
+            round(st, 2),
+            round(et, 2),
+            mode_clean,
+            round(gain_factor, 4),
+            round(step, 2),
+            round(smooth_factor, 4),
+            round(f_min, 2),
+            round(f_max, 2)
+        )
+        if series_cache_key in _AUDIO_SERIES_CACHE:
+            raw_intensities, intensities = _AUDIO_SERIES_CACHE[series_cache_key]
+            _AUDIO_SERIES_CACHE.move_to_end(series_cache_key)
+        else:
+            for k in range(num_steps + 1):
+                t0 = st + k * step
+                t1 = min(et, t0 + step)
+                if t0 >= et:
+                    t0 = max(st, et - 1)
+                    t1 = et
 
-            if "peak" in mode_clean or "pico" in mode_clean:
-                intensity = audio_obj.get_peak(t0, t1, gain=gain_factor)
-            elif "bass" in mode_clean or "bajo" in mode_clean:
-                intensity = audio_obj.get_band_weight(t0, t1, 20.0, 250.0, gain=gain_factor)
-            elif "mid" in mode_clean or "medio" in mode_clean:
-                intensity = audio_obj.get_band_weight(t0, t1, 250.0, 4000.0, gain=gain_factor)
-            elif "high" in mode_clean or "agudo" in mode_clean:
-                intensity = audio_obj.get_band_weight(t0, t1, 4000.0, 16000.0, gain=gain_factor)
-            elif "custom" in mode_clean or "banda" in mode_clean or "personaliz" in mode_clean:
-                intensity = audio_obj.get_band_weight(t0, t1, f_min, f_max, gain=gain_factor)
+                if "peak" in mode_clean or "pico" in mode_clean:
+                    intensity = audio_obj.get_peak(t0, t1, gain=gain_factor)
+                elif "bass" in mode_clean or "bajo" in mode_clean:
+                    intensity = audio_obj.get_band_weight(t0, t1, 20.0, 250.0, gain=gain_factor)
+                elif "mid" in mode_clean or "medio" in mode_clean:
+                    intensity = audio_obj.get_band_weight(t0, t1, 250.0, 4000.0, gain=gain_factor)
+                elif "high" in mode_clean or "agudo" in mode_clean:
+                    intensity = audio_obj.get_band_weight(t0, t1, 4000.0, 16000.0, gain=gain_factor)
+                elif "custom" in mode_clean or "banda" in mode_clean or "personaliz" in mode_clean:
+                    intensity = audio_obj.get_band_weight(t0, t1, f_min, f_max, gain=gain_factor)
+                else:
+                    intensity = audio_obj.get_rms(t0, t1, gain=gain_factor)
+
+                raw_intensities.append(max(0.0, min(1.0, intensity)))
+
+            if smooth_factor > 0 and len(raw_intensities) > 1:
+                smoothed_intensities = [raw_intensities[0]]
+                for i in range(1, len(raw_intensities)):
+                    prev = smoothed_intensities[-1]
+                    curr = raw_intensities[i]
+                    smoothed_intensities.append(prev + (1.0 - smooth_factor) * (curr - prev))
+                intensities = smoothed_intensities
             else:
-                intensity = audio_obj.get_rms(t0, t1, gain=gain_factor)
+                intensities = raw_intensities
 
-            raw_intensities.append(max(0.0, min(1.0, intensity)))
+            if len(_AUDIO_SERIES_CACHE) >= _MAX_AUDIO_SERIES_CACHE:
+                _AUDIO_SERIES_CACHE.popitem(last=False)
+            _AUDIO_SERIES_CACHE[series_cache_key] = (raw_intensities, intensities)
     else:
         raw_intensities = [0.0] * (num_steps + 1)
-
-    if smooth_factor > 0 and len(raw_intensities) > 1:
-        smoothed_intensities = [raw_intensities[0]]
-        for i in range(1, len(raw_intensities)):
-            prev = smoothed_intensities[-1]
-            curr = raw_intensities[i]
-            smoothed_intensities.append(prev + (1.0 - smooth_factor) * (curr - prev))
-        intensities = smoothed_intensities
-    else:
         intensities = raw_intensities
 
     if is_color:

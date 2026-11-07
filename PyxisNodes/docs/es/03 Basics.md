@@ -15,11 +15,12 @@ La categoría **Basics** reúne los nodos dedicados a la generación, transforma
 1. **`[1.1] Number`:** Emite el valor numérico evaluado como cadena de texto. Si el valor resultante es un entero exacto, se formatea sin decimales (ej. `10`); si contiene decimales, se redondea a un máximo de 4 decimales significativos sin ceros redundantes a la derecha (ej. `12.5`).
 
 ### 1.2. Controles y Propiedades del Cuerpo
-1. **`[2.1] Value` (`value`):** Campo de entrada editable. Acepta números directos (`100`, `-45.2`), variables del contexto ASS (`syl.x`, `line.width`, `j`, `i`, `char.n`) o expresiones matemáticas (`syl.width / 2 + 10`, `sin(j * 0.1) * 50`).
+1. **`[2.1] Value` (`value`):** Campo de entrada editable. Su valor por defecto inicial es vacío (`""`), evaluándose dinámicamente como `0` si permanece en blanco. Acepta números directos (`100`, `-45.2`), variables del contexto ASS (`syl.x`, `line.width`, `j`, `i`, `char.n`), expresiones matemáticas (`syl.width / 2 + 10`, `sin(j * 0.1) * 50`) o listas de valores separadas por comas (ej. `10, 20, 30`). Permite organizar listas en múltiples líneas mediante `Shift + Enter`; en la evaluación del motor y en el linter, los saltos de línea físicos se omiten de forma transparente para generar una secuencia continua.
 
 ### 1.3. Evaluación Dinámica de Expresiones
 El campo `value` se procesa dinámicamente en cada ciclo de iteración:
 * Si el texto contiene identificadores registrados en el contexto (`syl`, `line`, `char`, `video_fps`, etc.), el evaluador sustituye sus valores numéricos antes del cálculo.
+* Si el contenido incluye valores o fórmulas separadas por comas, evalúa cada elemento individualmente devolviendo la lista formateada correspondiente.
 * Soporta tanto punto decimal (`12.5`) como coma decimal (`12,5`), normalizándola automáticamente.
 
 ### 1.4. Sinergias y Buenas Prácticas
@@ -39,7 +40,7 @@ El campo `value` se procesa dinámicamente en cada ciclo de iteración:
 1. **`[1.1] String`:** Emite la cadena de texto configurada en el cuerpo del nodo.
 
 ### 2.2. Controles y Propiedades del Cuerpo
-1. **`[2.1] Text` (`value`):** Cadena de texto editable. Admite texto plano, secuencias de salto y espaciado ASS (`\N`, `\h`), bloques de etiquetas (`{\an5\bord0\shad0}`) o trazados vectoriales (`m 0 0 l 100 0 100 100 0 100`). Si el texto incluye bloques entre llaves `{\...}`, el evaluador de cadenas de Pyxis resuelve directamente expresiones y variables contextuales dentro de los paréntesis de cada tag (ej. `{\pos(syl.center, syl.middle)}` o `\fscx(100 + 20 * i)`) preservando el texto literal circundante.
+1. **`[2.1] Text` (`value`):** Cadena de texto editable. Admite texto plano, secuencias de salto y espaciado ASS (`\n`, `\N`, `\h`), bloques de etiquetas (`{\an5\bord0\shad0}`) o trazados vectoriales (`m 0 0 l 100 0 100 100 0 100`). Permite utilizar `Shift + Enter` para formatear el texto en múltiples líneas en la interfaz; durante la evaluación de backend y el linting, los saltos de línea físicos se eliminan de forma continua, preservando con total fidelidad los códigos de escape ASS (`\n`, `\N`) que el usuario desee incluir en el subtítulo final. Si el texto incluye bloques entre llaves `{\...}`, el evaluador de cadenas de Pyxis resuelve directamente expresiones y variables contextuales dentro de los paréntesis de cada tag (ej. `{\pos(syl.center, syl.middle)}` o `\fscx(100 + 20 * i)`) preservando el texto literal circundante.
 
 ### 2.3. Sinergias y Buenas Prácticas
 * **Inyección de Bloques de Encabezado:** Conectar `String` a nodos `Basics/Concatenate` o `Output (Tags)` para prefijar combinaciones de formato estático (ej. `{\an5\bord1\blur1.5}`).
@@ -253,6 +254,9 @@ Para invocar aleatoriedad determinista memorizada por iterador dentro de expresi
   color = by.syl.Rcolor("#FFFFFF", "#0088FF") # Mismo color para toda la sílaba
   ```
 Dentro del mismo ciclo del iterador indicado, las llamadas repetidas devuelven el mismo valor almacenado en caché. Al avanzar el iterador, el motor recalcula el valor automáticamente.
+
+* **Herencia Jerárquica de Ámbito:** Los sub-bucles (`by.j`, `by.s_i`, `by.p_i`) heredan la jerarquía de la unidad activa superior (`line` -> `char`/`syl`/`word` -> sub-bucle). De este modo, la partícula $j=1$ del carácter 1 genera valores independientes de la partícula $j=1$ del carácter 2. A su vez, `by.char.R(...)` mantiene su valor idéntico para todos los ciclos de $j$ dentro del mismo carácter, recalculándose únicamente al avanzar de carácter.
+* **Aislamiento por Punto de Llamada (*Callsite Isolation*):** Dos llamadas directas distintas en el código generan tiradas aleatorias independientes para ese mismo ciclo de iterador. Para compartir un mismo valor entre múltiples propiedades o nodos, basta con asignarlo a una variable (ej. `mi_var = by.j.R(...)`) o usar el parámetro explícito `tag="mi_etiqueta"`.
 
 ### 6.4. Catálogo de los 15 Modos de Aleatoriedad (`mode`)
 

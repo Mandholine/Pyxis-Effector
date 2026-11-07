@@ -20,8 +20,18 @@ La categoría **System** comprende los nodos de ensamblaje terminal, renderizado
 ### 1.2. Puertos de Entrada (*Inputs*)
 1. **`Loop / Domain`:** Entrada principal de señal de flujo proveniente del último nodo de la rama (`Main Loop`, `MaxLoop`, `Script Code`).
 2. **`Layer`:** Número de capa ASS donde se escribirá la línea (ej. `0`, `1`, `5`). Si no está conectado, hereda la capa original de la línea de diálogo.
-3. **`Start Time`:** Tiempo de inicio en milisegundos. Si no está conectado, toma el valor inicial calculado en el contexto activo (`start_time`).
-4. **`End Time`:** Tiempo de fin en milisegundos. Si no está conectado, toma el valor final del contexto activo (`end_time`).
+3. **`Start Time`:** Tiempo de inicio del evento ASS en milisegundos ($ms$). Si no está conectado, adopta el valor de inicio resuelto por defecto según el iterador de `Main Loop`:
+   * Modo `line`: $\text{line.start\_time}$
+   * Modo `syl`: $\text{line.start\_time} + \text{syl.start\_time}$
+   * Modo `char`: $\text{line.start\_time} + \text{syl.start\_time} + \text{char.start\_time}$
+   * Modo `word`: $\text{line.start\_time} + \text{word.start\_time}$
+   * *Soberanía Temporal:* Si se conecta una señal a este puerto (o se define `st` / `start_time` en `Define Vars`), el valor recibido define de forma soberana y absoluta el inicio de la línea de subtítulo en la línea de tiempo del vídeo, sin alterar ni contaminar las métricas de karaoke intrínsecas de las unidades hijas (`syl.start_time`, `char.start_time`).
+4. **`End Time`:** Tiempo de fin del evento ASS en milisegundos ($ms$). Si no está conectado, adopta el valor final resuelto por defecto según el iterador de `Main Loop`:
+   * Modo `line`: $\text{line.end\_time}$
+   * Modo `syl`: $\text{line.start\_time} + \text{syl.end\_time}$
+   * Modo `char`: $\text{line.start\_time} + \text{syl.start\_time} + \text{char.end\_time}$
+   * Modo `word`: $\text{line.start\_time} + \text{word.end\_time}$
+   * *Soberanía Temporal:* Si se conecta una señal a este puerto (o se define `et` / `end_time` en `Define Vars`), gobierna directamente el cierre del evento en la línea de tiempo del vídeo.
 5. **`Tags`:** Bloque consolidado de etiquetas ASS (`{\pos...\1c...\blur...}`). Se serializa al inicio de la línea de diálogo.
 6. **`Return`:** Contenido textual del evento: diálogo plano o comandos vectoriales ASSdraw (`m ... l ... b ...`).
 7. **`Queue ID`:** Identificador alfanumérico opcional para agrupar las líneas generadas en una cola lógica post-renderizado. Se escribe en el campo `Actor` de cada línea `Dialogue:`.
@@ -84,12 +94,22 @@ Durante la compilación:
 1. **`[1.1] Selector de Fuente (Source Toggle)`:**
    * **Plantilla Base (Icono CD / `preview_base.ass`):** Entorno de prueba aislado con video y plantilla precargados.
    * **Proyecto Activo en Aegisub (Icono Aegisub):** Carga el video, audio, estilos y tiempos abiertos en la sesión de Aegisub.
-2. **`[1.2] Botón Fijar / Desanclar (Pin / Detach)`:**
+2. **`[1.2] Modo de Renderizado (`render_mode` — Typesetting / mpv)`:**
+   * **Disponibilidad:** Conmutable en cualquier momento desde la cabecera del nodo, la barra superior de la ventana flotante desanclada y la barra inferior de transporte en pantalla completa.
+   * **Modo Typesetting (Icono circular `TS` / `"typesetting"`, predeterminado):** Rasteriza los subtítulos sobre el lienzo nativo del video replicando 1:1 el comportamiento de Aegisub y VSFilter. En videos anamórficos preserva la relación de aspecto 1:1 rectangular de tipografías y vectores sin deformación ($PAR = 1.0$), resultando idóneo para alinear carteles, trazos y máscaras vectoriales sobre los píxeles reales del cuadro.
+   * **Modo mpv (Icono circular `Play` / `"mpv"`):** Emula de forma idéntica el motor de renderizado por defecto de mpv:
+     * **Rasterización en Espacio de Pantalla (High-DPI):** Genera los glifos directamente a la resolución física del monitor, manteniendo contornos definidos al ampliar con zoom sin pixelación de texturas.
+     * **Proporciones Isotrópicas de Tipografía:** Inyecta en memoria las cabeceras `LayoutResX` y `LayoutResY` para evitar el aplastamiento horizontal o vertical de fuentes cuando la relación de aspecto de `PlayRes` difiere de la del contenedor de video.
+     * **Estiramiento Anamórfico Nativo:** En videos con píxeles no cuadrados ($SAR \neq DAR$, como 1440x1080 o 720x480 mostrados en 16:9), comunica la resolución de almacenamiento a libass para aplicar el Pixel Aspect Ratio ($PAR = DAR / SAR$) y estirar horizontalmente los glifos y trazos exactamente igual que el reproductor mpv.
+     * **Ámbito Aislado:** Opera exclusivamente dentro del visor interactivo en tiempo real; no altera las líneas compiladas por `Output` ni la codificación en disco de `Hardsub`.
+3. **`[1.3] Botón Fijar / Desanclar (Pin / Detach)`:**
    * Desacopla el visor del nodo y lo convierte en una ventana flotante para mantener la referencia visual al desplazarse por el lienzo.
-3. **`[1.3] Botón Refrescar (Refresh)`:**
+4. **`[1.4] Botón Refrescar (Refresh)`:**
    * Recompila las ramas conectadas a `Output`, actualiza la pista de subtítulos en JASSUB/libass y ejecuta la medición de telemetría sobre las líneas generadas.
    * **Coexistencia en Escena:** En el visor se comentan exclusivamente las líneas reemplazadas por el ámbito de `Output` (`Sel. Lines`, `Style Lines`, `All Lines`), manteniendo visibles los diálogos y carteles coexistentes del archivo original.
-4. **`[1.4] Botón Renderizar Hardsub (Exportación FFmpeg)`:**
+   * **Ventana de Reproducción:** El tramo reproducible se delimita a las líneas aplicadas con un margen de 2 segundos antes y después. Si existe una selección activa en Aegisub, la ventana se centra en las líneas seleccionadas aunque el ámbito de `Output` sea `Style Lines` o `All Lines`, evitando que la previsualización abarque el archivo completo.
+   * **Compatibilidad de Audio:** El audio se reproduce directamente cuando el motor del visor lo decodifica de forma nativa (AAC, MP3, Opus, Vorbis, FLAC y PCM estándar en MP4, MKV/MKA, WebM, Ogg, FLAC o WAV). Cuando el archivo de video contiene formatos no soportados por el navegador (AC-3, E-AC-3, DTS, TrueHD, MP2, WMA, ADPCM, entre otros), Pyxis genera un archivo unificado MP4 mediante copia directa de video sin recodificación (`-c:v copy`) y transcodificación ligera a AAC (`-c:a aac -movflags +faststart`), preservando la sincronización cuadro a cuadro nativa y evitando bloqueos de búfer.
+5. **`[1.5] Botón Renderizar Hardsub (Exportación FFmpeg)`:**
    * Abre el asistente de exportación para compilar el video con subtítulos incrustados (*hardsub*) mediante FFmpeg en un archivo MP4. La codificación FFmpeg se ejecuta exclusivamente al accionar este botón.
 
 ### 2.3. Barra de Transporte y Controles de Reproducción
@@ -102,7 +122,7 @@ Durante la compilación:
 7. **`[2.7] Salto Adelante (+10s):`** Desplaza la reproducción 10 segundos hacia adelante dentro del rango del efecto.
 8. **`[2.8] Cuadro Siguiente (+1 Frame):`** Avanza un fotograma exacto.
 9. **`[2.9] Menú de Ajustes:`** Selector de bucle continuo y velocidad de reproducción ($0.25\times, 0.5\times, 1.0\times, 1.5\times, 2.0\times$).
-10. **`[2.10] Pantalla Completa:`** Maximiza el área de video.
+10. **`[2.10] Pantalla Completa:`** Maximiza el área de video. La barra de transporte conserva el acceso al selector de modo de renderizado (`TS` / `Play`) y eleva automáticamente las notificaciones emergentes por encima de los controles interactivos, con paso libre de clics para no interrumpir el uso.
 11. **`[2.11] Fondo Gris Neutro:`** Al reproducir pistas de audio sin video, el área de visualización utiliza un fondo neutro (`#2a2a2a`) para contraste de texto.
 12. **`[2.12] Mapa Térmico de Rendimiento (Thermal Heatmap):`**
     * Traza el costo de renderizado fotograma a fotograma de las líneas del efecto mediante una curva en spline, coloreada según el presupuesto temporal ($\text{Budget}_{\text{ms}} = 1000 / \text{FPS}$): cian (carga baja), verde (moderada), naranja (cercana al límite) y rojo (exceso de presupuesto $>100\%$).
@@ -112,6 +132,7 @@ Durante la compilación:
 1. **Zoom con Rueda del Ratón:** Amplía o reduce el encuadre tomando la posición del cursor como punto focal (de $1.0\times$ a $8.0\times$).
 2. **Desplazamiento con Botón Central:** Arrastrar con el botón central del ratón permite recorrer el área ampliada.
 3. **Restablecimiento con Tecla 'R':** Pulsar la tecla `R` sobre el reproductor devuelve el zoom a $1.0\times$ y centra el encuadre.
+4. **Fidelidad de Bordes y Sombras (`ScaledBorderAndShadow`):** Al aplicar zoom o redimensionar el visor, libass consulta el encabezado del archivo activo para escalar fielmente el grosor de bordes (`\bord`), sombras (`\shad`) y desenfoques (`\blur`), garantizando concordancia absoluta con la configuración fijada en Aegisub o en `preview_base.ass`.
 
 ### 2.5. Conexión con el Panel `Telemetry`
 Al abrir el panel de **`Telemetry`** desde el mapa térmico:
@@ -121,6 +142,7 @@ Al abrir el panel de **`Telemetry`** desde el mapa térmico:
 ### 2.6. Sinergias y Buenas Prácticas
 * **Comprobación Inmediata de Efectos:** Conectar la salida `Preview` para validar sincronía y estética antes de escribir en Aegisub, reduciendo la necesidad de pruebas intermedias en la grilla.
 * **Detección de Cuellos de Botella:** Observar las crestas de la curva térmica para identificar acumulaciones excesivas de desenfoque (`\blur`) o máscaras de recorte complejas (`\clip`).
+* **Fidelidad de Edición frente a Reproducción:** Mantener **`Typesetting (TS)`** al alinear carteles y máscaras vectoriales sobre el fotograma original sin estiramientos anamórficos, y conmutar a **`mpv`** para evaluar cómo verá el espectador los subtítulos en su reproductor, verificando tanto la nitidez High-DPI como la deformación anamórfica o la adaptación a proporciones de pantalla dispares.
 
 ---
 

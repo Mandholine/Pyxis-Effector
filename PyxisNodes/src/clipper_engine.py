@@ -37,6 +37,24 @@ _MAX_CACHE_SIZE = 1024
 _SLICE_GRID_CACHE = OrderedDict()
 _PARSE_ASSDRAW_CACHE = OrderedDict()
 
+class PyxisShapeStr(str):
+    """String subclass retaining pre-parsed Clipper polygons, vector contours, and bounding box metrics.
+
+    Behaves as a regular Python string across all standard ASS pipeline operations while
+    allowing downstream geometric nodes to retrieve pre-computed polygons and contours
+    in O(1) time without repeated tokenisation or regex parsing.
+    """
+    __slots__ = ("_contours", "_clipper_paths", "_bbox", "_tags_prefix", "_raw_drawing")
+
+    def __new__(cls, content_str, contours=None, clipper_paths=None, bbox=None, tags_prefix=None, raw_drawing=None):
+        obj = super().__new__(cls, content_str)
+        obj._contours = contours
+        obj._clipper_paths = clipper_paths
+        obj._bbox = bbox
+        obj._tags_prefix = tags_prefix
+        obj._raw_drawing = raw_drawing
+        return obj
+
 class ClipperEngine:
     """Vector cutting and slicing operations engine for ASSdraw."""
 
@@ -45,6 +63,51 @@ class ClipperEngine:
         "circuit", "kagome", "rhombille", "cubes", "herringbone", "mondrian", "truchet",
         "scallop", "ashlar", "bez", "bezier", "octagon", "ray", "rays", "web", "quad", "pattern", "modular"
     ]
+
+    @staticmethod
+    def solution_to_shape(solution, scale: float = 10000.0, close_contour: bool = False):
+        """Converts Clipper solution paths into an optimised PyxisShapeStr.
+
+        Builds the ASSDraw drawing string and binds pre-computed contours and
+        Clipper integer paths for zero-copy downstream pipeline operations.
+
+        Args:
+            solution: List of integer coordinate paths from ClipperLib.
+            scale (float): Coordinate scaling factor (default: 10000.0).
+            close_contour (bool): Whether to append an explicit closing line segment.
+
+        Returns:
+            PyxisShapeStr or str: String representation with attached contour and path caches.
+        """
+        if not solution:
+            return ""
+
+        code_parts = []
+        solution_contours = []
+        solution_paths = []
+
+        for path in solution:
+            if len(path) >= 3:
+                pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
+                if close_contour:
+                    path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]]) + f" l {pts[0][0]} {pts[0][1]} "
+                else:
+                    path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]])
+                code_parts.append(path_str)
+                solution_contours.append(np.array(pts, dtype=np.float64))
+                solution_paths.append(path)
+
+        res_str = ("".join(code_parts) if close_contour else " ".join(code_parts)).strip()
+        if not res_str:
+            return ""
+
+        return PyxisShapeStr(
+            res_str,
+            contours=solution_contours,
+            clipper_paths=solution_paths,
+            raw_drawing=res_str,
+            tags_prefix=""
+        )
 
     @staticmethod
     def clear_cache():
@@ -100,6 +163,9 @@ class ClipperEngine:
         if not shape_str or not str(shape_str).strip():
             return []
 
+        if isinstance(shape_str, PyxisShapeStr) and shape_str._contours is not None:
+            return [c.copy() for c in shape_str._contours]
+
         shape_key = str(shape_str).strip()
         cache_key = (shape_key, int(bezier_steps), int(min_points))
         if cache_key in _PARSE_ASSDRAW_CACHE:
@@ -107,7 +173,8 @@ class ClipperEngine:
             _PARSE_ASSDRAW_CACHE.move_to_end(cache_key)
             return [c.copy() for c in cached]
 
-        tokens = shape_key.split()
+        clean_key = re.sub(r'\{[^}]*\}', ' ', shape_key) if '{' in shape_key else shape_key
+        tokens = clean_key.split()
         contours = []
         current_contour = []
         i = 0
@@ -181,7 +248,14 @@ class ClipperEngine:
 
         Accepts either a list of NumPy coordinate contours or an ASSdraw command string.
         """
+        if isinstance(contours, PyxisShapeStr) and contours._bbox is not None:
+            return contours._bbox
+
+        raw_shape = None
         if isinstance(contours, str):
+            if isinstance(contours, PyxisShapeStr) and contours._bbox is not None:
+                return contours._bbox
+            raw_shape = contours
             contours = ClipperEngine.parse_assdraw(contours)
 
         if not contours:
@@ -198,7 +272,10 @@ class ClipperEngine:
         h = max(0.001, max_y - min_y)
         cx = min_x + w * 0.5
         cy = min_y + h * 0.5
-        return float(min_x), float(min_y), float(max_x), float(max_y), float(cx), float(cy), float(w), float(h)
+        bbox_res = (float(min_x), float(min_y), float(max_x), float(max_y), float(cx), float(cy), float(w), float(h))
+        if isinstance(raw_shape, PyxisShapeStr):
+            raw_shape._bbox = bbox_res
+        return bbox_res
 
     @staticmethod
     def calc_bbox_raw(shape_or_contours):
@@ -210,6 +287,54 @@ class ClipperEngine:
             "cx": cx, "cy": cy,
             "w": w, "h": h
         }
+
+    @staticmethod
+    def is_valid_closed_path(path: list, min_scaled_area: float = 1.0) -> bool:
+        """Determines if a scaled integer polygon path is topologically valid for closed Clipper operations.
+
+        Rejects paths with fewer than 3 vertices or zero enclosed 2D area (e.g. colinear
+        line segments, reentrant zero-width contours, or degenerate self-overlapping spikes).
+
+        Args:
+            path: List of [x, y] integer coordinates scaled for ClipperLib.
+            min_scaled_area: Minimum absolute 2D area threshold in scaled integer units
+                (default: 1.0).
+
+        Returns:
+            bool: True if the path encloses a valid non-zero polygon area; False otherwise.
+        """
+        if not path or len(path) < 3 or pyclipper is None:
+            return False
+        try:
+            return abs(pyclipper.Area(path)) > min_scaled_area
+        except Exception:
+            return False
+
+    @staticmethod
+    def clean_subject_paths(contours: list, scale: float = 10000.0, min_scaled_area: float = 1.0) -> list:
+        """Converts parsed ASSDraw contours into scaled integer paths, discarding degenerate polygons.
+
+        Automatically filters out subpaths that lack sufficient vertices (< 3) or have
+        zero enclosed 2D area, preventing pyclipper from throwing 'The path is invalid for clipping'
+        fatal exceptions during boolean clipping, slicing, or polytree construction.
+
+        Args:
+            contours: List of float coordinate point lists from `parse_assdraw`.
+            scale: Integer coordinate scaling multiplier (default: 10000.0).
+            min_scaled_area: Minimum absolute area threshold in scaled coordinate space.
+
+        Returns:
+            list[list[list[int]]]: List of sanitized scaled integer paths ready for `pc.AddPath`.
+        """
+        if not contours or pyclipper is None:
+            return []
+        valid_paths = []
+        for c in contours:
+            if len(c) >= 3:
+                p = [[int(round(float(pt[0]) * scale)), int(round(float(pt[1]) * scale))] for pt in c]
+                if abs(pyclipper.Area(p)) > min_scaled_area:
+                    valid_paths.append(p)
+        return valid_paths
 
     @staticmethod
     def boolean_intersection(subject_shape: str, clip_shape: str, scale: float = 10000.0) -> str:
@@ -244,28 +369,20 @@ class ClipperEngine:
         if not subj_contours or not clip_contours or pyclipper is None:
             return ""
 
+        subj_paths = ClipperEngine.clean_subject_paths(subj_contours, scale=scale)
+        clip_paths = ClipperEngine.clean_subject_paths(clip_contours, scale=scale)
+        if not subj_paths or not clip_paths:
+            return ""
+
         try:
             pc = pyclipper.Pyclipper()
-            
-            for c in subj_contours:
-                if len(c) >= 3:
-                    pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
-            for c in clip_contours:
-                if len(c) >= 3:
-                    pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_CLIP, True)
+            for sp in subj_paths:
+                pc.AddPath(sp, pyclipper.PT_SUBJECT, True)
+            for cp in clip_paths:
+                pc.AddPath(cp, pyclipper.PT_CLIP, True)
 
             solution = pc.Execute(pyclipper.CT_INTERSECTION, pyclipper.PFT_EVENODD, pyclipper.PFT_EVENODD)
-            if not solution:
-                return ""
-
-            code_parts = []
-            for path in solution:
-                if len(path) >= 3:
-                    pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
-                    path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]])
-                    code_parts.append(path_str)
-
-            return " ".join(code_parts)
+            return ClipperEngine.solution_to_shape(solution, scale=scale)
         except Exception:
             return ""
 
@@ -300,27 +417,22 @@ class ClipperEngine:
         if not subj_contours or not clip_contours or pyclipper is None:
             return subject_shape
 
+        subj_paths = ClipperEngine.clean_subject_paths(subj_contours, scale=scale)
+        clip_paths = ClipperEngine.clean_subject_paths(clip_contours, scale=scale)
+        if not subj_paths:
+            return ""
+        if not clip_paths:
+            return subject_shape
+
         try:
             pc = pyclipper.Pyclipper()
-            for c in subj_contours:
-                if len(c) >= 3:
-                    pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
-            for c in clip_contours:
-                if len(c) >= 3:
-                    pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_CLIP, True)
+            for sp in subj_paths:
+                pc.AddPath(sp, pyclipper.PT_SUBJECT, True)
+            for cp in clip_paths:
+                pc.AddPath(cp, pyclipper.PT_CLIP, True)
 
             solution = pc.Execute(pyclipper.CT_DIFFERENCE, pyclipper.PFT_EVENODD, pyclipper.PFT_EVENODD)
-            if not solution:
-                return ""
-
-            code_parts = []
-            for path in solution:
-                if len(path) >= 3:
-                    pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
-                    path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]])
-                    code_parts.append(path_str)
-
-            return " ".join(code_parts)
+            return ClipperEngine.solution_to_shape(solution, scale=scale)
         except Exception:
             return ""
 
@@ -360,27 +472,24 @@ class ClipperEngine:
         if pyclipper is None:
             return shape_a + " " + shape_b
 
+        a_paths = ClipperEngine.clean_subject_paths(a_contours, scale=scale)
+        b_paths = ClipperEngine.clean_subject_paths(b_contours, scale=scale)
+        if not a_paths and not b_paths:
+            return ""
+        if not a_paths:
+            return shape_b
+        if not b_paths:
+            return shape_a
+
         try:
             pc = pyclipper.Pyclipper()
-            for c in a_contours:
-                if len(c) >= 3:
-                    pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
-            for c in b_contours:
-                if len(c) >= 3:
-                    pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
+            for sp in a_paths:
+                pc.AddPath(sp, pyclipper.PT_SUBJECT, True)
+            for sp in b_paths:
+                pc.AddPath(sp, pyclipper.PT_SUBJECT, True)
 
             solution = pc.Execute(pyclipper.CT_UNION, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
-            if not solution:
-                return ""
-
-            code_parts = []
-            for path in solution:
-                if len(path) >= 3:
-                    pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
-                    path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]])
-                    code_parts.append(path_str)
-
-            return " ".join(code_parts)
+            return ClipperEngine.solution_to_shape(solution, scale=scale)
         except Exception:
             return shape_a + " " + shape_b
 
@@ -635,20 +744,16 @@ class ClipperEngine:
                     pc = pyclipper.Pyclipper()
                     pc.StrictlySimple = bool(strictly_simple)
 
-                    for c in subj_contours:
-                        if len(c) >= 3:
-                            path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c]
-                            if reverse_subj:
-                                path = pyclipper.ReversePath(path)
-                            pc.AddPath(path, pyclipper.PT_SUBJECT, True)
+                    for path in ClipperEngine.clean_subject_paths(subj_contours, scale=scale):
+                        if reverse_subj:
+                            path = pyclipper.ReversePath(path)
+                        pc.AddPath(path, pyclipper.PT_SUBJECT, True)
 
-                    for c in clip_contours:
-                        if len(c) >= 3:
-                            path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c]
-                            if reverse_clip:
-                                path = pyclipper.ReversePath(path)
-                            target_pt = pyclipper.PT_SUBJECT if ct == pyclipper.CT_UNION else pyclipper.PT_CLIP
-                            pc.AddPath(path, target_pt, True)
+                    for path in ClipperEngine.clean_subject_paths(clip_contours, scale=scale):
+                        if reverse_clip:
+                            path = pyclipper.ReversePath(path)
+                        target_pt = pyclipper.PT_SUBJECT if ct == pyclipper.CT_UNION else pyclipper.PT_CLIP
+                        pc.AddPath(path, target_pt, True)
 
                     solution = pc.Execute(ct, pft_subj, pft_clip)
 
@@ -691,9 +796,16 @@ class ClipperEngine:
                 if len(path) >= 3:
                     pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
                     path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]])
-                    pieces.append(path_str)
+                    piece_shape = PyxisShapeStr(
+                        path_str,
+                        contours=[np.array(pts, dtype=np.float64)],
+                        clipper_paths=[path],
+                        raw_drawing=path_str,
+                        tags_prefix=""
+                    )
+                    pieces.append(piece_shape)
 
-            combined_str = " ".join(pieces)
+            combined_str = ClipperEngine.solution_to_shape(solution, scale=scale)
             return combined_str, pieces
         except Exception:
             return str(subject_shape or ""), [str(subject_shape or "")] if subject_shape else []
@@ -736,12 +848,20 @@ class ClipperEngine:
             return shape_str
 
         try:
+            paths = ClipperEngine.clean_subject_paths(contours, scale=scale)
+            if not paths:
+                return shape_str
+            try:
+                # Normalize polygon hierarchy and winding orientations (outer = positive, holes = negative)
+                simplified = pyclipper.SimplifyPolygons(paths, pyclipper.PFT_EVENODD)
+                if simplified:
+                    paths = simplified
+            except Exception:
+                pass
+
             pco = pyclipper.PyclipperOffset(miter_limit=2.0, arc_tolerance=0.25 * scale)
             jt = join_type if join_type is not None else pyclipper.JT_ROUND
-            for c in contours:
-                if len(c) >= 3:
-                    path = [[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c]
-                    pco.AddPath(path, jt, pyclipper.ET_CLOSEDPOLYGON)
+            pco.AddPaths(paths, jt, pyclipper.ET_CLOSEDPOLYGON)
 
             solution = pco.Execute(float(delta) * scale)
             if not solution:
@@ -754,14 +874,7 @@ class ClipperEngine:
             except Exception:
                 pass
 
-            code_parts = []
-            for path in solution:
-                if len(path) >= 3:
-                    pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
-                    path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]])
-                    code_parts.append(path_str)
-
-            return " ".join(code_parts)
+            return ClipperEngine.solution_to_shape(solution, scale=scale)
         except Exception:
             return shape_str
 
@@ -770,15 +883,16 @@ class ClipperEngine:
         """Serialise a collection of NumPy contour coordinate arrays into an ASSDraw string.
 
         Translates discrete point sequences into standard Aegisub vector drawing tokens
-        (`m x y l x y...`), with coordinates rounded to 2 decimal places.
+        (`m x y l x y...`), with coordinates rounded to 2 decimal places. Returns an
+        optimised PyxisShapeStr caching the underlying contours for zero-copy pipelines.
 
         Args:
             contours: An iterable of point arrays or sequences, where each contour is
                 represented as an (N, 2) array or a list of [x, y] coordinates.
 
         Returns:
-            A consolidated ASSDraw command string formatted with move (`m`) and line (`l`)
-            tokens separated by spaces, or an empty string if `contours` is empty.
+            PyxisShapeStr: A consolidated ASSDraw command string formatted with move (`m`)
+            and line (`l`) tokens separated by spaces, or an empty string if `contours` is empty.
 
         Notes:
             - Discards degenerate empty contours.
@@ -788,6 +902,7 @@ class ClipperEngine:
         if not contours:
             return ""
         parts = []
+        valid_contours = []
         for cnt in contours:
             if len(cnt) == 0:
                 continue
@@ -797,7 +912,16 @@ class ClipperEngine:
             for p in pts[1:]:
                 seg.append(f"l {round(float(p[0]), 2)} {round(float(p[1]), 2)}")
             parts.append(" ".join(seg))
-        return " ".join(parts)
+            valid_contours.append(np.asarray(cnt, dtype=np.float64))
+        res_str = " ".join(parts)
+        if not res_str:
+            return ""
+        return PyxisShapeStr(
+            res_str,
+            contours=valid_contours,
+            raw_drawing=res_str,
+            tags_prefix=""
+        )
 
     @staticmethod
     def stroke_shape(shape_str: str, width: float = 4.0, join_mode: str = "Round", cap_mode: str = "Round", miter_limit: float = 2.0, scale: float = 10000.0) -> str:
@@ -997,7 +1121,7 @@ class ClipperEngine:
             return [p.copy() for p in cached]
 
         if text_scale != 1.0:
-            shape_str = ClipperEngine.transform_shape(shape_str, mode="Escalar", factor=text_scale)
+            shape_str = ClipperEngine.transform_shape(shape_str, mode="scale", factor=text_scale)
 
         if pre_offset != 0.0:
             shape_str = ClipperEngine.offset_shape(shape_str, delta=pre_offset)
@@ -1023,7 +1147,7 @@ class ClipperEngine:
 
         masks = []
 
-        if mode_key in ["hex", "hexagonal"]:
+        if mode_key == "hex":
             R = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(5.0, h / 3.5)
             H = 1.73205081 * R
             c_start = int(math.floor(min_x / (1.5 * R))) - 1
@@ -1039,7 +1163,7 @@ class ClipperEngine:
                     hex_code = f"m {screen_cx + R:.3f} {screen_cy:.3f} l {screen_cx + R*0.5:.3f} {screen_cy + R*0.866025:.3f} l {screen_cx - R*0.5:.3f} {screen_cy + R*0.866025:.3f} l {screen_cx - R:.3f} {screen_cy:.3f} l {screen_cx - R*0.5:.3f} {screen_cy - R*0.866025:.3f} l {screen_cx + R*0.5:.3f} {screen_cy - R*0.866025:.3f} l {screen_cx + R:.3f} {screen_cy:.3f}"
                     masks.append({"code": hex_code, "cx": screen_cx, "cy": screen_cy, "col": c, "row": r})
 
-        elif mode_key in ["tri", "triangular"]:
+        elif mode_key == "tri":
             R = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(5.0, h / 3.5)
             L = R * 2.0
             H = L * 0.86602540378
@@ -1062,7 +1186,7 @@ class ClipperEngine:
                     tri_down = f"m {d_cx - L/2.0:.3f} {d_cy - H:.3f} l {d_cx + L/2.0:.3f} {d_cy - H:.3f} l {d_cx:.3f} {d_cy:.3f} l {d_cx - L/2.0:.3f} {d_cy - H:.3f}"
                     masks.append({"code": tri_down, "cx": d_cx, "cy": d_cy - (2*H/3.0), "col": c, "row": r})
 
-        elif mode_key in ["dia", "diamante", "diamond", "rombos"]:
+        elif mode_key in ["diamond", "dia"]:
             R = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(5.0, h / 3.5)
             H_step, W_step = R, R * 2.0
             c_start = int(math.floor(min_x / W_step)) - 1
@@ -1078,7 +1202,7 @@ class ClipperEngine:
                     dia_code = f"m {screen_cx:.3f} {screen_cy - R:.3f} l {screen_cx + R:.3f} {screen_cy:.3f} l {screen_cx:.3f} {screen_cy + R:.3f} l {screen_cx - R:.3f} {screen_cy:.3f} l {screen_cx:.3f} {screen_cy - R:.3f}"
                     masks.append({"code": dia_code, "cx": screen_cx, "cy": screen_cy, "col": c, "row": r})
 
-        elif mode_key in ["ring", "anillos", "rings"]:
+        elif mode_key in ["rings", "ring"]:
             ring_w = max(2.0, float(size_x)) if (size_x and float(size_x) > 0) else max(4.0, h / 5.0)
             max_r = math.sqrt((w/2.0)**2 + (h/2.0)**2) + 20.0
             num_rings = int(math.ceil(max_r / ring_w))
@@ -1093,7 +1217,7 @@ class ClipperEngine:
                     ring_code = ClipperEngine.boolean_difference(c_out, c_in)
                     masks.append({"code": ring_code, "cx": cx, "cy": cy, "col": i+1, "row": 1})
 
-        elif mode_key in ["ray", "radial", "rayos", "rays"]:
+        elif mode_key in ["rays", "ray"]:
             ang_step = max(1.0, min(360.0, float(size_x) if (size_x and float(size_x) > 0) else 30.0))
             num_rays = int(math.ceil(360.0 / ang_step))
             max_polar_R = math.sqrt((w/2.0)**2 + (h/2.0)**2) + 20.0
@@ -1110,7 +1234,7 @@ class ClipperEngine:
                 v_dist = (2.0 / 3.0) * max_polar_R
                 masks.append({"code": mask_code, "cx": cx + math.cos(mid_a)*v_dist, "cy": cy + math.sin(mid_a)*v_dist, "col": i+1, "row": 1})
 
-        elif mode_key in ["quad", "quadtree"]:
+        elif mode_key == "quad":
             min_size = max(4.0, float(size_x) if (size_x and float(size_x) > 0) else 10.0)
             prob = float(accel_x) if (accel_x and float(accel_x) > 0) else 0.45
             base_size = min_size * 8.0
@@ -1136,7 +1260,7 @@ class ClipperEngine:
                 for r in range(r_start, r_end + 1):
                     subdivide_quad(c * base_size, r * base_size, base_size, c, r)
 
-        elif mode_key in ["bez", "bézier", "bezier", "ondas"]:
+        elif mode_key in ["bezier", "bez"]:
             W = max(10.0, float(size_x) * 2.0 if (size_x and float(size_x) > 0) else 20.0)
             c_start = int(math.floor(min_x / W)) - 1
             c_end = int(math.ceil(max_x / W)) + 1
@@ -1172,7 +1296,7 @@ class ClipperEngine:
                     cell_code = f"m {tl_x:.3f} {tl_y:.3f} {top_edge} {right_edge} {bottom_edge} {left_edge}"
                     masks.append({"code": cell_code, "cx": (tl_x + br_x)/2.0, "cy": (tl_y + br_y)/2.0, "col": c, "row": r})
 
-        elif mode_key in ["vor", "voronoi", "cristales"]:
+        elif mode_key in ["voronoi", "vor"]:
             cell_size = max(8.0, float(size_x) if (size_x and float(size_x) > 0) else 20.0)
             c_start = int(math.floor(min_x / cell_size)) - 1
             c_end = int(math.ceil(max_x / cell_size)) + 1
@@ -1207,7 +1331,7 @@ class ClipperEngine:
                                         cell_code = res
                     masks.append({"code": cell_code, "cx": p1["x"], "cy": p1["y"], "col": p1["c"], "row": p1["r"]})
 
-        elif mode_key in ["ashlar", "mamposteria"]:
+        elif mode_key == "ashlar":
             min_w = max(2.0, float(size_x) if (size_x and float(size_x) > 0) else 10.0)
             max_w = max(min_w + 1.0, float(size_y) if (size_y and float(size_y) > min_w) else min_w * 4.0)
             row_h = max(2.0, float(size_x) if (size_x and float(size_x) > 0) else 15.0)
@@ -1230,7 +1354,7 @@ class ClipperEngine:
                         rect_code = f"m {cx1:.3f} {cy1:.3f} l {cx2:.3f} {cy1:.3f} l {cx2:.3f} {cy2:.3f} l {cx1:.3f} {cy2:.3f} l {cx1:.3f} {cy1:.3f}"
                         masks.append({"code": rect_code, "cx": (cx1 + cx2)/2.0, "cy": (cy1 + cy2)/2.0, "col": c, "row": r})
 
-        elif mode_key in ["brick", "ladrillo"]:
+        elif mode_key == "brick":
             W = max(2.0, float(size_x) if (size_x and float(size_x) > 0) else 30.0)
             H = max(2.0, float(size_y) if (size_y and float(size_y) > 0) else 15.0)
             offset_ratio = 0.5
@@ -1289,7 +1413,7 @@ class ClipperEngine:
                 for r in range(r_start, r_end + 1):
                     subdivide_mondrian(c * base_size, r * base_size, base_size, base_size, c, r)
 
-        elif mode_key in ["herringbone", "espiga"]:
+        elif mode_key == "herringbone":
             L = max(2.0, float(size_x) if (size_x and float(size_x) > 0) else 30.0)
             W = max(1.0, float(size_y) if (size_y and float(size_y) > 0) else 10.0)
             pad = max(L, W) * 2.0
@@ -1319,7 +1443,7 @@ class ClipperEngine:
                     v_code = f"m {vx:.3f} {vy:.3f} l {vx + W:.3f} {vy:.3f} l {vx + W:.3f} {vy + L:.3f} l {vx:.3f} {vy + L:.3f} l {vx:.3f} {vy:.3f}"
                     masks.append({"code": v_code, "cx": vx + W/2.0, "cy": vy + L/2.0, "col": c, "row": r})
 
-        elif mode_key in ["delaunay", "low-poly", "lowpoly"]:
+        elif mode_key == "delaunay":
             cell_size = max(8.0, float(size_x) if (size_x and float(size_x) > 0) else 15.0)
             c_start = int(math.floor(min_x / cell_size)) - 1
             c_end = int(math.ceil(max_x / cell_size)) + 1
@@ -1353,7 +1477,7 @@ class ClipperEngine:
                         masks.append({"code": tri1, "cx": (tl_x + tr_x + bl_x)/3.0, "cy": (tl_y + tr_y + bl_y)/3.0, "col": c, "row": r})
                         masks.append({"code": tri2, "cx": (tr_x + br_x + bl_x)/3.0, "cy": (tr_y + br_y + bl_y)/3.0, "col": c, "row": r})
 
-        elif mode_key in ["scallop", "escamas"]:
+        elif mode_key == "scallop":
             R = max(2.0, float(size_x) if (size_x and float(size_x) > 0) else 12.0)
             k = R * 0.55228475
             H_step = R
@@ -1377,7 +1501,7 @@ class ClipperEngine:
                     )
                     masks.append({"code": scallop_code, "cx": screen_cx, "cy": screen_cy, "col": c, "row": r})
 
-        elif mode_key in ["web", "spiderweb", "telaraña"]:
+        elif mode_key == "web":
             num_rings = max(1, int(float(cols) if cols > 1 else (float(size_x) if size_x and float(size_x) >= 1 else 5)))
             num_rays = max(3, int(float(rows) if rows > 1 else (float(size_y) if size_y and float(size_y) >= 3 else 12)))
             chaos = max(0.0, min(1.0, float(accel_x) if accel_x is not None else 0.2))
@@ -1414,7 +1538,7 @@ class ClipperEngine:
                         cent_x, cent_y = (x1+x2+x3+x4)/4.0, (y1+y2+y3+y4)/4.0
                     masks.append({"code": cell_code, "cx": cent_x, "cy": cent_y, "col": ray + 1, "row": ring})
 
-        elif mode_key in ["rhombille", "cubos", "cubes"]:
+        elif mode_key in ["cubes", "rhombille"]:
             R = max(2.0, float(size_x) if (size_x and float(size_x) > 0) else 20.0)
             W = 1.73205081 * R
             H_step = 1.5 * R
@@ -1442,7 +1566,7 @@ class ClipperEngine:
                     masks.append({"code": r2, "cx": screen_cx + W/4.0, "cy": screen_cy + R/4.0, "col": c, "row": r})
                     masks.append({"code": r3, "cx": screen_cx - W/4.0, "cy": screen_cy + R/4.0, "col": c, "row": r})
 
-        elif mode_key in ["octagon", "mosaico"]:
+        elif mode_key == "octagon":
             R = max(2.0, float(size_x) if (size_x and float(size_x) > 0) else 20.0)
             x_cut = R * (2.0 - math.sqrt(2.0))
             d = R - x_cut
@@ -1499,7 +1623,7 @@ class ClipperEngine:
                     tu_code = f"m {screen_cx + R:.3f} {screen_cy:.3f} l {screen_cx + 0.5*R:.3f} {screen_cy - H_half:.3f} l {screen_cx + 1.5*R:.3f} {screen_cy - H_half:.3f} l {screen_cx + R:.3f} {screen_cy:.3f}"
                     masks.append({"code": tu_code, "cx": screen_cx + R, "cy": screen_cy - H_step/3.0, "col": c, "row": r})
 
-        elif mode_key in ["jigsaw", "puzzle"]:
+        elif mode_key == "jigsaw":
             W = max(10.0, float(size_x) * 2.0 if (size_x and float(size_x) >= 5.0) else 20.0)
             c_start = int(math.floor(min_x / W)) - 1
             c_end = int(math.ceil(max_x / W)) + 1
@@ -1553,7 +1677,7 @@ class ClipperEngine:
                     cell_code = f"m {tl_x:.3f} {tl_y:.3f} {top_edge} {right_edge} {bottom_edge} {left_edge}"
                     masks.append({"code": cell_code, "cx": (tl_x + br_x)/2.0, "cy": (tl_y + br_y)/2.0, "col": c, "row": r})
 
-        elif mode_key in ["truchet", "tuberias"]:
+        elif mode_key == "truchet":
             W = max(10.0, float(size_x) if (size_x and float(size_x) > 0) else 20.0)
             k = (W / 2.0) * 0.55228475
             c_start = int(math.floor(min_x / W)) - 1
@@ -1580,7 +1704,7 @@ class ClipperEngine:
                         masks.append({"code": m2, "cx": cx_val + W/4.0, "cy": cy_val + 3*W/4.0, "col": c, "row": r})
                         masks.append({"code": m3, "cx": cx_val + W/2.0, "cy": cy_val + W/2.0, "col": c, "row": r})
 
-        elif mode_key in ["circuit", "circuito"]:
+        elif mode_key == "circuit":
             W = max(10.0, float(size_x) if (size_x and float(size_x) > 0) else 20.0)
             T = max(2.0, float(size_y) if (size_y and float(size_y) > 0) else W * 0.25)
             prob_pad = max(0.0, min(1.0, float(accel_x) if (accel_x and float(accel_x) > 0) else 0.2))
@@ -1621,12 +1745,12 @@ class ClipperEngine:
                             final_cell = diff_res
                     masks.append({"code": final_cell, "cx": cx_val + W/2.0, "cy": cy_val + W/2.0, "col": c, "row": r})
 
-        elif mode_key in ["pattern", "patrón", "patron", "modular"]:
+        elif mode_key in ["modular", "pattern"]:
             custom_shape = str(pattern_shape) if (pattern_shape and str(pattern_shape).strip()) else (str(shape_str) if (shape_str and str(shape_str).strip()) else ClipperEngine.make_circle(0, 0, 10))
             S = max(4.0, float(size_x) if (size_x and float(size_x) > 0) else 20.0)
             shp_size = float(size_y) if (size_y and float(size_y) > 0) else S * 0.8
             stagger = True if float(accel_x) > 1.0 else False
-            scaled_pat = ClipperEngine.transform_shape(custom_shape, mode="Escalar", factor=shp_size / 20.0 if shp_size > 0 else 1.0)
+            scaled_pat = ClipperEngine.transform_shape(custom_shape, mode="scale", factor=shp_size / 20.0 if shp_size > 0 else 1.0)
             c_start = int(math.floor(min_x / S)) - 1
             c_end = int(math.ceil(max_x / S)) + 1
             r_start = int(math.floor(min_y / S)) - 1
@@ -1636,7 +1760,7 @@ class ClipperEngine:
                 for c in range(c_start, c_end + 1):
                     cx_val = c * S + offset_x_val
                     cy_val = r * S
-                    placed_shape = ClipperEngine.transform_shape(scaled_pat, mode="Offset", offset_x=cx_val + S/2.0, offset_y=cy_val + S/2.0)
+                    placed_shape = ClipperEngine.transform_shape(scaled_pat, mode="offset", offset_x=cx_val + S/2.0, offset_y=cy_val + S/2.0)
                     cell_sq = f"m {cx_val:.3f} {cy_val:.3f} l {cx_val+S:.3f} {cy_val:.3f} l {cx_val+S:.3f} {cy_val+S:.3f} l {cx_val:.3f} {cy_val+S:.3f} l {cx_val:.3f} {cy_val:.3f}"
                     diff_res = ClipperEngine.boolean_difference(cell_sq, placed_shape)
                     final_code = diff_res if (diff_res and diff_res.strip()) else cell_sq
@@ -1664,10 +1788,9 @@ class ClipperEngine:
                     masks.append({"code": mask_code, "cx": (x1+x3)/2, "cy": (y1+y3)/2, "col": c, "row": r})
 
         scale = 10000.0
-        subj_paths = []
-        for c in contours:
-            if len(c) >= 3:
-                subj_paths.append([[int(round(float(pt[0]) * scale)), int(round(float(pt[1]) * scale))] for pt in c])
+        subj_paths = ClipperEngine.clean_subject_paths(contours, scale=scale)
+        if not subj_paths:
+            return []
 
         pieces = []
         is_mesh_engine = mode_key in ClipperEngine.MESH_ENGINES
@@ -1682,13 +1805,16 @@ class ClipperEngine:
             if not m_cnts:
                 continue
 
+            clip_paths = ClipperEngine.clean_subject_paths(m_cnts, scale=scale)
+            if not clip_paths:
+                continue
+
             try:
                 pc = pyclipper.Pyclipper()
                 for sp in subj_paths:
                     pc.AddPath(sp, pyclipper.PT_SUBJECT, True)
-                for c in m_cnts:
-                    if len(c) >= 3:
-                        pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_CLIP, True)
+                for cp in clip_paths:
+                    pc.AddPath(cp, pyclipper.PT_CLIP, True)
 
                 solution = pc.Execute(pyclipper.CT_INTERSECTION, pyclipper.PFT_EVENODD, pyclipper.PFT_EVENODD)
                 if not solution:
@@ -1696,12 +1822,14 @@ class ClipperEngine:
 
                 code_parts = []
                 all_pts = []
+                solution_contours = []
                 for path in solution:
                     if len(path) >= 3:
                         pts = [[round(x / scale, 2), round(y / scale, 2)] for x, y in path]
                         path_str = f"m {pts[0][0]} {pts[0][1]} " + " ".join([f"l {p[0]} {p[1]}" for p in pts[1:]])
                         code_parts.append(path_str)
                         all_pts.extend(pts)
+                        solution_contours.append(np.array(pts, dtype=np.float64))
 
                 if code_parts and all_pts:
                     min_px = min(p[0] for p in all_pts)
@@ -1711,8 +1839,17 @@ class ClipperEngine:
                     pcx = round((min_px + max_px) / 2.0, 2)
                     pcy = round((min_py + max_py) / 2.0, 2)
 
+                    piece_code = PyxisShapeStr(
+                        " ".join(code_parts),
+                        contours=solution_contours,
+                        clipper_paths=solution,
+                        bbox=(float(min_px), float(min_py), float(max_px), float(max_py), float(pcx), float(pcy), float(max_px - min_px), float(max_py - min_py)),
+                        tags_prefix="",
+                        raw_drawing=" ".join(code_parts)
+                    )
+
                     pieces.append({
-                        "code": " ".join(code_parts),
+                        "code": piece_code,
                         "cx": pcx,
                         "cy": pcy,
                         "col": m_item["col"],
@@ -1730,7 +1867,7 @@ class ClipperEngine:
         return pieces
 
     @staticmethod
-    def transform_shape(shape_str: str, mode: str = "Escalar", factor: float = 1.0, offset_x: float = 0.0, offset_y: float = 0.0) -> str:
+    def transform_shape(shape_str: str, mode: str = "scale", factor: float = 1.0, offset_x: float = 0.0, offset_y: float = 0.0) -> str:
         """Apply 2D affine spatial transformations (scaling, rotation, translation) to an ASSDraw shape.
 
         Evaluates geometric transformations relative to the shape's axis-aligned bounding
@@ -1738,8 +1875,7 @@ class ClipperEngine:
 
         Args:
             shape_str: ASSDraw string defining the input geometry.
-            mode: Transformation mode identifier ('Escalar' / 'scale', 'Rotar' / 'rotate',
-                'Offset' / 'bordes' / 'translate').
+            mode: Transformation mode identifier ('scale', 'rotate', 'offset' / 'translate').
             factor: Scaling factor (multiplier, where 1.0 is identity) or rotation angle
                 in degrees (clockwise).
             offset_x: Horizontal cartesian displacement in pixels (for offset modes).
@@ -1765,16 +1901,16 @@ class ClipperEngine:
         transformed = []
         for cnt in contours:
             pts = cnt.copy()
-            if "escalar" in mode_clean:
+            if "scale" in mode_clean or "escalar" in mode_clean:
                 pts = (pts - [cx, cy]) * float(factor) + [cx, cy]
-            elif "rotar" in mode_clean:
+            elif "rotate" in mode_clean or "rotar" in mode_clean:
                 rad = math.radians(float(factor))
                 cos_a, sin_a = math.cos(rad), math.sin(rad)
                 rel = pts - [cx, cy]
                 rx = rel[:, 0] * cos_a - rel[:, 1] * sin_a
                 ry = rel[:, 0] * sin_a + rel[:, 1] * cos_a
                 pts = np.column_stack((rx, ry)) + [cx, cy]
-            elif "offset" in mode_clean or "bordes" in mode_clean:
+            elif "offset" in mode_clean or "translate" in mode_clean or "bordes" in mode_clean:
                 pts = pts + [float(offset_x), float(offset_y)]
 
             parts = [f"m {round(pts[0][0], 2)} {round(pts[0][1], 2)}"]
@@ -1845,10 +1981,13 @@ class ClipperEngine:
             fr_clean = fr.strip().lower()
             fr = pyclipper.PFT_NONZERO if "nonzero" in fr_clean or "no_zero" in fr_clean or "distinto" in fr_clean else pyclipper.PFT_EVENODD
 
+        subj_paths = ClipperEngine.clean_subject_paths(contours, scale=scale)
+        if not subj_paths:
+            return shape_str
+
         pc = pyclipper.Pyclipper()
-        for c in contours:
-            if len(c) >= 3:
-                pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
+        for sp in subj_paths:
+            pc.AddPath(sp, pyclipper.PT_SUBJECT, True)
         
         try:
             solution = pc.Execute(pyclipper.CT_UNION, fr, fr)
@@ -2204,11 +2343,14 @@ class ClipperEngine:
             fr_clean = fr.strip().lower()
             fr = pyclipper.PFT_NONZERO if "nonzero" in fr_clean or "no_zero" in fr_clean or "distinto" in fr_clean else pyclipper.PFT_EVENODD
 
+        subj_paths = ClipperEngine.clean_subject_paths(contours, scale=scale)
+        if not subj_paths:
+            return ClipperEngine.decompose_shape_subpaths(raw_str, bbox_mode=bbox_mode, order=order)
+
         try:
             pc = pyclipper.Pyclipper()
-            for c in contours:
-                if len(c) >= 3:
-                    pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
+            for sp in subj_paths:
+                pc.AddPath(sp, pyclipper.PT_SUBJECT, True)
 
             poly_tree = pc.Execute2(pyclipper.CT_UNION, fr, fr)
             island_entries = []
@@ -2369,11 +2511,15 @@ class ClipperEngine:
 
         try:
             pc = pyclipper.Pyclipper()
+            has_paths = False
             for shp in valid_shapes:
                 contours = ClipperEngine.parse_assdraw(shp)
-                for c in contours:
-                    if len(c) >= 3:
-                        pc.AddPath([[int(round(pt[0] * scale)), int(round(pt[1] * scale))] for pt in c], pyclipper.PT_SUBJECT, True)
+                for sp in ClipperEngine.clean_subject_paths(contours, scale=scale):
+                    pc.AddPath(sp, pyclipper.PT_SUBJECT, True)
+                    has_paths = True
+
+            if not has_paths:
+                return ""
 
             solution = pc.Execute(pyclipper.CT_UNION, fr, fr)
             if not solution:
@@ -2684,9 +2830,10 @@ class ClipperEngine:
                     
         return _sort_and_join_tags(merged_tags)
     @staticmethod
-    def fusion_shapes_tags(shapes_list, tags="", bbox_mode="marco", tag_mode="ipol"):
+    def fusion_shapes_tags(shapes_list, tags="", bbox_mode="marco", tag_mode="ipol", accel: float = 1.0):
         """Merges multiple shapes into a single ASS drawing block by assigning or interpolating tags.
-        - In 'ipol' mode: Interpolates keyframes proportionally between generated pieces (0.0 -> 1.0).
+        - In 'ipol' mode: Interpolates keyframes proportionally between generated pieces (0.0 -> 1.0),
+          modulated by the non-linear acceleration exponent `accel` (base_progress ** accel).
         - In 'line' mode: Strictly assigns keyframes 1:1 in the order received (skips surplus and omits tagging if missing keyframes).
         - If tags is empty: Returns union of shapes without extra tag blocks.
         """
@@ -2752,6 +2899,13 @@ class ClipperEngine:
                     t = raw_tag_tokens[i].strip()
                     if t.startswith("{") and t.endswith("}"):
                         t = t[1:-1].strip()
+                    if i > 0:
+                        if t:
+                            t = re.sub(r'\\(?:pos|move)\([^)]*\)', '', t).strip()
+                            if not re.search(r'\\p(?![a-zA-Z])', t):
+                                t = r"\p1" + (t if t.startswith('\\') else ("\\" + t))
+                        else:
+                            t = r"\p1"
                     if t:
                         result_parts.append(f"{{{t}}}{shp}")
                     else:
@@ -2764,9 +2918,22 @@ class ClipperEngine:
             if not keyframes:
                 return "".join(flat_shapes)
 
+            try:
+                accel_val = float(accel) if (accel is not None and float(accel) > 0.0) else 1.0
+            except (ValueError, TypeError):
+                accel_val = 1.0
+
             for i, shp in enumerate(blended_shapes):
-                progress = i / (n_shapes - 1.0) if n_shapes > 1 else 0.0
+                base_progress = i / (n_shapes - 1.0) if n_shapes > 1 else 0.0
+                progress = (base_progress ** accel_val) if accel_val != 1.0 else base_progress
                 tag_str = ClipperEngine._interpolate_tag_keyframes(keyframes, progress, is_first_piece=(i == 0))
+                if i > 0:
+                    if tag_str:
+                        tag_str = re.sub(r'\\(?:pos|move)\([^)]*\)', '', tag_str).strip()
+                        if not re.search(r'\\p(?![a-zA-Z])', tag_str):
+                            tag_str = r"\p1" + (tag_str if tag_str.startswith('\\') else ("\\" + tag_str))
+                    else:
+                        tag_str = r"\p1"
                 if tag_str:
                     result_parts.append(f"{{{tag_str}}}{shp}")
                 else:

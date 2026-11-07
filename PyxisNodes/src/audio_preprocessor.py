@@ -28,31 +28,37 @@ class AudioPreprocessor:
 
     @staticmethod
     def get_ffmpeg_path() -> Optional[str]:
-        """Locates ffmpeg executable in PyxisNodes or system PATH."""
+        """Locates ffmpeg executable in PyxisNodes, user data dir, or system PATH."""
         try:
             from paths import get_bin_path
-            target = get_bin_path("ffmpeg.exe")
+            target = get_bin_path("ffmpeg")
             if os.path.isfile(target):
                 return target
         except Exception:
             pass
 
         local_dir = os.path.dirname(os.path.abspath(__file__))
+        exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
         candidates = [
-            os.path.join(local_dir, "bin", "ffmpeg.exe"),
-            os.path.join(local_dir, "..", "bin", "ffmpeg.exe"),
-            os.path.join(local_dir, "ffmpeg.exe"),
-            os.path.join(local_dir, "..", "ffmpeg.exe"),
+            os.path.join(local_dir, "bin", exe_name),
+            os.path.join(local_dir, "..", "bin", exe_name),
+            os.path.join(local_dir, exe_name),
+            os.path.join(local_dir, "..", exe_name),
         ]
         for cand in candidates:
             if os.path.isfile(cand):
                 return cand
 
-        appdata_dir = os.environ.get("APPDATA")
-        if appdata_dir:
-            user_ffmpeg = os.path.join(appdata_dir, "PyxisNodes", "ffmpeg.exe")
-            if os.path.isfile(user_ffmpeg):
-                return user_ffmpeg
+        try:
+            from paths import get_user_data_dir
+            user_data_dir = get_user_data_dir()
+        except Exception:
+            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+            user_data_dir = os.path.join(appdata_dir, "PyxisNodes")
+
+        user_ffmpeg = os.path.join(user_data_dir, exe_name)
+        if os.path.isfile(user_ffmpeg):
+            return user_ffmpeg
 
         sys_ffmpeg = shutil.which("ffmpeg")
         if sys_ffmpeg:
@@ -63,8 +69,13 @@ class AudioPreprocessor:
     @staticmethod
     def get_cache_dir() -> str:
         """Gets and ensures temporary audio cache directory."""
-        appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
-        cache_dir = os.path.join(appdata_dir, "PyxisNodes", "temp", "audio_cache")
+        try:
+            from paths import get_user_data_dir
+            user_data_dir = get_user_data_dir()
+        except Exception:
+            appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+            user_data_dir = os.path.join(appdata_dir, "PyxisNodes")
+        cache_dir = os.path.join(user_data_dir, "temp", "audio_cache")
         os.makedirs(cache_dir, exist_ok=True)
         return cache_dir
 
@@ -85,7 +96,9 @@ class AudioPreprocessor:
     @staticmethod
     def compute_cache_key(source_path: str, stream_idx: int = 0) -> str:
         """Computes a unique digital fingerprint (MD5) for the source file."""
-        abs_path = os.path.abspath(source_path).lower()
+        abs_path = os.path.abspath(source_path)
+        if os.name == "nt":
+            abs_path = abs_path.lower()
         file_size = 0
         file_mtime = 0.0
         try:

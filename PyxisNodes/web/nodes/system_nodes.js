@@ -39,7 +39,10 @@
                         : ((curSrc === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig) || {};
                     const hasRealVideo = Boolean(pInfo && pInfo.real_video_file && vid.videoWidth > 0 && vid.videoHeight > 0);
                     if (hasRealVideo) {
-                        const vidAspect = vid.videoWidth / vid.videoHeight;
+                        const probedDar = (pInfo.media_meta && Number(pInfo.media_meta.display_aspect_ratio) > 0)
+                            ? Number(pInfo.media_meta.display_aspect_ratio)
+                            : 0;
+                        const vidAspect = probedDar > 0 ? probedDar : (vid.videoWidth / vid.videoHeight);
                         node.preview_aspect_ratio = vidAspect;
                         if (node.properties) node.properties.preview_aspect_ratio = vidAspect;
                         return vidAspect;
@@ -79,7 +82,7 @@
                 a = getNodePreviewAspectRatio(null);
             }
             if (a < 0.75) {
-                return 340;
+                return 365;
             } else if (a < 1.15) {
                 return 380;
             } else if (a < 1.5) {
@@ -110,6 +113,9 @@
             if (!node.properties) node.properties = {};
             if (node.properties.output_ids === undefined) node.properties.output_ids = "";
             if (node.properties.preview_source === undefined) node.properties.preview_source = "base";
+            if (node.properties.render_mode !== "mpv" && node.properties.render_mode !== "typesetting") {
+                node.properties.render_mode = "typesetting";
+            }
 
             node.widgets_up = true;
 
@@ -146,20 +152,27 @@
             node.computeSize = function() {
                 let text_req_w = 0;
                 const props = this.properties || node.properties || {};
-                const val = String(props.output_ids !== undefined ? props.output_ids : "");
+                const w = (this.widgets && this.widgets.length > 0) ? this.widgets.find(w => w && (w.name === "Output IDs" || w.property === "output_ids")) : null;
+                const val = w ? String(w.value !== undefined ? w.value : (props.output_ids || "")) : String(props.output_ids !== undefined ? props.output_ids : "");
                 if (val.length > 0) {
                     text_req_w = getExactTextWidth(val, "bold 11px Consolas, monospace");
                 }
                 const curAspect = getNodePreviewAspectRatio(this);
                 const dynMinW = getDynamicMinPreviewWidth(curAspect);
-                const boxW = Math.max(100, Math.ceil(text_req_w + 36));
-                const minReqW = Math.max(dynMinW, 22 + boxW + 155);
+                let boxW = 80;
+                if (w && typeof getInlineBoxWidth === 'function') {
+                    boxW = getInlineBoxWidth(this, w, "Output IDs", "output_ids", 300);
+                } else {
+                    boxW = Math.max(76, Math.ceil(text_req_w + 24));
+                }
                 const pMgr = window.PyxisNodePlayerManager;
                 const p = (pMgr && pMgr.activePlayers && this.id !== undefined) ? pMgr.activePlayers[String(this.id)] : null;
                 const isPinned = Boolean((p && p.isPinned) || (props && props.is_pinned));
                 if (isPinned) {
-                    return [300, 54];
+                    const compactPinnedW = Math.max(270, 22 + boxW + 8 + 164 + 10);
+                    return [compactPinnedW, 54];
                 }
+                const minReqW = Math.max(dynMinW, 22 + boxW + 205);
                 const isZoomed = Boolean((p && p.transformState && p.transformState.isCustom) || (props && props.viewport_custom));
                 const effectiveW = minReqW;
                 const effectiveH = isZoomed ? 140 : calculatePrevisualizadorNodeHeight(effectiveW, curAspect);
@@ -187,8 +200,23 @@
             const isCustomZoomInit = Boolean(node.properties && node.properties.viewport_custom);
             let initialH;
             if (isPinnedInit) {
+                let text_req_w = 0;
+                const props = node.properties || {};
+                const val = String(props.output_ids !== undefined ? props.output_ids : "");
+                if (val.length > 0) {
+                    text_req_w = getExactTextWidth(val, "bold 11px Consolas, monospace");
+                }
+                let boxW = 80;
+                if (node.widgets && node.widgets.length > 0 && typeof getInlineBoxWidth === 'function') {
+                    const wOut = node.widgets.find(w => w && (w.name === "Output IDs" || w.property === "output_ids"));
+                    if (wOut) boxW = getInlineBoxWidth(node, wOut, "Output IDs", "output_ids", 300);
+                } else {
+                    boxW = Math.max(76, Math.ceil(text_req_w + 24));
+                }
                 initialH = 54;
-                initialW = 300;
+                const compactW = Math.max(270, 22 + boxW + 8 + 164 + 10);
+                const savedPinnedW = (props && props.pinned_width) ? Number(props.pinned_width) : 0;
+                initialW = (savedPinnedW >= compactW) ? savedPinnedW : compactW;
             } else if (isCustomZoomInit && node.properties && node.properties.previewer_height && Number(node.properties.previewer_height) >= 140) {
                 initialH = Number(node.properties.previewer_height);
             } else {
@@ -208,10 +236,19 @@
                 }
                 const isPinned = Boolean((p && p.isPinned) || (this.properties && this.properties.is_pinned));
                 if (isPinned) {
-                    size[0] = Math.max(300, Math.round(size[0]));
+                    const minSz = (typeof this.computeSize === 'function') ? this.computeSize() : [270, 54];
+                    const minW = minSz ? minSz[0] : 270;
+                    size[0] = Math.max(minW, Math.round(size[0]));
                     size[1] = 54;
                     this.size[0] = size[0];
                     this.size[1] = 54;
+                    this.lastW = size[0];
+                    this.lastH = 54;
+                    if (!this.properties) this.properties = {};
+                    this.properties.pinned_width = size[0];
+                    if (window.__pyxis_schedule_save) {
+                        window.__pyxis_schedule_save(50);
+                    }
                     return;
                 }
                 const isZoomed = Boolean(
@@ -262,13 +299,24 @@
             const oldConfigure = node.onConfigure;
             node.onConfigure = function(info) {
                 if (oldConfigure) oldConfigure.call(this, info);
+                if (!this.properties) this.properties = {};
+                this.properties.render_mode = (this.properties.render_mode === "mpv") ? "mpv" : "typesetting";
+                if (this.id !== undefined && window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.updateRenderModeButtonUI === "function") {
+                    window.PyxisNodePlayerManager.updateRenderModeButtonUI(String(this.id), this.properties.render_mode);
+                }
                 if (this.properties && this.properties.preview_aspect_ratio) {
                     this.preview_aspect_ratio = this.properties.preview_aspect_ratio;
                 }
                 const isPinned = Boolean((this.properties && this.properties.is_pinned) || (info && info.flags && info.flags.pinned));
                 if (isPinned) {
-                    this.size = [300, 54];
-                    this.lastW = 300;
+                    const minSz = (typeof this.computeSize === 'function') ? this.computeSize() : [270, 54];
+                    const minW = minSz ? minSz[0] : 270;
+                    const savedPinnedW = (this.properties && this.properties.pinned_width)
+                        ? Number(this.properties.pinned_width)
+                        : ((info && Array.isArray(info.size) && info.size[0] > 0 && info.size[1] <= 60) ? Number(info.size[0]) : minW);
+                    const w = (savedPinnedW >= minW) ? savedPinnedW : minW;
+                    this.size = [w, 54];
+                    this.lastW = w;
                     this.lastH = 54;
                     return;
                 }

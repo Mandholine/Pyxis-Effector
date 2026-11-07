@@ -680,10 +680,13 @@
                         { caption: "fx.org_y", value: "fx.org_y", meta: "fx (float)", docHTML: "<b>fx.org_y</b>: Origin anchor Y coordinate", score: 980 },
                         { caption: "fx.i", value: "fx.i", meta: "fx (int)", docHTML: "<b>fx.i</b>: Active iteration index in fx", score: 980 },
                         { caption: "fx.n", value: "fx.n", meta: "fx (int)", docHTML: "<b>fx.n</b>: Total iterations in fx", score: 980 },
-                        { caption: "fx.start_time", value: "fx.start_time", meta: "fx (int)", docHTML: "<b>fx.start_time</b>: Start time of fx frame/unit", score: 980 },
-                        { caption: "fx.end_time", value: "fx.end_time", meta: "fx (int)", docHTML: "<b>fx.end_time</b>: End time of fx frame/unit", score: 980 },
+                        { caption: "fx.start_time", value: "fx.start_time", meta: "fx (int)", docHTML: "<b>fx.start_time</b>: Start time of fx frame/unit (overridable in Define Vars)", score: 980 },
+                        { caption: "fx.end_time", value: "fx.end_time", meta: "fx (int)", docHTML: "<b>fx.end_time</b>: End time of fx frame/unit (overridable in Define Vars)", score: 980 },
+                        { caption: "fx.st", value: "fx.st", meta: "fx (int)", docHTML: "<b>fx.st</b>: Short alias of fx.start_time (overridable in Define Vars)", score: 975 },
+                        { caption: "fx.et", value: "fx.et", meta: "fx (int)", docHTML: "<b>fx.et</b>: Short alias of fx.end_time (overridable in Define Vars)", score: 975 },
                         { caption: "fx.dur", value: "fx.dur", meta: "fx (int)", docHTML: "<b>fx.dur</b>: Duration of fx frame/unit", score: 980 },
-                        { caption: "fx.align", value: "fx.align", meta: "fx (int)", docHTML: "<b>fx.align</b>: Active effect alignment (1..9)", score: 970 },
+                        { caption: "fx.align", value: "fx.align", meta: "fx (int)", docHTML: "<b>fx.align</b>: Active effect alignment 1..9 (overridable in Define Vars)", score: 970 },
+                        { caption: "fx.layer", value: "fx.layer", meta: "fx (int)", docHTML: "<b>fx.layer</b>: Active ASS rendering layer (overridable in Define Vars)", score: 970 },
 
                         // --- 6. Neighbor Units (prev / next) & Relational Flags ---
                         { caption: "prev.text", value: "prev.text", meta: "prev (str)", docHTML: "<b>prev.text</b>: Text of the previous unit", score: 980 },
@@ -725,8 +728,10 @@
                         { caption: "line_end_time", value: "line_end_time", meta: "time (ms)", docHTML: "<b>line_end_time</b>: Line end time in ms", score: 960 },
                         { caption: "syl_start_time", value: "syl_start_time", meta: "time (ms)", docHTML: "<b>syl_start_time</b>: Syllable start time in ms", score: 960 },
                         { caption: "syl_end_time", value: "syl_end_time", meta: "time (ms)", docHTML: "<b>syl_end_time</b>: Syllable end time in ms", score: 960 },
-                        { caption: "st", value: "st", meta: "alias (ms)", docHTML: "<b>st</b>: Short alias of start_time", score: 950 },
-                        { caption: "et", value: "et", meta: "alias (ms)", docHTML: "<b>et</b>: Short alias of end_time", score: 950 },
+                        { caption: "st", value: "st", meta: "alias (ms)", docHTML: "<b>st</b>: Short alias of start_time (overridable in Define Vars)", score: 950 },
+                        { caption: "et", value: "et", meta: "alias (ms)", docHTML: "<b>et</b>: Short alias of end_time (overridable in Define Vars)", score: 950 },
+                        { caption: "align", value: "align", meta: "var (int)", docHTML: "<b>align</b>: Active ASS numpad alignment 1..9 (overridable in Define Vars)", score: 950 },
+                        { caption: "layer", value: "layer", meta: "var (int)", docHTML: "<b>layer</b>: Active ASS rendering layer (overridable in Define Vars)", score: 950 },
                         { caption: "dur", value: "dur", meta: "alias (ms)", docHTML: "<b>dur</b>: Duration in milliseconds", score: 950 },
                         { caption: "duration", value: "duration", meta: "alias (ms)", docHTML: "<b>duration</b>: Duration in milliseconds", score: 950 },
                         { caption: "i", value: "i", meta: "var (int)", docHTML: "<b>i</b>: Global index of current unit (1-based)", score: 950 },
@@ -760,7 +765,11 @@
                         { caption: "slice_i", value: "slice_i", meta: "slicer (int)", docHTML: "<b>slice_i</b>: Alias of s_i", score: 980 },
                         { caption: "slice_n", value: "slice_n", meta: "slicer (int)", docHTML: "<b>slice_n</b>: Alias of s_n", score: 980 },
                         { caption: "j", value: "j", meta: "loop (int)", docHTML: "<b>j</b>: Active MaxLoop iteration index (1-based)", score: 1000 },
+                        { caption: "maxj", value: "maxj", meta: "loop (int)", docHTML: "<b>maxj</b>: Alias of maxloop (total MaxLoop iterations)", score: 980 },
                         { caption: "maxloop", value: "maxloop", meta: "loop (int)", docHTML: "<b>maxloop</b>: Total MaxLoop iterations", score: 1000 },
+                        { caption: "an_i", value: "an_i", meta: "anim (int)", docHTML: "<b>an_i</b>: Active Animation frame index (1-based)", score: 1000 },
+                        { caption: "an_n", value: "an_n", meta: "anim (int)", docHTML: "<b>an_n</b>: Total Animation frames count", score: 1000 },
+                        { caption: "an_max", value: "an_max", meta: "anim (int)", docHTML: "<b>an_max</b>: Alias of an_n (total Animation frames)", score: 980 },
                         { caption: "col", value: "col", meta: "grid (int)", docHTML: "<b>col</b>: Spatial column index in slicer/mesh", score: 950 },
                         { caption: "row", value: "row", meta: "grid (int)", docHTML: "<b>row</b>: Spatial row index in slicer/mesh", score: 950 },
                         { caption: "a_i", value: "a_i", meta: "array (int)", docHTML: "<b>a_i</b>: Active Array/Particle element index", score: 950 },
@@ -1706,6 +1715,17 @@
                         }
                     });
 
+                    editor.commands.addCommand({
+                        name: "pyxisShiftEnterLineBreak",
+                        bindKey: { win: "Shift-Return|Shift-Enter", mac: "Shift-Return|Shift-Enter" },
+                        exec: function(ed) {
+                            if (ed.completer && ed.completer.activated) {
+                                ed.completer.detach();
+                            }
+                            ed.insert("\n");
+                        }
+                    });
+
                     editor.setValue(currentScript, -1);
                     editor.clearSelection();
                     window.__pyxis_ace_editor = editor;
@@ -1819,7 +1839,38 @@
             }
         }
 
+        /**
+         * Overrides Ace's default Autocomplete Shift-Return behavior so that pressing
+         * Shift+Enter while an autocomplete suggestion popup is active does NOT insert
+         * the suggestion match, but closes/detaches the popup and inserts a line break.
+         */
+        function patchAceAutocompleteShiftEnter() {
+            try {
+                if (typeof ace !== "undefined" && ace.require) {
+                    const aceAutocomplete = ace.require("ace/autocomplete");
+                    if (aceAutocomplete && aceAutocomplete.Autocomplete && aceAutocomplete.Autocomplete.prototype) {
+                        const commands = aceAutocomplete.Autocomplete.prototype.commands;
+                        if (commands) {
+                            const shiftReturnHandler = function(editor) {
+                                if (editor && editor.completer) {
+                                    editor.completer.detach();
+                                }
+                                if (editor) {
+                                    editor.insert("\n");
+                                }
+                            };
+                            commands["Shift-Return"] = shiftReturnHandler;
+                            commands["Shift-Enter"] = shiftReturnHandler;
+                        }
+                    }
+                }
+            } catch (err) {
+                // Silently ignore if ace/autocomplete module is not yet loaded
+            }
+        }
+        patchAceAutocompleteShiftEnter();
 
+window.patchAceAutocompleteShiftEnter = patchAceAutocompleteShiftEnter;
 window.getPyxisCodeCompleter = typeof getPyxisCodeCompleter === 'function' ? getPyxisCodeCompleter : window.getPyxisCodeCompleter;
 window.openCodigoScriptModal = typeof openCodigoScriptModal === 'function' ? openCodigoScriptModal : window.openCodigoScriptModal;
 window.setupCodigoScriptNode = typeof setupScriptCodeNode === 'function' ? setupScriptCodeNode : window.setupCodigoScriptNode;

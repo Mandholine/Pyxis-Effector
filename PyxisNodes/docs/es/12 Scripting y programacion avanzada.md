@@ -157,11 +157,17 @@ Si el bucle activo desciende a granularidad de caracteres o palabras, `char` y `
 * Índices: `char.i`, `char.n`, `char.is_first`, `char.is_last`.
 
 ### 3.4. Cuadro de Efecto (`fx`)
-Cuando se ejecutan efectos cinemáticos o sistemas de partículas que alteran la posición de renderizado respecto a la línea original:
+Cuando se ejecutan efectos cinemáticos, nodos `Variables/Define Vars` o sistemas de partículas que alteran los parámetros de emisión respecto a la línea original:
 * `fx.pos_x`, `fx.pos_y` (o `fx.x`, `fx.y`): Coordenadas actuales del punto de emisión.
 * `fx.org_x`, `fx.org_y`: Coordenadas del centro de rotación y escalado ($\backslash org$).
-* `fx.start_time`, `fx.end_time`, `fx.dur`: Ventana temporal activa de la línea resultante.
+* `fx.start_time` (alias `fx.st`, `st`, `start_time`), `fx.end_time` (alias `fx.et`, `et`, `end_time`), `fx.dur` (alias `dur`): Ventana temporal activa de la línea resultante.
+* `fx.align` (alias `align`, `an`): Alineación ASS activa del evento (`1` a `9`). Nota: `origin_align` es independiente y se establece siempre desde la cruceta en el nodo `System/Output`.
+* `fx.layer` (alias `layer`): Capa entera ASS de la línea resultante.
 * `fx.i`, `fx.n`: Índice de la partícula o clon generado en la iteración.
+
+> [!NOTE]
+> **Jerarquía de Precedencia (4 Niveles) y Variables Reservadas:**
+> Todas las propiedades mutables de `fx` (`pos`, `org`, `st`, `et`, `dur`, `align`, `layer`) respetan el orden de prioridad: `1. Línea / Unidad Original < 2. Define Vars < 3. Return (y puertos explícitos de Output) < 4. Tags`. En cambio, los metadatos estructurales `effect`, `actor`, `margins` (`margin_l`, `margin_r`, `margin_v`), `queueid` (`queue_id`) y `queueorder` (`queue_order`) son variables reservadas del sistema y no pueden sobrescribirse desde `Variables/Define Vars`.
 
 ### 3.5. Métricas de Tinta Real (`ink`)
 A diferencia de las dimensiones tipográficas nominales (`syl.width`, `syl.height`), que incluyen espacios en blanco, ascendentes y márgenes de interletraje de la fuente, el objeto `ink` describe el **bounding box exacto de los píxeles/vectores dibujados**:

@@ -447,14 +447,26 @@ def node_color_gradient(context, prog="char.i / char.n", colors_str="#95E648,#3E
             return ", ".join(colors_batch)
         return _eval_at_t(pct)
 
+    def _format_color_tag(tag_str, col_val):
+        clean = str(tag_str or "\\1c").strip()
+        if not clean.startswith("\\"):
+            clean = "\\" + clean
+        lower = clean.lower()
+        if lower == "\\c":
+            return f"\\c{col_val}"
+        m = re.match(r"^\\([1-4]+)c$", lower)
+        if m:
+            return "".join(f"\\{d}c{col_val}" for d in m.group(1))
+        return f"{clean}{col_val}"
+
     if output_slot_index == 2 or kwargs.get("return_tags", False):
         if n_val > 1 or kwargs.get("return_batch", False):
             tags_batch = []
             for k in range(1, n_val + 1):
                 tk = (k - 1.0) / (n_val - 1.0) if n_val > 1 else 0.0
-                tags_batch.append(f"{tag_clean}{_eval_at_t(tk)}")
+                tags_batch.append(_format_color_tag(tag_clean, _eval_at_t(tk)))
             return ", ".join(tags_batch)
-        return f"{tag_clean}{_eval_at_t(pct)}"
+        return _format_color_tag(tag_clean, _eval_at_t(pct))
 
     return _eval_at_t(pct)
 
@@ -820,11 +832,25 @@ def glitter_node(
         r"\134c": (r"\1c", r"\3c", r"\4c"),
         r"\13c": (r"\1c", r"\3c"),
         r"\14c": (r"\1c", r"\4c"),
+        r"\12c": (r"\1c", r"\2c"),
+        r"\23c": (r"\2c", r"\3c"),
+        r"\24c": (r"\2c", r"\4c"),
         r"\34c": (r"\3c", r"\4c"),
+        r"\123c": (r"\1c", r"\2c", r"\3c"),
+        r"\124c": (r"\1c", r"\2c", r"\4c"),
+        r"\234c": (r"\2c", r"\3c", r"\4c"),
+        r"\1234c": (r"\1c", r"\2c", r"\3c", r"\4c"),
         r"\134a": (r"\1a", r"\3a", r"\4a"),
         r"\13a": (r"\1a", r"\3a"),
         r"\14a": (r"\1a", r"\4a"),
+        r"\12a": (r"\1a", r"\2a"),
+        r"\23a": (r"\2a", r"\3a"),
+        r"\24a": (r"\2a", r"\4a"),
         r"\34a": (r"\3a", r"\4a"),
+        r"\123a": (r"\1a", r"\2a", r"\3a"),
+        r"\124a": (r"\1a", r"\2a", r"\4a"),
+        r"\234a": (r"\2a", r"\3a", r"\4a"),
+        r"\1234a": (r"\1a", r"\2a", r"\3a", r"\4a"),
     }
 
     def _format_tag_with_val(t_name, val):
@@ -1652,13 +1678,27 @@ def move_tag_node(context=None, mode="Trajectory", tags=None, **kwargs):
         if not shape_str:
             shape_str = "m 0 0 l 100 0"
 
+        try:
+            from nodes.shape_nodes import split_shape_and_tags
+        except (ImportError, ModuleNotFoundError):
+            try:
+                from shape_nodes import split_shape_and_tags
+            except Exception:
+                def split_shape_and_tags(s):
+                    return "", str(s or "")
+
+        # Extract pure ASSdraw geometry for arc-length resampling, discarding trajectory tags
+        _, pure_shape = split_shape_and_tags(shape_str)
+        if not pure_shape:
+            pure_shape = shape_str
+
         t1 = float(_clean_num(kwargs.get("t1") or kwargs.get("time_start"), default=0, context=context))
         t2_val = kwargs.get("t2") or kwargs.get("time_end")
         t2 = float(_clean_num(t2_val, default=def_dur, context=context)) if t2_val is not None else def_dur
 
-        pts = _parse_points_input(shape_str, step_px=step_px) if not (shape_str.lower().startswith("m ") or re.search(r'\b[mlbc]\s+[-?\d]', shape_str, re.IGNORECASE)) else _resample_shape_arc_length(shape_str, step_px=step_px)
+        pts = _parse_points_input(pure_shape, step_px=step_px) if not (pure_shape.lower().startswith("m ") or re.search(r'\b[mlbc]\s+[-?\d]', pure_shape, re.IGNORECASE)) else _resample_shape_arc_length(pure_shape, step_px=step_px)
         if not pts:
-            pts = _resample_shape_arc_length(shape_str, step_px=step_px)
+            pts = _resample_shape_arc_length(pure_shape, step_px=step_px)
         pts = _relocate_points(pts, anchor=anchor, context=context, is_text_vector=from_text_fallback)
 
         return _format_single_line_scale_trajectory(pts, t1, t2, accel=accel, tags=raw_tags, context=context, is_shape=is_shape)
@@ -1669,8 +1709,24 @@ def move_tag_node(context=None, mode="Trajectory", tags=None, **kwargs):
         t2_val = kwargs.get("t2") or kwargs.get("time_end")
         t2 = float(_clean_num(t2_val, default=def_dur, context=context)) if t2_val is not None else def_dur
 
+        try:
+            from nodes.shape_nodes import split_shape_and_tags
+        except (ImportError, ModuleNotFoundError):
+            try:
+                from shape_nodes import split_shape_and_tags
+            except Exception:
+                def split_shape_and_tags(s):
+                    return "", str(s or "")
+
+        if isinstance(points_raw, str):
+            _, pure_points = split_shape_and_tags(points_raw)
+            if not pure_points:
+                pure_points = points_raw
+        else:
+            pure_points = points_raw
+
         from_text_fallback = False
-        pts = _parse_points_input(points_raw, step_px=step_px)
+        pts = _parse_points_input(pure_points, step_px=step_px)
         if not pts:
             try:
                 from font_vector_engine import FontVectorEngine
@@ -2139,7 +2195,8 @@ def resolve_animation_frames_list(frames="", context=None):
 
     Supports Python lists/tuples, Lua tables, JSON arrays, delimited strings (newline,
     semicolon, comma), preset shape identifiers (via `resolve_shape_value`), raw ASSdraw
-    vector paths (`m ...`), and typographic glyphs converted to outlines via `FontVectorEngine`.
+    vector paths (`m ...`), contextual variables/attributes (`syl.text`, `line.text`, etc.),
+    and typographic glyphs converted to outlines via `FontVectorEngine`.
 
     Args:
         frames (Union[str, list, tuple, dict]): Raw frame sequence specification.
@@ -2154,12 +2211,50 @@ def resolve_animation_frames_list(frames="", context=None):
     ctx = context if isinstance(context, dict) else {}
     raw_input = frames if frames is not None else ""
 
+    _SENTINEL = object()
+
+    def _eval_frame_var_or_expr(cand_val, eval_ctx):
+        if not isinstance(cand_val, str):
+            return cand_val
+        cand_str = cand_val.strip()
+        if not cand_str:
+            return _SENTINEL
+
+        # 1. Direct dictionary / context key check
+        if isinstance(eval_ctx, dict) and cand_str in eval_ctx:
+            return eval_ctx[cand_str]
+
+        # 2. Quick skip for obvious non-variable strings (raw ASSdraw paths, shape presets)
+        if cand_str.startswith("m ") or cand_str.startswith("m-") or cand_str.startswith("m0"):
+            return _SENTINEL
+        if cand_str.lower().startswith("shape."):
+            return _SENTINEL
+
+        # 3. Evaluate expression/variable using string_evaluator
+        try:
+            from string_evaluator import eval_python_expr
+            res = eval_python_expr(cand_str, eval_ctx, default=_SENTINEL)
+            if res is not _SENTINEL:
+                return res
+        except Exception:
+            pass
+
+        return _SENTINEL
+
     if isinstance(raw_input, str):
         s_candidate = raw_input.strip()
-        if s_candidate in ctx:
-            raw_input = ctx[s_candidate]
-        elif s_candidate.startswith("$") and s_candidate[1:] in ctx:
-            raw_input = ctx[s_candidate[1:]]
+        # Lua array syntax {"item1", "item2"} or JSON array ["item1", "item2"] should be parsed as array directly, not evaluated as a Python set expression
+        is_lua_array = s_candidate.startswith("{") and s_candidate.endswith("}") and ":" not in s_candidate
+        is_json_array = s_candidate.startswith("[") and s_candidate.endswith("]")
+        if not (is_lua_array or is_json_array):
+            evaluated_top = _eval_frame_var_or_expr(s_candidate, ctx)
+            if evaluated_top is not _SENTINEL:
+                raw_input = evaluated_top
+
+    if hasattr(raw_input, "text_stripped") and getattr(raw_input, "text_stripped"):
+        raw_input = raw_input.text_stripped
+    elif hasattr(raw_input, "text") and getattr(raw_input, "text"):
+        raw_input = raw_input.text
 
     raw_items = []
     if isinstance(raw_input, (list, tuple)):
@@ -2199,10 +2294,10 @@ def resolve_animation_frames_list(frames="", context=None):
                 inner = s[1:-1].strip()
                 raw_items = [x.strip().strip('"').strip("'") for x in re.split(r"[,;\n]+", inner) if x.strip()]
         elif "\n" in s:
-            raw_items = [x.strip() for x in s.split("\n") if x.strip()]
+            raw_items = [x.strip().rstrip(",") for x in s.split("\n") if x.strip().rstrip(",")]
         elif ";" in s:
             raw_items = [x.strip() for x in s.split(";") if x.strip()]
-        elif "," in s and not (s.startswith("m ") or s.startswith("m-") or s.startswith("m0")):
+        elif "," in s:
             raw_items = [x.strip() for x in s.split(",") if x.strip()]
         else:
             raw_items = [s]
@@ -2216,33 +2311,45 @@ def resolve_animation_frames_list(frames="", context=None):
         item_val = item
         if isinstance(item, str):
             item_cand = item.strip()
-            if item_cand in ctx:
-                item_val = ctx[item_cand]
-            elif item_cand.startswith("$") and item_cand[1:] in ctx:
-                item_val = ctx[item_cand[1:]]
+            evaluated_item = _eval_frame_var_or_expr(item_cand, ctx)
+            if evaluated_item is not _SENTINEL:
+                item_val = evaluated_item
 
-        item_str = str(item_val).strip()
-        if not item_str:
-            continue
-        # Strip leading ASS override tag blocks if a tagged shape was passed
-        if item_str.startswith("{") and "}" in item_str:
-            stripped_after_tags = re.sub(r"^(\{[^}]*\})+", "", item_str).strip()
-            if stripped_after_tags.startswith("m ") or stripped_after_tags.startswith("m-") or stripped_after_tags.startswith("m0"):
-                item_str = stripped_after_tags
+        sub_items = list(item_val) if isinstance(item_val, (list, tuple)) else [item_val]
+        for sub_item in sub_items:
+            if sub_item is None:
+                continue
+            if hasattr(sub_item, "text_stripped") and getattr(sub_item, "text_stripped"):
+                sub_item = sub_item.text_stripped
+            elif hasattr(sub_item, "text") and getattr(sub_item, "text"):
+                sub_item = sub_item.text
+            elif isinstance(sub_item, dict) and "text_stripped" in sub_item:
+                sub_item = sub_item["text_stripped"]
+            elif isinstance(sub_item, dict) and "text" in sub_item:
+                sub_item = sub_item["text"]
 
-        shp = resolve_shape_value(item_str, ctx)
-        if shp and (shp.startswith("m ") or shp.startswith("m-") or shp.startswith("m0")):
-            processed_shapes.append(shp)
-        else:
-            vec = FontVectorEngine.from_context(text=item_str, context=ctx)
-            if vec and vec.strip():
-                processed_shapes.append(vec.strip())
+            item_str = str(sub_item).strip()
+            if not item_str:
+                continue
+            # Strip leading ASS override tag blocks if a tagged shape was passed
+            if item_str.startswith("{") and "}" in item_str:
+                stripped_after_tags = re.sub(r"^(\{[^}]*\})+", "", item_str).strip()
+                if stripped_after_tags.startswith("m ") or stripped_after_tags.startswith("m-") or stripped_after_tags.startswith("m0"):
+                    item_str = stripped_after_tags
+
+            shp = resolve_shape_value(item_str, ctx)
+            if shp and (shp.startswith("m ") or shp.startswith("m-") or shp.startswith("m0")):
+                processed_shapes.append(shp)
             else:
-                processed_shapes.append(shp if shp else item_str)
+                vec = FontVectorEngine.from_context(text=item_str, context=ctx)
+                if vec and vec.strip():
+                    processed_shapes.append(vec.strip())
+                else:
+                    processed_shapes.append(shp if shp else item_str)
 
     if not processed_shapes:
         processed_shapes = [
-            resolve_shape_value("circle", ctx)
+            resolve_shape_value("shape.circle", ctx)
             or "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0 "
         ]
 
@@ -2279,6 +2386,66 @@ def map_animation_step_to_frame_index(step_idx_zero_based, num_frames, order="se
     return step_i % num_frames
 
 
+def normalize_animation_frames(frames_list, anchor="relative"):
+    """Normalises an animation frame sequence using a common global bounding box.
+
+    Preserves frame-to-frame translation, trajectory delta, and scale variations.
+
+    Args:
+        frames_list (list[str]): List of ASSDraw drawing strings.
+        anchor (str): Normalisation anchor mode ('relative', 'center', 'origin').
+
+    Returns:
+        list[str]: Normalised ASSDraw drawing strings.
+    """
+    if not frames_list or not isinstance(frames_list, list):
+        return frames_list
+    anchor_mode = str(anchor or "relative").strip().lower()
+    if anchor_mode in ("relative", "none", "raw", "0"):
+        return frames_list
+
+    from clipper_engine import ClipperEngine
+
+    bboxes = []
+    for shp in frames_list:
+        if shp and isinstance(shp, str) and shp.strip():
+            cnt = ClipperEngine.parse_assdraw(shp)
+            if cnt:
+                bx = ClipperEngine.get_bbox(cnt)
+                bboxes.append(bx)
+
+    if not bboxes:
+        return frames_list
+
+    g_min_x = min(b[0] for b in bboxes)
+    g_min_y = min(b[1] for b in bboxes)
+    g_max_x = max(b[2] for b in bboxes)
+    g_max_y = max(b[3] for b in bboxes)
+    g_cx = (g_min_x + g_max_x) * 0.5
+    g_cy = (g_min_y + g_max_y) * 0.5
+
+    if anchor_mode in ("center", "5", "centro"):
+        dx = -g_cx
+        dy = -g_cy
+    elif anchor_mode in ("origin", "7", "origen", "topleft"):
+        dx = -g_min_x
+        dy = -g_min_y
+    else:
+        return frames_list
+
+    if abs(dx) < 0.0001 and abs(dy) < 0.0001:
+        return frames_list
+
+    normalized = []
+    for shp in frames_list:
+        if shp and isinstance(shp, str) and shp.strip():
+            shifted = ClipperEngine.translate_shape(shp, dx, dy)
+            normalized.append(shifted)
+        else:
+            normalized.append(shp)
+    return normalized
+
+
 def node_animation(
     context=None,
     frames="",
@@ -2288,17 +2455,17 @@ def node_animation(
     mode="fbf",
     alpha_tag=r"\alpha",
     order="sequential",
-    var_name="an",
     output_slot_index=0,
+    anchor="relative",
+    base="0",
     **kwargs
 ):
     """Animation node supporting Frame-by-Frame (fbf) and Synchronised Alpha Transformation (alpha) modes.
 
     Accepts lists, Lua tables, JSON arrays, or delimited strings of vector shapes
     or typographic glyphs (converted to vector outlines via FontVectorEngine).
-    Manages loop cycle registration and context injection ({var_name}_i, {var_name}_n,
-    {var_name}_max, an_loop_count, maxloop, anim_step_ms) and returns appropriate
-    outputs per slot and mode:
+    Exposes canonical loop cycle registration and context injection (an_i, an_n,
+    an_max, an_loop_count, anim_step_ms) and returns appropriate outputs per slot and mode:
 
     Modes:
     1. 'fbf' (Frame-by-Frame):
@@ -2322,8 +2489,9 @@ def node_animation(
         mode (str): Animation mode ('fbf' or 'alpha'). Defaults to 'fbf'.
         alpha_tag (str): Transparency tag to modulate in alpha mode ('\\alpha', '\\1a', etc.). Defaults to '\\alpha'.
         order (str): Frame playback sequence order ('sequential', 'reverse', 'pingpong', 'random'). Defaults to 'sequential'.
-        var_name (str): Iterator and loop counter context prefix. Defaults to 'an'.
         output_slot_index (int): Output connector pin index (0 to 3). Defaults to 0.
+        anchor (str): Sequence normalisation mode ('relative', 'center', 'origin'). Defaults to 'relative'.
+        base (str): Base active alpha visibility value ('0' to '255', '&HXX&', or expression). Defaults to '0'.
         **kwargs: Additional parameters.
 
     Returns:
@@ -2332,11 +2500,12 @@ def node_animation(
     from node_engine import _eval_num_expr
 
     ctx = context if isinstance(context, dict) else {}
-    var_prefix = str(var_name or "an").strip() or "an"
 
     # 1. Parse and extract frames
     raw_input = frames if frames is not None and str(frames).strip() != "" else kwargs.get("shape", kwargs.get("shapes", kwargs.get("text", "")))
     processed_shapes = resolve_animation_frames_list(raw_input, ctx)
+    eff_anchor = anchor if anchor is not None and str(anchor).strip() != "" else kwargs.get("anchor", "relative")
+    processed_shapes = normalize_animation_frames(processed_shapes, anchor=eff_anchor)
     num_frames = len(processed_shapes)
 
     # Resolve timing
@@ -2400,28 +2569,21 @@ def node_animation(
 
     # 2. Register loop counts in context
     if isinstance(context, dict):
-        context[f"{var_prefix}_n"] = num_frames
-        context[f"{var_prefix}_max"] = num_frames
         context["an_n"] = num_frames
         context["an_max"] = num_frames
-        context["anim_n"] = num_frames
-        context["anim_max"] = num_frames
         context["anim_base_st"] = st_val
         context["anim_base_et"] = et_val
         context["an_total_cycles"] = total_frames
         if not is_alpha_mode:
             context["an_loop_count"] = total_frames
-            context["maxloop"] = total_frames
             context["anim_step_ms"] = f_dur
         else:
             context["an_loop_count"] = num_frames
-            context["maxloop"] = num_frames
             context.pop("anim_step_ms", None)
 
-    # 3. Resolve current iterator / index according to sequence order
-    iter_val = ctx.get(f"{var_prefix}_i") or ctx.get("an_i") or ctx.get("anim_i") or ctx.get("j") or ctx.get("fx_i") or ctx.get("i") or 1
+    # 3. Resolve current iterator index strictly from an_i (zero fallbacks, no j)
     try:
-        cur_idx = int(float(iter_val))
+        cur_idx = int(float(ctx.get("an_i", 1)))
     except Exception:
         cur_idx = 1
 
@@ -2435,10 +2597,7 @@ def node_animation(
     current_frame_num = active_frame_idx + 1
 
     if isinstance(context, dict):
-        context[f"{var_prefix}_i"] = current_frame_num
         context["an_i"] = current_frame_num
-        context["anim_i"] = current_frame_num
-        context["an_j"] = cur_idx
 
     # 4. Handle output slots per mode
     output_slot = int(output_slot_index or 0)
@@ -2452,13 +2611,24 @@ def node_animation(
             return current_frame_num
         elif output_slot == 2:
             return processed_shapes
-        shp_str = str(current_shape)
-        if not shp_str.startswith(r"{\an") and not shp_str.startswith(r"\an"):
-            return f"{{\\an7}}{current_shape}"
         return current_shape
 
     else:
         # Alpha Transformation Mode
+        from string_evaluator import _format_ass_alpha
+
+        raw_base = base if base is not None and str(base).strip() != "" else kwargs.get("base", kwargs.get("base_alpha", "0"))
+        base_a_val = "&H00&"
+        if raw_base is not None and str(raw_base).strip() != "":
+            try:
+                num_eval = _eval_num_expr(raw_base, ctx, None)
+                if num_eval is not None:
+                    base_a_val = _format_ass_alpha(num_eval)
+                else:
+                    base_a_val = _format_ass_alpha(raw_base)
+            except Exception:
+                base_a_val = _format_ass_alpha(raw_base)
+
         raw_tag = str(alpha_tag or r"\alpha").strip()
         if not raw_tag.startswith("\\"):
             raw_tag = "\\" + raw_tag
@@ -2484,11 +2654,11 @@ def node_animation(
             t3 = int(t3_f) if t3_f.is_integer() else round(t3_f, 2)
             t4 = int(t4_f) if t4_f.is_integer() else round(t4_f, 2)
 
-            last_a = f"{tag_prefix}&H00&" if t2_f >= dur else f"{tag_prefix}&HFF&"
+            last_a = f"{tag_prefix}{base_a_val}" if t2_f >= dur else f"{tag_prefix}&HFF&"
             t_end_hide_f = min(dur, t4_f)
             t_end_hide = int(t_end_hide_f) if t_end_hide_f.is_integer() else round(t_end_hide_f, 2)
 
-            tag_fx_parts.append(f"\\t({t1},{t2},{tag_prefix}&H00&)\\t({t3},{t_end_hide},{last_a})")
+            tag_fx_parts.append(f"\\t({t1},{t2},{tag_prefix}{base_a_val})\\t({t3},{t_end_hide},{last_a})")
 
         tag_fx = "".join(tag_fx_parts)
         shape_with_tags = f"{{{tag_fx}\\p1}}{current_shape}"

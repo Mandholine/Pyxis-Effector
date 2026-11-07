@@ -39,6 +39,30 @@ import os
 import shutil
 import sys
 
+IS_WINDOWS = os.name == "nt"
+IS_MACOS = sys.platform == "darwin"
+
+
+def ensure_tool_path() -> None:
+    """
+    Ensures standard CLI tool directories (e.g. Homebrew, MacPorts) are in PATH on macOS.
+    """
+    if not IS_MACOS:
+        return
+    current_path = os.environ.get("PATH", "")
+    existing_paths = current_path.split(os.path.pathsep) if current_path else []
+    extra_dirs = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+    ]
+    to_add = [d for d in extra_dirs if os.path.isdir(d) and d not in existing_paths]
+    if to_add:
+        os.environ["PATH"] = current_path + (os.path.pathsep if current_path else "") + os.path.pathsep.join(to_add)
+
+
+ensure_tool_path()
+
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 PYXIS_ROOT_DIR = os.path.dirname(SRC_DIR)
 BIN_DIR = os.path.join(PYXIS_ROOT_DIR, "bin")
@@ -46,6 +70,28 @@ WEB_DIR = os.path.join(PYXIS_ROOT_DIR, "web")
 DOCS_DIR = os.path.join(PYXIS_ROOT_DIR, "docs")
 TEMPLATES_DIR = os.path.join(PYXIS_ROOT_DIR, "templates")
 PREVIEW_BASE_ASS = os.path.join(PYXIS_ROOT_DIR, "preview_base.ass")
+
+
+def get_user_data_dir() -> str:
+    """
+    Resolves the canonical user data directory across platforms.
+
+    On Windows: %APPDATA%/PyxisNodes (with fallback to ~/PyxisNodes).
+    On POSIX (Linux/macOS): $XDG_DATA_HOME/PyxisNodes or ~/.local/share/PyxisNodes.
+
+    Returns:
+        str: Normalised path to the Pyxis user data directory.
+    """
+    if IS_WINDOWS:
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return os.path.join(appdata, "PyxisNodes")
+        return os.path.join(os.path.expanduser("~"), "PyxisNodes")
+
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    if xdg_data:
+        return os.path.join(xdg_data, "PyxisNodes")
+    return os.path.join(os.path.expanduser("~"), ".local", "share", "PyxisNodes")
 
 
 def get_bin_path(binary_name: str) -> str:
@@ -56,37 +102,51 @@ def get_bin_path(binary_name: str) -> str:
         1. Isolated bin/ directory (standard Pyxis distribution).
         2. PyxisNodes root folder (legacy or portable environments without bin/).
         3. Operating system global PATH (shutil.which).
-        4. Default fallback to bin/<binary_name>.exe if not found.
+        4. Default fallback to bin/<target_name> if not found.
 
     Args:
         binary_name (str): Base name of the binary (e.g. 'ffmpeg', 'potrace', 'libass_profiler').
-                           On NT platforms (Windows), automatically appends the '.exe' extension.
+                           On Windows, automatically ensures the '.exe' extension.
+                           On POSIX, strips '.exe' if passed and searches clean name.
 
     Returns:
         str: Resolved absolute path towards the executable file or expected target.
 
     Dependencies & Couplings:
-        - Called by img_tracer_engine.py for potrace.exe.
-        - Called by audio_engine.py for ffmpeg.exe.
-        - Called by ass_telemetry_engine.py for libass_profiler.exe.
+        - Called by img_tracer_engine.py for potrace.
+        - Called by audio_engine.py for ffmpeg.
+        - Called by ass_telemetry_engine.py for libass_profiler.
     """
-    if os.name == "nt" and not binary_name.lower().endswith(".exe"):
-        exe_name = f"{binary_name}.exe"
+    if IS_WINDOWS:
+        clean_name = binary_name[:-4] if binary_name.lower().endswith(".exe") else binary_name
+        target_name = f"{clean_name}.exe"
     else:
-        exe_name = binary_name
+        target_name = binary_name[:-4] if binary_name.lower().endswith(".exe") else binary_name
 
     # 1. Search in bin/
-    bin_target = os.path.join(BIN_DIR, exe_name)
+    bin_target = os.path.join(BIN_DIR, target_name)
     if os.path.exists(bin_target):
         return bin_target
 
     # 2. Search in PyxisNodes root
-    root_target = os.path.join(PYXIS_ROOT_DIR, exe_name)
+    root_target = os.path.join(PYXIS_ROOT_DIR, target_name)
     if os.path.exists(root_target):
         return root_target
 
-    # 3. Search in system PATH
-    system_path = shutil.which(exe_name)
+    # 3. Search in user data directory (e.g. %APPDATA%/PyxisNodes/bin/ or ~/.local/share/PyxisNodes/bin/)
+    try:
+        user_data_dir = get_user_data_dir()
+        user_bin_target = os.path.join(user_data_dir, "bin", target_name)
+        if os.path.exists(user_bin_target):
+            return user_bin_target
+        user_root_target = os.path.join(user_data_dir, target_name)
+        if os.path.exists(user_root_target):
+            return user_root_target
+    except Exception:
+        pass
+
+    # 4. Search in system PATH
+    system_path = shutil.which(target_name)
     if system_path:
         return system_path
 

@@ -157,11 +157,17 @@ When the iteration loop steps down to character or word granularities, `char` an
 * Indices: `char.i`, `char.n`, `char.is_first`, `char.is_last`.
 
 ### 3.4. Effect Frame (`fx`)
-When kinematic systems or particle emitters reposition render coordinates away from the original layout:
+When kinematic systems, `Variables/Define Vars` nodes, or particle emitters modify emission parameters away from the original layout:
 * `fx.pos_x`, `fx.pos_y` (or `fx.x`, `fx.y`): Current origin coordinates of the emitted unit.
 * `fx.org_x`, `fx.org_y`: Pivot coordinates for rotation and scaling ($\backslash org$).
-* `fx.start_time`, `fx.end_time`, `fx.dur`: Active temporal window of the resulting dialogue line.
+* `fx.start_time` (aliases `fx.st`, `st`, `start_time`), `fx.end_time` (aliases `fx.et`, `et`, `end_time`), `fx.dur` (alias `dur`): Active temporal window of the resulting dialogue line.
+* `fx.align` (aliases `align`, `an`): Active ASS numpad alignment (`1` through `9`). Note: `origin_align` is independent and is always set via the crosshair widget on the `System/Output` node.
+* `fx.layer` (alias `layer`): Active integer ASS dialogue layer.
 * `fx.i`, `fx.n`: Sequential particle index and total count within the emission cluster.
+
+> [!NOTE]
+> **4-Tier Precedence Hierarchy and Reserved System Variables:**
+> All mutable `fx` properties (`pos`, `org`, `st`, `et`, `dur`, `align`, `layer`) follow the precedence order: `1. Original Line / Unit < 2. Define Vars < 3. Return (and explicit Output pins) < 4. Tags`. Conversely, structural metadata identifiers `effect`, `actor`, `margins` (`margin_l`, `margin_r`, `margin_v`), `queueid` (`queue_id`), and `queueorder` (`queue_order`) are reserved system variables and cannot be overwritten from `Variables/Define Vars`.
 
 ### 3.5. Ink Bounding Box (`ink`)
 In contrast to nominal typographic boundaries (`syl.width`, `syl.height`), which include whitespace, ascender reserves, and tracking margins, `ink` describes the **actual geometric bounding box of the drawn vector contours**:

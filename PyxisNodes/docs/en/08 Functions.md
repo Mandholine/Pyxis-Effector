@@ -356,7 +356,7 @@ $$\text{Out} = \begin{cases} \text{If True} & \text{if } \text{eval}(\text{Condi
 2. **`Color List` (`colors_str`):** String of colour stops separated by commas, spaces, or newlines. Accepts web hex codes (`#RRGGBB`), HTML names, or ASS codes (`&HBBGGRR&`). (Default: `"#95E648,#3E750C,#ED38CA"`).
 3. **`Total (N)` (`total`):** Total division count when consuming batch outputs (`Color List` or `Tags`). If $N > 1$, generates $N$ evenly distributed samples between $t=0.0$ and $t=1.0$. (Default: `"1"`).
 4. **`Accel` (`accel`):** Non-linear acceleration exponent. A value of `1.0` produces uniform linear interpolation; values $> 1.0$ weight transitions towards the end (*ease-in*); values $< 1.0$ weight transitions towards the start (*ease-out*). (Default: `"1.0"`).
-5. **`Tag` (`tag_type`):** ASS tag selector prefixed to colour codes on the `Tags` output (`\1c`, `\2c`, `\3c`, `\4c`, or `\c`). (Default: `"\1c"`).
+5. **`Tag` (`tag_type`):** Interactive ASS tag selector prefixed to colour codes on the `Tags` output. Features 16 cyclic combinations: single channels (`\1c`, `\2c`, `\3c`, `\4c`, `\c`), pairs (`\12c`, `\13c`, `\14c`, `\23c`, `\24c`, `\34c`), trios (`\123c`, `\124c`, `\134c`, `\234c`), and full quartet (`\1234c`). In multi-channel modes, the node automatically unrolls channels into standard canonical ASS tags (e.g. `\13c` outputs `\1c&H...&\3c&H...&`). (Default: `"\1c"`).
 
 ---
 
@@ -624,7 +624,7 @@ Raster Image (Pillow / NumPy)           ASS Vector Swarm
 
 ### 8.1. Header Mode Combos
 1. **Primary Mode (`mode`):**
-   * **`fbf` (*Frame-by-Frame*):** Each main loop iteration (`an_i` or `j`) selects the active shape in the sequence. Output `Shape` emits the vector path with alignment `{\an7}`.
+   * **`fbf` (*Frame-by-Frame*):** On each animation step governed by `an_i`, selects the corresponding shape in the sequence. Output `Shape` emits the pure vector ASSdraw geometry of the active frame without enforcing fixed alignment tags.
    * **`alpha` (*Synchronised Alpha Modulation*):** Compiles continuous `\t` visibility cycles that switch opacity between visible (`&H00&`) and transparent (`&HFF&`) at calculated time milestones.
 2. **Sequence Order (`order` - Secondary Pill):**
    * **`sequential` (`Seq` - Default):** Traverses frames in forward order ($1 \to K$).
@@ -640,13 +640,17 @@ Raster Image (Pillow / NumPy)           ASS Vector Swarm
    * JSON arrays (e.g. `["m 0 0 l 10 10", "m 0 0 l 20 20"]`).
    * Delimited lists (commas, semicolons `;`, pipes `|`, or newlines `\n`).
    * Plain text strings (converted to vector glyphs).
-   * Context variable references (e.g. `Shapes1`, `my_frames`).
+   * Direct references to context variables, expressions, and entity attributes (e.g. `Shapes1`, `my_frames`, `syl.text`, `line.text`).
    * Direct connection from `Shape/IMG to Shape` (automatically traces all frames of an animated GIF).
-2. **`Step ms` (`step_ms`):** Temporal duration in milliseconds per animation frame. ($41.7\text{ ms} \approx 24\text{ FPS}$; $33.3\text{ ms} \approx 30\text{ FPS}$; $16.6\text{ ms} \approx 60\text{ FPS}$). (Default: `41.7`).
-3. **`Start Time` (`start_time`):** Animation start timestamp in milliseconds (`0` or blank adopts effect start `fx.st` / `syl.start_time`).
-4. **`End Time` (`end_time`):** Animation end timestamp in milliseconds (`fx.dur` or blank adopts total duration).
-5. **`Alpha Tag` (`alpha_tag`):** [Mode `alpha`] Modulated ASS transparency tag or composite Dark Tag (`\alpha`, single channels `\1a`, `\2a`, `\3a`, `\4a`, dual channels `\12a`, `\13a`, `\14a`, `\23a`, `\24a`, `\34a`, triple channels `\123a`, `\124a`, `\134a`, `\234a`, or quadruple channel `\1234a`). Allows selective channel switching (e.g. `\13a` modulates primary fill and border simultaneously without affecting the `\4a` shadow). (Default: `"\alpha"`).
-6. **`Variable Prefix` (`var_name`):** Editable footer identifier prefix for loop context variables. (Default: `"an"`).
+2. **`Anchor` (`anchor`):** Global geometric anchor mode for the frame sequence (`relative`, `center`, `origin`):
+   * **`relative` (Default):** Retains the original relative coordinates of each frame without applying any translation.
+   * **`center`:** Globally centres the entire animation sequence by aligning the centroid of the unified bounding box (`global_bbox`) to `(0, 0)`. Because normalisation is computed over the global sequence bounding box rather than per individual frame, frame-to-frame motion trajectories and spatial deltas are 100% preserved without jitter.
+   * **`origin`:** Aligns the top-left corner of the sequence's unified bounding box (`global_bbox`) to `(0, 0)`, preserving all frame-to-frame motion deltas and spatial offsets.
+3. **`Step ms` (`step_ms`):** Temporal duration in milliseconds per animation frame. ($41.7\text{ ms} \approx 24\text{ FPS}$; $33.3\text{ ms} \approx 30\text{ FPS}$; $16.6\text{ ms} \approx 60\text{ FPS}$). (Default: `41.7`).
+4. **`Start Time` (`start_time`):** Animation start timestamp in milliseconds (`0` or blank adopts effect start `fx.st` / `syl.start_time`).
+5. **`End Time` (`end_time`):** Animation end timestamp in milliseconds (`fx.dur` or blank adopts total duration).
+6. **`Alpha Tag` (`alpha_tag`):** [Mode `alpha`] Modulated ASS transparency tag or composite Dark Tag (`\alpha`, single channels `\1a`, `\2a`, `\3a`, `\4a`, dual channels `\12a`, `\13a`, `\14a`, `\23a`, `\24a`, `\34a`, triple channels `\123a`, `\124a`, `\134a`, `\234a`, or quadruple channel `\1234a`). Allows selective channel switching (e.g. `\13a` modulates primary fill and border simultaneously without affecting the `\4a` shadow). (Default: `"\alpha"`).
+7. **`Base Alpha` (`base`):** [Mode `alpha`] Baseline visibility value for frames during their active display phase. Rendered as an inline text input without side labels, displaying `"base"` as an internal placeholder hint when empty. Accepts integers from `0` to `255` (where `0` corresponds to `&H00&` for full opacity), ASS hexadecimal alpha literals (`&HXX&`, e.g. `&H80&` for 50% semi-transparency), or evaluable mathematical formulas. (Default: `"0"`).
 
 ### 8.2.1. Interactive Vector Preview Card & Playback Controls
 > [!TIP]
@@ -659,7 +663,7 @@ Raster Image (Pillow / NumPy)           ASS Vector Swarm
 ### 8.3. Output Ports (*Outputs*)
 
 #### In FBF Mode:
-1. **`[1.1] Shape`:** ASSdraw vector code of the active frame prefixed with `{\an7}`.
+1. **`[1.1] Shape`:** Pure ASSdraw vector path of the active frame (clean geometry without hardcoded alignment tags, ensuring seamless downstream interoperability with boolean algebra and decomposition nodes such as `Shape/Union & Divide`). If the input frame contains existing style tags, they are cleanly preserved.
 2. **`[1.2] Frame`:** Active frame index (1-based integer: $1, 2, \dots, N$).
 3. **`[1.3] Frames List`:** Complete array of all processed vector paths.
 
@@ -670,8 +674,8 @@ Raster Image (Pillow / NumPy)           ASS Vector Swarm
 4. **`[1.4] Frames List`:** Full vector paths array.
 
 #### Exposed Context Variables:
-* `{var_name}_i` / `an_i`: Active frame index ($1 \dots K$).
-* `{var_name}_n` / `an_n`: Total unique frame count ($K$).
+* `an_i`: Active frame index ($1 \dots K$).
+* `an_n` / `an_max`: Total unique frame count ($K$).
 * `an_total_cycles`: Full animation loop cycles completed within total duration.
 
 ---
@@ -687,8 +691,8 @@ Cycle:        └─────── Cycle 1 ──────────┘
 ```
 
 #### 8.4.1. Cyclic Mapping in FBF Mode
-For active iteration $j \ge 1$:
-$$\text{active\_idx} = (j - 1) \pmod K$$
+For active iteration $\text{an\_i} \ge 1$:
+$$\text{active\_idx} = (\text{an\_i} - 1) \pmod K$$
 $$\text{Frame} = \text{active\_idx} + 1$$
 Total frames required to span duration:
 $$N_{\text{total}} = \left\lceil \frac{D}{\Delta t_{\text{frame}}} \right\rceil$$
@@ -706,24 +710,22 @@ $$\backslash\text{t}(t_1, t_2, \text{tag}\&H00\&)\backslash\text{t}(t_3, t_4, \t
 
 ### 8.5. Synergies and Practical Workflow Examples
 * **GIFs and Spritesheets:** Route `Shapes Array` from `Shape/IMG to Shape` into `Shape list` of `Animation` to playback extracted GIF frame sequences.
-* **Integration with `Loops/MaxLoop (fbf)`:** Configure `MaxLoop` in `fbf` mode to automatically iterate the exact frame count required by karaoke line duration.
+* **Autonomous FBF Generation:** Connect `Functions/Animation` in `fbf` mode directly as a loop generator into `System/Output`, generating all frame lines governed by `an_i` without requiring external loop nodes.
 
 ### 8.6. Practical Production Example
-* **Frame-by-Frame Vector Cycle with MaxLoop FBF:**
+* **Frame-by-Frame Vector Cycle in FBF Mode:**
   Playing back a cyclic sequence of vector shapes (`circle`, `star`, `heart`) at 24 FPS ($41.7\text{ ms}$ per frame):
 
   ```
-  [Loops/MaxLoop: mode=fbf, step_ms=41.7] ──► j ────────────────────────┐
-                                                                         ▼
   [Functions/Animation: mode=FBF, step_ms=41.7] ──► Shape ──► Shape / Text ──► [System/Output]
      frames: "circle, star, heart"
   ```
 
   * **Vector Output Emitted on `Shape`:**
-    * **Iteration $j=1$:** Emits `{\an7}m 50 0 b 22 0 0 22 0 50 ...` (library circle primitive).
-    * **Iteration $j=2$:** Emits `{\an7}m 38 36 l 0 36 l 31 59 ...` (vector star).
-    * **Iteration $j=3$:** Emits `{\an7}m 50 25 b 50 10 35 0 20 0 ...` (vector heart).
-    * **Iteration $j=4$:** Automatically wraps around to the initial frame ($1$), cycling seamlessly for the entire subtitle lifetime.
+    * **Iteration $\text{an\_i}=1$:** Emits `m 50 0 b 22 0 0 22 0 50 ...` (library circle primitive).
+    * **Iteration $\text{an\_i}=2$:** Emits `m 38 36 l 0 36 l 31 59 ...` (vector star).
+    * **Iteration $\text{an\_i}=3$:** Emits `m 50 25 b 50 10 35 0 20 0 ...` (vector heart).
+    * **Iteration $\text{an\_i}=4$:** Automatically wraps around to the initial frame ($1$), cycling seamlessly for the entire subtitle lifetime.
 
 ---
 
@@ -857,7 +859,7 @@ At parameter $t$, intermediate points in the De Casteljau pyramid define the new
 
 ### 10.2. Input Ports and Body Properties (*Inputs & Properties*)
 1. **`Tags` (`tags`):** Additional ASS tags injected into the final block (e.g. `\1c&HFFFFFF&\blur2`).
-2. **`Shape (d)` (`shape`):** ASSdraw path string defining the motion route (e.g. `"m 0 0 b 50 100 150 100 200 0"`).
+2. **`Shape (d)` (`shape`):** ASSdraw path string defining the motion route (e.g. `"m 0 0 b 50 100 150 100 200 0"`). Accepts pure ASSdraw commands or paths with preceding override tag blocks; the node cleanly isolates the vector geometry to compute arc length and discards guide curve tags to avoid contaminating kinematics.
 3. **`Step (px)` (`step_px`):** Max distance in pixels between consecutive trajectory samples. Smaller values increase smoothness at the cost of generating more `\t` tags. (Default: `7.5`).
 4. **`Anchor` (`anchor`):** Spatial centring and anchoring mode:
    * `"center"`: Centres trajectory on its bounding box midpoint $(B_{\text{centre}} = (0, 0))$.
@@ -929,7 +931,7 @@ Given $M$ sampled points $\{P_0, P_1, \dots, P_{M-1}\}$ with cumulative distance
 3. **`Delta Y` (`dy`):** Total Cartesian displacement along the Y axis (px).
 4. **`Offset X` (`ox`):** Fixed initial offset along the X axis (px).
 5. **`Offset Y` (`oy`):** Fixed initial offset along the Y axis (px).
-6. **`Shape (d)` (`shape` / `trajectory`):** Optional ASSdraw path replacing $\Delta X, \Delta Y$ for curved trajectories.
+6. **`Shape (d)` (`shape` / `trajectory`):** Optional ASSdraw path replacing $\Delta X, \Delta Y$ for curved trajectories. Accepts pure paths or shapes with previous tags; isolates geometry without crashing and discards trajectory tags, leaving the spacer layout hack fully intact.
 7. **`Points` (`points`):** Discrete control points list for waypoint routing.
 8. **`Step (px)` (`step_px`):** Resampling step for vector paths. (Default: `7.5`).
 9. **`Start Time (t1)` (`t1`):** Motion start timestamp (ms). (Default: `0`).
@@ -1074,8 +1076,8 @@ Numeric values are emitted as clean integers if fractional parts are zero, or ro
 ---
 
 ### 13.2. Input Ports and Body Properties (*Inputs & Properties*)
-1. **`Path / Origin` (`shape`):** Base ASSdraw path (`m ...`) or primitive name. If empty or given plain text, automatically extracts glyph outlines from the active context (`syl` or `char`).
-2. **`Particle` (`particle_shape`):** Vector shape used as an individual particle (e.g. `"Circle"`, `"Star"`, `"Heart"`, or raw ASSdraw). If empty, defaults to a $2 \times 2\text{ px}$ square (`m 0 0 l 2 0 l 2 2 l 0 2`).
+1. **`Path / Origin` (`shape`):** Base ASSdraw path (`m ...`) or primitive name. Accepts pure paths or shapes with previous tags; the analyser isolates clean geometry, discarding curve tags for sampling without triggering false font text fallbacks. If empty or given plain text, automatically extracts glyph outlines from the active context (`syl` or `char`).
+2. **`Particle` (`particle_shape`):** Vector shape used as an individual particle (e.g. `"Circle"`, `"Star"`, `"Heart"`, or raw ASSdraw). If the particle shape includes its own styling tags (e.g. `{\1c&H0000FF&\bord1}`), Pyxis preserves them intact when emitting the particle in `Shp Out`. If empty, defaults to a $2 \times 2\text{ px}$ square (`m 0 0 l 2 0 l 2 2 l 0 2`).
 3. **`Density` (`density`):** Sampling stride in pixels. In `Outline` mode, sets spacing along contours; in `Inner Fill`, sets grid cell step. (Default: `5.0`).
 4. **`RedrawDist` (`redraw_dist`):** Maximum segment redraw tract length in pixels (*redraw tract*). Subdivides long linear segments and discretises cubic Bézier curves (`b ...`) into a sequence of linear mini-segments (`l ...`) of maximum length `redraw_dist`. When set to `0` (canonical default), preserves the geometry and curvature of the original path intact without linear approximations. (Default: `0.0`).
 5. **`Seed` (`seed`):** Deterministic seed governing stochastic position fluctuation (*jitter*). When `seed > 0`, enables random jitter applied to each particle within a uniform range proportional to density ($\pm 0.5 \times \text{density}\text{ px}$). When `seed <= 0` (default: `0`), no jitter is applied and particles are placed at exact sampled coordinates. (Default: `0`).
@@ -1107,7 +1109,7 @@ Numeric values are emitted as clean integers if fractional parts are zero, or ro
 ---
 
 ### 13.3. Output Ports (*Outputs*)
-1. **`[1.1] Shp Out`:** Combined block with absolute position tag and particle drawing: `{\pos(X, Y)}particle_shape`.
+1. **`[1.1] Shp Out`:** Combined block with absolute position tag and particle drawing: `{\pos(X, Y)\particle_tags}particle_shape`. Preserves any colour or border styles defined on `Particle`.
 2. **`[1.2] \pos Tag`:** Cartesian position tag `\pos(X, Y)`.
 3. **`[1.3] X Arr`:** Horizontal Cartesian coordinate $X$ of the active particle (px).
 4. **`[1.4] Y Arr`:** Vertical Cartesian coordinate $Y$ of the active particle (px).
@@ -1221,11 +1223,12 @@ $$t_{\text{eased}} = \begin{cases} t^{\text{accel}} & \text{if } \text{accel} > 
 
 #### 14.3.2. Data Type Handling Mechanics
 1. **ASSdraw Vector Geometries (Morphing):**
-   * Contours are extracted from both shapes using Clipper2.
+   * Isolates clean vector geometry from $V_1$ and $V_2$ using `split_shape_and_tags` and discards incoming tags entirely, ensuring that morphological morphing operates purely on vector coordinates without styling artefacts or Clipper2 cache pollution.
+   * Clean contours are extracted from both shapes using Clipper2.
    * Both contours are resampled to an identical vertex count $M = \max(|C_1|, |C_2|, 30)$ uniformly spaced by arc length.
    * Vertex pairs are linearly interpolated:
      $$P_k(t) = (1 - t_{\text{eased}}) \cdot P_{1,k} + t_{\text{eased}} \cdot P_{2,k}$$
-   * The continuous ASSdraw path is reconstructed.
+   * The continuous ASSdraw path is reconstructed and emitted as pure geometry (`m ... l ...`).
 2. **Hex / ASS Colours:**
    * Channels $(R_1, G_1, B_1)$ and $(R_2, G_2, B_2)$ are decomposed and interpolated linearly in RGB space.
 3. **ASS Tag Blocks (Keyframing):**
@@ -1276,7 +1279,7 @@ $$t_{\text{eased}} = \begin{cases} t^{\text{accel}} & \text{if } \text{accel} > 
 ---
 
 ### 15.2. Input Ports and Body Properties (*Inputs & Properties*)
-1. **`Path / Shape` (`shape`):** ASSdraw vector path acting as the spatial guide rail.
+1. **`Path / Shape` (`shape`):** ASSdraw vector path acting as the spatial guide rail. Accepts pure paths or splines with previous tags; the analyser extracts clean geometry, discarding curve tags to compute arc length and tangential angles without crashing.
 2. **`Offset` (`offset`):** Longitudinal displacement offset along the path in pixels (or $0.0 \to 1.0$ progress in `Animated` mode). (Default: `"0"`).
 3. **`Extra Angle` (`extra_angle`):** Additional angular offset in degrees added to the computed tangent angle. (Default: `"0"`).
 4. **`Subdivs` (`subdivs`):** Number of subdivisions used for internal Bézier sampling along the path. (Default: `"30"`).
@@ -1386,6 +1389,7 @@ TrueType/OpenType Font ───> FontVectorEngine (Win32 GDI 64x Subpixel) ─�
    * **`typographic` (Default):** Origin placed at the typographic advance centre, guaranteeing 1:1 pixel match with libass `\pos(line.center, line.middle)`.
    * **`ink`:** Origin centred on the physical bounding box centroid of drawn ink, suited for particle generation and morphological slicing.
    * **`baseline` / `origin`:** Origin pinned to the typographic pen baseline.
+4. **Automatic Anamorphic Compensation:** When the script resolution aspect ratio (`PlayResX / PlayResY`) diverges from the video display aspect ratio (`DAR`, e.g. anamorphic DVD 720x480 displayed at 16:9), `FontVectorEngine` automatically compresses or expands horizontal $X$ coordinates and `advance_width` using `video_x_correct_factor`. This ensures that vectorised glyphs align pixel-perfectly with Aegisub/libass syllable metrics (`syl.width`, `syl.left`, `syl.center`) whilst strictly preserving standard `\fscx100\fscy100` output tags without injecting fractional ASS scale overrides.
 
 ---
 

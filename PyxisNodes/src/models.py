@@ -330,8 +330,6 @@ class PyxisUnit:
     def pos_x(self):
         if getattr(self, '_pos_x', None) is not None:
             return self._pos_x
-        if self.style_override is not None and self.style_override.has_pos:
-            return self.style_override.pos_x
         return self.x
 
     @pos_x.setter
@@ -342,8 +340,6 @@ class PyxisUnit:
     def pos_y(self):
         if getattr(self, '_pos_y', None) is not None:
             return self._pos_y
-        if self.style_override is not None and self.style_override.has_pos:
-            return self.style_override.pos_y
         return self.y
 
     @pos_y.setter
@@ -354,10 +350,10 @@ class PyxisUnit:
     def org_x(self):
         if getattr(self, '_org_x', None) is not None:
             return self._org_x
-        if self.style_override is not None and self.style_override.has_org:
-            return self.style_override.org_x
         if self.line and self.line is not self and getattr(self.line, 'has_org', False):
-            return self.line.org_x
+            l_x = float(getattr(self.line, 'x', getattr(self.line, 'center', 0.0)))
+            l_org_x = float(getattr(self.line, 'org_x', l_x))
+            return self.center + (l_org_x - l_x)
         return self.center
 
     @org_x.setter
@@ -368,10 +364,10 @@ class PyxisUnit:
     def org_y(self):
         if getattr(self, '_org_y', None) is not None:
             return self._org_y
-        if self.style_override is not None and self.style_override.has_org:
-            return self.style_override.org_y
         if self.line and self.line is not self and getattr(self.line, 'has_org', False):
-            return self.line.org_y
+            l_y = float(getattr(self.line, 'y', getattr(self.line, 'middle', 0.0)))
+            l_org_y = float(getattr(self.line, 'org_y', l_y))
+            return self.middle + (l_org_y - l_y)
         return self.middle
 
     @org_y.setter
@@ -876,8 +872,6 @@ class PyxisLine(PyxisUnit):
     def pos_x(self):
         if getattr(self, '_pos_x', None) is not None:
             return self._pos_x
-        if self.style_override and self.style_override.has_pos:
-            return self.style_override.pos_x
         return self.x
 
     @pos_x.setter
@@ -888,8 +882,6 @@ class PyxisLine(PyxisUnit):
     def pos_y(self):
         if getattr(self, '_pos_y', None) is not None:
             return self._pos_y
-        if self.style_override and self.style_override.has_pos:
-            return self.style_override.pos_y
         return self.y
 
     @pos_y.setter
@@ -900,8 +892,6 @@ class PyxisLine(PyxisUnit):
     def org_x(self):
         if getattr(self, '_org_x', None) is not None:
             return self._org_x
-        if self.style_override and self.style_override.has_org:
-            return self.style_override.org_x
         return self.center
 
     @org_x.setter
@@ -912,8 +902,6 @@ class PyxisLine(PyxisUnit):
     def org_y(self):
         if getattr(self, '_org_y', None) is not None:
             return self._org_y
-        if self.style_override and self.style_override.has_org:
-            return self.style_override.org_y
         return self.middle
 
     @org_y.setter

@@ -226,15 +226,38 @@
                 if (this.isSplitterDragging) this.onSplitterEnd();
             });
 
-            // Header Buttons (Solo Iconos con Tooltip)
+            window.addEventListener("blur", () => {
+                if (this.isDragging) this.onDragEnd();
+                if (this.isResizing) this.onResizeEnd();
+                if (this.isSplitterDragging) this.onSplitterEnd();
+            });
+
+            // Header Buttons (Icon-only with Tooltip)
             const btnClose = this.container.querySelector("#pyxis-help-btn-close");
-            btnClose.addEventListener("click", () => this.close());
+            btnClose.addEventListener("mousedown", (e) => e.stopPropagation());
+            btnClose.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.close();
+            });
 
             const btnMax = this.container.querySelector("#pyxis-help-btn-maximize");
-            btnMax.addEventListener("click", () => this.toggleMaximize());
+            btnMax.addEventListener("mousedown", (e) => e.stopPropagation());
+            btnMax.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.toggleMaximize();
+            });
 
             const btnMin = this.container.querySelector("#pyxis-help-btn-minimize");
-            btnMin.addEventListener("click", () => this.toggleMinimize());
+            btnMin.addEventListener("mousedown", (e) => e.stopPropagation());
+            btnMin.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.toggleMinimize();
+            });
+
+            // Prevent wheel events inside the help viewer from bubbling to global canvas handlers
+            this.container.addEventListener("wheel", (e) => {
+                e.stopPropagation();
+            }, { passive: true });
 
             // Doble clic en cabecera para maximizar/restaurar
             this.header.addEventListener("dblclick", (e) => {
@@ -352,6 +375,7 @@
          * @param {MouseEvent} e - Mouse event initiating the drag gesture.
          */
         onDragStart(e) {
+            if (e.button !== 0) return;
             if (e.target.closest(".pyxis-floating-header-actions")) return;
             if (this.isMaximized) return;
 
@@ -403,6 +427,7 @@
          * @param {string} dir - Compass direction of the active resizer handle ('n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se').
          */
         onResizeStart(e, dir) {
+            if (e.button !== 0) return;
             if (this.isMaximized) return;
             e.stopPropagation();
             this.isResizing = true;
@@ -499,6 +524,7 @@
          * @param {MouseEvent} e - Mouse event on the splitter bar.
          */
         onSplitterStart(e) {
+            if (e.button !== 0) return;
             e.stopPropagation();
             this.isSplitterDragging = true;
             this.splitterStartX = e.clientX;
@@ -566,10 +592,25 @@
         }
 
         /**
-         * Hides the help viewer window.
+         * Hides the help viewer window and clears any active drag or resize state.
          */
         close() {
             if (!this.container) return;
+            if (this.isDragging) {
+                this.isDragging = false;
+                this.container.classList.remove("is-dragging");
+            }
+            if (this.isResizing) {
+                this.isResizing = false;
+                this.currentResizer = null;
+                this.container.classList.remove("is-resizing");
+            }
+            if (this.isSplitterDragging) {
+                this.isSplitterDragging = false;
+                this.container.classList.remove("is-resizing-splitter");
+            }
+            document.body.style.userSelect = "";
+            document.body.style.cursor = "";
             this.container.style.display = "none";
         }
 

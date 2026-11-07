@@ -141,7 +141,7 @@ system_node(
     "System", "Previewer", node_kind="preview", color="#2563EB",
     inputs=["Output"],
     outputs=[],
-    properties={"output_ids": ""},
+    properties={"output_ids": "", "render_mode": "typesetting"},
     widgets=[
         {"type": "text", "name": "Output IDs", "property": "output_ids"}
     ]
@@ -252,7 +252,7 @@ system_node(
 system_node(
     "Basics", "Number", node_kind="data", 
     inputs=[], outputs=["Number"], color="#1A5F4C",
-    properties={"value": "0"},
+    properties={"value": ""},
     widgets=[{"type": "text", "name": "Value", "property": "value"}]
 )
 
@@ -840,7 +840,9 @@ system_node(
         "shape": "",
         "shape_b": "",
         "tagmode": "ipol",
-        "tags": ""
+        "tags": "",
+        "split_mode": "islands",
+        "accel": "1.0"
     },
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": [
@@ -850,7 +852,7 @@ system_node(
             "evenodd", "nonzero", "positive", "negative"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "pieces", "relative", "parent_org", "pos", "absolute"
+            "pieces", "relative", "origin", "center", "parent_org", "pos", "absolute"
         ]},
         {"type": "combo", "name": "Order:", "property": "order", "values": [
             "79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand", "path", "path_inv"
@@ -920,7 +922,7 @@ system_node(
 
 system_node(
     "Functions", "Animation", node_kind="data", color="#8B5CF6",
-    inputs=["Shape list", "Step ms", "Start Time", "End Time"],
+    inputs=["Shape list", "Step ms", "Start Time", "End Time", "Anchor"],
     outputs=["Shape", "Frame", "Frames List"],
     properties={
         "mode": "fbf",
@@ -930,9 +932,14 @@ system_node(
         "end_time": "",
         "alpha_tag": r"\alpha",
         "order": "sequential",
-        "var_name": "an"
+        "anchor": "relative",
+        "base": "0"
     },
-    widgets=[]
+    widgets=[
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
+            "relative", "center", "origin"
+        ]}
+    ]
 )
 
 system_node(

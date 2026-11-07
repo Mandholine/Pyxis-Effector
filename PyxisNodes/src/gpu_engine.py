@@ -162,20 +162,25 @@ class GpuEngineManager:
                 pass
 
             if sys.platform == "win32":
-                opencl_dll_path = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "OpenCL.dll")
-                if os.path.exists(opencl_dll_path):
-                    try:
-                        opencl_lib = ctypes.cdll.LoadLibrary(opencl_dll_path)
-                        num_platforms = ctypes.c_uint32()
-                        res_code = opencl_lib.clGetPlatformIDs(0, None, ctypes.byref(num_platforms))
-                        if res_code == 0 and num_platforms.value > 0:
-                            self.backend = "OpenCL (Ctypes Native Runtime)"
-                            self.device_name = f"OpenCL.dll Compatible Device ({num_platforms.value} Platform(s))"
-                            self.is_healthy = True
-                            print(f"[Pyxis GPU Engine] OpenCL Live Probe OK! Active backend: {self.backend} - {self.device_name}", flush=True)
-                            return True
-                    except Exception as cl_err:
-                        print(f"[Pyxis GPU Engine] OpenCL.dll probe exception: {cl_err}", flush=True)
+                candidates = [os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "OpenCL.dll")]
+            elif sys.platform == "darwin":
+                candidates = ["/System/Library/Frameworks/OpenCL.framework/OpenCL"]
+            else:
+                candidates = ["libOpenCL.so.1", "libOpenCL.so"]
+
+            for lib_name in candidates:
+                try:
+                    opencl_lib = ctypes.cdll.LoadLibrary(lib_name)
+                    num_platforms = ctypes.c_uint32()
+                    res_code = opencl_lib.clGetPlatformIDs(0, None, ctypes.byref(num_platforms))
+                    if res_code == 0 and num_platforms.value > 0:
+                        self.backend = "OpenCL (Ctypes Native Runtime)"
+                        self.device_name = f"OpenCL Compatible Device ({num_platforms.value} Platform(s))"
+                        self.is_healthy = True
+                        print(f"[Pyxis GPU Engine] OpenCL Live Probe OK! Active backend: {self.backend} - {self.device_name}", flush=True)
+                        return True
+                except Exception as cl_err:
+                    pass
 
         except Exception as e:
             print(f"[Pyxis GPU Engine] OpenCL Live Probe failed ({e}). Using CPU Fallback...", flush=True)

@@ -15,11 +15,12 @@ The **Basics** category gathers nodes dedicated to primitive data generation, tr
 1. **`[1.1] Number`:** Emits the evaluated numerical value as a formatted text string. If the result is an exact integer, it is formatted without decimal places (e.g. `10`); if fractional, it is rounded to a maximum of 4 significant decimal places with trailing redundant zeroes stripped (e.g. `12.5`).
 
 ### 1.2. Controls and Body Properties
-1. **`[2.1] Value` (`value`):** Editable input field. Accepts direct numbers (`100`, `-45.2`), ASS context variables (`syl.x`, `line.width`, `j`, `i`, `char.n`), or algebraic expressions (`syl.width / 2 + 10`, `sin(j * 0.1) * 50`).
+1. **`[2.1] Value` (`value`):** Editable input field. Its default initial value is blank (`""`), dynamically evaluating to `0` if left empty. Accepts direct numbers (`100`, `-45.2`), ASS context variables (`syl.x`, `line.width`, `j`, `i`, `char.n`), algebraic expressions (`syl.width / 2 + 10`, `sin(j * 0.1) * 50`), or comma-separated lists of numbers and formulas (e.g. `10, 20, 30`). Supports visual line breaks inserted with `Shift + Enter` for convenient multi-line list organisation; during backend evaluation and linting, physical line breaks are automatically stripped to produce a continuous sequence.
 
 ### 1.3. Dynamic Evaluation of Expressions
 The `value` field is processed dynamically on every execution iteration cycle:
 * If the input string contains identifiers registered in the active context (`syl`, `line`, `char`, `video_fps`, etc.), the evaluator substitutes their numerical values prior to calculation.
+* If the text contains comma-separated values or formulas, evaluates each component individually and yields the corresponding formatted list.
 * Supports both decimal points (`12.5`) and decimal commas (`12,5`), normalising them automatically.
 
 ### 1.4. Synergies and Best Practices
@@ -39,7 +40,7 @@ The `value` field is processed dynamically on every execution iteration cycle:
 1. **`[1.1] String`:** Emits the text string configured in the node body.
 
 ### 2.2. Controls and Body Properties
-1. **`[2.1] Text` (`value`):** Editable string field. Supports plain text, ASS line break and spacing escape sequences (`\N`, `\h`), tag blocks (`{\an5\bord0\shad0}`), or vector drawing paths (`m 0 0 l 100 0 100 100 0 100`). If the text contains blocks enclosed in braces `{\...}`, Pyxis string evaluator directly resolves expressions and context variables within the tag parentheses (e.g. `{\pos(syl.center, syl.middle)}` or `\fscx(100 + 20 * i)`) while preserving surrounding literal text.
+1. **`[2.1] Text` (`value`):** Editable string field. Supports plain text, ASS line break and spacing escape sequences (`\n`, `\N`, `\h`), tag blocks (`{\an5\bord0\shad0}`), or vector drawing paths (`m 0 0 l 100 0 100 100 0 100`). Supports `Shift + Enter` for multi-line formatting in the UI canvas; during backend evaluation and linting, physical line breaks are cleanly collapsed, strictly preserving any explicit ASS line break tags (`\n`, `\N`) intended for the rendered subtitle. If the text contains blocks enclosed in braces `{\...}`, Pyxis string evaluator directly resolves expressions and context variables within the tag parentheses (e.g. `{\pos(syl.center, syl.middle)}` or `\fscx(100 + 20 * i)`) while preserving surrounding literal text.
 
 ### 2.3. Synergies and Best Practices
 * **Static Header Injection:** Connect `String` to `Basics/Concatenate` or `Output (Tags)` nodes to prepend static formatting combinations (e.g. `{\an5\bord1\blur1.5}`).
@@ -253,6 +254,9 @@ To invoke deterministic random values cached per iterator inside ASS expressions
   colour = by.syl.Rcolor("#FFFFFF", "#0088FF") # Constant colour for the entire syllable
   ```
 Within the same cycle of the specified iterator, repeated queries return the identical memoised value. When the iterator advances, the engine automatically recomputes and stores a new value.
+
+* **Hierarchical Scope Inheritance:** Sub-loops (`by.j`, `by.s_i`, `by.p_i`) inherit the hierarchy of the enclosing active unit (`line` -> `char`/`syl`/`word` -> sub-loop). Thus, particle $j=1$ for character 1 generates values independently from particle $j=1$ for character 2. Concurrently, `by.char.R(...)` preserves its exact memoised value across all $j$ iterations of that same character, recalculating only when advancing to the subsequent character.
+* **Callsite Isolation:** Separate direct invocations in code generate independent random draws for that iterator cycle. To reuse the exact same random value across multiple properties or downstream nodes, assign the result to a variable (e.g. `my_var = by.j.R(...)`) or provide an explicit parameter `tag="my_tag"`.
 
 ### 6.4. Catalogue of the 15 Random Modes (`mode`)
 

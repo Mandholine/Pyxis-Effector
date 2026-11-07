@@ -507,6 +507,26 @@ Todas las variables asignadas en `Vars` quedan registradas inmediatamente en el 
 * Nodos `Basics/Dynamic Format` o `Basics/Math`.
 * Expresiones entre paréntesis `\tag(variable)` en cadenas de texto y plantillas de tags ASS.
 
+#### Sobrescritura de Variables del Sistema y Jerarquía de Precedencia (4 Niveles):
+Además de definir variables de usuario arbitrarias, `Variables/Define Vars` puede sobrescribir de forma controlada propiedades mutables del cuadro de efecto activo (`fx`), las cuales se sincronizan automáticamente entre todos sus alias:
+* **Tiempos y Duración:** `st`, `start_time`, `fx.st`, `fx.start_time`, `et`, `end_time`, `fx.et`, `fx.end_time` y `dur` (`duration`, `fx.dur`). Al modificar `st` y/o `et`, `dur` se recalcula automáticamente como $\max(0, \text{et} - \text{st})$; si se modifica `dur` sin alterar `et`, el motor deduce automáticamente $\text{et} = \text{st} + \text{dur}$.
+* **Alineación ASS:** `align`, `an`, `fx.align` (valores enteros del `1` al `9` según la disposición del teclado numérico). Nota: `origin_align` es una propiedad independiente de anclaje geométrico que se establece exclusivamente desde la cruceta del nodo `System/Output` y no puede sobrescribirse desde `Define Vars`.
+* **Capa de Subtítulo:** `layer`, `fx.layer` (entero de capa ASS).
+* **Posición y Punto de Origen:** `fx.pos_x` (`pos_x`, `fx.x`), `fx.pos_y` (`pos_y`, `fx.y`), `fx.org_x` (`org_x`) y `fx.org_y` (`org_y`).
+
+Para garantizar un comportamiento determinista al combinar múltiples fuentes de datos en el grafo, Pyxis aplica la siguiente **jerarquía de precedencia de 4 niveles** (de menor a mayor prioridad):
+
+$$\text{1. Línea / Unidad Original} \quad < \quad \text{2. Define Vars} \quad < \quad \text{3. Return (y puertos explícitos de Output)} \quad < \quad \text{4. Tags}$$
+
+1. **Nivel 1 (Línea / Unidad Original):** Valores base heredados del evento ASS o de la unidad activa (`syl`, `char`, `word`, `line`).
+2. **Nivel 2 (`Variables/Define Vars`):** Sobrescribe los valores base de la unidad original para tiempos (`st`, `et`, `dur`), alineación (`align`), capa (`layer`), posición (`fx.pos`) y origen (`fx.org`).
+3. **Nivel 3 (`Return` y puertos explícitos de `System/Output`):** Las propiedades devueltas por generadores o scripts conectados al puerto `Return` (como `Shape/Slicer`, `Functions/Particles`, `Code/Script`) y las conexiones directas a los puertos explícitos de `System/Output` (`Start`, `End`, `Layer`) tienen prioridad sobre `Define Vars`.
+4. **Nivel 4 (`Tags`):** Las etiquetas de sobrecarga ASS conectadas al puerto `Tags` o incrustadas manualmente en el texto final (`\pos`, `\move`, `\org`, `\an`) poseen la prioridad máxima absoluta en el evento renderizado.
+
+> [!IMPORTANT]
+> **Variables Reservadas del Sistema (Protegidas contra Sobrescritura):**
+> Los metadatos estructurales de la línea y del enrutador de colas están estrictamente protegidos. Los identificadores `effect`, `actor`, `margins` (`margin_l`, `margin_r`, `margin_v`), `queueid` (`queue_id`) y `queueorder` (`queue_order`) —tanto de forma directa como bajo los prefijos `line.*`, `l.*` o `fx.*`— son de **solo lectura** en `Define Vars`. Cualquier intento de asignación sobre ellos es bloqueado silenciosamente en tiempo de ejecución y señalado como advertencia por el validador pre-generación (Linter).
+
 > [!NOTE]
 > **Re-evaluación Automática con Iteradores de Retorno (*Return Iterators*):**
 > Cuando un nodo conectado al puerto `Return` de `System/Output` (como `Shape/Slicer`, `Shape/Array`, `Functions/Particles`, `Functions/IMG to pixels`) genera sub-iteraciones internas (`s_i`, `a_i`, `p_i`, `d_i`, etc.), Pyxis re-evalúa automáticamente todas las variables activas de `Define Vars` para cada pieza o partícula antes de evaluar las etiquetas conectadas al puerto `Tags`. Esto garantiza que llamadas como `by.s_i.R(-30, 30)` o expresiones dependientes de `s_i` se resuelvan con el valor exacto de la pieza activa y no con el valor estático del bucle exterior. Además, las definiciones se encuentran estrictamente aisladas por cola de salida (*Queue Isolation*), impidiendo colisiones entre múltiples nodos `Output`.
@@ -794,8 +814,8 @@ Cuando el grafo contiene múltiples nodos `System/Output`, cada cola de renderiz
 
 ### 7.3. Directrices para Prevenir Colisiones de Nombres
 
-1. **No sobreescribir identificadores reservados:** Evitar asignar nombres como `x`, `y`, `i`, `n`, `dur`, `st`, `et` en `Define Vars` a menos que se desee explícitamente mutar la cinemática del glifo mediante los propagadores nativos del motor (`_apply_fx_setting`).
-2. **Uso de prefijos contextuales:** En efectos complejos con múltiples cálculos intermedios, emplear prefijos claros (ej. `orb_rad`, `p_vel_x`, `wave_phase`) para evitar colisiones con variables globales y facilitar la depuración visual.
+1. **Distinguir entre propiedades mutables del efecto y variables reservadas del sistema:** Asignar a `st`, `et`, `start_time`, `end_time`, `dur`, `align` (`an`, `fx.align`), `layer` (`fx.layer`), `fx.pos_x`, `fx.pos_y`, `fx.org_x` o `fx.org_y` en `Define Vars` muta intencionadamente la ventana temporal, alineación, capa o cinemática de la unidad activa siguiendo la jerarquía `Línea Original < Define Vars < Return / Puertos de Output < Tags`. Por el contrario, `effect`, `actor`, `margins` (`margin_l`, `margin_r`, `margin_v`), `queueid` (`queue_id`) y `queueorder` (`queue_order`) son variables reservadas del sistema y no pueden sobrescribirse desde `Define Vars`.
+2. **Uso de prefijos contextuales:** En efectos complejos con múltiples cálculos intermedios, emplear prefijos claros (ej. `orb_rad`, `p_vel_x`, `wave_phase`) para evitar colisiones involuntarias con variables globales y facilitar la depuración visual.
 3. **Restauración de contadores al anidar generadores:** Al combinar un bucle `Loops/MaxLoop` (`j`) con un generador de retorno como `Shape/Slicer` (`s_i`), no redefinir `j` dentro de `Define Vars`. Leer `j` mediante `Variables/Get Var` o referenciarlo directamente en expresiones.
 
 ---

@@ -1,0 +1,106 @@
+name: Build release packages
+
+# Builds standalone PyxisEffector-v<version>-<platform>.zip archives across all 5 supported
+# operating systems and architectures (downloaded automatically by Pyxis_engine.lua).
+# See tools/build_release.py for details.
+#
+# - Pushing a v* tag builds all 5 platform archives and attaches them + Pyxis_engine.lua
+#   to the corresponding GitHub Release.
+# - Triggering via workflow_dispatch builds the archives as downloadable CI artifacts.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: win64
+            runner: windows-latest
+          - platform: linux64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+          - platform: macos-arm64
+            runner: macos-latest
+          - platform: macos-x64
+            runner: macos-15-intel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install native build dependencies (Linux)
+        if: startsWith(matrix.platform, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config nasm libass-dev zlib1g-dev
+
+      - name: Install native build dependencies (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          brew install pkg-config nasm libass
+
+      - name: Build standalone release package
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python tools/build_release.py --platform ${{ matrix.platform }}
+
+      - name: Verify native binaries in archive
+        shell: python
+        run: |
+          import sys, zipfile
+          from pathlib import Path
+          plat = "${{ matrix.platform }}"
+          ext = ".exe" if plat == "win64" else ""
+          required = {f"PyxisNodes/bin/{name}{ext}" for name in ("ffmpeg", "potrace", "img2ass", "libass_profiler")}
+          zips = list(Path("dist").glob(f"PyxisEffector-v*-{plat}.zip"))
+          if not zips:
+              sys.exit(f"No release archive found in dist/ for {plat}")
+          with zipfile.ZipFile(zips[0]) as zf:
+              names = set(zf.namelist())
+          missing = required - names
+          if missing:
+              sys.exit(f"Archive {zips[0].name} is missing required native binaries: {sorted(missing)}")
+          print(f"Verified all 4 native binaries in {zips[0].name}: {sorted(required)}")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PyxisEffector-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attach archives and Lua bridge to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/* Pyxis_engine.lua --repo "$GITHUB_REPOSITORY" --clobber
+

@@ -320,8 +320,11 @@ def _fmt_num(val: Any) -> str:
     Serialisation rules:
     - Booleans are converted to '1' or '0'.
     - Integers are represented without decimals ('10').
+    - Infinitesimal floats (abs(val) < 1e-9) resulting from IEEE-754 cancellations are snapped to '0'.
     - Floats with integer values are stripped of decimal points ('10.0' -> '10').
-    - Floats with fractional parts are rounded up to 3 decimal places without trailing zeros ('10.500' -> '10.5').
+    - Floats with fractional parts are formatted up to 4 decimal places in fixed-point decimal notation
+      without scientific exponent notation ('10.500' -> '10.5').
+    - Negative zeros ('-0') and empty fractional residues are normalised to '0'.
 
     Args:
         val: Numeric value to format.
@@ -336,68 +339,53 @@ def _fmt_num(val: Any) -> str:
     if isinstance(val, int):
         return str(val)
     if isinstance(val, float):
+        if abs(val) < 1e-9:
+            return "0"
         if val.is_integer():
             return str(int(val))
-        return f"{val:.3f}".rstrip('0').rstrip('.')
-    return str(val)
+        res = f"{val:.4f}".rstrip('0').rstrip('.')
+        return "0" if res in ("", "-0", "-") else res
 
-
-def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Constructs and populates the local evaluation dictionary with DAG runtime context.
-
-    Binds all canonical context entities, proxies, and iterator namespaces:
-    1. Hierarchical text entities: 'syl', 'char', 'word', 'line'/'l' (wrapped in AttrDict for dot-access).
-    2. Loop counters and bounds: 'j' (default 1), 'maxj'/'maxloop' (default fx_n or 1).
-    3. Multidimensional subloop iterators: 's_i'/'slice_i', 'd_i'/'divide_i', 'b_i'/'ring_i',
-       'a_i'/'array_i', 'm_i'/'multi_i', 'p_i'/'particle_i', 'tp_i'/'text_p_i', 'ip_i'/'img_p_i',
-       'c_i'/'clip_i', 'an_i'/'anim_i', and their respective '*_n' and '*_max' counts.
-    4. Relative relational proxies: 'prev' and 'next' (wrapped in AdjacentUnitProxy), with boolean flags
-       'is_first', 'is_last', 'has_prev', 'has_next'.
-    5. Vector ink metrics: 'ink' (bound to InkNamespace).
-    6. Particle and transformation state: 'fx' (bound to FxContext).
-    7. Persistent cross-iteration memory: 'remember(key, val, cond)' and 'recall(key, default)'.
-    8. Dynamic time modifiers: 'li', 'lo', 'm1', 'm2', 'l1', 'l2' (PyxisTimeModifier).
-    9. Inter-line synchronisation helper: 'sync' (PyxisSyncHelper) and 'calculate_sync_gap'.
-    10. Stochastic dispatchers: 'by' (PyxisByDispatcher) and iterator-coupled PRNG callers ('R', 'Rs', 'Rc', etc.).
-
-    Args:
-        context: Raw runtime dictionary supplied by the active DAG graph iteration.
-
-    Returns:
-        Dict[str, Any]: Fully initialised locals dictionary ready for AST evaluation.
-    """
-    eval_globals = _get_eval_globals()
-    eval_locals: Dict[str, Any] = dict(context) if isinstance(context, dict) else {}
-    eval_locals["context"] = eval_locals
-
+    s_val = str(val).strip()
     try:
-        from node_engine import AttrDict, FxContext
-    except ImportError:
-        class AttrDict(dict):
-            def __getattr__(self, name):
-                if name in self:
-                    val = self[name]
-                    return AttrDict(val) if isinstance(val, dict) else val
-                raise AttributeError(f"'dict' object has no attribute '{name}'")
-            def __setattr__(self, name, value):
-                self[name] = value
-        class FxContext:
-            def __init__(self, ctx): self._ctx = ctx
-            def __getattr__(self, name): return self._ctx.get(name, 0.0)
+        f = float(s_val)
+        if abs(f) < 1e-9:
+            return "0"
+        if f.is_integer() and '.' not in s_val and 'e' not in s_val.lower():
+            return str(int(f))
+        res = f"{f:.4f}".rstrip('0').rstrip('.')
+        return "0" if res in ("", "-0", "-") else res
+    except (ValueError, TypeError):
+        pass
 
-    for k, v in list(eval_locals.items()):
-        if isinstance(v, dict) and not isinstance(v, AttrDict):
-            eval_locals[k] = AttrDict(v)
+    return s_val
 
-    eval_locals["audio_rms"] = lambda *args, **kwargs: eval_globals.get("audio_rms", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
-    eval_locals["audio_peak"] = lambda *args, **kwargs: eval_globals.get("audio_peak", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
-    eval_locals["audio_band"] = lambda *args, **kwargs: eval_globals.get("audio_band", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
-    eval_locals["audio_fft"] = lambda *args, **kwargs: eval_globals.get("audio_fft", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
+
+_SUBLOOP_KEY_TUPLES = (
+    ("s_i", "s_n", "s_max", "slice_i", "slice_n", "slice_max", True),
+    ("d_i", "d_n", "d_max", "divide_i", "divide_n", "divide_max", True),
+    ("b_i", "b_n", "b_max", "ring_i", "ring_n", "ring_max", False),
+    ("a_i", "a_n", "a_max", "array_i", "array_n", "array_max", False),
+    ("m_i", "m_n", "m_max", "multi_i", "multi_n", "multi_max", False),
+    ("p_i", "p_n", "p_max", "particle_i", "particle_n", "particle_max", False),
+    ("tp_i", "tp_n", "tp_max", "text_p_i", "text_p_n", "text_p_max", False),
+    ("ip_i", "ip_n", "ip_max", "img_p_i", "img_p_n", "img_p_max", False),
+    ("c_i", "c_n", "c_max", "clip_i", "clip_n", "clip_max", False),
+    ("an_i", "an_n", "an_max", "anim_i", "anim_n", "anim_max", False),
+)
+
+
+def _build_context_eval_helpers(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    eval_globals = _get_eval_globals()
+    helpers: Dict[str, Any] = {}
+    helpers["audio_rms"] = lambda *args, **kwargs: eval_globals.get("audio_rms", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
+    helpers["audio_peak"] = lambda *args, **kwargs: eval_globals.get("audio_peak", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
+    helpers["audio_band"] = lambda *args, **kwargs: eval_globals.get("audio_band", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
+    helpers["audio_fft"] = lambda *args, **kwargs: eval_globals.get("audio_fft", lambda *a, **kw: 0.0)(*args, context=context, **kwargs)
 
     by_cls = eval_globals.get("PyxisByDispatcher")
     if by_cls:
-        eval_locals["by"] = by_cls(context)
+        helpers["by"] = by_cls(context)
 
     def _make_eval_rnd_caller(mode_name, default_step=None):
         def _caller(*args, **kwargs):
@@ -425,22 +413,133 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             return 0
         return _caller
 
-    eval_locals["R"] = _make_eval_rnd_caller("R", 1.0)
-    eval_locals["Rs"] = _make_eval_rnd_caller("Rs", 1.0)
-    eval_locals["Rc"] = _make_eval_rnd_caller("Rc", 0.01)
-    eval_locals["Rd"] = _make_eval_rnd_caller("Rd", 0.1)
-    eval_locals["Rm"] = _make_eval_rnd_caller("Rm", 0.001)
-    eval_locals["Rds"] = _make_eval_rnd_caller("Rds", 0.1)
-    eval_locals["Rcs"] = _make_eval_rnd_caller("Rcs", 0.01)
-    eval_locals["Rms"] = _make_eval_rnd_caller("Rms", 0.001)
-    eval_locals["Rr"] = _make_eval_rnd_caller("Rr", 1.0)
-    eval_locals["Rstep"] = _make_eval_rnd_caller("Rstep", 45.0)
-    eval_locals["R2d"] = _make_eval_rnd_caller("R2d", 1.0)
-    eval_locals["Rbool"] = lambda prob=50.0, **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: True)(context, mode="Rbool", min_val=prob, **kwargs)
-    eval_locals["Rcolor"] = lambda c1="#FFFFFF", c2="#000000", **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: "#FFFFFF")(context, mode="Rcolor", min_val=c1, max_val=c2, **kwargs)
-    eval_locals["Re"] = lambda options="", **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: "")(context, mode="Re", options=options, **kwargs)
-    eval_locals["Rfake"] = lambda *args, **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: 0)(context, mode="Rfake", *args, **kwargs)
-    eval_locals["rand"] = eval_locals["R"]
+    helpers["R"] = _make_eval_rnd_caller("R", 1.0)
+    helpers["Rs"] = _make_eval_rnd_caller("Rs", 1.0)
+    helpers["Rc"] = _make_eval_rnd_caller("Rc", 0.01)
+    helpers["Rd"] = _make_eval_rnd_caller("Rd", 0.1)
+    helpers["Rm"] = _make_eval_rnd_caller("Rm", 0.001)
+    helpers["Rds"] = _make_eval_rnd_caller("Rds", 0.1)
+    helpers["Rcs"] = _make_eval_rnd_caller("Rcs", 0.01)
+    helpers["Rms"] = _make_eval_rnd_caller("Rms", 0.001)
+    helpers["Rr"] = _make_eval_rnd_caller("Rr", 1.0)
+    helpers["Rstep"] = _make_eval_rnd_caller("Rstep", 45.0)
+    helpers["R2d"] = _make_eval_rnd_caller("R2d", 1.0)
+    helpers["Rbool"] = lambda prob=50.0, **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: True)(context, mode="Rbool", min_val=prob, **kwargs)
+    helpers["Rcolor"] = lambda c1="#FFFFFF", c2="#000000", **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: "#FFFFFF")(context, mode="Rcolor", min_val=c1, max_val=c2, **kwargs)
+    helpers["Re"] = lambda options="", **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: "")(context, mode="Re", options=options, **kwargs)
+    helpers["Rfake"] = lambda *args, **kwargs: eval_globals.get("math_random_master", lambda *a, **kw: 0)(context, mode="Rfake", *args, **kwargs)
+    helpers["rand"] = helpers["R"]
+
+    if isinstance(context, dict) and callable(context.get("remember")) and callable(context.get("recall")):
+        helpers["remember"] = context["remember"]
+        helpers["recall"] = context["recall"]
+    else:
+        target_ctx = context if isinstance(context, dict) else {}
+        mem_store = target_ctx.get("_memory")
+        if not isinstance(mem_store, dict):
+            mem_store = target_ctx.get("memory")
+        if not isinstance(mem_store, dict):
+            mem_store = {}
+        target_ctx["_memory"] = mem_store
+        target_ctx["memory"] = mem_store
+
+        def _remember(key, val, cond=True):
+            if cond:
+                mem_store[str(key)] = val
+            return val
+
+        def _recall(key, default=""):
+            return mem_store.get(str(key), default)
+
+        helpers["remember"] = _remember
+        helpers["recall"] = _recall
+
+    try:
+        from nodes.code_nodes import PyxisTimeModifier
+        from nodes.time_nodes import (
+            time_lead_in, time_lead_out, time_middle_1, time_middle_2,
+            time_loop_1, time_loop_2, PyxisSyncHelper, calculate_sync_gap
+        )
+        helpers["time_lead_in"] = lambda delay=40, base=None: time_lead_in(context, delay=delay, base=base)
+        helpers["time_lead_out"] = lambda delay=40, base=None: time_lead_out(context, delay=delay, base=base)
+        helpers["time_middle_1"] = lambda delay=30, base=None: time_middle_1(context, delay=delay, base=base)
+        helpers["time_middle_2"] = lambda delay=30, base=None: time_middle_2(context, delay=delay, base=base)
+        helpers["time_loop_1"] = lambda delay=30, mode="leadin", base=None: time_loop_1(context, delay=delay, mode=mode, base=base)
+        helpers["time_loop_2"] = lambda delay=30, mode="leadin", base=None: time_loop_2(context, delay=delay, mode=mode, base=base)
+
+        helpers["li"] = PyxisTimeModifier(time_lead_in, context, default_delay=40.0)
+        helpers["lo"] = PyxisTimeModifier(time_lead_out, context, default_delay=40.0)
+        helpers["m1"] = PyxisTimeModifier(time_middle_1, context, default_delay=30.0)
+        helpers["m2"] = PyxisTimeModifier(time_middle_2, context, default_delay=30.0)
+        helpers["l1"] = PyxisTimeModifier(time_loop_1, context, default_delay=30.0, mode="leadin")
+        helpers["l2"] = PyxisTimeModifier(time_loop_2, context, default_delay=30.0, mode="leadin")
+
+        helpers["sync"] = PyxisSyncHelper(context)
+        helpers["calculate_sync_gap"] = lambda *args, **kwargs: calculate_sync_gap(context, *args, **kwargs)
+    except Exception:
+        pass
+
+    return helpers
+
+
+def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Constructs and populates the local evaluation dictionary with DAG runtime context.
+
+    Binds all canonical context entities, proxies, and iterator namespaces:
+    1. Hierarchical text entities: 'syl', 'char', 'word', 'line'/'l' (wrapped in AttrDict for dot-access).
+    2. Loop counters and bounds: 'j' (default 1), 'maxj'/'maxloop' (default fx_n or 1).
+    3. Multidimensional subloop iterators: 's_i'/'slice_i', 'd_i'/'divide_i', 'b_i'/'ring_i',
+       'a_i'/'array_i', 'm_i'/'multi_i', 'p_i'/'particle_i', 'tp_i'/'text_p_i', 'ip_i'/'img_p_i',
+       'c_i'/'clip_i', 'an_i'/'anim_i', and their respective '*_n' and '*_max' counts.
+    4. Relative relational proxies: 'prev' and 'next' (wrapped in AdjacentUnitProxy), with boolean flags
+       'is_first', 'is_last', 'has_prev', 'has_next'.
+    5. Vector ink metrics: 'ink' (bound to InkNamespace).
+    6. Particle and transformation state: 'fx' (bound to FxContext).
+    7. Persistent cross-iteration memory: 'remember(key, val, cond)' and 'recall(key, default)'.
+    8. Dynamic time modifiers: 'li', 'lo', 'm1', 'm2', 'l1', 'l2' (PyxisTimeModifier).
+    9. Inter-line synchronisation helper: 'sync' (PyxisSyncHelper) and 'calculate_sync_gap'.
+    10. Stochastic dispatchers: 'by' (PyxisByDispatcher) and iterator-coupled PRNG callers ('R', 'Rs', 'Rc', etc.).
+
+    Args:
+        context: Raw runtime dictionary supplied by the active DAG graph iteration.
+
+    Returns:
+        Dict[str, Any]: Fully initialised locals dictionary ready for AST evaluation.
+    """
+    if isinstance(context, dict):
+        helpers = context.get("_eval_helpers_cache")
+        if helpers is None:
+            helpers = _build_context_eval_helpers(context)
+            context["_eval_helpers_cache"] = helpers
+        eval_locals: Dict[str, Any] = dict(context)
+        eval_locals.update(helpers)
+    else:
+        helpers = _build_context_eval_helpers(None)
+        eval_locals = dict(helpers)
+
+    eval_locals["context"] = eval_locals
+
+    try:
+        from node_engine import AttrDict, FxContext
+    except ImportError:
+        class AttrDict(dict):
+            def __getattr__(self, name):
+                if name in self:
+                    val = self[name]
+                    return AttrDict(val) if isinstance(val, dict) else val
+                raise AttributeError(f"'dict' object has no attribute '{name}'")
+            def __setattr__(self, name, value):
+                self[name] = value
+        class FxContext:
+            def __init__(self, ctx): self._ctx = ctx
+            def __getattr__(self, name): return self._ctx.get(name, 0.0)
+
+    for k, v in list(eval_locals.items()):
+        if str(k).startswith('_'):
+            continue
+        if isinstance(v, dict) and not isinstance(v, AttrDict):
+            eval_locals[k] = AttrDict(v)
 
     if "active_unit" in eval_locals and eval_locals["active_unit"]:
         unit_obj = eval_locals["active_unit"]
@@ -472,23 +571,9 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     _fx_i_def = eval_locals.get("fx_i", 1)
     _fx_n_def = eval_locals.get("fx_n", eval_locals.get("maxloop", 1))
-    _subloop_pairs = (
-        ("s", "slice"),
-        ("d", "divide"),
-        ("b", "ring"),
-        ("a", "array"),
-        ("m", "multi"),
-        ("p", "particle"),
-        ("tp", "text_p"),
-        ("ip", "img_p"),
-        ("c", "clip"),
-        ("an", "anim"),
-    )
-    for short_p, long_p in _subloop_pairs:
-        si_k, sn_k, sm_k = f"{short_p}_i", f"{short_p}_n", f"{short_p}_max"
-        li_k, ln_k, lm_k = f"{long_p}_i", f"{long_p}_n", f"{long_p}_max"
-        i_val_p = eval_locals.get(si_k, eval_locals.get(li_k, _fx_i_def if short_p in ("s", "d") and "fx_i" in eval_locals else 1))
-        n_val_p = eval_locals.get(sn_k, eval_locals.get(ln_k, _fx_n_def if short_p in ("s", "d") and "fx_n" in eval_locals else 1))
+    for si_k, sn_k, sm_k, li_k, ln_k, lm_k, has_fx in _SUBLOOP_KEY_TUPLES:
+        i_val_p = eval_locals.get(si_k, eval_locals.get(li_k, _fx_i_def if has_fx and "fx_i" in eval_locals else 1))
+        n_val_p = eval_locals.get(sn_k, eval_locals.get(ln_k, _fx_n_def if has_fx and "fx_n" in eval_locals else 1))
         m_val_p = eval_locals.get(sm_k, eval_locals.get(lm_k, n_val_p))
         eval_locals.setdefault(si_k, i_val_p)
         eval_locals.setdefault(li_k, i_val_p)
@@ -534,62 +619,21 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if "fx" not in eval_locals or eval_locals["fx"] is None or not isinstance(eval_locals["fx"], FxContext):
         eval_locals["fx"] = FxContext(eval_locals)
 
-    if isinstance(context, dict) and callable(context.get("remember")) and callable(context.get("recall")):
-        eval_locals["remember"] = context["remember"]
-        eval_locals["recall"] = context["recall"]
-    else:
-        target_ctx = context if isinstance(context, dict) else eval_locals
-        mem_store = target_ctx.get("_memory")
-        if not isinstance(mem_store, dict):
-            mem_store = target_ctx.get("memory")
-        if not isinstance(mem_store, dict):
-            mem_store = {}
-        target_ctx["_memory"] = mem_store
-        target_ctx["memory"] = mem_store
-        eval_locals["_memory"] = mem_store
-        eval_locals["memory"] = mem_store
-
-        def _remember(key, val, cond=True):
-            if cond:
-                mem_store[str(key)] = val
-            return val
-
-        def _recall(key, default=""):
-            return mem_store.get(str(key), default)
-
-        eval_locals["remember"] = _remember
-        eval_locals["recall"] = _recall
-
-    try:
-        from nodes.code_nodes import PyxisTimeModifier
-        from nodes.time_nodes import (
-            time_lead_in, time_lead_out, time_middle_1, time_middle_2,
-            time_loop_1, time_loop_2, PyxisSyncHelper, calculate_sync_gap
-        )
-        eval_locals["time_lead_in"] = lambda delay=40, base=None: time_lead_in(context, delay=delay, base=base)
-        eval_locals["time_lead_out"] = lambda delay=40, base=None: time_lead_out(context, delay=delay, base=base)
-        eval_locals["time_middle_1"] = lambda delay=30, base=None: time_middle_1(context, delay=delay, base=base)
-        eval_locals["time_middle_2"] = lambda delay=30, base=None: time_middle_2(context, delay=delay, base=base)
-        eval_locals["time_loop_1"] = lambda delay=30, mode="leadin", base=None: time_loop_1(context, delay=delay, mode=mode, base=base)
-        eval_locals["time_loop_2"] = lambda delay=30, mode="leadin", base=None: time_loop_2(context, delay=delay, mode=mode, base=base)
-
-        eval_locals["li"] = PyxisTimeModifier(time_lead_in, context, default_delay=40.0)
-        eval_locals["lo"] = PyxisTimeModifier(time_lead_out, context, default_delay=40.0)
-        eval_locals["m1"] = PyxisTimeModifier(time_middle_1, context, default_delay=30.0)
-        eval_locals["m2"] = PyxisTimeModifier(time_middle_2, context, default_delay=30.0)
-        eval_locals["l1"] = PyxisTimeModifier(time_loop_1, context, default_delay=30.0, mode="leadin")
-        eval_locals["l2"] = PyxisTimeModifier(time_loop_2, context, default_delay=30.0, mode="leadin")
-
-        sync_helper = PyxisSyncHelper(eval_locals)
-        eval_locals["sync"] = sync_helper
-        eval_locals["calculate_sync_gap"] = lambda *a, **kw: calculate_sync_gap(eval_locals, *a, **kw)
-        eval_locals.setdefault("order", "order")
-        eval_locals.setdefault("style", "style")
-        eval_locals.setdefault("actor", "actor")
-        eval_locals.setdefault("effect", "effect")
-        eval_locals.setdefault("layer", "layer")
-    except Exception:
-        pass
+    for k_alias in ("order", "style", "actor", "effect", "layer"):
+        eval_locals.setdefault(k_alias, k_alias)
+    line_item = eval_locals.get("line") or eval_locals.get("l")
+    if line_item is not None:
+        for f_name in ("actor", "effect", "style_name", "style"):
+            f_val = getattr(line_item, f_name, None)
+            if isinstance(f_val, str) and f_val:
+                f_clean = f_val.strip()
+                if f_clean.isidentifier():
+                    eval_locals.setdefault(f_clean, f_clean)
+    sub_vars = context.get("_subtitle_line_vars") if isinstance(context, dict) else None
+    if isinstance(sub_vars, (set, list, dict)):
+        for s_var in sub_vars:
+            if isinstance(s_var, str) and s_var.isidentifier():
+                eval_locals.setdefault(s_var, s_var)
 
     return eval_locals
 
@@ -629,22 +673,29 @@ def _transform_outside_quotes(expr_str: str, transform_fn) -> str:
 
 _AST_EXPR_SENTINEL = object()
 
+_RE_HEX_LITERAL = re.compile(r'&[hH]([0-9a-fA-F]+)&?')
+_RE_FRAME_DUR = re.compile(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*f\b')
+_RE_RATIO = re.compile(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*r\b')
+_RE_TIME_MOD = re.compile(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*(li|lo|m1|m2|l1|l2)\b')
+_RE_UNIT_SHORTCUT = re.compile(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)([fr])(?![a-zA-Z0-9_])')
+
 
 def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, default: Any = "") -> Any:
     """
     Safely compiles and evaluates an arbitrary Python expression with AST caching and contextual variables.
 
     Execution Pipeline:
-    1. Top-level Lua ternary detection ('COND and A or B'): Evaluates the condition first to avoid
+    1. Direct scalar literal or context variable fast-path lookup.
+    2. Top-level Lua ternary detection ('COND and A or B'): Evaluates the condition first to avoid
        falsy fall-through (e.g. 0 or empty string) in ternary branches.
-    2. Lexical pre-processing outside quoted literals:
+    3. Lexical pre-processing outside quoted literals:
        - Substitutes Lua inequality operator '~=' with Python '!='.
        - Converts ASS hex literals '&H<hex>&' or '&h<hex>&' into Python hex integers '0x<hex>'.
        - Expands frame time shortcuts '<num>f' into '(<num> * frame_dur)'.
        - Expands resolution ratio shortcuts '<num>r' into '(<num> * ratio)'.
        - Expands time modifier product syntax '<num>li', '<num>lo', '<num>m1', etc. into '<num> * li'.
-    3. Compilation and LRU AST Cache: Checks '_AST_EXPR_CACHE'; compiles with mode='eval' on miss.
-    4. Sandboxed execution: Invocates 'eval(code_obj, eval_globals, eval_locals)'.
+    4. Compilation and LRU AST Cache: Checks '_AST_EXPR_CACHE'; compiles with mode='eval' on miss.
+    5. Sandboxed execution: Invocates 'eval(code_obj, eval_globals, eval_locals)'.
 
     Args:
         expr_str: Raw expression string to evaluate.
@@ -659,6 +710,24 @@ def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, de
     expr_clean = expr_str.strip()
     if not expr_clean:
         return default
+
+    # Fast-path 1: Numeric literals
+    try:
+        return float(expr_clean) if '.' in expr_clean else int(expr_clean)
+    except ValueError:
+        pass
+
+    # Fast-path 2: Direct context/unit variable lookup
+    if isinstance(context, dict):
+        if expr_clean in context:
+            val = context[expr_clean]
+            if isinstance(val, (int, float, str, bool)):
+                return val
+        u = context.get("active_unit")
+        if u is not None and hasattr(u, expr_clean):
+            val = getattr(u, expr_clean)
+            if isinstance(val, (int, float, str, bool)):
+                return val
 
     # Handle top-level Lua ternary ('COND and A or B') safely so falsy A (e.g. 0) does not fall through to B
     if " and " in expr_clean and " or " in expr_clean:
@@ -678,11 +747,16 @@ def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, de
         ratio = float(context.get("ratio", context.get("module", 1.0)))
 
     def _preprocess_code_segment(seg: str) -> str:
-        seg = seg.replace("~=", "!=")
-        seg = re.sub(r'&[hH]([0-9a-fA-F]+)&?', r'0x\1', seg)
-        seg = re.sub(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*f\b', rf'(\1 * {frame_dur})', seg)
-        seg = re.sub(r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)\s*r\b', rf'(\1 * {ratio})', seg)
-        seg = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*(li|lo|m1|m2|l1|l2)\b', r'\1 * \2', seg)
+        if "~=" in seg:
+            seg = seg.replace("~=", "!=")
+        if "&" in seg:
+            seg = _RE_HEX_LITERAL.sub(r'0x\1', seg)
+        if "f" in seg:
+            seg = _RE_FRAME_DUR.sub(rf'(\1 * {frame_dur})', seg)
+        if "r" in seg:
+            seg = _RE_RATIO.sub(rf'(\1 * {ratio})', seg)
+        if "li" in seg or "lo" in seg or "m1" in seg or "m2" in seg or "l1" in seg or "l2" in seg:
+            seg = _RE_TIME_MOD.sub(r'\1 * \2', seg)
         return seg
 
     expr_clean = _transform_outside_quotes(expr_clean, _preprocess_code_segment)
@@ -713,8 +787,8 @@ def expand_unit_shortcuts(text: str, context: Optional[Dict[str, Any]] = None) -
     - 10f -> 10 * frame_dur (ms)
     - 2r -> 2 * ratio (px)
     """
-    if not text:
-        return ""
+    if not text or ('f' not in text and 'r' not in text):
+        return text if text else ""
     frame_dur = 41.708
     ratio = 1.0
     if isinstance(context, dict):
@@ -736,8 +810,7 @@ def expand_unit_shortcuts(text: str, context: Optional[Dict[str, Any]] = None) -
         except ValueError:
             return match.group(0)
 
-    pattern = r'(?<![a-zA-Z0-9_#&.%])([+-]?\d+(?:\.\d+)?)([fr])(?![a-zA-Z0-9_])'
-    return re.sub(pattern, _replace_unit, text)
+    return _RE_UNIT_SHORTCUT.sub(_replace_unit, text)
 
 
 def _split_top_level_commas(s: str) -> list[str]:
@@ -1286,6 +1359,40 @@ def _get_context_style_props(context: Optional[Dict[str, Any]]) -> Dict[str, Any
     }
 
 
+_RE_STOCHASTIC_TAG = re.compile(r'\\([a-zA-Z0-9]+)R\(')
+_RE_MULTI_C_TILDE = re.compile(r'\\([1-4]+)c~')
+_RE_MULTI_A_TILDE = re.compile(r'\\([1-4]+)a~')
+_RE_FSCXYR = re.compile(r'\\fscxyr([+-]?\d+(?:\.\d+)?)')
+_RE_FSCXR = re.compile(r'\\fscxr([+-]?\d+(?:\.\d+)?)')
+_RE_FSCYR = re.compile(r'\\fscyr([+-]?\d+(?:\.\d+)?)')
+_RE_FSR = re.compile(r'\\fsr([+-]?\d+(?:\.\d+)?)')
+_RE_FRXYZO = re.compile(r'\\frxyzo([+-]?\d+(?:\.\d+)?)')
+_RE_FRXYO = re.compile(r'\\frxyo([+-]?\d+(?:\.\d+)?)')
+_RE_FRXZO = re.compile(r'\\frxzo([+-]?\d+(?:\.\d+)?)')
+_RE_FRYZO = re.compile(r'\\fryzo([+-]?\d+(?:\.\d+)?)')
+_RE_FRXO = re.compile(r'\\frxo([+-]?\d+(?:\.\d+)?)')
+_RE_FRYO = re.compile(r'\\fryo([+-]?\d+(?:\.\d+)?)')
+_RE_FRZO = re.compile(r'\\frzo([+-]?\d+(?:\.\d+)?)')
+_RE_FRO = re.compile(r'\\fro([+-]?\d+(?:\.\d+)?)')
+_RE_FSCXY = re.compile(r'\\fscxy([+-]?\d+(?:\.\d+)?)')
+_RE_FAXY = re.compile(r'\\faxy([+-]?\d+(?:\.\d+)?)')
+_RE_FRXYZ = re.compile(r'\\frxyz([+-]?\d+(?:\.\d+)?)')
+_RE_FRXY = re.compile(r'\\frxy([+-]?\d+(?:\.\d+)?)')
+_RE_FRXZ = re.compile(r'\\frxz([+-]?\d+(?:\.\d+)?)')
+_RE_FRYZ = re.compile(r'\\fryz([+-]?\d+(?:\.\d+)?)')
+_RE_XYBORD = re.compile(r'\\xybord([+-]?\d+(?:\.\d+)?)')
+_RE_XYSHAD = re.compile(r'\\xyshad([+-]?\d+(?:\.\d+)?)')
+_RE_BS = re.compile(r'\\bs([+-]?\d+(?:\.\d+)?)')
+_COLOR_VAL_RE = re.compile(r'\\([1-4])c(&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{6})(?=[\\\}\s]|$)')
+_DARK_COLOR_VAL_RE = re.compile(r'\\([1-4]{2,})c(#[0-9a-fA-F]{3,8}|&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{6})(?=[\\\}\s]|$)')
+_ALPHA_VAL_RE = re.compile(r'\\([1-4]+)a(&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{2}|\d+)(?=[\\\}\s]|$)')
+_STANDALONE_ALPHA_RE = re.compile(r'\\(alpha|[1-4]a)(\d{1,3})(?=[\\\}\s]|$)')
+_RE_TAG_PARENS = re.compile(r'\\([a-zA-Z0-9]+)\(')
+_RE_WHITESPACE_SPACES = re.compile(r'[ \t]+')
+_RE_COMMA_SPACES = re.compile(r'\s*,\s*')
+_RE_SLASH_SPACES = re.compile(r'\s*\\\s*')
+
+
 def _replace_balanced_parens_tags(text: str, tag_start_re: re.Pattern, handler_fn) -> str:
     """
     Robustly locates and substitutes ASS tags with parenthesized arguments using balance depth tracking.
@@ -1463,93 +1570,94 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 
         return f"\\{tag_name}{rand_val}"
 
-    s = _replace_balanced_parens_tags(s, re.compile(r'\\([a-zA-Z0-9]+)R\('), _replace_stochastic_tag)
+    if "R(" in s:
+        s = _replace_balanced_parens_tags(s, _RE_STOCHASTIC_TAG, _replace_stochastic_tag)
 
-    tag_restorations = [
-        (r'\c~', f"\\c{style_color1_clean}"),
-        (r'\alpha~', r"\alpha&H00&"),
-        (r'\fscxy~', f"\\fscx{style_scale_x}\\fscy{style_scale_y}"),
-        (r'\fscx~', f"\\fscx{style_scale_x}"),
-        (r'\fscy~', f"\\fscy{style_scale_y}"),
-        (r'\fs~', f"\\fs{style_fontsize}"),
-        (r'\fsp~', f"\\fsp{style_spacing}"),
-        (r'\fn~', f"\\fn{style_fontname}"),
-        (r'\an~', f"\\an{style_align}"),
-        (r'\xybord~', f"\\xbord{style_outline}\\ybord{style_outline}"),
-        (r'\xbord~', f"\\xbord{style_outline}"),
-        (r'\ybord~', f"\\ybord{style_outline}"),
-        (r'\bord~', f"\\bord{style_outline}"),
-        (r'\xyshad~', f"\\xshad{style_shadow}\\yshad{style_shadow}"),
-        (r'\xshad~', f"\\xshad{style_shadow}"),
-        (r'\yshad~', f"\\yshad{style_shadow}"),
-        (r'\shad~', f"\\shad{style_shadow}"),
-        (r'\bs~', f"\\bord{style_outline}\\shad{style_shadow}"),
-        (r'\frxyz~', f"\\frx0\\fry0\\frz{style_angle}"),
-        (r'\frxy~', r"\frx0\fry0"),
-        (r'\frxz~', f"\\frx0\\frz{style_angle}"),
-        (r'\fryz~', f"\\fry0\\frz{style_angle}"),
-        (r'\frz~', f"\\frz{style_angle}"),
-        (r'\fr~', f"\\fr{style_angle}"),
-        (r'\frx~', r"\frx0"),
-        (r'\fry~', r"\fry0"),
-        (r'\blur~', r"\blur0"),
-        (r'\be~', r"\be0"),
-        (r'\faxy~', r"\fax0\fay0"),
-        (r'\fax~', r"\fax0"),
-        (r'\fay~', r"\fay0"),
-        (r'\b~', f"\\b{style_bold}"),
-        (r'\i~', f"\\i{style_italic}"),
-        (r'\u~', f"\\u{style_underline}"),
-        (r'\s~', f"\\s{style_strikeout}"),
-    ]
+    if "~" in s:
+        tag_restorations = [
+            (r'\c~', f"\\c{style_color1_clean}"),
+            (r'\alpha~', r"\alpha&H00&"),
+            (r'\fscxy~', f"\\fscx{style_scale_x}\\fscy{style_scale_y}"),
+            (r'\fscx~', f"\\fscx{style_scale_x}"),
+            (r'\fscy~', f"\\fscy{style_scale_y}"),
+            (r'\fs~', f"\\fs{style_fontsize}"),
+            (r'\fsp~', f"\\fsp{style_spacing}"),
+            (r'\fn~', f"\\fn{style_fontname}"),
+            (r'\an~', f"\\an{style_align}"),
+            (r'\xybord~', f"\\xbord{style_outline}\\ybord{style_outline}"),
+            (r'\xbord~', f"\\xbord{style_outline}"),
+            (r'\ybord~', f"\\ybord{style_outline}"),
+            (r'\bord~', f"\\bord{style_outline}"),
+            (r'\xyshad~', f"\\xshad{style_shadow}\\yshad{style_shadow}"),
+            (r'\xshad~', f"\\xshad{style_shadow}"),
+            (r'\yshad~', f"\\yshad{style_shadow}"),
+            (r'\shad~', f"\\shad{style_shadow}"),
+            (r'\bs~', f"\\bord{style_outline}\\shad{style_shadow}"),
+            (r'\frxyz~', f"\\frx0\\fry0\\frz{style_angle}"),
+            (r'\frxy~', r"\frx0\fry0"),
+            (r'\frxz~', f"\\frx0\\frz{style_angle}"),
+            (r'\fryz~', f"\\fry0\\frz{style_angle}"),
+            (r'\frz~', f"\\frz{style_angle}"),
+            (r'\fr~', f"\\fr{style_angle}"),
+            (r'\frx~', r"\frx0"),
+            (r'\fry~', r"\fry0"),
+            (r'\blur~', r"\blur0"),
+            (r'\be~', r"\be0"),
+            (r'\faxy~', r"\fax0\fay0"),
+            (r'\fax~', r"\fax0"),
+            (r'\fay~', r"\fay0"),
+            (r'\b~', f"\\b{style_bold}"),
+            (r'\i~', f"\\i{style_italic}"),
+            (r'\u~', f"\\u{style_underline}"),
+            (r'\s~', f"\\s{style_strikeout}"),
+        ]
 
-    for literal_pat, repl in tag_restorations:
-        s = s.replace(literal_pat, repl)
+        for literal_pat, repl in tag_restorations:
+            s = s.replace(literal_pat, repl)
 
-    style_colors = {"1": style_color1_clean, "2": style_color2_clean, "3": style_color3_clean, "4": style_color4_clean}
-    style_alphas = {"1": style_alpha1, "2": style_alpha2, "3": style_alpha3, "4": style_alpha4}
+        style_colors = {"1": style_color1_clean, "2": style_color2_clean, "3": style_color3_clean, "4": style_color4_clean}
+        style_alphas = {"1": style_alpha1, "2": style_alpha2, "3": style_alpha3, "4": style_alpha4}
 
-    s = re.sub(r'\\([1-4]+)c~', lambda m: "".join(f"\\{d}c{style_colors.get(d, style_color1_clean)}" for d in m.group(1)), s)
-    s = re.sub(r'\\([1-4]+)a~', lambda m: "".join(f"\\{d}a{style_alphas.get(d, '&H00&')}" for d in m.group(1)), s)
+        s = _RE_MULTI_C_TILDE.sub(lambda m: "".join(f"\\{d}c{style_colors.get(d, style_color1_clean)}" for d in m.group(1)), s)
+        s = _RE_MULTI_A_TILDE.sub(lambda m: "".join(f"\\{d}a{style_alphas.get(d, '&H00&')}" for d in m.group(1)), s)
 
     # Style ratio tags (direct numeric value)
-    s = re.sub(r'\\fscxyr([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fscx{_fmt_num(style_scale_x_num * float(m.group(1)))}\\fscy{_fmt_num(style_scale_y_num * float(m.group(1)))}", s)
-    s = re.sub(r'\\fscxr([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fscx{_fmt_num(style_scale_x_num * float(m.group(1)))}", s)
-    s = re.sub(r'\\fscyr([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fscy{_fmt_num(style_scale_y_num * float(m.group(1)))}", s)
-    s = re.sub(r'\\fsr([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fs{_fmt_num(style_fontsize_num * float(m.group(1)))}", s)
+    if "r" in s:
+        s = _RE_FSCXYR.sub(lambda m: f"\\fscx{_fmt_num(style_scale_x_num * float(m.group(1)))}\\fscy{_fmt_num(style_scale_y_num * float(m.group(1)))}", s)
+        s = _RE_FSCXR.sub(lambda m: f"\\fscx{_fmt_num(style_scale_x_num * float(m.group(1)))}", s)
+        s = _RE_FSCYR.sub(lambda m: f"\\fscy{_fmt_num(style_scale_y_num * float(m.group(1)))}", s)
+        s = _RE_FSR.sub(lambda m: f"\\fs{_fmt_num(style_fontsize_num * float(m.group(1)))}", s)
 
     # Auto-origin rotations (direct numeric value)
-    s = re.sub(r'\\frxyzo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}\\fry{m.group(1)}\\frz{m.group(1)}", s)
-    s = re.sub(r'\\frxyo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}\\fry{m.group(1)}", s)
-    s = re.sub(r'\\frxzo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}\\frz{m.group(1)}", s)
-    s = re.sub(r'\\fryzo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\fry{m.group(1)}\\frz{m.group(1)}", s)
-    s = re.sub(r'\\frxo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}", s)
-    s = re.sub(r'\\fryo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\fry{m.group(1)}", s)
-    s = re.sub(r'\\frzo([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frz{m.group(1)}", s)
-    s = re.sub(r'\\fro([+-]?\d+(?:\.\d+)?)', lambda m: f"\\org({ox},{oy})\\frz{m.group(1)}", s)
+    if "o" in s:
+        s = _RE_FRXYZO.sub(lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}\\fry{m.group(1)}\\frz{m.group(1)}", s)
+        s = _RE_FRXYO.sub(lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}\\fry{m.group(1)}", s)
+        s = _RE_FRXZO.sub(lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}\\frz{m.group(1)}", s)
+        s = _RE_FRYZO.sub(lambda m: f"\\org({ox},{oy})\\fry{m.group(1)}\\frz{m.group(1)}", s)
+        s = _RE_FRXO.sub(lambda m: f"\\org({ox},{oy})\\frx{m.group(1)}", s)
+        s = _RE_FRYO.sub(lambda m: f"\\org({ox},{oy})\\fry{m.group(1)}", s)
+        s = _RE_FRZO.sub(lambda m: f"\\org({ox},{oy})\\frz{m.group(1)}", s)
+        s = _RE_FRO.sub(lambda m: f"\\org({ox},{oy})\\frz{m.group(1)}", s)
 
     # Standard composite tags
-    s = re.sub(r'\\fscxy([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fscx{m.group(1)}\\fscy{m.group(1)}", s)
-    s = re.sub(r'\\faxy([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fax{m.group(1)}\\fay{m.group(1)}", s)
-    s = re.sub(r'\\frxyz([+-]?\d+(?:\.\d+)?)', lambda m: f"\\frx{m.group(1)}\\fry{m.group(1)}\\frz{m.group(1)}", s)
-    s = re.sub(r'\\frxy([+-]?\d+(?:\.\d+)?)', lambda m: f"\\frx{m.group(1)}\\fry{m.group(1)}", s)
-    s = re.sub(r'\\frxz([+-]?\d+(?:\.\d+)?)', lambda m: f"\\frx{m.group(1)}\\frz{m.group(1)}", s)
-    s = re.sub(r'\\fryz([+-]?\d+(?:\.\d+)?)', lambda m: f"\\fry{m.group(1)}\\frz{m.group(1)}", s)
-    s = re.sub(r'\\xybord([+-]?\d+(?:\.\d+)?)', lambda m: f"\\xbord{m.group(1)}\\ybord{m.group(1)}", s)
-    s = re.sub(r'\\xyshad([+-]?\d+(?:\.\d+)?)', lambda m: f"\\xshad{m.group(1)}\\yshad{m.group(1)}", s)
-    s = re.sub(r'\\bs([+-]?\d+(?:\.\d+)?)', lambda m: f"\\bord{m.group(1)}\\shad{m.group(1)}", s)
+    if any(k in s for k in ("fscxy", "faxy", "frxyz", "frxy", "frxz", "fryz", "xybord", "xyshad", "bs")):
+        s = _RE_FSCXY.sub(lambda m: f"\\fscx{m.group(1)}\\fscy{m.group(1)}", s)
+        s = _RE_FAXY.sub(lambda m: f"\\fax{m.group(1)}\\fay{m.group(1)}", s)
+        s = _RE_FRXYZ.sub(lambda m: f"\\frx{m.group(1)}\\fry{m.group(1)}\\frz{m.group(1)}", s)
+        s = _RE_FRXY.sub(lambda m: f"\\frx{m.group(1)}\\fry{m.group(1)}", s)
+        s = _RE_FRXZ.sub(lambda m: f"\\frx{m.group(1)}\\frz{m.group(1)}", s)
+        s = _RE_FRYZ.sub(lambda m: f"\\fry{m.group(1)}\\frz{m.group(1)}", s)
+        s = _RE_XYBORD.sub(lambda m: f"\\xbord{m.group(1)}\\ybord{m.group(1)}", s)
+        s = _RE_XYSHAD.sub(lambda m: f"\\xshad{m.group(1)}\\yshad{m.group(1)}", s)
+        s = _RE_BS.sub(lambda m: f"\\bord{m.group(1)}\\shad{m.group(1)}", s)
 
-    color_val_pat = r'(&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{6})(?=[\\\}\s]|$)'
-    s = re.sub(rf'\\([1-4])c{color_val_pat}', lambda m: f"\\{m.group(1)}c{_clean_ass_color(m.group(2))}", s)
+    if "c" in s:
+        s = _COLOR_VAL_RE.sub(lambda m: f"\\{m.group(1)}c{_clean_ass_color(m.group(2))}", s)
+        s = _DARK_COLOR_VAL_RE.sub(lambda m: "".join(f"\\{d}c{_clean_ass_color(m.group(2))}" for d in m.group(1)), s)
 
-    dark_color_val_pat = r'(#[0-9a-fA-F]{3,8}|&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{6})(?=[\\\}\s]|$)'
-    s = re.sub(rf'\\([1-4]{{2,}})c{dark_color_val_pat}', lambda m: "".join(f"\\{d}c{_clean_ass_color(m.group(2))}" for d in m.group(1)), s)
-
-    alpha_val_pat = r'(&[hH]?[0-9a-fA-F]+&?|[0-9a-fA-F]{2}|\d+)(?=[\\\}\s]|$)'
-    s = re.sub(rf'\\([1-4]+)a{alpha_val_pat}', lambda m: "".join(f"\\{d}a{_format_ass_alpha(m.group(2))}" for d in m.group(1)), s)
-
-    # Convert standalone decimal alpha tags (e.g. \4a100, \alpha255, \1a0, \2a128) to canonical ASS &HXX&
-    s = re.sub(r'\\(alpha|[1-4]a)(\d{1,3})(?=[\\\}\s]|$)', lambda m: f"\\{m.group(1)}{_format_ass_alpha(m.group(2))}", s)
+    if "a" in s:
+        s = _ALPHA_VAL_RE.sub(lambda m: "".join(f"\\{d}a{_format_ass_alpha(m.group(2))}" for d in m.group(1)), s)
+        s = _STANDALONE_ALPHA_RE.sub(lambda m: f"\\{m.group(1)}{_format_ass_alpha(m.group(2))}", s)
 
     return s
 
@@ -1727,7 +1835,17 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
         has_space = ", " in args_str
         sep = ", " if has_space else ","
         args = _split_top_level_commas(args_str)
-        eval_args = [_fmt_num(eval_python_expr(a, context, a)) for a in args]
+        eval_args = []
+        for a in args:
+            evaluated = eval_python_expr(a, context, a)
+            if tag_name in ("pos", "move", "org", "fad", "fade"):
+                from utils import to_pyxis_num
+                parsed_num = to_pyxis_num(evaluated, default=None)
+                if parsed_num is None:
+                    evaluated = 0
+                else:
+                    evaluated = parsed_num
+            eval_args.append(_fmt_num(evaluated))
         return f"\\{tag_name}({sep.join(eval_args)})"
 
     s = _replace_balanced_parens_tags(s, re.compile(r'\\(pos|move|org|fad|fade)\('), _eval_multi_arg_tag)
@@ -1840,6 +1958,9 @@ def clean_tag_block_whitespace(block_str: str) -> str:
     if not block_str or "\\" not in block_str:
         return block_str
 
+    if " " not in block_str and "\t" not in block_str and "\n" not in block_str:
+        return block_str
+
     s = block_str
 
     # Determine if 's' is a single contiguous block enclosed in {...}
@@ -1877,13 +1998,13 @@ def clean_tag_block_whitespace(block_str: str) -> str:
             args_clean = re.sub(r'[ \t]+', ' ', args_clean_body)
             return f"\\{tag_name}({args_clean})"
 
-        args_clean = _replace_balanced_parens_tags(args_clean_body, re.compile(r'\\([a-zA-Z0-9]+)\('), _clean_parens)
+        args_clean = _replace_balanced_parens_tags(args_clean_body, _RE_TAG_PARENS, _clean_parens)
         # Protect quoted function arguments from comma/space stripping
-        args_clean = _transform_outside_quotes(args_clean, lambda txt: re.sub(r'\s*,\s*', ',', re.sub(r'\s*\\\s*', r'\\', txt)))
+        args_clean = _transform_outside_quotes(args_clean, lambda txt: _RE_COMMA_SPACES.sub(',', _RE_SLASH_SPACES.sub(r'\\', txt)))
         return f"\\{tag_name}({args_clean})"
 
-    inner = _replace_balanced_parens_tags(inner, re.compile(r'\\([a-zA-Z0-9]+)\('), _clean_parens)
-    inner = _transform_outside_quotes(inner, lambda txt: re.sub(r'\s*\\\s*', r'\\', txt))
+    inner = _replace_balanced_parens_tags(inner, _RE_TAG_PARENS, _clean_parens)
+    inner = _transform_outside_quotes(inner, lambda txt: _RE_SLASH_SPACES.sub(r'\\', txt))
     inner = inner.strip()
 
     if has_outer_braces:
@@ -1914,6 +2035,9 @@ def eval_string_template(template_str: Any, context: Optional[Dict[str, Any]] = 
     raw = str(template_str)
     if not raw:
         return ""
+
+    if "(" not in raw and "\\" not in raw and "~" not in raw and "{" not in raw and "$" not in raw and "f" not in raw and "r" not in raw:
+        return raw
 
     if not isinstance(context, dict):
         context = {}
@@ -2004,4 +2128,240 @@ def evaluate_ass_line_tag_blocks(ass_text: Any, context: Optional[Dict[str, Any]
             i += 1
 
     return "".join(out)
+
+
+# =============================================================================
+# TAG TOKENIZATION & SCOPE-AWARE MERGE ENGINE
+# =============================================================================
+
+# Known multi-letter ASS tags that must be matched as atomic tag names before
+# fallback single-character prefixes.
+_KNOWN_TAG_NAMES = (
+    # Positional & Transformative
+    "pos", "move", "org", "fade", "fad", "clip", "iclip",
+    # Transform variations
+    "te", "ts", "tc", "tw", "t",
+    # Geometry & Scaling
+    "fscx", "fscy", "fsp", "fs",
+    "frz", "frx", "fry", "fr",
+    "fax", "fay",
+    # Font & Styling
+    "fn", "fe", "b", "i", "u", "s",
+    # Colors & Alphas
+    "1c", "2c", "3c", "4c", "c",
+    "1a", "2a", "3a", "4a", "alpha",
+    # Border & Shadow
+    "xbord", "ybord", "bord",
+    "xshad", "yshad", "shad",
+    "blur", "be",
+    # Alignment & Kara
+    "an", "a",
+    "k", "kf", "ko", "K", "kt",
+    # Drawing & Wrapping
+    "pbo", "p", "q", "r"
+)
+
+# Sort longest tag names first so "fscx" matches before "fs", "frz" before "fr", etc.
+_KNOWN_TAG_NAMES_SORTED = sorted(_KNOWN_TAG_NAMES, key=len, reverse=True)
+
+# Collision key mapping to ensure conflicting / alias tags overwrite each other
+# (e.g. \c overrides \1c, \fr overrides \frz, \move overrides \pos).
+_COLLISION_KEY_MAP = {
+    "c": "1c",
+    "1c": "1c",
+    "2c": "2c",
+    "3c": "3c",
+    "4c": "4c",
+    "fr": "frz",
+    "frz": "frz",
+    "fry": "fry",
+    "frx": "frx",
+    "pos": "pos_move",
+    "move": "pos_move",
+    "fad": "fade",
+    "fade": "fade",
+    "a": "an",
+    "an": "an",
+}
+
+
+class TagToken:
+    """Represents a single parsed ASS override tag token."""
+
+    __slots__ = ("name", "body", "raw", "is_transform", "collision_key")
+
+    def __init__(self, name: str, body: str, raw: str, is_transform: bool = False, collision_key: str = ""):
+        self.name = name
+        self.body = body
+        self.raw = raw
+        self.is_transform = is_transform
+        self.collision_key = collision_key or _COLLISION_KEY_MAP.get(name, name)
+
+    def __repr__(self) -> str:
+        return f"TagToken(name={self.name!r}, body={self.body!r}, is_transform={self.is_transform})"
+
+    def get_nested_tokens(self) -> list:
+        """If this token is a transform tag (\\t), parses and returns the tokens inside its argument block."""
+        if not self.is_transform or not self.body.startswith("(") or not self.body.endswith(")"):
+            return []
+        inner = self.body[1:-1]
+        first_slash = inner.find("\\")
+        if first_slash == -1:
+            return []
+        tags_subpart = inner[first_slash:]
+        return tokenize_ass_tags(tags_subpart)
+
+
+def tokenize_ass_tags(text: str) -> list[TagToken]:
+    """Tokenizes an ASS tag string or tag block into a flat list of root-level TagToken objects.
+
+    Handles:
+    - Outer curly braces: '{...}' or raw tag strings without braces.
+    - Multiple tag blocks: '{...}{...}'.
+    - Parenthesis depth tracking for arguments with nested commas/parens (e.g. \\pos(x, y), \\t(0, 100, \\frz30)).
+    - Quote awareness (' and \") inside expressions so commas/parens in strings are not misparsed.
+    """
+    if not text or not isinstance(text, str):
+        return []
+
+    clean_text = text.strip()
+    if clean_text.startswith("{") and clean_text.endswith("}"):
+        blocks = re.findall(r"\{([^{}]*)\}", clean_text)
+        if blocks:
+            raw_stream = "".join(blocks)
+        else:
+            raw_stream = clean_text[1:-1]
+    else:
+        if "{" in clean_text and "}" in clean_text:
+            blocks = re.findall(r"\{([^{}]*)\}", clean_text)
+            raw_stream = "".join(blocks) if blocks else clean_text
+        else:
+            raw_stream = clean_text
+
+    tokens: list[TagToken] = []
+    n = len(raw_stream)
+    i = 0
+
+    while i < n:
+        if raw_stream[i] != "\\":
+            i += 1
+            continue
+
+        token_start = i
+        i += 1  # Skip the leading backslash
+
+        if i >= n:
+            break
+
+        # Match tag name
+        matched_name = None
+        for tag_name in _KNOWN_TAG_NAMES_SORTED:
+            if raw_stream.startswith(tag_name, i):
+                matched_name = tag_name
+                break
+
+        if matched_name is None:
+            name_chars = []
+            while i < n and (raw_stream[i].isalnum() or raw_stream[i] == "_"):
+                name_chars.append(raw_stream[i])
+                i += 1
+            matched_name = "".join(name_chars)
+        else:
+            i += len(matched_name)
+
+        # Now extract the tag body (argument value)
+        body_start = i
+        if i < n and raw_stream[i] == "(":
+            depth = 0
+            in_quote = None
+            while i < n:
+                ch = raw_stream[i]
+                if in_quote:
+                    if ch == in_quote:
+                        in_quote = None
+                elif ch in ("'", '"'):
+                    in_quote = ch
+                elif ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        i += 1
+                        break
+                i += 1
+        else:
+            while i < n and raw_stream[i] != "\\":
+                i += 1
+
+        body = raw_stream[body_start:i].strip()
+        raw_token = raw_stream[token_start:i].strip()
+        is_transform = matched_name in ("t", "te", "ts", "tc", "tw")
+
+        tokens.append(TagToken(
+            name=matched_name,
+            body=body,
+            raw=raw_token,
+            is_transform=is_transform
+        ))
+
+    return tokens
+
+
+def merge_override_tags(tags_prefix: str, override_tag: str) -> str:
+    """Merges an override tag string into an existing tags prefix string in a scope-aware manner.
+
+    Guarantees:
+    1. Transform tags (\\t, \\te, etc.) are cumulative: they are never overwritten or replaced,
+       and their nested tags are preserved completely intact.
+    2. Overriding tags (e.g. \\pos, \\1c, \\fscx) replace conflicting root-level tags in `tags_prefix`.
+    3. Root-level tags never overwrite or erase tags nested inside \\t(...) transformations.
+    4. Conflicting tag aliases (e.g. \\pos vs \\move, \\c vs \\1c, \\fr vs \\frz) correctly resolve
+       to the override value.
+    5. Returns a properly formatted ASS override tag string enclosed in '{...} '.
+    """
+    if not override_tag:
+        return tags_prefix or ""
+
+    if not tags_prefix:
+        clean_override = override_tag.strip()
+        if clean_override.startswith("{") and clean_override.endswith("}"):
+            return clean_override + " "
+        return f"{{{clean_override}}} "
+
+    base_tokens = tokenize_ass_tags(tags_prefix)
+    override_tokens = tokenize_ass_tags(override_tag)
+
+    if not override_tokens:
+        clean_base = tags_prefix.strip()
+        if clean_base.startswith("{") and clean_base.endswith("}"):
+            return clean_base + " "
+        return f"{{{clean_base}}} "
+
+    # Organize base tokens:
+    # - Root non-transform tokens stored in an ordered dictionary by collision_key
+    # - Transform tokens collected in a list to preserve order and avoid overwrites
+    root_tokens: dict[str, TagToken] = {}
+    transform_tokens: list[TagToken] = []
+
+    for tok in base_tokens:
+        if tok.is_transform:
+            transform_tokens.append(tok)
+        else:
+            root_tokens[tok.collision_key] = tok
+
+    # Process override tokens:
+    for tok in override_tokens:
+        if tok.is_transform:
+            # Transforms are cumulative; append to list
+            transform_tokens.append(tok)
+        else:
+            # Root tag replaces existing root tag with same collision key
+            root_tokens[tok.collision_key] = tok
+
+    # Assemble output tokens: root tags first, then transform tags
+    merged_tokens = list(root_tokens.values()) + transform_tokens
+    merged_body = "".join(tok.raw for tok in merged_tokens)
+
+    return f"{{{merged_body}}} "
+
 

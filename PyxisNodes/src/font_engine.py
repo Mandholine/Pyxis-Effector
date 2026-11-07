@@ -93,6 +93,7 @@ class FontEngine:
     _font_ratio_cache: Dict[Tuple[str, float], float] = {}
     _shaped_advances_cache: Dict[Tuple[str, float, bool, bool, bool, bool, str], Tuple[List[float], bool]] = {}
     _char_layout_cache: Dict[Tuple[str, float, bool, bool, bool, bool, float, float, str], List[Dict[str, Any]]] = {}
+    _ft_face_cache: Dict[str, Any] = {}
 
     @staticmethod
     def snap_26_6(val: float) -> float:
@@ -101,12 +102,13 @@ class FontEngine:
 
     @classmethod
     def clear_cache(cls) -> None:
-        """Clears text extents, GDI font handle, shaped advances, and calibration ratio caches."""
+        """Clears text extents, GDI font handle, shaped advances, calibration ratio, and FreeType caches."""
         cls._extent_cache.clear()
         cls._font_cache.clear()
         cls._font_ratio_cache.clear()
         cls._shaped_advances_cache.clear()
         cls._char_layout_cache.clear()
+        cls._ft_face_cache.clear()
 
     @classmethod
     def _get_dc(cls) -> int:
@@ -236,6 +238,10 @@ class FontEngine:
                 return h, d, e
             except Exception:
                 pass
+
+        ft_metrics = cls._get_font_metrics_freetype(font_name, font_size, bold, italic)
+        if ft_metrics is not None:
+            return ft_metrics
 
         return cls.snap_26_6(font_size), cls.snap_26_6(font_size * 0.2), 0.0
 
@@ -673,9 +679,87 @@ class FontEngine:
         return final_w, height, descent, extlead
 
     @classmethod
+    def _resolve_font_path(cls, font_name: str, bold: bool = False, italic: bool = False) -> Optional[str]:
+        """Resolves local font file path across platforms via font_resolver."""
+        try:
+            from font_resolver import resolve_font_file
+            return resolve_font_file(font_name, bold=bold, italic=italic)
+        except Exception:
+            return None
+
+    @classmethod
+    def _get_font_metrics_freetype(cls, font_name: str, font_size: float, bold: bool = False, italic: bool = False) -> Optional[Tuple[float, float, float]]:
+        """Calculates (height, descent, extlead) using FreeType at 26.6 sub-pixel precision."""
+        try:
+            import freetype
+        except ImportError:
+            return None
+
+        path = cls._resolve_font_path(font_name, bold, italic)
+        if not path:
+            return None
+
+        try:
+            if path not in cls._ft_face_cache:
+                cls._ft_face_cache[path] = freetype.Face(path)
+            face = cls._ft_face_cache[path]
+            face.set_char_size(int(round(font_size * 64.0)))
+
+            h = cls.snap_26_6(font_size)
+            d = cls.snap_26_6(abs(face.size.descender) / 64.0)
+            asc = abs(face.size.ascender) / 64.0
+            tot_h = abs(face.size.height) / 64.0
+            extlead = cls.snap_26_6(max(0.0, tot_h - (asc + d)))
+            return h, d, extlead
+        except Exception:
+            return None
+
+    @classmethod
+    def _get_text_extents_freetype(cls, text: str, font_name: str, font_size: float, bold: bool = False, italic: bool = False,
+                                   scale_x: float = 100.0, spacing: float = 0.0) -> Optional[Tuple[float, float, float, float]]:
+        """Measures text extents using FreeType at 26.6 sub-pixel precision."""
+        try:
+            import freetype
+        except ImportError:
+            return None
+
+        path = cls._resolve_font_path(font_name, bold, italic)
+        if not path:
+            return None
+
+        try:
+            if path not in cls._ft_face_cache:
+                cls._ft_face_cache[path] = freetype.Face(path)
+            face = cls._ft_face_cache[path]
+            face.set_char_size(int(round(font_size * 64.0)))
+
+            total_advance = 0.0
+            for char in text:
+                face.load_char(char, freetype.FT_LOAD_DEFAULT | freetype.FT_LOAD_NO_BITMAP)
+                total_advance += float(face.glyph.metrics.horiAdvance) / 64.0
+
+            base_w = total_advance * (scale_x / 100.0)
+            extra_spacing = float(spacing) * max(0, len(text) - 1) * (scale_x / 100.0)
+            final_w = base_w + extra_spacing
+
+            h = cls.snap_26_6(font_size)
+            d = cls.snap_26_6(abs(face.size.descender) / 64.0)
+            asc = abs(face.size.ascender) / 64.0
+            tot_h = abs(face.size.height) / 64.0
+            extlead = cls.snap_26_6(max(0.0, tot_h - (asc + d)))
+
+            return cls.snap_26_6(final_w), h, d, extlead
+        except Exception:
+            return None
+
+    @classmethod
     def _get_text_extents_fallback(cls, text: str, font_name: str, font_size: float, bold: bool, italic: bool,
                                    scale_x: float, spacing: float) -> Tuple[float, float, float, float]:
-        """Fallback measuring text extents via PIL ImageFont or analytical bounding approximations."""
+        """Fallback measuring text extents via FreeType, PIL ImageFont, or analytical bounding approximations."""
+        ft_res = cls._get_text_extents_freetype(text, font_name, font_size, bold, italic, scale_x, spacing)
+        if ft_res is not None:
+            return ft_res
+
         try:
             from PIL import ImageFont
             font = ImageFont.truetype(font_name, int(font_size))

@@ -162,9 +162,13 @@
     background-color: rgba(0, 0, 0, 0.5);
     text-align: right;
     min-width: 80px;
+    max-width: 220px;
     min-height: 1.2em;
     vertical-align: middle;
     padding-right: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .litegraph.litesearchbox {
@@ -555,9 +559,13 @@
     background-color: rgba(0, 0, 0, 0.5);
     text-align: right;
     min-width: 80px;
+    max-width: 220px;
     min-height: 1.2em;
     vertical-align: middle;
     padding-right: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .graphdialog {

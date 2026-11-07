@@ -965,11 +965,9 @@
                 let lastShape = this._lastTracedShape || (this.output_values ? this.output_values[0] : null);
 
                 if ((viewMode === "Overlay" || viewMode === "Vector" || viewMode === "Superposición") && lastShape && typeof lastShape === 'string' && lastShape.trim().length > 0) {
-                    if (!this._cachedShapePath || this._cachedShapeKey !== lastShape) {
-                        const svgD = assPathToSvg(lastShape);
-                        this._cachedShapePath = new Path2D(svgD);
-                        this._cachedShapeKey = lastShape;
-                    }
+                    const cachedPath = (typeof getOrCreateAssPath2D === "function")
+                        ? getOrCreateAssPath2D(lastShape)
+                        : (this._cachedShapePath && this._cachedShapeKey === lastShape ? this._cachedShapePath : new Path2D(assPathToSvg(lastShape)));
 
                     if (this._imgObj) {
                         const iw = this._imgObj.naturalWidth || this._imgObj.width || 1;
@@ -991,12 +989,14 @@
                         ctx.lineWidth = 1.5 / Math.max(0.1, effScale);
                         ctx.lineJoin = "round";
                         ctx.lineCap = "round";
-                        ctx.fill(this._cachedShapePath);
-                        ctx.stroke(this._cachedShapePath);
+                        if (cachedPath) {
+                            ctx.fill(cachedPath);
+                            ctx.stroke(cachedPath);
+                        }
                         ctx.restore();
                     } else {
                         const bbox = getAssPathBBox(lastShape);
-                        if (bbox && bbox.w > 0 && bbox.h > 0) {
+                        if (cachedPath && bbox && bbox.w > 0 && bbox.h > 0) {
                             const availW = cardW - 24;
                             const availH = cardH - 24;
                             const scale = Math.min(availW / bbox.w, availH / bbox.h);
@@ -1017,8 +1017,8 @@
                             ctx.lineWidth = 1.5 / Math.max(0.1, effScale);
                             ctx.lineJoin = "round";
                             ctx.lineCap = "round";
-                            ctx.fill(this._cachedShapePath);
-                            ctx.stroke(this._cachedShapePath);
+                            ctx.fill(cachedPath);
+                            ctx.stroke(cachedPath);
                             ctx.restore();
                         }
                     }

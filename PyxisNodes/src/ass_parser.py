@@ -124,10 +124,14 @@ class ASSParseResult(tuple):
         is_dummy_video (bool): True if the video stream is synthetic/dummy.
         is_dummy_audio (bool): True if the audio stream is dummy or silent.
         script_file (str): Original ASS script filepath recorded in Pyxis config.
+        scaled_border_and_shadow (bool): Whether borders and shadows scale with script resolution (ScaledBorderAndShadow).
+        ycbcr_matrix (str): Color matrix interpretation (e.g. 'TV.709', 'TV.601', 'None').
+        video_x_correct_factor (float): Horizontal anamorphic correction factor (PlayRes aspect ratio / DAR).
     """
     def __new__(cls, styles, dialogues, res_x, res_y, frame_dur, audio_file="", video_file="",
                 video_ar=0.0, video_pos=0, dummy_info=None, is_dummy_video=False, is_dummy_audio=False,
-                script_file=""):
+                script_file="", scaled_border_and_shadow=True, ycbcr_matrix="None",
+                video_x_correct_factor=1.0):
         obj = super().__new__(cls, (styles, dialogues, res_x, res_y, frame_dur))
         obj.styles = styles
         obj.dialogues = dialogues
@@ -142,6 +146,12 @@ class ASSParseResult(tuple):
         obj.is_dummy_video = is_dummy_video
         obj.is_dummy_audio = is_dummy_audio
         obj.script_file = script_file
+        obj.scaled_border_and_shadow = bool(scaled_border_and_shadow)
+        obj.ycbcr_matrix = ycbcr_matrix or "None"
+        try:
+            obj.video_x_correct_factor = float(video_x_correct_factor) if video_x_correct_factor is not None else 1.0
+        except Exception:
+            obj.video_x_correct_factor = 1.0
         return obj
 
 
@@ -174,11 +184,16 @@ class ASSParser:
         dialogues: List[DialogueItem] = []
         raw_res_x: Optional[int] = None
         raw_res_y: Optional[int] = None
+        layout_res_x: Optional[int] = None
+        layout_res_y: Optional[int] = None
         frame_dur: Optional[float] = None
         audio_file: str = ""
         video_file: str = ""
         script_file: str = ""
+        scaled_border_and_shadow: Optional[bool] = None
+        ycbcr_matrix: str = "None"
         video_ar: float = 0.0
+        video_ar_mode: Optional[int] = None
         video_pos: int = 0
         dummy_info: Dict[str, Any] = {}
         is_dummy_video: bool = False
@@ -214,6 +229,27 @@ class ASSParser:
                             raw_res_y = int(line.split(':', 1)[1].strip())
                         except Exception:
                             pass
+                    elif line.startswith('LayoutResX:'):
+                        try:
+                            layout_res_x = int(line.split(':', 1)[1].strip())
+                        except Exception:
+                            pass
+                    elif line.startswith('LayoutResY:'):
+                        try:
+                            layout_res_y = int(line.split(':', 1)[1].strip())
+                        except Exception:
+                            pass
+                    elif line.lower().startswith('scaledborderandshadow:'):
+                        val = line.split(':', 1)[1].strip().lower()
+                        if val in ('yes', '1', 'true'):
+                            scaled_border_and_shadow = True
+                        elif val in ('no', '0', 'false'):
+                            scaled_border_and_shadow = False
+                    elif line.lower().startswith('ycbcr matrix:'):
+                        try:
+                            ycbcr_matrix = line.split(':', 1)[1].strip()
+                        except Exception:
+                            pass
                 elif in_config:
                     if line.startswith('FrameDuration:'):
                         try:
@@ -234,6 +270,21 @@ class ASSParser:
                     elif line.startswith('Video AR Value:'):
                         try:
                             video_ar = float(line.split(':', 1)[1].strip())
+                        except Exception:
+                            pass
+                    elif line.startswith('Video AR Mode:'):
+                        try:
+                            video_ar_mode = int(line.split(':', 1)[1].strip())
+                        except Exception:
+                            pass
+                    elif line.startswith('Video Aspect Ratio:'):
+                        try:
+                            raw_ar = line.split(':', 1)[1].strip()
+                            if raw_ar.lower().startswith('c'):
+                                raw_ar = raw_ar[1:].strip()
+                            parsed_ar = float(raw_ar)
+                            if parsed_ar > 0:
+                                video_ar = parsed_ar
                         except Exception:
                             pass
                     elif line.startswith('Video Position:'):
@@ -324,10 +375,34 @@ class ASSParser:
 
         final_frame_dur = frame_dur if (frame_dur is not None and frame_dur > 0) else 41.708
 
+        # Determine effective Display Aspect Ratio (DAR) and anamorphic correction factor
+        dar = 0.0
+        if video_ar > 0:
+            dar = video_ar
+        elif video_ar_mode == 1:
+            dar = 4.0 / 3.0
+        elif video_ar_mode == 2:
+            dar = 16.0 / 9.0
+        elif video_ar_mode == 3:
+            dar = 2.35
+        elif layout_res_x and layout_res_y and layout_res_x > 0 and layout_res_y > 0:
+            dar = float(layout_res_x) / float(layout_res_y)
+
+        if dar <= 0.0:
+            dar = float(final_res_x) / float(final_res_y) if final_res_y > 0 else 1.0
+
+        if dar > 0.0 and final_res_y > 0 and final_res_x > 0:
+            video_x_correct_factor = (float(final_res_x) / float(final_res_y)) / dar
+        else:
+            video_x_correct_factor = 1.0
+
         return ASSParseResult(
             styles, dialogues, final_res_x, final_res_y, final_frame_dur,
             audio_file, video_file, video_ar, video_pos, dummy_info,
-            is_dummy_video, is_dummy_audio, script_file
+            is_dummy_video, is_dummy_audio, script_file,
+            scaled_border_and_shadow=(scaled_border_and_shadow if scaled_border_and_shadow is not None else True),
+            ycbcr_matrix=ycbcr_matrix,
+            video_x_correct_factor=video_x_correct_factor
         )
 
 
@@ -339,10 +414,14 @@ class KaraokeProcessor:
     and linked `PyxisLine` objects with child syllabic (`syls`), lexical (`words`),
     and character (`chars`) units.
     """
-    def __init__(self, res_x: int = 1280, res_y: int = 720, frame_dur: float = 41.708) -> None:
+    def __init__(self, res_x: int = 1280, res_y: int = 720, frame_dur: float = 41.708, video_x_correct_factor: float = 1.0) -> None:
         self.res_x: int = res_x
         self.res_y: int = res_y
         self.frame_dur: float = frame_dur
+        try:
+            self.video_x_correct_factor: float = float(video_x_correct_factor) if video_x_correct_factor is not None else 1.0
+        except Exception:
+            self.video_x_correct_factor = 1.0
 
     def process_line(self, raw_line: str, style: StyleDict,
                      metrics: Optional[MetricsDict] = None) -> Optional[PyxisLine]:
@@ -389,8 +468,10 @@ class KaraokeProcessor:
         line.margin_l, line.margin_r, line.margin_v = int(groups[5]), int(groups[6]), int(groups[7])
         line.effect, line.raw_text = groups[8], groups[9]
         line.styleref = StyleRef(style)
+        line.video_x_correct_factor = self.video_x_correct_factor
 
-        meta = KaraskelMeta(res_x=self.res_x, res_y=self.res_y)
+        meta = KaraskelMeta(res_x=self.res_x, res_y=self.res_y, video_x_correct_factor=self.video_x_correct_factor)
+        line.meta = meta
         style_name = style.get('Name') or style.get('name') or line.style_name or "Default"
         styles_map = {style_name: style}
 

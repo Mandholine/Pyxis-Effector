@@ -46,6 +46,7 @@ Downstream Callers:
 import math
 import random
 import re
+import sys
 from decorators import pyxis_node, NODE_REGISTRY
 
 
@@ -668,14 +669,16 @@ def get_iterator_scope_key(context, iterator_name: str):
 
     Resolves a deterministic scope key from the execution context based on the
     specified iterator category (e.g. 'global', 'line', 'syl', 'char', 'word',
-    or custom index variables such as 'i', 'j', 'syl_i').
+    or custom index variables such as 'i', 'j', 'syl_i'). For sub-loop counters
+    and custom variables, inherits parent unit hierarchy (line -> char/syl/word -> subloop)
+    to ensure isolation across higher-level units.
 
     Args:
         context (dict): Runtime execution context supplied by the DAG evaluation engine.
         iterator_name (str): Identifier of the target iterator or semantic unit.
 
     Returns:
-        str | None: Formatted canonical identifier (e.g. 'line_0_syl_2') or None if invalid.
+        str | None: Formatted canonical identifier (e.g. 'line_0_char_1_j_2') or None if invalid.
     """
     if not iterator_name or not str(iterator_name).strip():
         return None
@@ -687,13 +690,13 @@ def get_iterator_scope_key(context, iterator_name: str):
 
     if iter_key == "global":
         return "global"
-    elif iter_key == "line":
+    elif iter_key in ("line", "l"):
         return f"line_{l_id}"
-    elif iter_key == "syl":
+    elif iter_key in ("syl", "syllable"):
         s = ctx.get("syl")
         s_id = getattr(s, "i", getattr(s, "syl_i", id(s) if s else 0))
         return f"line_{l_id}_syl_{s_id}"
-    elif iter_key == "char":
+    elif iter_key in ("char", "character"):
         c = ctx.get("char")
         c_id = getattr(c, "i", getattr(c, "char_i", id(c) if c else 0))
         return f"line_{l_id}_char_{c_id}"
@@ -702,14 +705,70 @@ def get_iterator_scope_key(context, iterator_name: str):
         w_id = getattr(w, "i", getattr(w, "word_i", id(w) if w else 0))
         return f"line_{l_id}_word_{w_id}"
     else:
+        parent_prefix = f"line_{l_id}"
+        c = ctx.get("char")
+        s = ctx.get("syl")
+        w = ctx.get("word")
+        u = ctx.get("active_unit") or ctx.get("unit")
+
+        if c is not None and (hasattr(c, "i") or hasattr(c, "char_i") or u is c):
+            c_id = getattr(c, "i", getattr(c, "char_i", 0))
+            parent_prefix = f"line_{l_id}_char_{c_id}"
+        elif s is not None and (hasattr(s, "i") or hasattr(s, "syl_i") or u is s):
+            s_id = getattr(s, "i", getattr(s, "syl_i", 0))
+            parent_prefix = f"line_{l_id}_syl_{s_id}"
+        elif w is not None and (hasattr(w, "i") or hasattr(w, "word_i") or u is w):
+            w_id = getattr(w, "i", getattr(w, "word_i", 0))
+            parent_prefix = f"line_{l_id}_word_{w_id}"
+
         val = ctx.get(iter_key)
         if val is None:
-            u = ctx.get("active_unit") or ctx.get("unit") or ctx.get("syl") or ctx.get("char") or ctx.get("word") or ctx.get("line")
             if u is not None and hasattr(u, iter_key):
                 val = getattr(u, iter_key)
         if val is None:
             val = 0
-        return f"line_{l_id}_{iter_key}_{val}"
+        return f"{parent_prefix}_{iter_key}_{val}"
+
+
+_WRAPPER_FUNC_NAMES = {
+    "_call_scoped", "R", "Rs", "Rc", "Rcs", "Rd", "Rds", "Rm", "Rms",
+    "Rr", "Rstep", "R2d", "Rbool", "Rcolor", "Re", "Rfake",
+    "rand", "r", "rs", "rc", "rcs", "rm", "rms", "rd", "rds", "rcolor", "rstep", "rbool",
+    "math_random_master", "_caller", "_make_rnd_caller", "_make_eval_rnd_caller"
+}
+
+
+def _get_callsite_id(kwargs, context):
+    """Resolves a unique callsite discriminator for scoped random generation.
+
+    Distinguishes independent invocations across nodes, expressions, and statements,
+    while memoizing repeated queries within the same scope. Callers may explicitly
+    provide 'tag', 'callsite', 'slot', or 'id' to link or isolate random draws.
+
+    Args:
+        kwargs (dict): Keyword arguments passed to the random call.
+        context (dict | None): Active DAG evaluation context.
+
+    Returns:
+        tuple: Hashable identifier representing the execution point.
+    """
+    for explicit_key in ("tag", "callsite", "slot", "id"):
+        if explicit_key in kwargs and kwargs[explicit_key] is not None:
+            return (explicit_key, str(kwargs[explicit_key]))
+
+    node_id = context.get("_active_node_id") if isinstance(context, dict) else None
+
+    try:
+        f = sys._getframe(2)
+        while f:
+            c_name = f.f_code.co_name
+            if c_name not in _WRAPPER_FUNC_NAMES and "math_nodes.py" not in f.f_code.co_filename:
+                return (node_id, hash(f.f_code.co_code), f.f_lasti)
+            f = f.f_back
+    except (AttributeError, ValueError):
+        pass
+
+    return (node_id, 0, 0)
 
 
 class PyxisScopedRandom:
@@ -765,8 +824,9 @@ class PyxisScopedRandom:
         cache = ctx["_scoped_rnd_cache"]
 
         args_repr = tuple(str(a) for a in args)
-        kwargs_repr = tuple(sorted((k, str(v)) for k, v in kwargs.items() if k not in ("by", "iter", "iterator")))
-        cache_key = (self._iterator_name, scope_key, mode_name, args_repr, kwargs_repr)
+        kwargs_repr = tuple(sorted((k, str(v)) for k, v in kwargs.items() if k not in ("by", "iter", "iterator", "tag", "callsite", "slot", "id")))
+        callsite_id = _get_callsite_id(kwargs, ctx)
+        cache_key = (callsite_id, self._iterator_name, scope_key, mode_name, args_repr, kwargs_repr)
 
         if cache_key in cache:
             return cache[cache_key]
@@ -788,7 +848,7 @@ class PyxisScopedRandom:
             mx = args[1]
             st = args[2]
 
-        clean_kwargs = {k: v for k, v in kwargs.items() if k not in ("by", "iter", "iterator", "min_val", "min", "max_val", "max", "step")}
+        clean_kwargs = {k: v for k, v in kwargs.items() if k not in ("by", "iter", "iterator", "min_val", "min", "max_val", "max", "step", "tag", "callsite", "slot", "id")}
         res = math_random_master(ctx, mode=mode_name, min_val=mn, max_val=mx, step=st, iterator="", by="", **clean_kwargs)
         cache[cache_key] = res
         return res

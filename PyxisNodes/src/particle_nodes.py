@@ -364,6 +364,15 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
         else:
             shp_val = resolve_shape_value(shp_input, context)
 
+    # Discard any inbound base trajectory/shape tags to prevent false text fallback
+    try:
+        from nodes.shape_nodes import split_shape_and_tags
+        _, pure_shp = split_shape_and_tags(shp_val)
+        if pure_shp and (pure_shp.lower().startswith("m ") or pure_shp.lower().startswith("m-") or pure_shp.lower().startswith("m0")):
+            shp_val = pure_shp
+    except Exception:
+        pass
+
     is_assdraw = bool(shp_val and (str(shp_val).strip().startswith("m ") or str(shp_val).strip().startswith("m-") or str(shp_val).strip().startswith("m0")))
     if not is_assdraw:
         from font_vector_engine import FontVectorEngine
@@ -508,6 +517,14 @@ def particle_text_node(context, shape="", particle_shape="", density=10.0, redra
         p_shape_str = resolve_shape_value(p_shape_clean, context)
     else:
         p_shape_str = "m 0 0 l 2 0 l 2 2 l 0 2"
+
+    try:
+        from nodes.shape_nodes import split_shape_and_tags
+        _, pure_p_shape = split_shape_and_tags(p_shape_str)
+        if pure_p_shape and (pure_p_shape.lower().startswith("m ") or pure_p_shape.lower().startswith("m-") or pure_p_shape.lower().startswith("m0")):
+            p_shape_str = pure_p_shape
+    except Exception:
+        pass
 
     if not p_shape_str or not (str(p_shape_str).strip().startswith("m ") or str(p_shape_str).strip().startswith("m-") or str(p_shape_str).strip().startswith("m0")):
         p_shape_str = "m 0 0 l 2 0 l 2 2 l 0 2"

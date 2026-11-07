@@ -507,6 +507,26 @@ All variables declared in `Vars` are immediately registered in context under the
 * `Basics/Dynamic Format` or `Basics/Math` nodes.
 * Parenthesized `\tag(variable)` expressions in text strings and ASS override tag templates.
 
+#### System Variable Overriding and 4-Tier Precedence Hierarchy:
+Beyond declaring custom user variables, `Variables/Define Vars` can purposefully override mutable properties of the active effect frame (`fx`), which are automatically synchronised across all their canonical aliases:
+* **Timing and Duration:** `st`, `start_time`, `fx.st`, `fx.start_time`, `et`, `end_time`, `fx.et`, `fx.end_time`, and `dur` (`duration`, `fx.dur`). Updating `st` and/or `et` automatically recalculates `dur` as $\max(0, \text{et} - \text{st})$; updating `dur` without explicitly modifying `et` automatically derives $\text{et} = \text{st} + \text{dur}$.
+* **ASS Alignment:** `align`, `an`, `fx.align` (integer values `1` through `9` following standard numpad layout). Note: `origin_align` is an independent geometric anchor property configured exclusively via the crosshair control on the `System/Output` node and cannot be overridden from `Define Vars`.
+* **Subtitle Layer:** `layer`, `fx.layer` (ASS dialogue layer integer).
+* **Position and Origin Pivot:** `fx.pos_x` (`pos_x`, `fx.x`), `fx.pos_y` (`pos_y`, `fx.y`), `fx.org_x` (`org_x`), and `fx.org_y` (`org_y`).
+
+To guarantee deterministic resolution when multiple graph stages modify the same property, Pyxis enforces a strict **4-tier precedence hierarchy** (from lowest to highest priority):
+
+$$\text{1. Original Line / Unit} \quad < \quad \text{2. Define Vars} \quad < \quad \text{3. Return (and explicit Output pins)} \quad < \quad \text{4. Tags}$$
+
+1. **Tier 1 (Original Line / Unit):** Baseline values inherited from the source ASS dialogue event or active unit (`syl`, `char`, `word`, `line`).
+2. **Tier 2 (`Variables/Define Vars`):** Overrides baseline unit values for timing (`st`, `et`, `dur`), alignment (`align`), layer (`layer`), position (`fx.pos`), and origin (`fx.org`).
+3. **Tier 3 (`Return` and explicit `System/Output` pins):** Properties emitted by generator nodes or scripts connected to the `Return` port (such as `Shape/Slicer`, `Functions/Particles`, `Code/Script`) and direct wires connected to explicit `System/Output` ports (`Start`, `End`, `Layer`) take precedence over `Define Vars`.
+4. **Tier 4 (`Tags`):** ASS override tags wired to the `Tags` port or embedded directly in the output text (`\pos`, `\move`, `\org`, `\an`) hold the highest absolute precedence in the final rendered event.
+
+> [!IMPORTANT]
+> **Reserved System Variables (Protected Against Overwriting):**
+> Structural line metadata and render-queue routing identifiers are strictly read-only. The identifiers `effect`, `actor`, `margins` (`margin_l`, `margin_r`, `margin_v`), `queueid` (`queue_id`), and `queueorder` (`queue_order`) —whether referenced bare or under `line.*`, `l.*`, or `fx.*` prefixes— **cannot be overwritten** from `Define Vars`. Any assignment attempt is silently blocked at runtime and flagged as a warning by the pre-generation Linter.
+
 > [!NOTE]
 > **Automatic Re-evaluation with Return Iterators:**
 > When a node connected to the `Return` port of `System/Output` (such as `Shape/Slicer`, `Shape/Array`, `Functions/Particles`, `Functions/IMG to pixels`) generates internal sub-iterations (`s_i`, `a_i`, `p_i`, `d_i`, etc.), Pyxis automatically re-evaluates all active `Define Vars` declarations for each slice or particle prior to evaluating the tags connected to the `Tags` port. This ensures that expressions such as `by.s_i.R(-30, 30)` or formulas depending on `s_i` resolve to the exact per-piece value rather than a stale outer-loop value. Furthermore, variable definitions are strictly isolated per output queue (*Queue Isolation*), preventing cross-talk between multiple `Output` nodes.
@@ -794,8 +814,8 @@ When the graph contains multiple `System/Output` nodes, each render queue proces
 
 ### 7.3. Guidelines for Preventing Name Collisions
 
-1. **Do not overwrite reserved identifiers:** Avoid assigning variables named `x`, `y`, `i`, `n`, `dur`, `st`, `et` in `Define Vars` unless intentionally updating glyph kinematics through native engine prop propagation (`_apply_fx_setting`).
-2. **Use contextual prefixes:** In complex effect chains, employ descriptive prefixes (e.g. `orb_rad`, `p_vel_x`, `wave_phase`) to avoid collisions with global variables and enhance graph readability.
+1. **Distinguish between mutable effect properties and reserved system variables:** Assigning to `st`, `et`, `start_time`, `end_time`, `dur`, `align` (`an`, `fx.align`), `layer` (`fx.layer`), `fx.pos_x`, `fx.pos_y`, `fx.org_x`, or `fx.org_y` in `Define Vars` intentionally mutates the active unit's timing window, alignment, layer, or kinematics following the `Original Line < Define Vars < Return / Output Pins < Tags` hierarchy. Conversely, `effect`, `actor`, `margins` (`margin_l`, `margin_r`, `margin_v`), `queueid` (`queue_id`), and `queueorder` (`queue_order`) are reserved system variables and cannot be overwritten from `Define Vars`.
+2. **Use contextual prefixes:** In complex effect chains, employ descriptive prefixes (e.g. `orb_rad`, `p_vel_x`, `wave_phase`) to avoid unintended collisions with global variables and enhance graph readability.
 3. **Preserve loop counters in nested structures:** When combining a `Loops/MaxLoop` sub-loop (`j`) with an iterative return generator like `Shape/Slicer` (`s_i`), do not reassign `j` in `Define Vars`. Access `j` via `Variables/Get Var` or reference it directly in expressions.
 
 ---

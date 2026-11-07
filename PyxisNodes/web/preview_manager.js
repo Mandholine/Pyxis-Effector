@@ -603,6 +603,9 @@
             })();
 
             function updatePreviewMetadataBadges(nodeIdStr, info) {
+                if (info && typeof info.scaled_border_and_shadow === 'boolean' && activePlayers[nodeIdStr]) {
+                    activePlayers[nodeIdStr].scaledBorderAndShadow = info.scaled_border_and_shadow;
+                }
                 const metaContainer = document.getElementById('pyxis-player-meta-' + nodeIdStr);
                 if (!metaContainer) return;
                 const mediaMeta = (info && info.media_meta) ? info.media_meta : null;
@@ -731,9 +734,16 @@
                                 }
                             }
                         } else {
-                            if (!node.size || node.size[0] !== 300 || node.size[1] !== 54) {
-                                node.size = [300, 54];
-                                if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
+                            const isResizingNode = Boolean(window.canvas && window.canvas.resizing_node === node);
+                            if (!isResizingNode) {
+                                const minSz = (typeof node.computeSize === 'function') ? node.computeSize() : [284, 54];
+                                const minW = Math.max(270, minSz ? minSz[0] : 284);
+                                const curW = (node.size && node.size[0]) ? node.size[0] : minW;
+                                const targetW = Math.max(curW, minW);
+                                if (!node.size || node.size[0] < minW || node.size[1] !== 54) {
+                                    node.size = [targetW, 54];
+                                    if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
+                                }
                             }
                         }
 
@@ -772,12 +782,12 @@
                                     const wOutput = node.widgets.find(w => w && (w.name === "Output IDs" || w.property === "output_ids"));
                                     if (wOutput && typeof getInlineBoxWidth === 'function') {
                                         const wBox = getInlineBoxWidth(node, wOutput, "Output IDs", "output_ids", node.size[0]);
-                                        leftStart = Math.max(135, 22 + wBox + 10);
+                                        leftStart = pUpdated.isPinned ? (22 + wBox + 8) : Math.max(135, 22 + wBox + 10);
                                     }
                                 }
                                 const headX = (node.pos[0] + leftStart + tx) * scale;
                                 const headY = (node.pos[1] + 8 + ty) * scale;
-                                const headW = Math.max(140, node.size[0] - leftStart - 10);
+                                const headW = pUpdated.isPinned ? 164 : Math.max(168, node.size[0] - leftStart - 10);
                                 pUpdated.headerActions.style.left = headX + 'px';
                                 pUpdated.headerActions.style.top = headY + 'px';
                                 pUpdated.headerActions.style.width = headW + 'px';
@@ -789,7 +799,7 @@
                             }
                             if (pUpdated.wrapper && !pUpdated.isPinned) {
                                 pUpdated.wrapper.style.display = '';
-                                pUpdated.wrapper.style.zIndex = String(baseZ);
+                                pUpdated.wrapper.style.zIndex = pUpdated.hasFFmpegMissing ? String(baseZ + 30) : String(baseZ);
 
                                 const topOffset = 46;
                                 const sideMargin = 10;
@@ -824,9 +834,18 @@
                                         if (pUpdated.jassub && typeof pUpdated.jassub.resize === 'function') {
                                             try { pUpdated.jassub.resize(); } catch(e) {}
                                         }
+                                    } else if (getNodeRenderMode(node) === "mpv") {
+                                        scheduleMpvSharpResize(nodeIdStr, 60);
                                     }
                                     if (typeof pUpdated.applyTransform === 'function') {
                                         pUpdated.applyTransform();
+                                    }
+                                }
+                                if (pUpdated.lastCanvasScale !== scale) {
+                                    const prevScale = pUpdated.lastCanvasScale;
+                                    pUpdated.lastCanvasScale = scale;
+                                    if (prevScale !== undefined && getNodeRenderMode(node) === "mpv") {
+                                        scheduleMpvSharpResize(nodeIdStr, 90);
                                     }
                                 }
                             }
@@ -883,25 +902,230 @@
                 return { winStart, winEnd, winDur };
             }
 
-            async function updateJassubTrack(jassub, assText) {
+            function getRenderModeSvgHtml(mode) {
+                if (mode === "mpv") {
+                    return `<svg class="pyxis-icon-rendermode-mpv" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">` +
+                        `<circle cx="12" cy="12" r="10" stroke-width="2.0"/>` +
+                        `<polygon points="10.2 8.4 16.2 12 10.2 15.6 10.2 8.4" stroke-width="2.0"/>` +
+                        `</svg>`;
+                }
+                return `<svg class="pyxis-icon-rendermode-ts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">` +
+                    `<circle cx="12" cy="12" r="10" stroke-width="2.0"/>` +
+                    `<path d="M7.0 8.8h4.2M9.1 8.8v6.4" stroke-width="1.85"/>` +
+                    `<path d="M16.8 9.8c0-.7-.7-1.0-1.8-1.0-1.1 0-1.9.5-1.9 1.5 0 .9.7 1.3 1.9 1.7 1.2.4 1.9.8 1.9 1.8 0 1.0-.8 1.5-2.0 1.5-1.1 0-1.9-.4-1.9-1.1" stroke-width="1.85"/>` +
+                    `</svg>`;
+            }
+
+            function getNodeRenderMode(nodeOrId) {
+                let targetNode = null;
+                if (nodeOrId && typeof nodeOrId === "object") {
+                    targetNode = nodeOrId;
+                } else if (nodeOrId !== undefined && nodeOrId !== null) {
+                    const idStr = String(nodeOrId);
+                    const p = activePlayers[idStr];
+                    targetNode = (p && p.node) ? p.node : null;
+                    if (!targetNode && window.graph && typeof window.graph.getNodeById === "function") {
+                        targetNode = window.graph.getNodeById(Number(idStr)) || window.graph.getNodeById(idStr);
+                    }
+                }
+                const rawMode = (targetNode && targetNode.properties && targetNode.properties.render_mode) || "typesetting";
+                return rawMode === "mpv" ? "mpv" : "typesetting";
+            }
+
+            function getRenderModeTooltipKey(mode) {
+                return mode === "mpv" ? "preview.render_mode_mpv_tooltip" : "preview.render_mode_ts_tooltip";
+            }
+
+            function getRenderModeTooltipText(mode) {
+                const key = getRenderModeTooltipKey(mode);
+                if (window.t) {
+                    const tr = window.t(key);
+                    if (tr && tr !== key) return tr;
+                }
+                return mode === "mpv"
+                    ? "Render Mode: mpv Sharpness & Aspect - Click to switch to Typesetting (TS)"
+                    : "Render Mode: 1:1 Typesetting (TS) - Click to switch to mpv view";
+            }
+
+            function formatAssForRenderMode(rawAss, mode, optScaledBas) {
+                if (!rawAss || typeof rawAss !== "string") {
+                    return rawAss || "";
+                }
+                const lines = rawAss.split(/\r?\n/);
+                const out = [];
+                let inScriptInfo = false;
+                let hasScaledBas = false;
+                const effectiveBas = (optScaledBas !== undefined && optScaledBas !== null)
+                    ? Boolean(optScaledBas)
+                    : true;
+
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    const trimmed = line.trim();
+                    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                        if (inScriptInfo && !hasScaledBas) {
+                            out.push(`ScaledBorderAndShadow: ${effectiveBas ? "yes" : "no"}`);
+                            hasScaledBas = true;
+                        }
+                        inScriptInfo = (trimmed.toLowerCase() === "[script info]");
+                        out.push(line);
+                        continue;
+                    }
+                    if (inScriptInfo) {
+                        if (mode === "mpv" && /^layoutres[xy]\s*:/i.test(trimmed)) {
+                            continue;
+                        }
+                        if (/^scaledborderandshadow\s*:/i.test(trimmed)) {
+                            hasScaledBas = true;
+                            out.push(`ScaledBorderAndShadow: ${effectiveBas ? "yes" : "no"}`);
+                            continue;
+                        }
+                    }
+                    out.push(line);
+                }
+                if (inScriptInfo && !hasScaledBas) {
+                    out.push(`ScaledBorderAndShadow: ${effectiveBas ? "yes" : "no"}`);
+                }
+                return out.join("\n");
+            }
+
+            function syncJassubDomPlacement(p, mode, optJassub, optRoot) {
+                const root = optRoot || (p && p.art && p.art.template && p.art.template.$player) || (p && p.box) || null;
+                const jassubObj = optJassub || (p && p.jassub) || null;
+                const jassubParent = (jassubObj && jassubObj._canvasParent) || (root ? root.querySelector("div.JASSUB") : null);
+                if (!root || !jassubParent) return;
+
+                if (mode === "mpv") {
+                    const frame = root.querySelector(".pyxis-video-frame");
+                    if (frame && jassubParent.parentNode !== frame) {
+                        frame.appendChild(jassubParent);
+                    }
+                    jassubParent.classList.add("is-mpv-screen-space");
+                } else {
+                    jassubParent.classList.remove("is-mpv-screen-space");
+                    jassubParent.style.removeProperty("--mpv-jassub-w");
+                    jassubParent.style.removeProperty("--mpv-jassub-h");
+                    jassubParent.style.removeProperty("--mpv-jassub-ml");
+                    jassubParent.style.removeProperty("--mpv-jassub-mt");
+                    jassubParent.style.transform = "";
+                    const viewport = root.querySelector(".pyxis-video-viewport");
+                    if (viewport && jassubParent.parentNode !== viewport) {
+                        viewport.appendChild(jassubParent);
+                    }
+                }
+            }
+
+            function syncMpvJassubOverlay(boxEl, nodeIdStr, safeNW, safeNH, scaleVal, panX, panY) {
+                if (!boxEl) return;
+                const p = activePlayers[String(nodeIdStr)];
+                const mode = getNodeRenderMode((p && p.node) || nodeIdStr);
+                const jassubParent = (p && p.jassub && p.jassub._canvasParent) || boxEl.querySelector("div.JASSUB");
+                if (!jassubParent) return;
+
+                if (mode !== "mpv") {
+                    syncJassubDomPlacement(p, "typesetting", p && p.jassub, boxEl);
+                    return;
+                }
+
+                const frame = boxEl.querySelector(".pyxis-video-frame");
+                if (frame && jassubParent.parentNode !== frame) {
+                    frame.appendChild(jassubParent);
+                }
+                jassubParent.classList.add("is-mpv-screen-space");
+
+                const effScale = (isFinite(scaleVal) && scaleVal > 0) ? scaleVal : 1.0;
+                const displayW = Math.max(1, safeNW * effScale);
+                const displayH = Math.max(1, safeNH * effScale);
+                jassubParent.style.setProperty("--mpv-jassub-w", displayW + "px");
+                jassubParent.style.setProperty("--mpv-jassub-h", displayH + "px");
+                jassubParent.style.setProperty("--mpv-jassub-ml", (-displayW / 2) + "px");
+                jassubParent.style.setProperty("--mpv-jassub-mt", (-displayH / 2) + "px");
+                jassubParent.style.transform = `translate3d(${panX || 0}px, ${panY || 0}px, 0px)`;
+            }
+
+            function forceJassubPausedRefresh(jassub) {
+                if (!jassub) return;
+                try {
+                    if (jassub._video && jassub._video.paused && typeof jassub.setCurrentTime === "function") {
+                        const curT = (jassub._video.currentTime || 0) + (jassub.timeOffset || 0);
+                        jassub.setCurrentTime(true, curT);
+                    }
+                } catch (e) {}
+            }
+
+            function scheduleMpvSharpResize(nodeId, delayMs = 60) {
+                const idStr = String(nodeId);
+                const p = activePlayers[idStr];
+                if (!p) return;
+                if (p.mpvResizeTimer) {
+                    clearTimeout(p.mpvResizeTimer);
+                    p.mpvResizeTimer = null;
+                }
+                if (delayMs <= 0) {
+                    if (p.jassub && typeof p.jassub.resize === "function") {
+                        try { p.jassub.resize(0, 0, 0, 0, true); } catch (e) {}
+                        forceJassubPausedRefresh(p.jassub);
+                    }
+                    return;
+                }
+                p.mpvResizeTimer = setTimeout(() => {
+                    p.mpvResizeTimer = null;
+                    const pLatest = activePlayers[idStr];
+                    if (!pLatest || !pLatest.jassub) return;
+                    if (getNodeRenderMode(pLatest.node || idStr) !== "mpv") return;
+                    if (typeof pLatest.jassub.resize === "function") {
+                        try { pLatest.jassub.resize(0, 0, 0, 0, true); } catch (e) {}
+                        forceJassubPausedRefresh(pLatest.jassub);
+                    }
+                }, delayMs);
+            }
+
+            async function updateJassubTrack(jassub, assText, optNodeId, skipRawSave = false) {
                 if (!jassub || !assText) return;
                 try {
                     logPlayer("updateJassubTrack start, assText len: " + assText.length);
+                    let resolvedPlayer = (optNodeId !== undefined && optNodeId !== null) ? activePlayers[String(optNodeId)] : null;
+                    if (!resolvedPlayer) {
+                        const keys = Object.keys(activePlayers);
+                        for (let i = 0; i < keys.length; i++) {
+                            if (activePlayers[keys[i]] && activePlayers[keys[i]].jassub === jassub) {
+                                resolvedPlayer = activePlayers[keys[i]];
+                                break;
+                            }
+                        }
+                    }
+                    if (resolvedPlayer && !skipRawSave) {
+                        resolvedPlayer.rawAssContent = assText;
+                    }
+                    const activeMode = getNodeRenderMode(resolvedPlayer ? resolvedPlayer.node : optNodeId);
+                    if (resolvedPlayer) {
+                        syncJassubDomPlacement(resolvedPlayer, activeMode, jassub);
+                        if (typeof resolvedPlayer.applyTransform === "function") {
+                            try { resolvedPlayer.applyTransform(); } catch (e) {}
+                        }
+                    }
+                    const scaledBas = (resolvedPlayer && typeof resolvedPlayer.scaledBorderAndShadow === 'boolean')
+                        ? resolvedPlayer.scaledBorderAndShadow
+                        : (window.PyxisPreviewConfig && typeof window.PyxisPreviewConfig.scaled_border_and_shadow === 'boolean'
+                            ? window.PyxisPreviewConfig.scaled_border_and_shadow
+                            : true);
+                    const effectiveAss = formatAssForRenderMode(assText, activeMode, scaledBas);
                     if (jassub._loaded) {
                         try { await jassub._loaded; } catch (e) {}
                     }
                     if (typeof jassub.setTrack === 'function') {
-                        jassub.setTrack(assText);
-                        logPlayer("setTrack executed successfully.");
+                        jassub.setTrack(effectiveAss);
+                        logPlayer("setTrack executed successfully (" + activeMode + ").");
                     } else if (typeof jassub.setTrackByUrl === 'function') {
-                        const blob = new Blob([assText], { type: 'text/plain;charset=utf-8' });
+                        const blob = new Blob([effectiveAss], { type: 'text/plain;charset=utf-8' });
                         const blobUrl = URL.createObjectURL(blob);
                         jassub.setTrackByUrl(blobUrl);
-                        logPlayer("setTrackByUrl executed successfully.");
+                        logPlayer("setTrackByUrl executed successfully (" + activeMode + ").");
                     }
                     if (typeof jassub.resize === 'function') {
-                        try { jassub.resize(); } catch (e) {}
+                        try { jassub.resize(0, 0, 0, 0, true); } catch (e) {}
                     }
+                    forceJassubPausedRefresh(jassub);
                 } catch (e) {
                     console.warn("[Pyxis JASSUB track update warning]", e);
                     logPlayer("updateJassubTrack exception: " + String(e));
@@ -946,11 +1170,14 @@
                 window.__pyxis_last_fonts_map = fontsMap;
                 const fontKeys = Object.keys(fontsMap);
                 console.log("[Pyxis Font Loader] Injecting fonts into JASSUB. Total keys:", fontKeys.length, fontKeys);
+                if (!window.__pyxis_injected_fonts) {
+                    window.__pyxis_injected_fonts = new Set();
+                }
                 const processed = new Set();
                 let successCount = 0;
                 for (const [fName, fEntry] of Object.entries(fontsMap)) {
                     const cacheKey = (typeof fEntry === 'object' && fEntry.path) ? fEntry.path : fName.toLowerCase();
-                    if (processed.has(cacheKey)) continue;
+                    if (processed.has(cacheKey) || window.__pyxis_injected_fonts.has(cacheKey)) continue;
                     processed.add(cacheKey);
 
                     const u8 = convertFontEntryToUint8Array(fEntry);
@@ -961,6 +1188,7 @@
                     try {
                         if (typeof jassub.addFont === "function") {
                             jassub.addFont(u8);
+                            window.__pyxis_injected_fonts.add(cacheKey);
                             successCount++;
                             logPlayer("Font Loader -> Success addFont in JASSUB: " + fName + " (" + u8.length + " bytes)");
                         } else {
@@ -1039,6 +1267,10 @@
                     const sourceTip = isBase 
                         ? (window.t ? window.t("preview.source_base_tooltip") : "Source: Base Template (preview_base.ass) - Click to switch to Aegisub") 
                         : (window.t ? window.t("preview.source_aegisub_tooltip") : "Source: Open File in Aegisub - Click to switch to Base");
+                    const curRenderMode = getNodeRenderMode(node);
+                    const isMpvInit = curRenderMode === "mpv";
+                    const renderModeTipKey = getRenderModeTooltipKey(curRenderMode);
+                    const renderModeTip = getRenderModeTooltipText(curRenderMode);
 
                     const wrapper = document.createElement('div');
                     wrapper.id = 'pyxis-player-wrapper-' + nodeIdStr;
@@ -1058,6 +1290,9 @@
                         <div class="pyxis-header-buttons">
                             <button id="btn-source-${nodeIdStr}" class="pyxis-header-icon-btn pyxis-btn-source ${!initialHasAegisub ? 'disabled' : ''}" aria-label="${sourceTip}" data-i18n-aria-label="${isBase ? 'preview.source_base_tooltip' : 'preview.source_aegisub_tooltip'}" ${!initialHasAegisub ? 'disabled' : ''}>
                                 <img src="${isBase ? 'CD.png' : 'Aegisub_logo.png'}" alt="${curSource}" />
+                            </button>
+                            <button id="btn-rendermode-${nodeIdStr}" class="pyxis-header-icon-btn pyxis-btn-rendermode ${isMpvInit ? 'is-mpv-mode' : ''}" aria-label="${renderModeTip}" data-i18n-aria-label="${renderModeTipKey}">
+                                ${getRenderModeSvgHtml(curRenderMode)}
                             </button>
                             <button id="btn-pin-${nodeIdStr}" class="pyxis-header-icon-btn" aria-label="${window.t ? window.t('preview.pin') : 'Pin player to screen'}" data-i18n-aria-label="preview.pin">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -1086,6 +1321,7 @@
                     `;
 
                     const btnSource = headerActions.querySelector('#btn-source-' + nodeIdStr);
+                    const btnRenderMode = headerActions.querySelector('#btn-rendermode-' + nodeIdStr);
                     const btnPin = headerActions.querySelector('#btn-pin-' + nodeIdStr);
                     const btnRefresh = headerActions.querySelector('#btn-refresh-' + nodeIdStr);
                     const btnHardsub = headerActions.querySelector('#btn-hardsub-' + nodeIdStr);
@@ -1098,6 +1334,10 @@
                             const k = curSrc === "base" ? "preview.source_base_tooltip" : "preview.source_aegisub_tooltip";
                             return window.t ? window.t(k) : (curSrc === "base" ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub" : "Source: Open File in Aegisub - Click to switch to Base");
                         }, 1000);
+                    }
+                    if (btnRenderMode) {
+                        btnRenderMode.onclick = () => window.PyxisNodePlayerManager.togglePreviewRenderMode(nodeIdStr);
+                        attachPyxisDelayTooltip(btnRenderMode, () => getRenderModeTooltipText(getNodeRenderMode(nodeIdStr)), 1000);
                     }
                     if (btnPin) {
                         btnPin.onclick = () => window.PyxisNodePlayerManager.togglePinPreview(nodeIdStr);
@@ -1178,7 +1418,7 @@
                     }
                     const headX = (nodePos[0] + leftStart + tx) * scale;
                     const headY = (nodePos[1] + 8 + ty) * scale;
-                    const headW = Math.max(140, nodeSize[0] - leftStart - 10);
+                    const headW = Math.max(168, nodeSize[0] - leftStart - 10);
 
                     headerActions.style.left = headX + 'px';
                     headerActions.style.top = headY + 'px';
@@ -1241,6 +1481,7 @@
                     let jassubInstance = null;
 
                     let videoUrl = '';
+                    let audioUrl = '';
                     let initialAss = '';
                     let fontUrl = '';
                     let fontsMap = {};
@@ -1257,9 +1498,42 @@
                             : ((curSource === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig) || previewInfo || {};
 
                         const hasRealVideo = Boolean(pInfo && pInfo.real_video_file && vid && vid.videoWidth > 0 && vid.videoHeight > 0);
-                        const nW = hasRealVideo ? vid.videoWidth : (pInfo.res_x || 1920);
+                        let nW = hasRealVideo ? vid.videoWidth : (pInfo.res_x || 1920);
                         const nH = hasRealVideo ? vid.videoHeight : (pInfo.res_y || 1080);
-                        return { w: nW, h: nH, hasRealVideo: hasRealVideo };
+                        const storageW = (pInfo && pInfo.storage_x) ? pInfo.storage_x : (hasRealVideo ? vid.videoWidth : (pInfo.res_x || 1920));
+                        const storageH = (pInfo && pInfo.storage_y) ? pInfo.storage_y : (hasRealVideo ? vid.videoHeight : (pInfo.res_y || 1080));
+                        if (hasRealVideo && pInfo && pInfo.media_meta && pInfo.media_meta.sar && pInfo.media_meta.sar !== "1:1") {
+                            let darNum = 0.0;
+                            const rawDar = pInfo.media_meta.display_aspect_ratio;
+                            if (typeof rawDar === 'number') {
+                                darNum = rawDar;
+                            } else if (typeof rawDar === 'string' && rawDar.trim()) {
+                                if (rawDar.includes(':') || rawDar.includes('/')) {
+                                    const parts = rawDar.split(/[:\/]/);
+                                    if (parts.length === 2) {
+                                        const n = parseFloat(parts[0]);
+                                        const d = parseFloat(parts[1]);
+                                        if (n > 0 && d > 0) darNum = n / d;
+                                    }
+                                } else {
+                                    darNum = parseFloat(rawDar);
+                                }
+                            }
+                            if (!darNum || !isFinite(darNum) || darNum <= 0) {
+                                const sarParts = String(pInfo.media_meta.sar).split(/[:\/]/);
+                                if (sarParts.length === 2) {
+                                    const sNum = parseFloat(sarParts[0]);
+                                    const sDen = parseFloat(sarParts[1]);
+                                    if (sNum > 0 && sDen > 0) {
+                                        darNum = (storageW / storageH) * (sNum / sDen);
+                                    }
+                                }
+                            }
+                            if (darNum > 0 && isFinite(darNum)) {
+                                nW = Math.max(1, Math.round(nH * darNum));
+                            }
+                        }
+                        return { w: nW, h: nH, storageW: storageW, storageH: storageH, hasRealVideo: hasRealVideo };
                     }
 
                     if (window.pywebview && window.pywebview.api) {
@@ -1267,11 +1541,51 @@
                         const initTargets = (window.graph) ? resolveConnectedOutputsForPreview(node) : [];
                         const serialized = (window.graph) ? window.graph.serialize() : null;
 
+                        if (typeof window.pywebview.api.check_ffmpeg_status === 'function') {
+                            try {
+                                const ffStatus = await window.pywebview.api.check_ffmpeg_status();
+                                if (ffStatus && !ffStatus.available) {
+                                    showPlayerFFmpegMissingBanner(nodeIdStr);
+                                    if (typeof window.showFFmpegDownloadModal === 'function') {
+                                        window.showFFmpegDownloadModal(async (downloaded) => {
+                                            if (!downloaded) return;
+                                            await loadPreviewMediaAfterFFmpeg(nodeIdStr);
+                                        });
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn("[Pyxis check_ffmpeg_status warning]", e);
+                            }
+                        }
+
                         if (typeof window.pywebview.api.get_preview_info === 'function') {
                             previewInfo = await window.pywebview.api.get_preview_info(curSource, initTargets, serialized);
                         }
                         if (typeof window.pywebview.api.get_preview_video_data_url === 'function') {
                             videoUrl = await window.pywebview.api.get_preview_video_data_url(curSource, initTargets, serialized);
+                        }
+
+                        // If user cancelled while fetching Aegisub media, or if Aegisub video URL returned empty, fall back to base source
+                        if (curSource === "aegisub" && (window.__pyxis_is_preview_cancelled || !videoUrl)) {
+                            window.__pyxis_is_preview_cancelled = false;
+                            curSource = "base";
+                            if (node.properties) {
+                                node.properties.preview_source = "base";
+                            }
+                            const hasAegi = (initialHasAegisub !== undefined)
+                                ? initialHasAegisub
+                                : Boolean(window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub);
+                            updateSourceButtonUI(nodeIdStr, "base", hasAegi);
+                            if (typeof window.pywebview.api.get_preview_info === 'function') {
+                                previewInfo = await window.pywebview.api.get_preview_info("base", initTargets, serialized);
+                            }
+                            if (typeof window.pywebview.api.get_preview_video_data_url === 'function') {
+                                videoUrl = await window.pywebview.api.get_preview_video_data_url("base", initTargets, serialized);
+                            }
+                        }
+
+                        if (typeof window.pywebview.api.get_preview_audio_data_url === 'function') {
+                            audioUrl = await window.pywebview.api.get_preview_audio_data_url(curSource, initTargets, serialized);
                         }
 
                         if (typeof window.pywebview.api.get_initial_base_ass === 'function') {
@@ -1336,7 +1650,10 @@
                                 }
                             }
                         } else {
-                            node.size = [300, 54];
+                            const minSz = (typeof node.computeSize === 'function') ? node.computeSize() : [284, 54];
+                            const minW = Math.max(270, minSz ? minSz[0] : 284);
+                            const curW = (node.size && node.size[0]) ? node.size[0] : minW;
+                            node.size = [Math.max(curW, minW), 54];
                             if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
                             if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                         }
@@ -1404,8 +1721,8 @@
                                             viewport.appendChild(vidEl);
                                         }
                                         const existingJassub = playerEl.querySelector('div.JASSUB');
-                                        if (existingJassub && existingJassub.parentNode !== viewport) {
-                                            viewport.appendChild(existingJassub);
+                                        if (existingJassub) {
+                                            syncJassubDomPlacement(activePlayers[nodeIdStr], getNodeRenderMode(node), null, playerEl);
                                         }
                                     }
 
@@ -1553,8 +1870,17 @@
                                         prescaleHeightLimit: 4320,
                                         maxRenderHeight: 0
                                     };
+                                    if (activePlayers[nodeIdStr]) {
+                                        activePlayers[nodeIdStr].rawAssContent = initialAss || "";
+                                    }
+                                    const initRenderMode = getNodeRenderMode(node);
                                     if (initialAss) {
-                                        jassOpts.subContent = initialAss;
+                                        const initBas = (previewInfo && typeof previewInfo.scaled_border_and_shadow === 'boolean')
+                                            ? previewInfo.scaled_border_and_shadow
+                                            : (window.PyxisPreviewConfig && typeof window.PyxisPreviewConfig.scaled_border_and_shadow === 'boolean'
+                                                ? window.PyxisPreviewConfig.scaled_border_and_shadow
+                                                : true);
+                                        jassOpts.subContent = formatAssForRenderMode(initialAss, initRenderMode, initBas);
                                     }
                                     const fontByteArrays = [];
                                     const fontUrlsMap = {};
@@ -1582,64 +1908,142 @@
                                         jassOpts.fallbackFont = primaryFontClean;
                                     }
                                     jassubInstance = new JASSUB(jassOpts);
+                                    if (activePlayers[nodeIdStr]) {
+                                        activePlayers[nodeIdStr].jassub = jassubInstance;
+                                    }
 
-                                    // Intercept resize to provide exact native ASS script/video resolution
+                                    // Intercept _demandRender to prevent RVFC storage dimension flutter on anamorphic videos
+                                    if (typeof jassubInstance._demandRender === 'function') {
+                                        const origDemandRender = jassubInstance._demandRender.bind(jassubInstance);
+                                        jassubInstance._demandRender = function(opts) {
+                                            if (!opts) return;
+                                            try {
+                                                const { w: nW, h: nH } = getNativeResolution();
+                                                const safeNW = Math.max(1, nW || 1920);
+                                                const safeNH = Math.max(1, nH || 1080);
+                                                // Ensure RVFC decoded storage dimensions (e.g. 720x480) match effective
+                                                // display aspect ratio so libass worker doesn't oscillate on each video frame
+                                                opts.width = safeNW;
+                                                opts.height = safeNH;
+                                            } catch (_) {}
+                                            return origDemandRender(opts);
+                                        };
+                                    }
+
+                                    // Intercept resize to support both 1:1 Typesetting canvas fidelity and Screen-Space mpv rasterization
                                     jassubInstance.resize = function(w, h, top, left, paused) {
                                         try {
-                                            const { w: nW, h: nH, hasRealVideo } = getNativeResolution();
+                                            const { w: nW, h: nH } = getNativeResolution();
                                             const safeNW = Math.max(1, nW || 1920);
                                             const safeNH = Math.max(1, nH || 1080);
-                                            const dpr = Math.min(2.0, Math.max(1.0, window.devicePixelRatio || 1.0));
-                                            const targetW = Math.max(1, Math.round(safeNW * dpr));
-                                            const targetH = Math.max(1, Math.round(safeNH * dpr));
+                                            const renderMode = getNodeRenderMode(nodeIdStr);
 
-                                            this._videoWidth = safeNW;
-                                            this._videoHeight = safeNH;
+                                            if (renderMode === "mpv") {
+                                                const dpr = Math.min(3.0, Math.max(1.0, window.devicePixelRatio || 1.0));
+                                                const rect = this._canvasParent ? this._canvasParent.getBoundingClientRect() : null;
+                                                let cssW = (rect && rect.width > 2) ? rect.width : 0;
+                                                let cssH = (rect && rect.height > 2) ? rect.height : 0;
+                                                if (cssW <= 0 || cssH <= 0) {
+                                                    const pCur = activePlayers[nodeIdStr];
+                                                    const actScale = (pCur && pCur.transformState && pCur.transformState.actualScale > 0)
+                                                        ? pCur.transformState.actualScale
+                                                        : 1.0;
+                                                    const cScale = (pCur && !pCur.isPinned && !pCur.isFullscreen && !pCur.inTelemetryCockpit && window.graphcanvas && window.graphcanvas.ds)
+                                                        ? (window.graphcanvas.ds.scale || 1.0)
+                                                        : 1.0;
+                                                    cssW = safeNW * actScale * cScale;
+                                                    cssH = safeNH * actScale * cScale;
+                                                }
+                                                let targetW = Math.max(2, Math.round(cssW * dpr));
+                                                let targetH = Math.max(2, Math.round(cssH * dpr));
+                                                const MAX_MPV_DIM = 3840;
+                                                if (targetW > MAX_MPV_DIM || targetH > MAX_MPV_DIM) {
+                                                    const clampRatio = MAX_MPV_DIM / Math.max(targetW, targetH);
+                                                    targetW = Math.max(2, Math.round(targetW * clampRatio));
+                                                    targetH = Math.max(2, Math.round(targetH * clampRatio));
+                                                }
 
-                                            if (this._canvas) {
-                                                this._canvas.style.width = '100%';
-                                                this._canvas.style.height = '100%';
-                                                this._canvas.style.top = '0px';
-                                                this._canvas.style.left = '0px';
-                                            }
-                                            if (this._canvasParent) {
-                                                this._canvasParent.style.width = '100%';
-                                                this._canvasParent.style.height = '100%';
-                                                this._canvasParent.style.top = '0px';
-                                                this._canvasParent.style.left = '0px';
-                                            }
-                                            if (this._canvasctrl) {
-                                                if (this._canvasctrl.width !== targetW || this._canvasctrl.height !== targetH) {
+                                                // In mpv mode, ensure videoWidth and videoHeight reflect the display aspect ratio
+                                                // (safeNW, safeNH) to match MPV's sub-ass-vsfilter-aspect-compat=yes behavior.
+                                                // Passing non-square storage dimensions (e.g. 720x480 for anamorphic DVD) causes
+                                                // libass to apply an unintended double-PAR horizontal distortion on scripts authored
+                                                // in display aspect ratio coordinates (PlayRes).
+                                                this._videoWidth = safeNW;
+                                                this._videoHeight = safeNH;
+
+                                                if (this._canvas) {
+                                                    this._canvas.style.width = '100%';
+                                                    this._canvas.style.height = '100%';
+                                                    this._canvas.style.top = '0px';
+                                                    this._canvas.style.left = '0px';
+                                                }
+                                                if (this._canvasParent) {
+                                                    this._canvasParent.style.removeProperty('width');
+                                                    this._canvasParent.style.removeProperty('height');
+                                                    this._canvasParent.style.removeProperty('top');
+                                                    this._canvasParent.style.removeProperty('left');
+                                                }
+                                                if (this._canvasctrl && (this._canvasctrl.width === 0 || this._canvasctrl.height === 0)) {
                                                     this._canvasctrl.width = targetW;
                                                     this._canvasctrl.height = targetH;
                                                 }
+                                                const force = Boolean(paused ?? this._video?.paused ?? true);
+                                                this.sendMessage("canvas", {
+                                                    width: targetW,
+                                                    height: targetH,
+                                                    videoWidth: safeNW,
+                                                    videoHeight: safeNH,
+                                                    force: force
+                                                });
+                                            } else {
+                                                const dpr = Math.min(2.0, Math.max(1.0, window.devicePixelRatio || 1.0));
+                                                const targetW = Math.max(1, Math.round(safeNW * dpr));
+                                                const targetH = Math.max(1, Math.round(safeNH * dpr));
+
+                                                this._videoWidth = safeNW;
+                                                this._videoHeight = safeNH;
+
+                                                if (this._canvas) {
+                                                    this._canvas.style.width = '100%';
+                                                    this._canvas.style.height = '100%';
+                                                    this._canvas.style.top = '0px';
+                                                    this._canvas.style.left = '0px';
+                                                }
+                                                if (this._canvasParent) {
+                                                    this._canvasParent.style.width = '100%';
+                                                    this._canvasParent.style.height = '100%';
+                                                    this._canvasParent.style.top = '0px';
+                                                    this._canvasParent.style.left = '0px';
+                                                }
+                                                if (this._canvasctrl) {
+                                                    if (this._canvasctrl.width !== targetW || this._canvasctrl.height !== targetH) {
+                                                        this._canvasctrl.width = targetW;
+                                                        this._canvasctrl.height = targetH;
+                                                    }
+                                                }
+                                                const force = paused ?? this._video?.paused ?? false;
+                                                this.sendMessage("canvas", {
+                                                    width: targetW,
+                                                    height: targetH,
+                                                    videoWidth: safeNW,
+                                                    videoHeight: safeNH,
+                                                    force: force
+                                                });
                                             }
-                                            const force = paused ?? this._video?.paused ?? false;
-                                            this.sendMessage("canvas", {
-                                                width: targetW,
-                                                height: targetH,
-                                                videoWidth: safeNW,
-                                                videoHeight: safeNH,
-                                                force: force
-                                            });
                                         } catch (err) {
                                             console.error("[Pyxis JASSUB Resize Error]", err);
                                         }
                                     };
-                                    try { jassubInstance.resize(); } catch(e) {}
 
-                                    if (jassubInstance && jassubInstance._canvasParent) {
-                                        const playerContainer = (artInstance.template && artInstance.template.$player) || box;
-                                        const vp = playerContainer ? playerContainer.querySelector('.pyxis-video-viewport') : null;
-                                        if (vp && jassubInstance._canvasParent.parentNode !== vp) {
-                                            vp.appendChild(jassubInstance._canvasParent);
-                                        }
+                                    const playerContainer = (artInstance.template && artInstance.template.$player) || box;
+                                    syncJassubDomPlacement(activePlayers[nodeIdStr], initRenderMode, jassubInstance, playerContainer);
+                                    if (activePlayers[nodeIdStr] && typeof activePlayers[nodeIdStr].applyTransform === 'function') {
+                                        activePlayers[nodeIdStr].applyTransform();
                                     }
+                                    try { jassubInstance.resize(0, 0, 0, 0, true); } catch(e) {}
+
                                     if (initialAss && typeof updateJassubTrack === "function") {
-                                        await updateJassubTrack(jassubInstance, initialAss);
-                                    }
-                                    if (activePlayers[nodeIdStr]) {
-                                        activePlayers[nodeIdStr].jassub = jassubInstance;
+                                        await updateJassubTrack(jassubInstance, initialAss, nodeIdStr);
                                     }
                                     logPlayer("JASSUB instance created for node: " + nodeIdStr + " with unapplied base subtitle (" + initialAss.length + " bytes)");
                                     if (window.PyxisTelemetry && typeof window.PyxisTelemetry.renderAllPreviewerHeatmaps === 'function') {
@@ -1731,7 +2135,7 @@
                                 videoContainer.appendChild(vid);
                             }
                             const jassubParent = box.querySelector('div.JASSUB');
-                            if (jassubParent && jassubParent.parentNode !== videoContainer) {
+                            if (jassubParent && getNodeRenderMode(nodeIdStr) !== "mpv" && jassubParent.parentNode !== videoContainer) {
                                 videoContainer.appendChild(jassubParent);
                             }
                             const { w: nW, h: nH } = getNativeResolution();
@@ -1870,6 +2274,7 @@
                             }
 
                             videoContainer.style.transform = `translate3d(${transformState.panX}px, ${transformState.panY}px, 0px) scale(${actualScale})`;
+                            syncMpvJassubOverlay(box, nodeIdStr, safeNW, safeNH, actualScale, transformState.panX, transformState.panY);
                         }
 
                         let resetAnimId = null;
@@ -2085,6 +2490,7 @@
                                 if (videoContainer) {
                                     videoContainer.style.transform = `translate3d(${transformState.panX}px, ${transformState.panY}px, 0px) scale(${curScale})`;
                                 }
+                                syncMpvJassubOverlay(box, nodeIdStr, safeNW, safeNH, curScale, transformState.panX, transformState.panY);
 
                                 if (progress < 1.0) {
                                     resetAnimId = requestAnimationFrame(step);
@@ -2266,6 +2672,9 @@
 
                             applyTransform();
                             syncTransformToNode();
+                            if (getNodeRenderMode(nodeIdStr) === "mpv") {
+                                scheduleMpvSharpResize(nodeIdStr, 60);
+                            }
                         };
 
                         // 2. Pan con botón medio del ratón (button === 1)
@@ -2401,6 +2810,10 @@
                         const tipFs = window.t ? window.t(tipFsKey) : (isBaseSrc
                             ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub"
                             : "Source: Open File in Aegisub - Click to switch to Base");
+                        const curRenderModeFs = getNodeRenderMode(node);
+                        const isMpvFs = curRenderModeFs === "mpv";
+                        const tipRenderFsKey = getRenderModeTooltipKey(curRenderModeFs);
+                        const tipRenderFs = getRenderModeTooltipText(curRenderModeFs);
 
                         const controls = document.createElement('div');
                         controls.className = 'pyxis-custom-player-controls';
@@ -2451,6 +2864,9 @@
                                 <div class="pyxis-pcontrols-right">
                                     <button id="btn-ctrl-source-${nodeIdStr}" class="pyxis-pbtn pyxis-pbtn-fs-only pyxis-pbtn-source ${!initialHasAegisub ? 'disabled' : ''}" aria-label="${tipFs}" data-i18n-aria-label="${tipFsKey}" ${!initialHasAegisub ? 'disabled' : ''}>
                                         <img src="${isBaseSrc ? 'CD.png' : 'Aegisub_logo.png'}" alt="${curSrcVal}" />
+                                    </button>
+                                    <button id="btn-ctrl-rendermode-${nodeIdStr}" class="pyxis-pbtn pyxis-pbtn-fs-only pyxis-pbtn-rendermode ${isMpvFs ? 'is-mpv-mode' : ''}" aria-label="${tipRenderFs}" data-i18n-aria-label="${tipRenderFsKey}">
+                                        ${getRenderModeSvgHtml(curRenderModeFs)}
                                     </button>
                                     <button id="btn-ctrl-refresh-${nodeIdStr}" class="pyxis-pbtn pyxis-pbtn-fs-only pyxis-pbtn-refresh" aria-label="${window.t ? window.t('preview.refresh') : 'Refresh Previewer'}" data-i18n-aria-label="preview.refresh">
                                         <svg class="pyxis-icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -2510,6 +2926,7 @@
                         const btnStepNext = controls.querySelector('.pyxis-pbtn-step-next');
 
                         const btnCtrlSource = controls.querySelector('#btn-ctrl-source-' + nodeIdStr);
+                        const btnCtrlRenderMode = controls.querySelector('#btn-ctrl-rendermode-' + nodeIdStr);
                         const btnCtrlRefresh = controls.querySelector('#btn-ctrl-refresh-' + nodeIdStr);
                         const btnCtrlHardsub = controls.querySelector('#btn-ctrl-hardsub-' + nodeIdStr);
 
@@ -2525,6 +2942,15 @@
                                     const k = curSrc === "base" ? "preview.source_base_tooltip" : "preview.source_aegisub_tooltip";
                                     return window.t ? window.t(k) : (curSrc === "base" ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub" : "Source: Open File in Aegisub - Click to switch to Base");
                                 }, 800);
+                            }
+                        }
+                        if (btnCtrlRenderMode) {
+                            btnCtrlRenderMode.onclick = (e) => {
+                                e.stopPropagation();
+                                window.PyxisNodePlayerManager.togglePreviewRenderMode(nodeIdStr);
+                            };
+                            if (typeof attachPyxisDelayTooltip === 'function') {
+                                attachPyxisDelayTooltip(btnCtrlRenderMode, () => getRenderModeTooltipText(getNodeRenderMode(nodeIdStr)), 800);
                             }
                         }
                         if (btnCtrlRefresh) {
@@ -2576,11 +3002,20 @@
                         }
 
                         function updateVolumeUI() {
-                            const vol = (artInstance.muted) ? 0 : (artInstance.volume !== undefined ? artInstance.volume : 0.5);
+                            const p = activePlayers[nodeIdStr];
+                            const isDecoupled = Boolean(p && p.isDecoupled);
+                            const isMuted = isDecoupled 
+                                ? Boolean(p.userMuted) 
+                                : Boolean(artInstance.muted);
+                            const vol = isMuted 
+                                ? 0 
+                                : (isDecoupled 
+                                    ? ((p.userVolume !== undefined) ? p.userVolume : 0.5)
+                                    : ((artInstance.volume !== undefined) ? artInstance.volume : 0.5));
                             sliderVolume.value = vol;
                             sliderVolume.style.background = `linear-gradient(to right, var(--accent-primary) ${vol * 100}%, rgba(255,255,255,0.2) ${vol * 100}%)`;
 
-                            if (vol === 0 || artInstance.muted) {
+                            if (vol === 0 || isMuted) {
                                 iconVolHigh.style.display = 'none';
                                 iconVolLow.style.display = 'none';
                                 iconVolMute.style.display = 'block';
@@ -2598,13 +3033,32 @@
                         let lastVolume = 0.5;
                         btnVolume.onclick = (e) => {
                             e.stopPropagation();
-                            if (artInstance.muted || artInstance.volume === 0) {
-                                artInstance.muted = false;
-                                artInstance.volume = (lastVolume > 0) ? lastVolume : 0.5;
+                            const p = activePlayers[nodeIdStr];
+                            if (p && p.isDecoupled) {
+                                if (p.userMuted || (p.userVolume === 0)) {
+                                    p.userMuted = false;
+                                    p.userVolume = (lastVolume > 0) ? lastVolume : 0.5;
+                                } else {
+                                    lastVolume = (p.userVolume !== undefined && p.userVolume > 0) ? p.userVolume : 0.5;
+                                    p.userMuted = true;
+                                }
+                                if (p.auxAudio) {
+                                    p.auxAudio.muted = Boolean(p.userMuted);
+                                    p.auxAudio.volume = p.userMuted ? 0 : p.userVolume;
+                                }
+                                if (p.art && p.art.video) {
+                                    p.art.video.muted = true;
+                                    p.art.video.defaultMuted = true;
+                                }
                             } else {
-                                lastVolume = artInstance.volume;
-                                artInstance.muted = true;
-                                artInstance.volume = 0;
+                                if (artInstance.muted || artInstance.volume === 0) {
+                                    artInstance.muted = false;
+                                    artInstance.volume = (lastVolume > 0) ? lastVolume : 0.5;
+                                } else {
+                                    lastVolume = artInstance.volume;
+                                    artInstance.muted = true;
+                                    artInstance.volume = 0;
+                                }
                             }
                             updateVolumeUI();
                         };
@@ -2612,13 +3066,33 @@
                         sliderVolume.oninput = (e) => {
                             e.stopPropagation();
                             const val = parseFloat(sliderVolume.value);
-                            if (val === 0) {
-                                artInstance.muted = true;
-                                artInstance.volume = 0;
+                            const p = activePlayers[nodeIdStr];
+                            if (p && p.isDecoupled) {
+                                if (val === 0) {
+                                    p.userMuted = true;
+                                    p.userVolume = 0;
+                                } else {
+                                    p.userMuted = false;
+                                    p.userVolume = val;
+                                    lastVolume = val;
+                                }
+                                if (p.auxAudio) {
+                                    p.auxAudio.muted = Boolean(p.userMuted);
+                                    p.auxAudio.volume = p.userMuted ? 0 : p.userVolume;
+                                }
+                                if (p.art && p.art.video) {
+                                    p.art.video.muted = true;
+                                    p.art.video.defaultMuted = true;
+                                }
                             } else {
-                                artInstance.muted = false;
-                                artInstance.volume = val;
-                                lastVolume = val;
+                                if (val === 0) {
+                                    artInstance.muted = true;
+                                    artInstance.volume = 0;
+                                } else {
+                                    artInstance.muted = false;
+                                    artInstance.volume = val;
+                                    lastVolume = val;
+                                }
                             }
                             updateVolumeUI();
                         };
@@ -2677,6 +3151,44 @@
                             artInstance.on('video:pause', updatePlayPauseUI);
                         }
 
+                        function syncAndRepaintFullscreenTransition() {
+                            const pCurr = activePlayers[nodeIdStr];
+                            if (pCurr) {
+                                pCurr.lastW = null;
+                                pCurr.lastH = null;
+                                pCurr.lastCanvasScale = null;
+                            }
+                            if (typeof updateInNodePlayersPosition === 'function') {
+                                try { updateInNodePlayersPosition(); } catch(e) {}
+                            }
+                            if (artInstance && typeof artInstance.resize === 'function') {
+                                try { artInstance.resize(); } catch(e) {}
+                            }
+                            if (pCurr && typeof pCurr.applyTransform === 'function') {
+                                try { pCurr.applyTransform(); } catch(e) {}
+                            }
+                            if (pCurr && pCurr.jassub && typeof pCurr.jassub.resize === 'function') {
+                                try { pCurr.jassub.resize(0, 0, 0, 0, true); } catch(e) {}
+                                if (typeof forceJassubPausedRefresh === 'function') {
+                                    forceJassubPausedRefresh(pCurr.jassub);
+                                }
+                            }
+                            // Force Chromium/WebView2 hardware video decoder to present frame when paused
+                            const v = (artInstance && artInstance.template && artInstance.template.$video) || (box && box.querySelector('video'));
+                            if (v && v.paused) {
+                                try {
+                                    const cur = v.currentTime;
+                                    if (cur > 0.001) {
+                                        v.currentTime = cur - 0.0001;
+                                        v.currentTime = cur;
+                                    } else {
+                                        v.currentTime = cur + 0.0001;
+                                        v.currentTime = cur;
+                                    }
+                                } catch(e) {}
+                            }
+                        }
+
                         function toggleFullscreen(forceState) {
                             if (!targetWrapper) return;
                             const p = activePlayers[nodeIdStr];
@@ -2698,9 +3210,17 @@
                             }
                             if (p) {
                                 p.isFullscreen = isNowFs;
+                                p.lastW = null;
+                                p.lastH = null;
+                                p.lastCanvasScale = null;
                                 if (p.transformState) {
                                     p.transformState.lastPW = null;
                                     p.transformState.lastPH = null;
+                                    if (!isNowFs && !p.transformState.isCustom) {
+                                        p.transformState.panX = 0;
+                                        p.transformState.panY = 0;
+                                        p.transformState.actualScale = null;
+                                    }
                                 }
                             }
 
@@ -2709,6 +3229,7 @@
                                     pbarContainer._collapseHeatmap();
                                 }
                                 targetWrapper.classList.add('pyxis-player-fullscreen');
+                                document.body.classList.add('pyxis-player-fullscreen-active');
                                 iconFsEnter.style.display = 'none';
                                 iconFsExit.style.display = 'block';
                                 const canRequestNativeFs = document.fullscreenEnabled && 
@@ -2725,6 +3246,7 @@
                                 }
                             } else {
                                 targetWrapper.classList.remove('pyxis-player-fullscreen');
+                                document.body.classList.remove('pyxis-player-fullscreen-active');
                                 iconFsEnter.style.display = 'block';
                                 iconFsExit.style.display = 'none';
                                 try {
@@ -2734,11 +3256,10 @@
                                 } catch(e) {}
                             }
 
-                            setTimeout(() => {
-                                if (artInstance && typeof artInstance.resize === 'function') artInstance.resize();
-                                if (p && p.jassub && typeof p.jassub.resize === 'function') p.jassub.resize();
-                                if (p && typeof p.applyTransform === 'function') p.applyTransform();
-                            }, 60);
+                            requestAnimationFrame(syncAndRepaintFullscreenTransition);
+                            setTimeout(syncAndRepaintFullscreenTransition, 60);
+                            setTimeout(syncAndRepaintFullscreenTransition, 180);
+                            setTimeout(syncAndRepaintFullscreenTransition, 350);
                         }
 
                         btnFullscreen.onclick = (e) => {
@@ -2760,13 +3281,49 @@
                         let clickDebounceTimer = null;
                         const DOUBLE_CLICK_DELAY = 240;
 
+                        const onKeydown = (e) => {
+                            if (!targetWrapper) return;
+                            const isFs = targetWrapper.classList.contains('pyxis-player-fullscreen');
+                            if (e.key === 'Escape' && isFs) {
+                                toggleFullscreen(false);
+                            }
+                        };
+                        window.addEventListener('keydown', onKeydown);
+                        document.addEventListener('keydown', onKeydown);
+
+                        const onFullscreenChange = () => {
+                            if (!targetWrapper) return;
+                            const isFs = targetWrapper.classList.contains('pyxis-player-fullscreen');
+                            if (!document.fullscreenElement) {
+                                if (isFs) {
+                                    toggleFullscreen(false);
+                                } else {
+                                    syncAndRepaintFullscreenTransition();
+                                    setTimeout(syncAndRepaintFullscreenTransition, 60);
+                                    setTimeout(syncAndRepaintFullscreenTransition, 180);
+                                    setTimeout(syncAndRepaintFullscreenTransition, 350);
+                                }
+                            } else if (document.fullscreenElement) {
+                                syncAndRepaintFullscreenTransition();
+                                setTimeout(syncAndRepaintFullscreenTransition, 60);
+                                setTimeout(syncAndRepaintFullscreenTransition, 180);
+                            }
+                        };
+                        document.addEventListener('fullscreenchange', onFullscreenChange);
+
                         if (activePlayers[nodeIdStr]) {
                             activePlayers[nodeIdStr].toggleFullscreen = toggleFullscreen;
+                            activePlayers[nodeIdStr].syncAndRepaintFullscreenTransition = syncAndRepaintFullscreenTransition;
                             activePlayers[nodeIdStr].clearClickDebounce = () => {
                                 if (clickDebounceTimer) {
                                     clearTimeout(clickDebounceTimer);
                                     clickDebounceTimer = null;
                                 }
+                            };
+                            activePlayers[nodeIdStr].destroyFullscreenListeners = () => {
+                                window.removeEventListener('keydown', onKeydown);
+                                document.removeEventListener('keydown', onKeydown);
+                                document.removeEventListener('fullscreenchange', onFullscreenChange);
                             };
                         }
 
@@ -2818,24 +3375,6 @@
                                 e.stopImmediatePropagation();
                             }, true);
                         }
-
-                        const onKeydown = (e) => {
-                            if (!targetWrapper) return;
-                            const isFs = targetWrapper.classList.contains('pyxis-player-fullscreen');
-                            if (e.key === 'Escape' && isFs) {
-                                toggleFullscreen(false);
-                            }
-                        };
-                        window.addEventListener('keydown', onKeydown);
-                        document.addEventListener('keydown', onKeydown);
-
-                        document.addEventListener('fullscreenchange', () => {
-                            if (!targetWrapper) return;
-                            const isFs = targetWrapper.classList.contains('pyxis-player-fullscreen');
-                            if (!document.fullscreenElement && isFs) {
-                                toggleFullscreen(false);
-                            }
-                        });
 
                         let isDraggingSeek = false;
                         let seekDownClientX = 0;
@@ -3148,9 +3687,11 @@
                         updateVolumeUI();
                         if (activePlayers[nodeIdStr]) {
                             activePlayers[nodeIdStr].updateTimeUI = updateTimeUI;
+                            activePlayers[nodeIdStr].updateVolumeUI = updateVolumeUI;
                         }
                         if (box) {
                             box._pyxisUpdateTimeUI = updateTimeUI;
+                            box._pyxisUpdateVolumeUI = updateVolumeUI;
                         }
                     }
 
@@ -3167,12 +3708,20 @@
                         hasRefreshed: false,
                         hasAegisub: hasAegi,
                         videoUrl: videoUrl,
+                        scaledBorderAndShadow: (previewInfo && typeof previewInfo.scaled_border_and_shadow === 'boolean') ? previewInfo.scaled_border_and_shadow : true,
                         isInitializing: false,
                         isInitialized: true,
-                        updateTimeUI: existingP.updateTimeUI || (box ? box._pyxisUpdateTimeUI : undefined)
+                        updateTimeUI: existingP.updateTimeUI || (box ? box._pyxisUpdateTimeUI : undefined),
+                        updateVolumeUI: existingP.updateVolumeUI || (box ? box._pyxisUpdateVolumeUI : undefined)
                     });
                     updateSourceButtonUI(nodeIdStr, curSource, hasAegi);
+                    updateRenderModeButtonUI(nodeIdStr, getNodeRenderMode(node));
                     updatePreviewMetadataBadges(nodeIdStr, previewInfo);
+                    if (audioUrl) {
+                        setupDecoupledAudio(activePlayers[nodeIdStr], audioUrl);
+                    } else {
+                        teardownDecoupledAudio(activePlayers[nodeIdStr]);
+                    }
 
                     if (node && node.properties && node.properties.is_pinned && !activePlayers[nodeIdStr].isPinned) {
                         togglePinPreview(nodeIdStr);
@@ -3186,17 +3735,32 @@
                 const p = activePlayers[nodeId];
                 if (!p) return;
 
+                if (p.mpvResizeTimer) {
+                    clearTimeout(p.mpvResizeTimer);
+                    p.mpvResizeTimer = null;
+                }
+                teardownDecoupledAudio(p);
+
                 if (p.headerActions && p.headerActions.parentNode) {
                     p.headerActions.parentNode.removeChild(p.headerActions);
                 }
                 if (p.jassub && typeof p.jassub.destroy === 'function') {
+                    try {
+                        if (p.jassub._video && p.jassub._video.parentNode && p.jassub._canvasParent && p.jassub._canvasParent.parentNode !== p.jassub._video.parentNode) {
+                            p.jassub._video.parentNode.appendChild(p.jassub._canvasParent);
+                        }
+                    } catch (e) {}
                     try { p.jassub.destroy(); } catch (e) {}
+                    if (window.__pyxis_injected_fonts) window.__pyxis_injected_fonts.clear();
                 }
                 if (p.art && typeof p.art.destroy === 'function') {
                     try { p.art.destroy(true); } catch (e) {}
                 }
                 if (typeof p.destroyZoomPan === 'function') {
                     try { p.destroyZoomPan(); } catch (e) {}
+                }
+                if (typeof p.destroyFullscreenListeners === 'function') {
+                    try { p.destroyFullscreenListeners(); } catch (e) {}
                 }
                 if (typeof p.clearClickDebounce === 'function') {
                     try { p.clearClickDebounce(); } catch (e) {}
@@ -3225,6 +3789,124 @@
                 allHeaders.forEach(head => {
                     if (head.parentNode) head.parentNode.removeChild(head);
                 });
+            }
+
+            function setupDecoupledAudio(p, audioUrl) {
+                if (!p || !p.art || !p.art.video) return;
+                teardownDecoupledAudio(p);
+                if (!audioUrl) return;
+
+                p.isDecoupled = true;
+
+                // Cache user's intended volume before muting the underlying container video
+                if (p.userVolume === undefined) {
+                    p.userVolume = (typeof p.art.volume === 'number' && p.art.volume > 0) ? p.art.volume : 0.5;
+                }
+                if (p.userMuted === undefined) {
+                    p.userMuted = Boolean(p.art.muted);
+                }
+
+                const v = p.art.video;
+                // Pre-mute the underlying container video so Chromium/Media Foundation NEVER attempts
+                // to decode the incompatible audio track in the container (preventing pipeline stall/freeze).
+                v.muted = true;
+                v.defaultMuted = true;
+
+                const audio = new Audio();
+                audio.crossOrigin = 'anonymous';
+                audio.preload = 'auto';
+                audio.src = audioUrl;
+
+                audio.currentTime = v.currentTime || 0;
+                audio.playbackRate = v.playbackRate || 1;
+                audio.volume = p.userMuted ? 0 : (typeof p.userVolume === 'number' ? p.userVolume : 0.5);
+                audio.muted = Boolean(p.userMuted);
+
+                const onPlay = () => {
+                    audio.currentTime = v.currentTime;
+                    audio.play().catch(() => {});
+                };
+                const onPause = () => {
+                    audio.pause();
+                };
+                const onSeeking = () => {
+                    audio.currentTime = v.currentTime;
+                };
+                const onSeeked = () => {
+                    audio.currentTime = v.currentTime;
+                };
+                const onRateChange = () => {
+                    audio.playbackRate = v.playbackRate;
+                };
+                const onVolumeChange = () => {
+                    if (!p.isDecoupled) {
+                        audio.volume = p.art.muted ? 0 : (typeof p.art.volume === 'number' ? p.art.volume : 1);
+                        audio.muted = Boolean(p.art.muted);
+                    }
+                };
+                const onWaiting = () => {
+                    audio.pause();
+                };
+                const onPlaying = () => {
+                    audio.currentTime = v.currentTime;
+                    if (audio.paused && !v.paused) {
+                        audio.play().catch(() => {});
+                    }
+                };
+
+                v.addEventListener('play', onPlay);
+                v.addEventListener('pause', onPause);
+                v.addEventListener('seeking', onSeeking);
+                v.addEventListener('seeked', onSeeked);
+                v.addEventListener('ratechange', onRateChange);
+                v.addEventListener('volumechange', onVolumeChange);
+                v.addEventListener('waiting', onWaiting);
+                v.addEventListener('playing', onPlaying);
+
+                p.auxAudio = audio;
+                p._auxAudioCleanups = [
+                    () => v.removeEventListener('play', onPlay),
+                    () => v.removeEventListener('pause', onPause),
+                    () => v.removeEventListener('seeking', onSeeking),
+                    () => v.removeEventListener('seeked', onSeeked),
+                    () => v.removeEventListener('ratechange', onRateChange),
+                    () => v.removeEventListener('volumechange', onVolumeChange),
+                    () => v.removeEventListener('waiting', onWaiting),
+                    () => v.removeEventListener('playing', onPlaying)
+                ];
+
+                if (typeof p.updateVolumeUI === 'function') {
+                    p.updateVolumeUI();
+                }
+            }
+
+            function teardownDecoupledAudio(p) {
+                if (!p) return;
+                p.isDecoupled = false;
+                if (p._auxAudioCleanups && Array.isArray(p._auxAudioCleanups)) {
+                    p._auxAudioCleanups.forEach(fn => {
+                        try { fn(); } catch(e) {}
+                    });
+                    p._auxAudioCleanups = null;
+                }
+                if (p.auxAudio) {
+                    try {
+                        p.auxAudio.pause();
+                        p.auxAudio.removeAttribute('src');
+                        p.auxAudio.load();
+                    } catch(e) {}
+                    p.auxAudio = null;
+                }
+                if (p.art && p.art.video) {
+                    const restoredMuted = (p.userMuted !== undefined) ? Boolean(p.userMuted) : Boolean(p.art.muted);
+                    const restoredVol = (p.userVolume !== undefined) ? p.userVolume : ((typeof p.art.volume === 'number') ? p.art.volume : 0.5);
+                    p.art.video.muted = restoredMuted;
+                    p.art.video.defaultMuted = restoredMuted;
+                    p.art.video.volume = restoredVol;
+                }
+                if (typeof p.updateVolumeUI === 'function') {
+                    p.updateVolumeUI();
+                }
             }
 
             function updateSourceButtonUI(nodeIdStr, source, hasAegisub) {
@@ -3262,11 +3944,192 @@
                 });
             }
 
+            function updateRenderModeButtonUI(nodeIdStr, mode) {
+                const cleanId = String(nodeIdStr);
+                const cleanMode = (mode === "mpv") ? "mpv" : "typesetting";
+                const isMpv = cleanMode === "mpv";
+                const tipKey = getRenderModeTooltipKey(cleanMode);
+                const tip = getRenderModeTooltipText(cleanMode);
+                const svgHtml = getRenderModeSvgHtml(cleanMode);
+
+                const btnSelectors = [
+                    '#btn-rendermode-' + cleanId,
+                    '#btn-float-rendermode-' + cleanId,
+                    '#btn-ctrl-rendermode-' + cleanId
+                ];
+                btnSelectors.forEach(sel => {
+                    const btn = document.querySelector(sel);
+                    if (btn) {
+                        btn.innerHTML = svgHtml;
+                        btn.classList.toggle('is-mpv-mode', isMpv);
+                        btn.setAttribute('data-i18n-aria-label', tipKey);
+                        btn.setAttribute('aria-label', tip);
+                        btn.removeAttribute('data-i18n-title');
+                        btn.removeAttribute('title');
+                    }
+                });
+            }
+
+            async function togglePreviewRenderMode(nodeId) {
+                const nodeIdStr = String(nodeId);
+                const p = activePlayers[nodeIdStr];
+                let targetNode = (p && p.node) ? p.node : null;
+                if (!targetNode && window.graph) {
+                    targetNode = window.graph.getNodeById(Number(nodeIdStr)) || window.graph.getNodeById(nodeIdStr);
+                }
+                if (!targetNode) return;
+                if (!targetNode.properties) targetNode.properties = {};
+
+                const curMode = getNodeRenderMode(targetNode);
+                const nextMode = (curMode === "mpv") ? "typesetting" : "mpv";
+                targetNode.properties.render_mode = nextMode;
+
+                if (typeof window.updateTemplateUIState === "function") {
+                    window.updateTemplateUIState();
+                }
+                if (typeof window.__pyxis_schedule_save === "function") {
+                    window.__pyxis_schedule_save(150);
+                }
+
+                updateRenderModeButtonUI(nodeIdStr, nextMode);
+
+                if (p) {
+                    if (p.mpvResizeTimer) {
+                        clearTimeout(p.mpvResizeTimer);
+                        p.mpvResizeTimer = null;
+                    }
+                    syncJassubDomPlacement(p, nextMode);
+                    if (typeof p.applyTransform === 'function') {
+                        try { p.applyTransform(); } catch (e) {}
+                    }
+                    if (p.jassub) {
+                        try { p.jassub.resize(0, 0, 0, 0, true); } catch (e) {}
+                        if (p.rawAssContent) {
+                            await updateJassubTrack(p.jassub, p.rawAssContent, nodeIdStr, true);
+                        } else {
+                            forceJassubPausedRefresh(p.jassub);
+                        }
+                    }
+                }
+
+                if (typeof window.showPyxisToast === 'function') {
+                    const modeLabel = (nextMode === "mpv")
+                        ? (window.t ? window.t("preview.render_mode_mpv_label") : "mpv (Screen Space)")
+                        : (window.t ? window.t("preview.render_mode_ts_label") : "Typesetting (1:1)");
+                    const msg = window.t
+                        ? window.t("toast.preview_render_mode", { mode: modeLabel })
+                        : ("Render Mode: " + modeLabel);
+                    window.showPyxisToast(msg, "source");
+                }
+            }
+
+            async function safeArtSwitchUrl(artInstance, newUrl, timeoutMs = 2000) {
+                if (!artInstance || !newUrl) return;
+                if (artInstance.url === newUrl) return;
+                try {
+                    let timeoutId = null;
+                    const switchPromise = (typeof artInstance.switchUrl === 'function')
+                        ? artInstance.switchUrl(newUrl)
+                        : Promise.resolve();
+                    const timeoutPromise = new Promise(resolve => {
+                        timeoutId = setTimeout(() => {
+                            // Fallback: forcefully update video.src if Artplayer's canplay promise timed out
+                            try {
+                                const v = (artInstance.template && artInstance.template.$video) || artInstance.video;
+                                if (v && v.src !== newUrl) {
+                                    v.src = newUrl;
+                                    v.load();
+                                }
+                            } catch (e) {}
+                            resolve();
+                        }, timeoutMs);
+                    });
+                    await Promise.race([switchPromise, timeoutPromise]);
+                    if (timeoutId) clearTimeout(timeoutId);
+                } catch (err) {
+                    console.warn("[Pyxis] safeArtSwitchUrl exception:", err);
+                    try {
+                        const v = (artInstance.template && artInstance.template.$video) || artInstance.video;
+                        if (v && v.src !== newUrl) {
+                            v.src = newUrl;
+                            v.load();
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            async function revertToPreviewBase(nodeId) {
+                const nodeIdStr = String(nodeId);
+                const p = activePlayers[nodeIdStr];
+                if (!p || !p.node) return;
+                if (!p.node.properties) p.node.properties = {};
+
+                p.node.properties.preview_source = "base";
+                teardownDecoupledAudio(p);
+                const hasAegi = (p.hasAegisub !== undefined)
+                    ? p.hasAegisub
+                    : (window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub);
+                updateSourceButtonUI(nodeIdStr, "base", hasAegi);
+
+                if (window.pywebview && window.pywebview.api) {
+                    try {
+                        const serialized = (window.graph) ? window.graph.serialize() : null;
+                        const connectedOutputs = resolveConnectedOutputsForPreview(p.node);
+                        if (typeof window.pywebview.api.get_preview_video_data_url === 'function') {
+                            const baseVideoUrl = await window.pywebview.api.get_preview_video_data_url("base", connectedOutputs, serialized);
+                            if (baseVideoUrl && p.art && p.videoUrl !== baseVideoUrl) {
+                                p.videoUrl = baseVideoUrl;
+                                await safeArtSwitchUrl(p.art, baseVideoUrl);
+                            }
+                        }
+                        if (typeof window.pywebview.api.get_preview_info === 'function') {
+                            const baseInfo = await window.pywebview.api.get_preview_info("base", connectedOutputs, serialized);
+                            if (baseInfo) {
+                                window.PyxisPreviewConfig = baseInfo;
+                                window.PyxisPreviewConfigBase = baseInfo;
+                                updatePreviewMetadataBadges(nodeIdStr, baseInfo);
+                            }
+                        }
+                        if (typeof window.pywebview.api.get_preview_fonts_map === 'function' && p.jassub) {
+                            try {
+                                const fontsMap = await window.pywebview.api.get_preview_fonts_map("base");
+                                if (fontsMap && typeof fontsMap === 'object') {
+                                    injectFontsIntoJassub(p.jassub, fontsMap);
+                                }
+                            } catch (e) {}
+                        }
+                        if (typeof window.pywebview.api.get_initial_base_ass === 'function' && p.jassub) {
+                            const baseAss = await window.pywebview.api.get_initial_base_ass("base", connectedOutputs, serialized);
+                            if (baseAss && typeof updateJassubTrack === "function") {
+                                await updateJassubTrack(p.jassub, baseAss, nodeIdStr);
+                            }
+                        }
+                        if (p.art) {
+                            const b = getPreviewBounds(nodeIdStr);
+                            try { p.art.seek = b.winStart; } catch (e) {}
+                            try { p.art.currentTime = b.winStart; } catch (e) {}
+                        }
+                        if (typeof p.updateTimeUI === 'function') {
+                            try { p.updateTimeUI(); } catch (e) {}
+                        }
+                    } catch (err) {
+                        console.warn("[Pyxis] Error reverting to base preview:", err);
+                    }
+                }
+            }
+
             async function togglePreviewSource(nodeId) {
                 const nodeIdStr = String(nodeId);
                 const p = activePlayers[nodeIdStr];
                 if (!p || !p.node) return;
                 if (!p.node.properties) p.node.properties = {};
+
+                // If conversion or preview switch is currently running, treat clicking the source button as an immediate cancellation and return to base
+                if (window.__pyxis_is_preview_running || window.__pyxis_is_preview_or_hardsub_running) {
+                    console.log("[Pyxis] Source toggle clicked while active; cancelling conversion and reverting to base");
+                    await cancelPreview(nodeIdStr, "preview.source_switch_cancelled");
+                    return;
+                }
 
                 const curSource = p.node.properties.preview_source || "base";
                 const hasAegi = (p.hasAegisub !== undefined) ? p.hasAegisub : (window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub);
@@ -3279,120 +4142,208 @@
                 }
 
                 const nextSource = (curSource === "base") ? "aegisub" : "base";
-                p.node.properties.preview_source = nextSource;
 
-                if (typeof p.resetTransform === 'function') {
-                    p.resetTransform();
+                // Record playback state and pause immediately so media is not playing behind the loading screen
+                const wasPlaying = Boolean(p.art && p.art.playing);
+                if (p.art) {
+                    try { p.art.pause(); } catch (e) {}
                 }
+                teardownDecoupledAudio(p);
 
-                updateSourceButtonUI(nodeIdStr, nextSource, hasAegi);
+                // Initialize cancellation and loading tracker
+                window.__pyxis_active_preview_node_id = nodeIdStr;
+                window.__pyxis_is_preview_running = true;
+                window.__pyxis_is_preview_cancelled = false;
 
-                if (typeof window.showPyxisToast === 'function') {
-                    const srcLabel = (nextSource === "base") 
-                        ? (window.t ? window.t("preview.source_base_label") : "Base Template") 
-                        : (window.t ? window.t("preview.source_aegisub_label") : "Aegisub");
-                    window.showPyxisToast(window.t ? window.t("toast.preview_source", { source: srcLabel }) : ("Preview Source: " + srcLabel), "source");
-                }
+                setPlayerLoading(nodeId, true, "preview.switching_source");
 
                 if (window.pywebview && window.pywebview.api) {
                     try {
                         const serialized = (window.graph) ? window.graph.serialize() : null;
                         const connectedOutputs = resolveConnectedOutputsForPreview(p.node);
+
+                        // Pre-query target media parameters and resize node immediately so that loading
+                        // overlays and audio conversion progress are rendered within correct aspect ratio
+                        let targetInfo = null;
                         if (typeof window.pywebview.api.get_preview_info === 'function') {
-                            const updatedInfo = await window.pywebview.api.get_preview_info(nextSource, connectedOutputs, serialized);
-                            if (updatedInfo) {
-                                window.PyxisPreviewConfig = updatedInfo;
-                                if (nextSource === "base") window.PyxisPreviewConfigBase = updatedInfo;
-                                if (nextSource === "aegisub") window.PyxisPreviewConfigAegi = updatedInfo;
-                                updatePreviewMetadataBadges(nodeIdStr, updatedInfo);
-                                if (updatedInfo.aspect_ratio && p.node) {
-                                    p.node.preview_aspect_ratio = updatedInfo.aspect_ratio;
-                                    if (p.node.properties) p.node.properties.preview_aspect_ratio = updatedInfo.aspect_ratio;
-                                    const nodeAspect = getNodePreviewAspectRatio(p.node);
-                                    if (!p.isPinned) {
-                                        const dynMinW = getDynamicMinPreviewWidth(nodeAspect);
-                                        let targetW = (p.node.size && p.node.size[0] && p.node.size[0] >= dynMinW) ? p.node.size[0] : 520;
-                                        if (p.node.properties && p.node.properties.previewer_width && p.node.properties.previewer_height) {
-                                            targetW = Math.max(dynMinW, Number(p.node.properties.previewer_width));
-                                        } else if (updatedInfo.res_x && updatedInfo.res_x > 0) {
-                                            const scaled = Math.round(updatedInfo.res_x * 0.50);
-                                            targetW = Math.max(dynMinW, Math.min(1280, scaled));
+                            try {
+                                targetInfo = await window.pywebview.api.get_preview_info(nextSource, connectedOutputs, serialized);
+                                if (targetInfo && !window.__pyxis_is_preview_cancelled) {
+                                    updatePreviewMetadataBadges(nodeIdStr, targetInfo);
+                                    if (targetInfo.is_audio_decoupled) {
+                                        p.isDecoupled = true;
+                                        if (p.userVolume === undefined && p.art) {
+                                            p.userVolume = (typeof p.art.volume === 'number' && p.art.volume > 0) ? p.art.volume : 0.5;
                                         }
-                                        const newH = (p.node.properties && p.node.properties.previewer_height)
-                                            ? Number(p.node.properties.previewer_height)
-                                            : calculatePrevisualizadorNodeHeight(targetW, nodeAspect);
-                                        p.node.size = [targetW, newH];
-                                        p.lastW = targetW;
-                                        p.lastH = newH;
-                                        if (p.wrapper && !p.isPinned) {
-                                            p.wrapper.style.width = Math.max(100, targetW - 20) + 'px';
-                                            p.wrapper.style.height = Math.max(100, newH - 56) + 'px';
+                                        if (p.userMuted === undefined && p.art) {
+                                            p.userMuted = Boolean(p.art.muted);
                                         }
-                                        if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
-                                        if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
+                                        if (p.art && p.art.video) {
+                                            p.art.video.muted = true;
+                                            p.art.video.defaultMuted = true;
+                                        }
                                     } else {
-                                        p.node.size = [300, 54];
-                                        if (p.originalSize) {
-                                            let pinTargetW = p.originalSize[0];
-                                            if (updatedInfo.res_x && updatedInfo.res_x > 0) {
-                                                pinTargetW = Math.max(getDynamicMinPreviewWidth(nodeAspect), Math.min(1280, Math.round(updatedInfo.res_x * 0.50)));
-                                                p.originalSize[0] = pinTargetW;
+                                        p.isDecoupled = false;
+                                    }
+                                    if (targetInfo.aspect_ratio && p.node) {
+                                        p.node.preview_aspect_ratio = targetInfo.aspect_ratio;
+                                        if (p.node.properties) p.node.properties.preview_aspect_ratio = targetInfo.aspect_ratio;
+                                        const nodeAspect = getNodePreviewAspectRatio(p.node);
+                                        if (!p.isPinned) {
+                                            const dynMinW = getDynamicMinPreviewWidth(nodeAspect);
+                                            let targetW = (p.node.size && p.node.size[0] && p.node.size[0] >= dynMinW) ? p.node.size[0] : 520;
+                                            if (p.node.properties && p.node.properties.previewer_width && p.node.properties.previewer_height) {
+                                                targetW = Math.max(dynMinW, Number(p.node.properties.previewer_width));
+                                            } else if (targetInfo.res_x && targetInfo.res_x > 0) {
+                                                const scaled = Math.round(targetInfo.res_x * 0.50);
+                                                targetW = Math.max(dynMinW, Math.min(1280, scaled));
                                             }
-                                            p.originalSize[1] = calculatePrevisualizadorNodeHeight(pinTargetW, nodeAspect);
+                                            const newH = (p.node.properties && p.node.properties.previewer_height)
+                                                ? Number(p.node.properties.previewer_height)
+                                                : calculatePrevisualizadorNodeHeight(targetW, nodeAspect);
+                                            p.node.size = [targetW, newH];
+                                            p.lastW = targetW;
+                                            p.lastH = newH;
+                                            if (p.wrapper && !p.isPinned) {
+                                                p.wrapper.style.width = Math.max(100, targetW - 20) + 'px';
+                                                p.wrapper.style.height = Math.max(100, newH - 56) + 'px';
+                                            }
+                                            if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
+                                            if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
+                                            if (typeof updateInNodePlayersPosition === 'function') {
+                                                updateInNodePlayersPosition();
+                                            }
+                                        } else {
+                                            const minSz = (typeof p.node.computeSize === 'function') ? p.node.computeSize() : [284, 54];
+                                            const minW = Math.max(270, minSz ? minSz[0] : 284);
+                                            const curW = (p.node.size && p.node.size[0]) ? p.node.size[0] : minW;
+                                            p.node.size = [Math.max(curW, minW), 54];
+                                            if (p.originalSize) {
+                                                let pinTargetW = p.originalSize[0];
+                                                if (targetInfo.res_x && targetInfo.res_x > 0) {
+                                                    pinTargetW = Math.max(getDynamicMinPreviewWidth(nodeAspect), Math.min(1280, Math.round(targetInfo.res_x * 0.50)));
+                                                    p.originalSize[0] = pinTargetW;
+                                                }
+                                                p.originalSize[1] = calculatePrevisualizadorNodeHeight(pinTargetW, nodeAspect);
+                                            }
+                                            if (p.wrapper) {
+                                                const rect = p.wrapper.getBoundingClientRect();
+                                                const curFloatingW = Math.max(340, rect.width || parseFloat(p.wrapper.style.width) || (p.savedFloatingWidth ? parseFloat(p.savedFloatingWidth) : 560));
+                                                const chromeH = 98;
+                                                const newFloatingH = Math.round(curFloatingW / nodeAspect) + chromeH;
+                                                p.wrapper.style.setProperty('width', curFloatingW + 'px', 'important');
+                                                p.wrapper.style.setProperty('height', newFloatingH + 'px', 'important');
+                                                p.savedFloatingWidth = curFloatingW + 'px';
+                                                p.savedFloatingHeight = newFloatingH + 'px';
+                                                if (p.art && typeof p.art.resize === 'function') {
+                                                    try { p.art.resize(); } catch(e) {}
+                                                }
+                                                if (typeof p.resetTransform === 'function') {
+                                                    try { p.resetTransform(); } catch(e) {}
+                                                } else if (typeof p.applyTransform === 'function') {
+                                                    try { p.applyTransform(); } catch(e) {}
+                                                }
+                                                if (p.jassub && typeof p.jassub.resize === 'function') {
+                                                    try { p.jassub.resize(); } catch(e) {}
+                                                }
+                                            }
+                                            if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
+                                            if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                         }
-                                        if (p.wrapper) {
-                                            const rect = p.wrapper.getBoundingClientRect();
-                                            const curFloatingW = Math.max(340, rect.width || parseFloat(p.wrapper.style.width) || (p.savedFloatingWidth ? parseFloat(p.savedFloatingWidth) : 560));
-                                            const chromeH = 98;
-                                            const newFloatingH = Math.round(curFloatingW / nodeAspect) + chromeH;
-                                            p.wrapper.style.setProperty('width', curFloatingW + 'px', 'important');
-                                            p.wrapper.style.setProperty('height', newFloatingH + 'px', 'important');
-                                            p.savedFloatingWidth = curFloatingW + 'px';
-                                            p.savedFloatingHeight = newFloatingH + 'px';
-                                            if (p.art && typeof p.art.resize === 'function') {
-                                                try { p.art.resize(); } catch(e) {}
-                                            }
-                                            if (p.jassub && typeof p.jassub.resize === 'function') {
-                                                try { p.jassub.resize(); } catch(e) {}
-                                            }
-                                            if (typeof p.resetTransform === 'function') {
-                                                try { p.resetTransform(); } catch(e) {}
-                                            } else if (typeof p.applyTransform === 'function') {
-                                                try { p.applyTransform(); } catch(e) {}
-                                            }
-                                        }
-                                        if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
-                                        if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                     }
                                 }
+                            } catch (infoErr) {
+                                console.warn("[Pyxis] Pre-querying preview info failed:", infoErr);
                             }
                         }
-                        setPlayerLoading(nodeId, true, "preview.switching_source");
-                        if (typeof window.pywebview.api.get_preview_video_data_url === 'function') {
-                            const newVideoUrl = await window.pywebview.api.get_preview_video_data_url(nextSource, connectedOutputs, serialized);
-                            if (newVideoUrl && p.art && p.videoUrl !== newVideoUrl) {
-                                p.videoUrl = newVideoUrl;
-                                try { await p.art.switchUrl(newVideoUrl); } catch (e) {}
-                            }
+
+                        // Parallelise retrieval of video URL, decoupled audio URL, font map, and subtitle ASS
+                        const [newVideoUrl, nextAudioUrl, newFontsMap, baseAss] = await Promise.all([
+                            (typeof window.pywebview.api.get_preview_video_data_url === 'function')
+                                ? window.pywebview.api.get_preview_video_data_url(nextSource, connectedOutputs, serialized).catch(err => {
+                                    console.warn("[Pyxis] Failed to get preview video url:", err);
+                                    return null;
+                                })
+                                : Promise.resolve(null),
+                            (typeof window.pywebview.api.get_preview_audio_data_url === 'function')
+                                ? window.pywebview.api.get_preview_audio_data_url(nextSource, connectedOutputs, serialized).catch(err => {
+                                    console.warn("[Pyxis] Failed to get preview audio url:", err);
+                                    return null;
+                                })
+                                : Promise.resolve(null),
+                            (typeof window.pywebview.api.get_preview_fonts_map === 'function' && p.jassub)
+                                ? window.pywebview.api.get_preview_fonts_map(nextSource).catch(err => {
+                                    console.warn("[Pyxis] Failed to get preview fonts map:", err);
+                                    return null;
+                                })
+                                : Promise.resolve(null),
+                            (typeof window.pywebview.api.get_initial_base_ass === 'function' && p.jassub)
+                                ? window.pywebview.api.get_initial_base_ass(nextSource, connectedOutputs, serialized).catch(err => {
+                                    console.warn("[Pyxis] Failed to get initial ASS:", err);
+                                    return null;
+                                })
+                                : Promise.resolve(null)
+                        ]);
+
+                        if (window.__pyxis_is_preview_cancelled || !newVideoUrl) {
+                            console.log("[Pyxis] Source switch aborted or cancelled; reverting to base");
+                            await revertToPreviewBase(nodeIdStr);
+                            setPlayerLoading(nodeIdStr, false);
+                            window.__pyxis_is_preview_running = false;
+                            window.__pyxis_active_preview_node_id = null;
+                            return;
                         }
-                        if (typeof window.pywebview.api.get_preview_fonts_map === 'function' && p.jassub) {
+
+                        // Commit source change
+                        p.node.properties.preview_source = nextSource;
+
+                        if (typeof p.resetTransform === 'function') {
+                            p.resetTransform();
+                        }
+
+                        updateSourceButtonUI(nodeIdStr, nextSource, hasAegi);
+
+                        if (typeof window.showPyxisToast === 'function') {
+                            const srcLabel = (nextSource === "base") 
+                                ? (window.t ? window.t("preview.source_base_label") : "Base Template") 
+                                : (window.t ? window.t("preview.source_aegisub_label") : "Aegisub");
+                            window.showPyxisToast(window.t ? window.t("toast.preview_source", { source: srcLabel }) : ("Preview Source: " + srcLabel), "source");
+                        }
+
+                        if (targetInfo) {
+                            window.PyxisPreviewConfig = targetInfo;
+                            if (nextSource === "base") window.PyxisPreviewConfigBase = targetInfo;
+                            if (nextSource === "aegisub") window.PyxisPreviewConfigAegi = targetInfo;
+                        }
+
+                        // Update decoupled audio track immediately
+                        if (nextAudioUrl) {
+                            setupDecoupledAudio(p, nextAudioUrl);
+                        } else {
+                            teardownDecoupledAudio(p);
+                        }
+
+                        // Inject binary font assets into libass / JASSUB
+                        if (newFontsMap && typeof newFontsMap === 'object' && p.jassub) {
                             try {
-                                const newFontsMap = await window.pywebview.api.get_preview_fonts_map(nextSource);
-                                if (newFontsMap && typeof newFontsMap === 'object') {
-                                    injectFontsIntoJassub(p.jassub, newFontsMap);
-                                }
+                                injectFontsIntoJassub(p.jassub, newFontsMap);
                             } catch (e) {
                                 console.warn("[Pyxis togglePreviewSource font update warning]", e);
                             }
                         }
-                        if (typeof window.pywebview.api.get_initial_base_ass === 'function' && p.jassub) {
-                            const baseAss = await window.pywebview.api.get_initial_base_ass(nextSource, connectedOutputs, serialized);
-                            if (baseAss && typeof updateJassubTrack === "function") {
-                                await updateJassubTrack(p.jassub, baseAss);
-                            }
+
+                        // Synchronise JASSUB subtitle track
+                        if (baseAss && p.jassub && typeof updateJassubTrack === "function") {
+                            await updateJassubTrack(p.jassub, baseAss, nodeIdStr);
+                        }
+
+                        // Switch video track in ArtPlayer
+                        if (newVideoUrl && p.art && p.videoUrl !== newVideoUrl) {
+                            p.videoUrl = newVideoUrl;
+                            await safeArtSwitchUrl(p.art, newVideoUrl);
                         }
                         if (p.art) {
-                            const b = getPreviewBounds(nodeId);
+                            const b = getPreviewBounds(nodeIdStr);
                             try { p.art.seek = b.winStart; } catch (e) {}
                             try { p.art.currentTime = b.winStart; } catch (e) {}
                         }
@@ -3419,8 +4370,19 @@
                         }
                     } catch (e) {
                         console.error("[Pyxis togglePreviewSource switch media error]", e);
+                        await revertToPreviewBase(nodeIdStr);
                     } finally {
-                        setPlayerLoading(nodeId, false);
+                        if (window.__pyxis_is_preview_cancelled) {
+                            await revertToPreviewBase(nodeIdStr);
+                        }
+                        setPlayerLoading(nodeIdStr, false);
+                        window.__pyxis_is_preview_running = false;
+                        window.__pyxis_active_preview_node_id = null;
+                        if (wasPlaying && p.art && !window.__pyxis_is_preview_cancelled) {
+                            try {
+                                p.art.play().catch(() => {});
+                            } catch (e) {}
+                        }
                     }
                 }
             }
@@ -3546,7 +4508,7 @@
                 return connectedOutputIds;
             }
 
-            async function cancelPreview(nodeId) {
+            async function cancelPreview(nodeId, customToastKey = null) {
                 const targetId = nodeId !== undefined ? String(nodeId) : window.__pyxis_active_preview_node_id;
                 window.__pyxis_is_preview_cancelled = true;
                 if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.cancel_preview_ass === 'function') {
@@ -3556,6 +4518,7 @@
                         console.warn("[Pyxis Preview] Error invoking cancel_preview_ass:", e);
                     }
                 }
+                setAllPlayersLoading(false);
                 if (targetId) {
                     setPlayerLoading(targetId, false);
                     const btns = [
@@ -3568,12 +4531,29 @@
                         const tipKey = b.getAttribute('data-i18n-title') || 'preview.refresh_tooltip';
                         b.setAttribute('title', window.t ? window.t(tipKey) : 'Refresh subtitle preview');
                     });
+                    const p = activePlayers[targetId];
+                    const isSourceSwitchCancel = (customToastKey === "preview.source_switch_cancelled");
+                    if (p && p.node && p.node.properties) {
+                        if (isSourceSwitchCancel) {
+                            await revertToPreviewBase(targetId);
+                        } else {
+                            const curSource = p.node.properties.preview_source || "base";
+                            const hasAegi = Boolean(window.PyxisPreviewConfigAegi && window.PyxisPreviewConfigAegi.dialogues && window.PyxisPreviewConfigAegi.dialogues.length > 0) || Boolean(p.hasAegisub);
+                            updateSourceButtonUI(targetId, curSource, hasAegi);
+                        }
+                    } else {
+                        updateSourceButtonUI(targetId, "base", Boolean(window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub));
+                    }
                 }
                 window.__pyxis_is_preview_running = false;
                 window.__pyxis_is_preview_or_hardsub_running = false;
                 window.__pyxis_active_preview_node_id = null;
                 if (typeof window.showPyxisToast === 'function') {
-                    window.showPyxisToast(window.t ? window.t("preview.cancelled") : "Preview generation cancelled", "info");
+                    const toastKey = customToastKey || "preview.cancelled";
+                    const fallbackToast = (toastKey === "preview.source_switch_cancelled")
+                        ? "Source switch cancelled; reverting to Base preview"
+                        : "Preview generation cancelled";
+                    window.showPyxisToast(window.t ? window.t(toastKey) : fallbackToast, "info");
                 }
             }
 
@@ -3638,7 +4618,50 @@
             window.__pyxis_on_preview_progress = function(data) {
                 if (window.__pyxis_active_preview_node_id) {
                     updatePlayerProgress(window.__pyxis_active_preview_node_id, data);
+                } else if (typeof activePlayers === 'object' && activePlayers) {
+                    const pKeys = Object.keys(activePlayers);
+                    if (pKeys.length > 0) {
+                        for (let i = 0; i < pKeys.length; i++) {
+                            updatePlayerProgress(pKeys[i], data);
+                        }
+                    } else {
+                        const allBackdrops = document.querySelectorAll('.pyxis-player-loading-backdrop');
+                        allBackdrops.forEach(backdrop => {
+                            const idMatch = backdrop.id && backdrop.id.match(/^pyxis-player-loading-(.+)$/);
+                            if (idMatch) {
+                                updatePlayerProgress(idMatch[1], data);
+                            }
+                        });
+                    }
                 }
+            };
+
+            function setAllPlayersLoading(isLoading, messageKey = "preview.loading") {
+                let updated = false;
+                if (typeof activePlayers === 'object' && activePlayers) {
+                    const pKeys = Object.keys(activePlayers);
+                    for (let i = 0; i < pKeys.length; i++) {
+                        setPlayerLoading(pKeys[i], isLoading, messageKey);
+                        updated = true;
+                    }
+                }
+                if (!updated && window.__pyxis_active_preview_node_id) {
+                    setPlayerLoading(window.__pyxis_active_preview_node_id, isLoading, messageKey);
+                    updated = true;
+                }
+                if (!updated) {
+                    const allBackdrops = document.querySelectorAll('.pyxis-player-loading-backdrop');
+                    allBackdrops.forEach(backdrop => {
+                        const idMatch = backdrop.id && backdrop.id.match(/^pyxis-player-loading-(.+)$/);
+                        if (idMatch) {
+                            setPlayerLoading(idMatch[1], isLoading, messageKey);
+                        }
+                    });
+                }
+            }
+
+            window.__pyxis_set_preview_loading = function(isLoading, messageKey) {
+                setAllPlayersLoading(isLoading, messageKey);
             };
 
             async function refreshPreview(nodeId, forceVideoReload = false) {
@@ -3670,6 +4693,31 @@
                     b.setAttribute('title', window.t ? window.t('preview.cancel_refresh') : 'Click to cancel generation');
                 });
                 setPlayerLoading(nodeIdStr, true, "preview.generating");
+                if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.check_ffmpeg_status === 'function') {
+                    try {
+                        const ffStatus = await window.pywebview.api.check_ffmpeg_status();
+                        if (ffStatus && !ffStatus.available) {
+                            showPlayerFFmpegMissingBanner(nodeIdStr);
+                            if (typeof window.showFFmpegDownloadModal === 'function') {
+                                window.showFFmpegDownloadModal(async (downloaded) => {
+                                    if (!downloaded) return;
+                                    await loadPreviewMediaAfterFFmpeg(nodeIdStr);
+                                });
+                            }
+                            setPlayerLoading(nodeIdStr, false);
+                            refBtns.forEach(b => {
+                                b.classList.remove('is-refreshing');
+                                b.setAttribute('title', window.t ? window.t('preview.refresh') : 'Refresh Previewer');
+                            });
+                            window.__pyxis_is_preview_running = false;
+                            window.__pyxis_is_preview_or_hardsub_running = false;
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn("[Pyxis refreshPreview check_ffmpeg_status warning]", e);
+                    }
+                }
+
                 try {
                     if (typeof window.syncWidgetsToProperties === "function") {
                         window.syncWidgetsToProperties();
@@ -3721,16 +4769,19 @@
                                         if (p.art && typeof p.art.resize === 'function') {
                                             try { p.art.resize(); } catch(e) {}
                                         }
-                                        if (p.jassub && typeof p.jassub.resize === 'function') {
-                                            try { p.jassub.resize(); } catch(e) {}
-                                        }
                                         if (typeof p.applyTransform === 'function') {
                                             try { p.applyTransform(); } catch(e) {}
+                                        }
+                                        if (p.jassub && typeof p.jassub.resize === 'function') {
+                                            try { p.jassub.resize(); } catch(e) {}
                                         }
                                         if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
                                         if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                     } else {
-                                        p.node.size = [300, 54];
+                                        const minSz = (typeof p.node.computeSize === 'function') ? p.node.computeSize() : [284, 54];
+                                        const minW = Math.max(270, minSz ? minSz[0] : 284);
+                                        const curW = (p.node.size && p.node.size[0]) ? p.node.size[0] : minW;
+                                        p.node.size = [Math.max(curW, minW), 54];
                                         if (p.wrapper) {
                                             const rect = p.wrapper.getBoundingClientRect();
                                             const curFloatingW = Math.max(340, rect.width || parseFloat(p.wrapper.style.width) || (p.savedFloatingWidth ? parseFloat(p.savedFloatingWidth) : 560));
@@ -3742,11 +4793,11 @@
                                             if (p.art && typeof p.art.resize === 'function') {
                                                 try { p.art.resize(); } catch(e) {}
                                             }
-                                            if (p.jassub && typeof p.jassub.resize === 'function') {
-                                                try { p.jassub.resize(); } catch(e) {}
-                                            }
                                             if (typeof p.applyTransform === 'function') {
                                                 try { p.applyTransform(); } catch(e) {}
+                                            }
+                                            if (p.jassub && typeof p.jassub.resize === 'function') {
+                                                try { p.jassub.resize(); } catch(e) {}
                                             }
                                         }
                                         if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
@@ -3754,7 +4805,23 @@
                                     }
                                 }
                                 updateSourceButtonUI(nodeIdStr, curSource, p.hasAegisub);
+                                updateRenderModeButtonUI(nodeIdStr, getNodeRenderMode(p.node));
                                 updatePreviewMetadataBadges(nodeIdStr, updatedInfo);
+                                if (updatedInfo && updatedInfo.is_audio_decoupled) {
+                                    p.isDecoupled = true;
+                                    if (p.userVolume === undefined && p.art) {
+                                        p.userVolume = (typeof p.art.volume === 'number' && p.art.volume > 0) ? p.art.volume : 0.5;
+                                    }
+                                    if (p.userMuted === undefined && p.art) {
+                                        p.userMuted = Boolean(p.art.muted);
+                                    }
+                                    if (p.art && p.art.video) {
+                                        p.art.video.muted = true;
+                                        p.art.video.defaultMuted = true;
+                                    }
+                                } else {
+                                    p.isDecoupled = false;
+                                }
                             }
                         }
                     }
@@ -3770,11 +4837,24 @@
                                 videoChanged = true;
                                 p.videoUrl = newVideoUrl;
                                 try {
-                                    await p.art.switchUrl(newVideoUrl);
+                                    await safeArtSwitchUrl(p.art, newVideoUrl);
                                 } catch (e) {
                                     console.warn("[Pyxis Artplayer switchUrl warning]", e);
                                 }
                             }
+                        }
+                    }
+
+                    if (videoChanged && typeof window.pywebview.api.get_preview_audio_data_url === 'function') {
+                        try {
+                            const refAudioUrl = await window.pywebview.api.get_preview_audio_data_url(curSource, connectedOutputIds, serialized);
+                            if (refAudioUrl) {
+                                setupDecoupledAudio(p, refAudioUrl);
+                            } else {
+                                teardownDecoupledAudio(p);
+                            }
+                        } catch (e) {
+                            console.warn("[Pyxis refreshPreview audio update warning]", e);
                         }
                     }
 
@@ -3823,7 +4903,7 @@
                             }
                         }
                         if (p && p.jassub) {
-                            await updateJassubTrack(p.jassub, res.content);
+                            await updateJassubTrack(p.jassub, res.content, nodeIdStr);
                             trackUpdated = true;
                         }
                     }
@@ -3831,7 +4911,7 @@
                         const baseAss = await window.pywebview.api.get_initial_base_ass(curSource, connectedOutputIds, serialized);
                         if (window.__pyxis_is_preview_cancelled) return;
                         if (baseAss) {
-                            await updateJassubTrack(p.jassub, baseAss);
+                            await updateJassubTrack(p.jassub, baseAss, nodeIdStr);
                             trackUpdated = true;
                         }
                     }
@@ -3921,6 +5001,7 @@
                     document.querySelector('#btn-ctrl-hardsub-' + nodeId)
                 ].filter(Boolean);
                 hardBtns.forEach(b => b.classList.add('is-rendering-hardsub'));
+
                 try {
                     if (typeof window.syncWidgetsToProperties === "function") {
                         window.syncWidgetsToProperties();
@@ -3940,6 +5021,26 @@
                     const targetArg = connectedOutputIds;
                     const clockNum = String(Math.floor(Date.now()) % 1000000).padStart(6, '0');
                     const mp4Filename = 'Effect_' + clockNum + '.mp4';
+
+                    // Verify if FFmpeg is available before starting hardsub encoding
+                    if (window.pywebview && window.pywebview.api && window.pywebview.api.check_ffmpeg_status) {
+                        const ffStatus = await window.pywebview.api.check_ffmpeg_status();
+                        if (ffStatus && !ffStatus.available) {
+                            hardBtns.forEach(b => b.classList.remove('is-rendering-hardsub'));
+                            window.__pyxis_is_preview_or_hardsub_running = false;
+                            clearTimeout(watchdogTimer);
+                            if (window.showFFmpegDownloadModal) {
+                                window.showFFmpegDownloadModal(async (downloaded) => {
+                                    if (downloaded) {
+                                        await renderHardsub(nodeId);
+                                    }
+                                });
+                            } else if (typeof window.showPyxisToast === 'function') {
+                                window.showPyxisToast(window.t ? window.t("preview.hardsub_need_ffmpeg") : "FFmpeg is required to render hardsub videos.", "warning");
+                            }
+                            return;
+                        }
+                    }
 
                     const res = await window.pywebview.api.render_preview_hardsub(serialized, targetArg, mp4Filename, curSource);
                     if (res && res.cancelled) {
@@ -4006,10 +5107,41 @@
                         p.originalOnResize = p.node.onResize;
                     }
                     if (p.node) {
-                        p.node.size[0] = 300;
+                        const minW = (typeof p.node.computeSize === 'function')
+                            ? p.node.computeSize()[0]
+                            : ((typeof p.originalComputeSize === 'function') ? p.originalComputeSize.call(p.node)[0] : 284);
+                        const savedPinnedW = (p.node.properties && p.node.properties.pinned_width) ? Number(p.node.properties.pinned_width) : 0;
+                        const targetW = (savedPinnedW >= minW) ? savedPinnedW : minW;
+                        p.node.size[0] = targetW;
                         p.node.size[1] = 54;
-                        p.node.computeSize = function() { return [300, 54]; };
-                        p.node.onResize = function(size) { size[0] = Math.max(size[0], 300); size[1] = 54; };
+                        p.node.lastW = targetW;
+                        p.node.lastH = 54;
+                        if (!p.node.properties) p.node.properties = {};
+                        p.node.properties.is_pinned = true;
+                        p.node.properties.pinned_width = targetW;
+
+                        p.node.computeSize = function() {
+                            if (typeof p.originalComputeSize === 'function') {
+                                const sz = p.originalComputeSize.call(this);
+                                return [sz ? sz[0] : 284, 54];
+                            }
+                            return [284, 54];
+                        };
+                        p.node.onResize = function(size) {
+                            const sz = (typeof this.computeSize === 'function') ? this.computeSize() : [270, 54];
+                            const reqW = sz ? sz[0] : 270;
+                            size[0] = Math.max(reqW, Math.round(size[0]));
+                            size[1] = 54;
+                            this.size[0] = size[0];
+                            this.size[1] = 54;
+                            this.lastW = size[0];
+                            this.lastH = 54;
+                            if (!this.properties) this.properties = {};
+                            this.properties.pinned_width = size[0];
+                            if (window.__pyxis_schedule_save) {
+                                window.__pyxis_schedule_save(50);
+                            }
+                        };
                         if (typeof p.node.setDirtyCanvas === 'function') {
                             p.node.setDirtyCanvas(true, true);
                         }
@@ -4034,6 +5166,10 @@
                     const sourceTip = isBase 
                         ? (window.t ? window.t("preview.source_base_tooltip") : "Source: Base Template (preview_base.ass) - Click to switch to Aegisub") 
                         : (window.t ? window.t("preview.source_aegisub_tooltip") : "Source: Open File in Aegisub - Click to switch to Base");
+                    const curRenderFloat = getNodeRenderMode(p.node || nodeIdStr);
+                    const isMpvFloat = curRenderFloat === "mpv";
+                    const renderFloatTipKey = getRenderModeTooltipKey(curRenderFloat);
+                    const renderFloatTip = getRenderModeTooltipText(curRenderFloat);
 
                     let floatHeader = p.wrapper.querySelector('.pyxis-floating-header');
                     if (!floatHeader) {
@@ -4049,6 +5185,9 @@
                             <div class="pyxis-floating-header-actions">
                                 <button id="btn-float-source-${nodeIdStr}" class="pyxis-header-icon-btn pyxis-btn-source ${!hasAegi ? 'disabled' : ''}" aria-label="${sourceTip}" data-i18n-aria-label="${isBase ? 'preview.source_base_tooltip' : 'preview.source_aegisub_tooltip'}" ${!hasAegi ? 'disabled' : ''}>
                                     <img src="${isBase ? 'CD.png' : 'Aegisub_logo.png'}" alt="${curSource}" />
+                                </button>
+                                <button id="btn-float-rendermode-${nodeIdStr}" class="pyxis-header-icon-btn pyxis-btn-rendermode ${isMpvFloat ? 'is-mpv-mode' : ''}" aria-label="${renderFloatTip}" data-i18n-aria-label="${renderFloatTipKey}">
+                                    ${getRenderModeSvgHtml(curRenderFloat)}
                                 </button>
                                 <button id="btn-float-unpin-${nodeIdStr}" class="pyxis-header-icon-btn active" aria-label="${window.t ? window.t('preview.unpin') : 'Unpin player'}" data-i18n-aria-label="preview.unpin">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -4076,6 +5215,7 @@
                         p.wrapper.insertBefore(floatHeader, p.wrapper.firstChild);
 
                         const bSource = floatHeader.querySelector('#btn-float-source-' + nodeIdStr);
+                        const bRenderMode = floatHeader.querySelector('#btn-float-rendermode-' + nodeIdStr);
                         const bUnpin = floatHeader.querySelector('#btn-float-unpin-' + nodeIdStr);
                         const bRef = floatHeader.querySelector('#btn-float-refresh-' + nodeIdStr);
                         const bHard = floatHeader.querySelector('#btn-float-hardsub-' + nodeIdStr);
@@ -4094,6 +5234,11 @@
                                 const k = curSrc === "base" ? "preview.source_base_tooltip" : "preview.source_aegisub_tooltip";
                                 return window.t ? window.t(k) : (curSrc === "base" ? "Source: Base Template (preview_base.ass) - Click to switch to Aegisub" : "Source: Open File in Aegisub - Click to switch to Base");
                             }, 1000);
+                        }
+                        if (bRenderMode) {
+                            stopHeaderPointerEvents(bRenderMode);
+                            bRenderMode.onclick = (e) => { e.stopPropagation(); togglePreviewRenderMode(nodeIdStr); };
+                            attachPyxisDelayTooltip(bRenderMode, () => getRenderModeTooltipText(getNodeRenderMode(nodeIdStr)), 1000);
                         }
                         if (bUnpin) {
                             stopHeaderPointerEvents(bUnpin);
@@ -4602,11 +5747,11 @@
                                 if (pObj.art && typeof pObj.art.resize === 'function') {
                                     try { pObj.art.resize(); } catch (err) {}
                                 }
-                                if (pObj.jassub && typeof pObj.jassub.resize === 'function') {
-                                    try { pObj.jassub.resize(); } catch (err) {}
-                                }
                                 if (typeof pObj.applyTransform === 'function') {
                                     try { pObj.applyTransform(); } catch (err) {}
+                                }
+                                if (pObj.jassub && typeof pObj.jassub.resize === 'function') {
+                                    try { pObj.jassub.resize(0, 0, 0, 0, true); } catch (err) {}
                                 }
 
                                 pObj.wrapper.style.transition = 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), top 0.35s cubic-bezier(0.16, 1, 0.3, 1), left 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease';
@@ -4621,24 +5766,24 @@
                     attachPyxisFloatingResizers(p);
 
                     if (p.art && typeof p.art.resize === 'function') try { p.art.resize(); } catch (e) {}
-                    if (p.jassub && typeof p.jassub.resize === 'function') try { p.jassub.resize(); } catch (e) {}
                     if (typeof p.applyTransform === 'function') try { p.applyTransform(); } catch (e) {}
+                    if (p.jassub && typeof p.jassub.resize === 'function') try { p.jassub.resize(0, 0, 0, 0, true); } catch (e) {}
 
                     requestAnimationFrame(() => {
                         if (p.art && typeof p.art.resize === 'function') try { p.art.resize(); } catch (e) {}
-                        if (p.jassub && typeof p.jassub.resize === 'function') try { p.jassub.resize(); } catch (e) {}
                         if (typeof p.applyTransform === 'function') try { p.applyTransform(); } catch (e) {}
+                        if (p.jassub && typeof p.jassub.resize === 'function') try { p.jassub.resize(0, 0, 0, 0, true); } catch (e) {}
                     });
 
                     if (!p.resizeObserver && window.ResizeObserver) {
                         p.resizeObserver = new ResizeObserver(() => {
                             if (p.isPinned) {
                                 const isCurrentlyResizing = Boolean(p.isResizing || window.__pyxisDraggingFloating);
+                                if (typeof p.applyTransform === 'function') try { p.applyTransform(); } catch (e) {}
                                 if (!isCurrentlyResizing) {
                                     if (p.art && typeof p.art.resize === 'function') try { p.art.resize(); } catch (e) {}
                                     if (p.jassub && typeof p.jassub.resize === 'function') try { p.jassub.resize(); } catch (e) {}
                                 }
-                                if (typeof p.applyTransform === 'function') try { p.applyTransform(); } catch (e) {}
                             }
                         });
                         p.resizeObserver.observe(p.wrapper);
@@ -4699,6 +5844,7 @@
                         p.node.size[1] = restoredH;
                         if (p.node.properties) {
                             p.node.properties.is_pinned = false;
+                            delete p.node.properties.pinned_width;
                             p.node.properties.previewer_width = restoredW;
                             p.node.properties.previewer_height = restoredH;
                         }
@@ -4715,14 +5861,14 @@
                 }
 
                 setTimeout(() => {
-                    if (p.jassub && typeof p.jassub.resize === 'function') {
-                        try { p.jassub.resize(); } catch (e) {}
-                    }
                     if (p.art && typeof p.art.resize === 'function') {
                         try { p.art.resize(); } catch (e) {}
                     }
                     if (typeof p.applyTransform === 'function') {
                         try { p.applyTransform(); } catch (e) {}
+                    }
+                    if (p.jassub && typeof p.jassub.resize === 'function') {
+                        try { p.jassub.resize(0, 0, 0, 0, true); } catch (e) {}
                     }
                 }, 100);
             }
@@ -4756,11 +5902,23 @@
                     if (textEl) {
                         const key = messageKey || textEl.getAttribute('data-i18n') || "preview.loading";
                         const isKey = typeof key === "string" && (key.startsWith("preview.") || key.startsWith("common."));
+                        textEl.removeAttribute('data-i18n');
                         if (isKey) {
-                            textEl.setAttribute('data-i18n', key);
-                            textEl.textContent = window.t ? window.t(key) : key;
+                            const isEn = (window.PyxisI18n && window.PyxisI18n.currentLang === "en") || (window.currentLanguage === "en");
+                            const fallbackMap = {
+                                "preview.converting_audio": (isEn ? "Converting incompatible audio..." : "Convirtiendo audio incompatible..."),
+                                "preview.loading": (isEn ? "Loading preview..." : "Cargando previsualización..."),
+                                "preview.switching_source": (isEn ? "Switching source..." : "Cambiando fuente..."),
+                                "preview.generating": (isEn ? "Generating preview..." : "Generando vista previa..."),
+                                "preview.updating": (isEn ? "Updating..." : "Actualizando..."),
+                                "preview.syncing": (isEn ? "Syncing..." : "Sincronizando...")
+                            };
+                            let translated = window.t ? window.t(key) : null;
+                            if (!translated || translated === key) {
+                                translated = fallbackMap[key] || key;
+                            }
+                            textEl.textContent = translated;
                         } else {
-                            textEl.removeAttribute('data-i18n');
                             textEl.textContent = key;
                         }
                     }
@@ -4793,6 +5951,95 @@
                             }
                         }, 400);
                     }
+                }
+            }
+
+            function showPlayerFFmpegMissingBanner(nodeIdStr) {
+                const targetId = String(nodeIdStr);
+                const p = activePlayers[targetId];
+                if (!p || !p.wrapper) return;
+                p.hasFFmpegMissing = true;
+                const isPinned = Boolean(p && p.isPinned);
+                const borderRadius = isPinned ? '10px' : '6px';
+
+                let banner = p.wrapper.querySelector('.pyxis-player-ffmpeg-missing');
+                if (!banner) {
+                    banner = document.createElement('div');
+                    banner.className = 'pyxis-player-ffmpeg-missing';
+
+                    const msgText = window.t ? window.t("ffmpeg.player_banner_desc") : "FFmpeg is required to generate background media and preview subtitles.";
+                    const btnText = window.t ? window.t("ffmpeg.download_btn") : "Download FFmpeg";
+
+                    banner.innerHTML = `
+                        <svg class="svg-icon" viewBox="0 0 24 24" style="width:32px; height:32px; margin-top:4px; fill:none; stroke:var(--accent-primary, #22858c); stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; filter:drop-shadow(0 0 12px var(--accent-glow, rgba(34,133,140,0.45)));">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/>
+                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        <div style="font-size:13px; font-weight:500; color:var(--text-main, #ffffff); max-width:320px; line-height:1.4; text-shadow:0 2px 8px rgba(0,0,0,0.6);">
+                            ${msgText}
+                        </div>
+                        <button class="pyxis-btn pyxis-btn-primary pyxis-btn-install-ffmpeg" style="padding:6px 16px; border-radius:6px; cursor:pointer; font-weight:700; font-size:12px; margin-bottom:4px; box-shadow:0 0 14px var(--accent-glow, rgba(34,133,140,0.4));">
+                            ${btnText}
+                        </button>
+                    `;
+                    const btn = banner.querySelector('.pyxis-btn-install-ffmpeg');
+                    if (btn) {
+                        btn.onclick = (e) => {
+                            e.stopPropagation();
+                            if (typeof window.showFFmpegDownloadModal === 'function') {
+                                window.showFFmpegDownloadModal(async (downloaded) => {
+                                    if (!downloaded) return;
+                                    await loadPreviewMediaAfterFFmpeg(targetId);
+                                });
+                            }
+                        };
+                    }
+                    p.wrapper.appendChild(banner);
+                }
+                banner.style.cssText = `position:absolute; inset:0; border-radius:${borderRadius}; z-index:250 !important; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(9, 13, 22, 0.82); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); gap:10px; padding:18px 20px; text-align:center; pointer-events:auto; box-sizing:border-box;`;
+                banner.style.display = 'flex';
+                if (typeof updateInNodePlayersPosition === 'function') {
+                    updateInNodePlayersPosition();
+                }
+            }
+
+            async function loadPreviewMediaAfterFFmpeg(nodeIdStr) {
+                const targetId = String(nodeIdStr);
+                hidePlayerFFmpegMissingBanner(targetId);
+                const p = activePlayers[targetId];
+                if (!p || !p.art) return;
+                try {
+                    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.get_preview_video_data_url === 'function') {
+                        const curSource = (p.node && p.node.properties && p.node.properties.preview_source) || "base";
+                        const connectedOutputIds = (p.node) ? resolveConnectedOutputsForPreview(p.node) : [];
+                        const serialized = (window.graph) ? window.graph.serialize() : null;
+                        const newVideoUrl = await window.pywebview.api.get_preview_video_data_url(curSource, connectedOutputIds, serialized);
+                        if (newVideoUrl && p.videoUrl !== newVideoUrl) {
+                            p.videoUrl = newVideoUrl;
+                            await safeArtSwitchUrl(p.art, newVideoUrl);
+                            try { p.art.pause(); } catch(e) {}
+                        }
+                    }
+                    if (typeof p.updateTimeUI === 'function') {
+                        try { p.updateTimeUI(); } catch (e) {}
+                    }
+                } catch (err) {
+                    console.warn("[Pyxis loadPreviewMediaAfterFFmpeg warning]", err);
+                }
+            }
+
+            function hidePlayerFFmpegMissingBanner(nodeIdStr) {
+                const targetId = String(nodeIdStr);
+                const p = activePlayers[targetId];
+                if (!p || !p.wrapper) return;
+                p.hasFFmpegMissing = false;
+                const banner = p.wrapper.querySelector('.pyxis-player-ffmpeg-missing');
+                if (banner) {
+                    banner.style.display = 'none';
+                }
+                if (typeof updateInNodePlayersPosition === 'function') {
+                    updateInNodePlayersPosition();
                 }
             }
 
@@ -4860,11 +6107,11 @@
                         if (p.art && typeof p.art.resize === 'function') {
                             try { p.art.resize(); } catch(e) {}
                         }
-                        if (p.jassub && typeof p.jassub.resize === 'function') {
-                            try { p.jassub.resize(); } catch(e) {}
-                        }
                         if (typeof p.applyTransform === 'function') {
                             try { p.applyTransform(); } catch(e) {}
+                        }
+                        if (p.jassub && typeof p.jassub.resize === 'function') {
+                            try { p.jassub.resize(0, 0, 0, 0, true); } catch(e) {}
                         }
                     }
                 });
@@ -4915,8 +6162,12 @@
                 renderHardsub: renderHardsub,
                 togglePinPreview: togglePinPreview,
                 togglePreviewSource: togglePreviewSource,
+                togglePreviewRenderMode: togglePreviewRenderMode,
+                revertToPreviewBase: revertToPreviewBase,
                 updateSourceButtonUI: updateSourceButtonUI,
+                updateRenderModeButtonUI: updateRenderModeButtonUI,
                 setPlayerLoading: setPlayerLoading,
+                setAllPlayersLoading: setAllPlayersLoading,
                 suspendForDaemon: suspendForDaemon,
                 resumeFromDaemon: resumeFromDaemon,
                 getPreviewBounds: getPreviewBounds,

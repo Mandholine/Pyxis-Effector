@@ -5,6 +5,7 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -231,26 +232,119 @@ class ASSTelemetryManager:
     """Manager for parallel libass performance telemetry profiling, hotspot analysis, and benchmark execution."""
 
     def __init__(self, profiler_exe_path: str | None = None):
-        """Initialise telemetry manager and locate the libass_profiler.exe binary."""
+        """Initialise telemetry manager and locate the native libass_profiler binary."""
         if profiler_exe_path:
             self.profiler_exe = profiler_exe_path
         else:
-            try:
-                from paths import get_bin_path
-                self.profiler_exe = get_bin_path("libass_profiler.exe")
-            except Exception:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
-                candidates = [
-                    os.path.join(base_dir, "bin", "libass_profiler.exe"),
-                    os.path.join(base_dir, "..", "bin", "libass_profiler.exe"),
-                    os.path.join(base_dir, "libass_profiler.exe"),
-                ]
-                self.profiler_exe = next((c for c in candidates if os.path.exists(c)), candidates[0])
+            self.profiler_exe = self._locate_profiler()
         self._lock = threading.Lock()
         self._job_counter = 0
         self._active_procs = {}
         self._active_dirs = {}
         self._last_result = None
+
+    def _locate_profiler(self) -> str:
+        """Resolve native libass_profiler binary without emulation layers."""
+        bin_name = "libass_profiler.exe" if os.name == "nt" else "libass_profiler"
+        try:
+            from paths import get_bin_path
+            resolved = get_bin_path(bin_name)
+            if resolved and os.path.isfile(resolved):
+                return resolved
+        except Exception:
+            pass
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        candidates = [
+            os.path.join(base_dir, "bin", bin_name),
+            os.path.join(base_dir, "..", "bin", bin_name),
+            os.path.join(base_dir, bin_name),
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+
+        sys_bin = shutil.which(bin_name)
+        if sys_bin and os.path.isfile(sys_bin):
+            return sys_bin
+
+        # Attempt transparent native compilation on POSIX if sources exist
+        if os.name != "nt":
+            success, compiled_or_msg = self.compile_native_profiler()
+            if success and os.path.isfile(compiled_or_msg):
+                return compiled_or_msg
+
+        return candidates[0]
+
+    @classmethod
+    def compile_native_profiler(cls) -> tuple[bool, str]:
+        """Attempt transparent local compilation of libass_profiler using native C toolchains."""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        source_candidates = [
+            os.path.join(base_dir, "..", "bin", "libass_profiler_native", "libass_profiler.c"),
+            os.path.join(base_dir, "bin", "libass_profiler_native", "libass_profiler.c"),
+        ]
+        source_file = next((s for s in source_candidates if os.path.isfile(s)), None)
+        if not source_file:
+            return False, "Source code libass_profiler.c not found"
+
+        target_dir = os.path.dirname(os.path.dirname(source_file))
+        bin_name = "libass_profiler.exe" if os.name == "nt" else "libass_profiler"
+        target_bin = os.path.join(target_dir, bin_name)
+
+        compiler = shutil.which("clang") or shutil.which("gcc")
+        if not compiler:
+            hint = "brew install libass" if sys.platform == "darwin" else "sudo apt install libass-dev"
+            return False, f"C compiler (clang/gcc) not found. Please install a compiler and libass: {hint}"
+
+        cmd = [compiler, "-O3", "-Wall", "-Wextra", "-std=c99", source_file, "-o", target_bin]
+
+        pkg_config = shutil.which("pkg-config")
+        extra_flags = []
+        if pkg_config:
+            try:
+                res = subprocess.run(
+                    [pkg_config, "--cflags", "--libs", "libass"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=5,
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    extra_flags.extend(res.stdout.strip().split())
+            except Exception:
+                pass
+
+        if not extra_flags:
+            if sys.platform == "darwin":
+                for prefix in ("/opt/homebrew", "/usr/local"):
+                    inc_path = os.path.join(prefix, "include")
+                    lib_path = os.path.join(prefix, "lib")
+                    if os.path.isdir(inc_path):
+                        extra_flags.extend([f"-I{inc_path}"])
+                    if os.path.isdir(lib_path):
+                        extra_flags.extend([f"-L{lib_path}"])
+            extra_flags.extend(["-lass", "-lm"])
+        else:
+            if "-lm" not in extra_flags:
+                extra_flags.append("-lm")
+
+        cmd.extend(extra_flags)
+
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
+            if res.returncode == 0 and os.path.isfile(target_bin):
+                try:
+                    os.chmod(target_bin, 0o755)
+                except Exception:
+                    pass
+                return True, target_bin
+            else:
+                err_msg = res.stderr.strip() or res.stdout.strip()
+                hint = "brew install libass" if sys.platform == "darwin" else "sudo apt install libass-dev"
+                return False, f"Compilation failed: {err_msg}. Please ensure libass is installed: {hint}"
+        except Exception as e:
+            return False, f"Compilation exception: {e}"
 
     def get_last_result(self) -> dict | None:
         """Retrieve the cached result of the most recent telemetry run."""
@@ -312,13 +406,20 @@ class ASSTelemetryManager:
         job_id = self.cancel_active_jobs()
 
         if not os.path.isfile(self.profiler_exe):
-            return {
-                "status": "error",
-                "success": False,
-                "job_id": job_id,
-                "message": f"Profiler binary not found: {self.profiler_exe}",
-                "error": f"Profiler binary not found: {self.profiler_exe}",
-            }
+            if os.name != "nt":
+                success, compiled_or_msg = self.compile_native_profiler()
+                if success and os.path.isfile(compiled_or_msg):
+                    self.profiler_exe = compiled_or_msg
+            if not os.path.isfile(self.profiler_exe):
+                hint = "brew install libass" if sys.platform == "darwin" else "sudo apt install libass-dev"
+                err_msg = f"Profiler binary not found: {self.profiler_exe}. Please build or install libass: {hint}"
+                return {
+                    "status": "error",
+                    "success": False,
+                    "job_id": job_id,
+                    "message": err_msg,
+                    "error": err_msg,
+                }
 
         fps_val = float(fps) if fps and float(fps) > 0 else 23.976
         frame_budget_ms = round(1000.0 / fps_val, 3)
@@ -359,6 +460,7 @@ class ASSTelemetryManager:
                 "success": True,
                 "job_id": job_id,
                 "source": source,
+                "runner": {"kind": "native"},
                 "fps": round(fps_val, 3),
                 "frame_budget_ms": frame_budget_ms,
                 "clip_start_ms": eff_start,
@@ -648,6 +750,7 @@ class ASSTelemetryManager:
                 "success": True,
                 "job_id": job_id,
                 "source": source,
+                "runner": {"kind": "native"},
                 "fps": round(fps_val, 3),
                 "frame_budget_ms": frame_budget_ms,
                 "clip_start_ms": eff_clip_start_ms,

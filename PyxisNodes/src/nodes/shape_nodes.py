@@ -18,9 +18,12 @@
 
 import re
 import math
+import re
 from collections import OrderedDict
 import numpy as np
 from decorators import pyxis_node, NODE_REGISTRY
+from string_evaluator import merge_override_tags, tokenize_ass_tags, TagToken
+from clipper_engine import PyxisShapeStr
 
 _SHAPE_BBOX_CACHE = OrderedDict()
 _SHAPE_BBOX_MAX_CACHE = 2048
@@ -36,6 +39,99 @@ _CONCENTRIC_RINGS_MAX_CACHE = 512
 
 _SHAPE_REDRAW_CACHE = OrderedDict()
 _SHAPE_REDRAW_MAX_CACHE = 512
+
+# Note: merge_override_tags, tokenize_ass_tags, and TagToken are imported from
+# string_evaluator to maintain a single canonical source of truth for tag manipulation.
+
+
+def split_shape_and_tags(val, override_tag: str = ""):
+    """Splits an input string containing optional leading ASS tag blocks and vector drawing.
+
+    Extracts leading ASS tag overrides (e.g. '{\\an7\\pos(100,200)\\p1}') from the ASSDraw
+    drawing payload ('m 0 0...'). If no tags exist, returns an empty string for tags.
+    If override_tag is provided, it is logically merged into the extracted tags block
+    (e.g. \\pos overriding \\move or previous \\pos, preserving all other tags).
+
+    Args:
+        val (Any): Input object or string to be split.
+        override_tag (str): Optional ASS override tag to logically merge into tags_prefix.
+
+    Returns:
+        tuple[str, str]: A pair of (tags_prefix, raw_drawing).
+    """
+    if val is None:
+        return "", ""
+
+    if isinstance(val, PyxisShapeStr) and val._tags_prefix is not None and val._raw_drawing is not None:
+        tags_prefix = val._tags_prefix
+        raw_drawing = val._raw_drawing
+        if override_tag and str(override_tag).strip():
+            tags_prefix = merge_override_tags(tags_prefix, override_tag)
+        return tags_prefix, raw_drawing
+
+    s = str(val).strip()
+    if not s:
+        return "", ""
+    m = re.match(r'^((?:\{[^}]*\}\s*)+)(.*)$', s, re.DOTALL)
+    if m:
+        tags_prefix = m.group(1).rstrip() + " "
+        raw_drawing = m.group(2).strip()
+    else:
+        tags_prefix = ""
+        raw_drawing = s
+
+    if override_tag and str(override_tag).strip():
+        tags_prefix = merge_override_tags(tags_prefix, override_tag)
+
+    return tags_prefix, raw_drawing
+
+
+def _tokenize_shape_with_tags(drawing: str) -> list:
+    """Tokenizes an ASSdraw string while isolating inline ASS override blocks {...} as atomic tokens."""
+    s = str(drawing or "")
+    if "{" not in s:
+        return s.split()
+    return re.findall(r'\{[^}]*\}|[^{}\s]+', s)
+
+
+def _join_shape_tokens(tokens: list, trailing_space: bool = False) -> str:
+    """Reconstructs an ASSdraw string from tokens while keeping inline {...} blocks compact without adjacent whitespace."""
+    res = " ".join(tokens)
+    if "{" in res:
+        res = re.sub(r'\s*(\{[^}]*\})\s*', r'\1', res)
+    return (res + " ") if trailing_space else res
+
+
+def scale_shape_x(drawing: str, factor: float) -> str:
+    """Scales X coordinates of an ASSdraw vector string by factor for anamorphic compensation."""
+    if not drawing or abs(float(factor) - 1.0) < 1e-5:
+        return drawing
+    tags_prefix, raw_drawing = split_shape_and_tags(drawing)
+    tokens = _tokenize_shape_with_tags(raw_drawing)
+    out_tokens = []
+    i = 0
+    f_val = float(factor)
+    while i < len(tokens):
+        token = tokens[i]
+        try:
+            x_val = float(token)
+            if i + 1 < len(tokens):
+                try:
+                    y_val = float(tokens[i + 1])
+                    scaled_x = x_val * f_val
+                    out_tokens.append(_format_num(scaled_x))
+                    out_tokens.append(_format_num(y_val))
+                    i += 2
+                    continue
+                except ValueError:
+                    pass
+            out_tokens.append(token)
+            i += 1
+        except ValueError:
+            out_tokens.append(token)
+            i += 1
+    res = _join_shape_tokens(out_tokens, trailing_space=False)
+    return f"{tags_prefix}{res}" if tags_prefix else res
 
 def shape_circle(context):
     return "m 50 0 b 22 0 0 22 0 50 b 0 78 22 100 50 100 b 78 100 100 78 100 50 b 100 22 78 0 50 0 "
@@ -188,12 +284,17 @@ def get_shape_bbox_metrics(drawing: str):
     if not shp_key:
         return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
+    if isinstance(drawing, PyxisShapeStr) and drawing._bbox is not None:
+        b = drawing._bbox
+        return b[0], b[1], b[2], b[3], b[4], b[5]
+
     if shp_key in _SHAPE_BBOX_CACHE:
         val = _SHAPE_BBOX_CACHE[shp_key]
         _SHAPE_BBOX_CACHE.move_to_end(shp_key)
         return val
 
-    tokens = shp_key.split()
+    clean_key = re.sub(r'\{[^}]*\}', ' ', shp_key) if '{' in shp_key else shp_key
+    tokens = clean_key.split()
     coords = []
     for token in tokens:
         try:
@@ -214,6 +315,8 @@ def get_shape_bbox_metrics(drawing: str):
         cy = (min_y + max_y) / 2.0
 
     res = (min_x, min_y, max_x, max_y, cx, cy)
+    if isinstance(drawing, PyxisShapeStr):
+        drawing._bbox = (min_x, min_y, max_x, max_y, cx, cy, max_x - min_x, max_y - min_y)
     if len(_SHAPE_BBOX_CACHE) >= _SHAPE_BBOX_MAX_CACHE:
         _SHAPE_BBOX_CACHE.popitem(last=False)
     _SHAPE_BBOX_CACHE[shp_key] = res
@@ -387,10 +490,18 @@ def resolve_piece_anchor(piece_code, piece_cx=0.0, piece_cy=0.0, parent_x=0.0, p
             context['fx_pos_x'] = pos_x
             context['fx_pos_y'] = pos_y
         if has_org:
-            context['org_x'] = org_x
-            context['org_y'] = org_y
-            context['fx_org_x'] = org_x
-            context['fx_org_y'] = org_y
+            if not context.get('org_overridden'):
+                context['org_x'] = org_x
+                context['org_y'] = org_y
+                context['fx_org_x'] = org_x
+                context['fx_org_y'] = org_y
+            else:
+                if 'defvars_org_x' in context:
+                    context['org_x'] = context['defvars_org_x']
+                    context['fx_org_x'] = context['defvars_org_x']
+                if 'defvars_org_y' in context:
+                    context['org_y'] = context['defvars_org_y']
+                    context['fx_org_y'] = context['defvars_org_y']
 
     return {
         'formatted_code': formatted_code,
@@ -454,6 +565,10 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
     if not raw_shp:
         return ""
 
+    tags_prefix, raw_shp = split_shape_and_tags(raw_shp)
+    if not raw_shp:
+        return tags_prefix.strip()
+
     from node_engine import _eval_num_expr
     try:
         t_val = float(_eval_num_expr(t if t is not None else kwargs.get("t", 1.0), context, 1.0))
@@ -475,34 +590,40 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
         ob = offset_border if (offset_border is not None and str(offset_border).strip() != "") else kwargs.get("off_border", kwargs.get("offset_border", kwargs.get("delta", 0.0)))
         ax_val = axis if axis is not None else kwargs.get("axis", "none")
         dens = kwargs.get("density", density if density not in (None, "", 2.0, "2.0", "2") else 0.0)
-        return _shape_matrix_transform(raw_shp, scale_x=sx, scale_y=sy, skew_x=skx, skew_y=sky,
+        res = _shape_matrix_transform(raw_shp, scale_x=sx, scale_y=sy, skew_x=skx, skew_y=sky,
                                       angle_x=ax, angle_y=ay, angle_z=az, offset_x=ox, offset_y=oy,
                                       offset_border=ob, axis=ax_val, density=dens, anchor=mode, t=t_val, context=context)
+        return (tags_prefix + res) if res else tags_prefix.strip()
     elif "redibuj" in op or "redraw" in op:
         d = density if (density is not None and str(density).strip() != "") else kwargs.get("factor", 2.0)
-        return _shape_redraw_bezier(raw_shp, factor=d, anchor=mode, t=t_val, context=context)
+        res = _shape_redraw_bezier(raw_shp, factor=d, anchor=mode, t=t_val, context=context)
+        return (tags_prefix + res) if res else tags_prefix.strip()
     elif "giro" in op or "3d" in op or "rot" in op or "rotate" in op:
         ax = angle_x if (angle_x is not None and str(angle_x).strip() != "") else kwargs.get("ang_x", 0.0)
         ay = angle_y if (angle_y is not None and str(angle_y).strip() != "") else kwargs.get("ang_y", 0.0)
         az = angle_z if (angle_z is not None and str(angle_z).strip() != "") else kwargs.get("ang_z", kwargs.get("rot", kwargs.get("angle", rot)))
-        return _shape_rotate_3d(raw_shp, angle_x=ax, angle_y=ay, angle_z=az, anchor=mode, t=t_val, context=context)
+        res = _shape_rotate_3d(raw_shp, angle_x=ax, angle_y=ay, angle_z=az, anchor=mode, t=t_val, context=context)
+        return (tags_prefix + res) if res else tags_prefix.strip()
     elif "refle" in op or "reflect" in op or "espejo" in op:
         ax_val = axis if axis is not None else kwargs.get("axis", "y")
         ox = offset_x if (offset_x is not None and str(offset_x).strip() != "") else kwargs.get("off_x", 0.0)
         oy = offset_y if (offset_y is not None and str(offset_y).strip() != "") else kwargs.get("off_y", 0.0)
-        return _shape_reflect(raw_shp, axis=ax_val, offset_x=ox, offset_y=oy, anchor=mode, t=t_val, context=context)
+        res = _shape_reflect(raw_shp, axis=ax_val, offset_x=ox, offset_y=oy, anchor=mode, t=t_val, context=context)
+        return (tags_prefix + res) if res else tags_prefix.strip()
 
     delta = _eval_num_expr(offset_border, context, 0.0) if (offset_border is not None and offset_border != "") else 0.0
     delta = delta * t_val
     if abs(delta) > 0.0001:
         from clipper_engine import ClipperEngine
         off_shp = ClipperEngine.offset_shape(raw_shp, delta)
-        if off_shp and off_shp.strip():
-            raw_shp = off_shp
+        raw_shp = off_shp.strip() if off_shp else ""
+        if not raw_shp:
+            return tags_prefix.strip() if tags_prefix else ""
 
     raw_sx = _eval_num_expr(scale_x, context, 1.0) if scale_x != "" else 1.0
     raw_sy = _eval_num_expr(scale_y, context, 1.0) if scale_y != "" else 1.0
-    raw_angle = _eval_num_expr(rot, context, 0.0) if rot != "" else 0.0
+    rot_in = rot if (rot is not None and str(rot).strip() != "" and rot != 0.0) else (angle_z if (angle_z is not None and str(angle_z).strip() != "" and angle_z != 0.0) else kwargs.get("angle", kwargs.get("rot", 0.0)))
+    raw_angle = _eval_num_expr(rot_in, context, 0.0) if rot_in != "" else 0.0
     raw_tx = _eval_num_expr(offset_x, context, 0.0) if offset_x != "" else 0.0
     raw_ty = _eval_num_expr(offset_y, context, 0.0) if offset_y != "" else 0.0
 
@@ -516,8 +637,16 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
     cos_a = math.cos(rad)
     sin_a = math.sin(rad)
 
-    tokens = raw_shp.split()
+    tokens = _tokenize_shape_with_tags(raw_shp)
     ref_x, ref_y, base_x, base_y, _, _, _, _, _, _ = resolve_shape_anchor(raw_shp, anchor=mode, context=context)
+
+    v_factor = 1.0
+    if isinstance(context, dict):
+        try:
+            v_factor = float(context.get('video_x_correct_factor', 1.0))
+        except Exception:
+            v_factor = 1.0
+    is_anamorphic = abs(v_factor - 1.0) > 1e-5 and v_factor > 0
 
     out_tokens = []
     i = 0
@@ -528,7 +657,7 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
             if i + 1 < len(tokens):
                 try:
                     y_val = float(tokens[i + 1])
-                    rel_x = (x_val - ref_x) * sx
+                    rel_x = ((x_val - ref_x) / v_factor if is_anamorphic else (x_val - ref_x)) * sx
                     rel_y = (y_val - ref_y) * sy
 
                     if angle != 0.0:
@@ -538,7 +667,7 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
                         rot_x = rel_x
                         rot_y = rel_y
 
-                    final_x = base_x + rot_x + tx
+                    final_x = base_x + (rot_x * v_factor if is_anamorphic else rot_x) + tx
                     final_y = base_y + rot_y + ty
 
                     fmt_x = int(final_x) if final_x.is_integer() else round(final_x, 2)
@@ -556,7 +685,8 @@ def shape_manipulator(context, drawing="", scale_x=1.0, scale_y=1.0, rot=0.0, of
             out_tokens.append(token)
             i += 1
 
-    return " ".join(out_tokens) + " "
+    res = _join_shape_tokens(out_tokens, trailing_space=True)
+    return tags_prefix + res if tags_prefix else res
 
 
 def _shape_matrix_transform(drawing, scale_x=100.0, scale_y=100.0, skew_x=0.0, skew_y=0.0,
@@ -613,8 +743,9 @@ def _shape_matrix_transform(drawing, scale_x=100.0, scale_y=100.0, skew_x=0.0, s
     if abs(delta) > 0.0001:
         from clipper_engine import ClipperEngine
         off_shp = ClipperEngine.offset_shape(raw_shp, delta)
-        if off_shp and off_shp.strip():
-            raw_shp = off_shp
+        raw_shp = off_shp.strip() if off_shp else ""
+        if not raw_shp:
+            return ""
 
     try:
         dens_val = float(_eval_num_expr(density, context, 0.0)) if density not in (None, "") else 0.0
@@ -668,7 +799,15 @@ def _shape_matrix_transform(drawing, scale_x=100.0, scale_y=100.0, skew_x=0.0, s
 
     ref_x, ref_y, base_x, base_y, _, _, _, _, _, _ = resolve_shape_anchor(raw_shp, anchor=anchor, context=context)
 
-    tokens = raw_shp.split()
+    v_factor = 1.0
+    if isinstance(context, dict):
+        try:
+            v_factor = float(context.get('video_x_correct_factor', 1.0))
+        except Exception:
+            v_factor = 1.0
+    is_anamorphic = abs(v_factor - 1.0) > 1e-5 and v_factor > 0
+
+    tokens = _tokenize_shape_with_tags(raw_shp)
     out_tokens = []
     i = 0
     while i < len(tokens):
@@ -678,7 +817,7 @@ def _shape_matrix_transform(drawing, scale_x=100.0, scale_y=100.0, skew_x=0.0, s
             if i + 1 < len(tokens):
                 try:
                     y_val = float(tokens[i + 1])
-                    rx = x_val - ref_x
+                    rx = (x_val - ref_x) / v_factor if is_anamorphic else (x_val - ref_x)
                     ry = y_val - ref_y
 
                     # 1. Scale & Skew
@@ -741,7 +880,7 @@ def _shape_matrix_transform(drawing, scale_x=100.0, scale_y=100.0, skew_x=0.0, s
                         y_blend = y_rot
 
                     # 5. Base anchor + offset
-                    final_x = base_x + x_blend + tx
+                    final_x = base_x + (x_blend * v_factor if is_anamorphic else x_blend) + tx
                     final_y = base_y + y_blend + ty
 
                     out_tokens.append(_format_num(final_x))
@@ -756,7 +895,7 @@ def _shape_matrix_transform(drawing, scale_x=100.0, scale_y=100.0, skew_x=0.0, s
             out_tokens.append(token)
             i += 1
 
-    return " ".join(out_tokens) + " "
+    return _join_shape_tokens(out_tokens, trailing_space=True)
 
 
 def _shape_redraw_bezier(drawing, factor=2.0, anchor="center", t=1.0, context=None):
@@ -939,9 +1078,11 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
     if ax_deg == 0.0 and ay_deg == 0.0 and az_deg == 0.0:
         return raw_shp
 
-    tokens = raw_shp.split()
+    tokens = _tokenize_shape_with_tags(raw_shp)
     coords = []
     for token in tokens:
+        if token.startswith("{"):
+            continue
         try:
             coords.append(float(token))
         except ValueError:
@@ -965,6 +1106,14 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
     else:
         ref_x, ref_y = cx, cy
 
+    v_factor = 1.0
+    if isinstance(context, dict):
+        try:
+            v_factor = float(context.get('video_x_correct_factor', 1.0))
+        except Exception:
+            v_factor = 1.0
+    is_anamorphic = abs(v_factor - 1.0) > 1e-5 and v_factor > 0
+
     rad_x = math.radians(ax_deg)
     rad_y = math.radians(ay_deg)
     rad_z = math.radians(az_deg)
@@ -981,7 +1130,7 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
             if i + 1 < len(tokens):
                 try:
                     y_val = float(tokens[i + 1])
-                    rx = x_val - ref_x
+                    rx = (x_val - ref_x) / v_factor if is_anamorphic else (x_val - ref_x)
                     ry = y_val - ref_y
 
                     if az_deg != 0.0:
@@ -1016,7 +1165,7 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
                     else:
                         fov = 1.0
 
-                    final_x = ref_x + x2 * fov
+                    final_x = ref_x + (x2 * fov * v_factor if is_anamorphic else x2 * fov)
                     final_y = ref_y + y2 * fov
 
                     out_tokens.append(_format_num(final_x))
@@ -1031,7 +1180,7 @@ def _shape_rotate_3d(drawing, angle_x=0.0, angle_y=0.0, angle_z=0.0, anchor="cen
             out_tokens.append(token)
             i += 1
 
-    return " ".join(out_tokens) + " "
+    return _join_shape_tokens(out_tokens, trailing_space=True)
 
 
 def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center", t=1.0, context=None):
@@ -1085,9 +1234,11 @@ def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center
     off_x = float(_eval_num_expr(offset_x, context, 0.0))
     off_y = float(_eval_num_expr(offset_y, context, 0.0))
 
-    tokens = raw_shp.split()
+    tokens = _tokenize_shape_with_tags(raw_shp)
     coords = []
     for token in tokens:
+        if token.startswith("{"):
+            continue
         try:
             coords.append(float(token))
         except ValueError:
@@ -1158,7 +1309,7 @@ def _shape_reflect(drawing, axis="y", offset_x=0.0, offset_y=0.0, anchor="center
             out_tokens.append(token)
             i += 1
 
-    return " ".join(out_tokens) + " "
+    return _join_shape_tokens(out_tokens, trailing_space=True)
 
 
 
@@ -1382,12 +1533,14 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, conte
     if not drawing or not isinstance(drawing, str):
         return ""
 
-    tokens = drawing.strip().split()
+    tokens = _tokenize_shape_with_tags(drawing.strip())
     if not tokens:
         return ""
 
     coords = []
     for tok in tokens:
+        if tok.startswith("{"):
+            continue
         try:
             coords.append(float(tok))
         except ValueError:
@@ -1484,7 +1637,7 @@ def _shape_skew(drawing, angle_x=0.0, angle_y=0.0, anchor="center", t=1.0, conte
             out_tokens.append(tok)
             i += 1
 
-    return " ".join(out_tokens) + " "
+    return _join_shape_tokens(out_tokens, trailing_space=True)
 
 
 
@@ -1827,12 +1980,14 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
     if not drawing or not isinstance(drawing, str):
         return ""
 
-    tokens = drawing.strip().split()
+    tokens = _tokenize_shape_with_tags(drawing.strip())
     if not tokens:
         return ""
 
     coords = []
     for tok in tokens:
+        if tok.startswith("{"):
+            continue
         try:
             coords.append(float(tok))
         except ValueError:
@@ -2096,7 +2251,7 @@ def _shape_flexor(drawing, curve=None, t=1.0, bend=30.0, axis="x", anchor="cente
             out_tokens.append(tok)
             ti += 1
 
-    return " ".join(out_tokens) + " "
+    return _join_shape_tokens(out_tokens, trailing_space=True)
 
 
 _SHAPE_DISTORT_CONTOUR_CACHE = {}
@@ -2741,21 +2896,28 @@ def shape_transform(context, drawing="", mode="inflate", t=None, ratio=1.0, infl
     if not raw_shp:
         return ""
 
+    tags_prefix, raw_shp = split_shape_and_tags(raw_shp)
+    if not raw_shp:
+        return tags_prefix.strip()
+
     mode_clean = str(mode or "Inflate").strip().lower()
     if "inflate" in mode_clean or "inflar" in mode_clean:
         t_inf = t if (t is not None and str(t).strip() != "") else kwargs.get("t", 1.0)
         ratio_inf = ratio if (ratio is not None and str(ratio).strip() != "") else kwargs.get("ratio", 1.0)
-        return _shape_inflate(raw_shp, t=t_inf, ratio=ratio_inf, mode=inflate_mode, anchor=anchor, context=context)
+        res = _shape_inflate(raw_shp, t=t_inf, ratio=ratio_inf, mode=inflate_mode, anchor=anchor, context=context)
+        return (tags_prefix + res) if res else tags_prefix.strip()
     elif "skew" in mode_clean or "cizall" in mode_clean or "inclin" in mode_clean or "oblique" in mode_clean:
         t_skew = t if (t is not None and str(t).strip() != "") else kwargs.get("t", 1.0)
         ax = angle_x if (angle_x is not None and str(angle_x).strip() != "") else (kwargs.get("angle_x", kwargs.get("angle", kwargs.get("ang_x", kwargs.get("skew_x", 0.0)))))
         ay = angle_y if (angle_y is not None and str(angle_y).strip() != "") else (kwargs.get("angle_y", kwargs.get("ang_y", kwargs.get("skew_y", 0.0))))
-        return _shape_skew(raw_shp, angle_x=ax, angle_y=ay, anchor=anchor, t=t_skew, context=context, **kwargs)
+        res = _shape_skew(raw_shp, angle_x=ax, angle_y=ay, anchor=anchor, t=t_skew, context=context, **kwargs)
+        return (tags_prefix + res) if res else tags_prefix.strip()
     elif "round" in mode_clean or "redond" in mode_clean or "corner" in mode_clean or "esquina" in mode_clean:
         t_rc = t if (t is not None and str(t).strip() != "") else kwargs.get("t", 1.0)
         r_val = radius if radius != 10.0 else kwargs.get("radius", 10.0)
         c_mode = corner_mode if corner_mode else kwargs.get("corner_mode", "Round")
-        return _shape_round_corners(raw_shp, radius=r_val, mode=c_mode, anchor=anchor, t=t_rc, context=context, **kwargs)
+        res = _shape_round_corners(raw_shp, radius=r_val, mode=c_mode, anchor=anchor, t=t_rc, context=context, **kwargs)
+        return (tags_prefix + res) if res else tags_prefix.strip()
     elif "flex" in mode_clean or "curv" in mode_clean or "bend" in mode_clean:
         c_curve = curve if curve is not None else kwargs.get("curve", "30")
         b_t = t if (t is not None and str(t).strip() != "") else (bend_t if bend_t != 1.0 else kwargs.get("bend_t", kwargs.get("t", 1.0)))
@@ -2769,7 +2931,8 @@ def shape_transform(context, drawing="", mode="inflate", t=None, ratio=1.0, infl
         except Exception:
             pass
         ax = axis if axis else kwargs.get("axis", "x")
-        return _shape_flexor(raw_shp, curve=c_curve, t=b_t, bend=b_bend, axis=ax, anchor=anchor, context=context)
+        res = _shape_flexor(raw_shp, curve=c_curve, t=b_t, bend=b_bend, axis=ax, anchor=anchor, context=context)
+        return (tags_prefix + res) if res else tags_prefix.strip()
     elif "distort2" in mode_clean or "distort 2" in mode_clean or "distort_2" in mode_clean:
         mid = mid_shape if mid_shape else kwargs.get("mid_shape", kwargs.get("shape_mid", kwargs.get("shape2", "")))
         mid = resolve_shape_value(mid, context)
@@ -2794,17 +2957,21 @@ def shape_transform(context, drawing="", mode="inflate", t=None, ratio=1.0, infl
         e_val = kwargs.pop("energy", kwargs.pop("fluidez", kwargs.pop("fluidity", 0.35)))
 
         if not mid:
-            return _shape_distort(raw_shp, target_shape=tgt, t=t_num, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+            res = _shape_distort(raw_shp, target_shape=tgt, t=t_num, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+            return (tags_prefix + res) if res else tags_prefix.strip()
 
         if not tgt:
-            return _shape_distort(raw_shp, target_shape=mid, t=t_num, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+            res = _shape_distort(raw_shp, target_shape=mid, t=t_num, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+            return (tags_prefix + res) if res else tags_prefix.strip()
 
         if t_num <= 0.5:
             t_local = t_num * 2.0
-            return _shape_distort(raw_shp, target_shape=mid, t=t_local, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+            res = _shape_distort(raw_shp, target_shape=mid, t=t_local, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+            return (tags_prefix + res) if res else tags_prefix.strip()
         else:
             t_local = (t_num - 0.5) * 2.0
-            return _shape_distort(mid, target_shape=tgt, t=t_local, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+            res = _shape_distort(mid, target_shape=tgt, t=t_local, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+            return (tags_prefix + res) if res else tags_prefix.strip()
 
     elif "distort" in mode_clean or "deform" in mode_clean or "morph" in mode_clean:
         tgt = target_shape if target_shape else kwargs.get("target_shape", "")
@@ -2812,9 +2979,10 @@ def shape_transform(context, drawing="", mode="inflate", t=None, ratio=1.0, infl
         t_morph = t if (t is not None and str(t).strip() != "") else kwargs.pop("t", 1.0)
         s_px = step_px if (step_px is not None and str(step_px).strip() != "") else kwargs.pop("step_px", kwargs.pop("step", 0.0))
         e_val = kwargs.pop("energy", kwargs.pop("fluidez", kwargs.pop("fluidity", 0.35)))
-        return _shape_distort(raw_shp, target_shape=tgt, t=t_morph, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+        res = _shape_distort(raw_shp, target_shape=tgt, t=t_morph, step_px=s_px, anchor=anchor, energy=e_val, context=context, **kwargs)
+        return (tags_prefix + res) if res else tags_prefix.strip()
 
-    return raw_shp
+    return tags_prefix + raw_shp if tags_prefix else raw_shp
 
 def shape_concentric_borders_node(
     context,
@@ -2879,9 +3047,13 @@ def shape_concentric_borders_node(
     if not shp_val:
         return ""
 
+    tags_prefix, raw_drawing = split_shape_and_tags(shp_val)
+    if not raw_drawing:
+        return tags_prefix.strip()
+
     sc_val = max(0.01, float(_eval_num_expr(scale, context, 1.0)))
     if sc_val != 1.0:
-        shp_val = ClipperEngine.transform_shape(shp_val, mode="Escalar", factor=sc_val)
+        raw_drawing = ClipperEngine.transform_shape(raw_drawing, mode="scale", factor=sc_val)
 
     from node_engine import _split_tokens_respecting_delimiters
     if isinstance(separation, (list, tuple)):
@@ -2925,7 +3097,7 @@ def shape_concentric_borders_node(
     else:
         j = 1
 
-    rings_cache_key = (shp_val, tuple(sep_list), ov_val, total_rings, is_filled_base)
+    rings_cache_key = (raw_drawing, tuple(sep_list), ov_val, total_rings, is_filled_base)
     if rings_cache_key in _CONCENTRIC_RINGS_CACHE:
         rings = _CONCENTRIC_RINGS_CACHE[rings_cache_key]
         _CONCENTRIC_RINGS_CACHE.move_to_end(rings_cache_key)
@@ -2936,7 +3108,7 @@ def shape_concentric_borders_node(
 
         for i in range(1, total_rings + 1):
             if is_filled_base and i == 1:
-                rings[i] = ClipperEngine.offset_shape(shp_val, ov_val) if ov_val > 0 else shp_val
+                rings[i] = ClipperEngine.offset_shape(raw_drawing, ov_val) if ov_val > 0 else raw_drawing
             else:
                 sep_idx = (i - 2) if is_filled_base else (i - 1)
                 dist = sep_list[sep_idx % len(sep_list)]
@@ -2945,8 +3117,8 @@ def shape_concentric_borders_node(
                 outer_dist = cumulative_dist + ov_val
                 inner_dist = max(0.0, prev_dist - ov_val)
 
-                outer_shp = ClipperEngine.offset_shape(shp_val, outer_dist)
-                inner_shp = ClipperEngine.offset_shape(shp_val, inner_dist) if inner_dist > 0 else shp_val
+                outer_shp = ClipperEngine.offset_shape(raw_drawing, outer_dist)
+                inner_shp = ClipperEngine.offset_shape(raw_drawing, inner_dist) if inner_dist > 0 else raw_drawing
                 diff_shp = ClipperEngine.boolean_difference(outer_shp, inner_shp)
                 rings[i] = diff_shp if diff_shp and diff_shp.strip() else outer_shp
                 prev_dist = cumulative_dist
@@ -2956,7 +3128,7 @@ def shape_concentric_borders_node(
         _CONCENTRIC_RINGS_CACHE[rings_cache_key] = rings
 
     ring_idx = max(1, min(j, total_rings))
-    current_ring_shape = rings.get(ring_idx, shp_val)
+    current_ring_shape = rings.get(ring_idx, raw_drawing)
 
     contours = ClipperEngine.parse_assdraw(current_ring_shape)
     _, _, _, _, cx, cy, _, _ = ClipperEngine.get_bbox(contours)
@@ -2975,6 +3147,8 @@ def shape_concentric_borders_node(
             final_output = ClipperEngine.transform_shape(current_ring_shape, mode="Offset", offset_x=parent_x, offset_y=parent_y)
         else:
             final_output = current_ring_shape
+        if tags_prefix:
+            final_output = tags_prefix + final_output
 
     pos_str = f"\\pos({cx:.2f},{cy:.2f})".rstrip('0').rstrip('.') if (cx != 0 or cy != 0) else ""
     return final_output, pos_str, ring_idx, total_rings
@@ -3192,7 +3366,7 @@ def clip_gradient_node(context=None, cols="5", rows="1", angle="0", padding="0",
         is_shape_return = True
     elif clean_ret:
         low_ret = clean_ret.lower()
-        if low_ret.startswith("shape.") or low_ret in RAW_PRESET_SHAPES:
+        if low_ret.startswith("shape."):
             is_shape_return = True
         elif re.match(r'^[mclbsp]\s+-?\d+', clean_ret, re.IGNORECASE) or clean_ret.startswith(('m ', 'm-', 'm0')):
             is_shape_return = True
@@ -3608,17 +3782,24 @@ def resolve_shape_value(shp_val, context=None):
         shp_val = txt
 
     s_val = str(shp_val).strip()
-    shape_name = s_val[6:].strip() if s_val.startswith("shape.") else s_val
 
-    if shape_name in RAW_PRESET_SHAPES:
-        return RAW_PRESET_SHAPES[shape_name]
-
-    if s_val.startswith("shape."):
-        return ""
-
-    if s_val.startswith("m ") or s_val.startswith("m-") or s_val.startswith("m0"):
+    # Fast-path: Check for ASS tag prefix enclosing an ASSDraw vector shape
+    tags_prefix, raw_body = split_shape_and_tags(s_val)
+    if tags_prefix and (raw_body.startswith("m ") or raw_body.startswith("m-") or raw_body.startswith("m0")):
         return s_val
 
+    # Canonical preset shape lookup: strictly requires 'shape.' prefix
+    if s_val.lower().startswith("shape."):
+        shape_name = s_val[6:].strip().lower()
+        if shape_name in RAW_PRESET_SHAPES:
+            return RAW_PRESET_SHAPES[shape_name]
+        return ""
+
+    # Raw ASSDraw command check
+    if s_val.startswith("m ") or s_val.startswith("m-") or s_val.startswith("m0") or bool(re.match(r'^[mclbsp]\s+-?\d+', s_val, re.IGNORECASE)):
+        return s_val
+
+    # Unprefixed strings are treated strictly as typographic text and converted to vector outlines
     try:
         from font_vector_engine import FontVectorEngine
         v_shp = FontVectorEngine.from_context(text=s_val, context=context)
@@ -3652,7 +3833,8 @@ def get_drawing_bbox(drawing_or_list):
     for d in drawings:
         if not d or not isinstance(d, str):
             continue
-        tokens = d.split()
+        clean_d = re.sub(r'\{[^}]*\}', ' ', d) if '{' in d else d
+        tokens = clean_d.split()
         coords = []
         for token in tokens:
             try:
@@ -3695,25 +3877,32 @@ def apply_geometric_anchor(drawing, anchor="center", context=None, ref_bbox=None
         return ""
     anchor_str = str(anchor or "center").strip().lower()
 
-    tokens = str(drawing).split()
-    coords = []
-    for token in tokens:
-        try:
-            coords.append(float(token))
-        except ValueError:
-            pass
+    from clipper_engine import ClipperEngine
+    tokens = _tokenize_shape_with_tags(str(drawing))
+    cnt = ClipperEngine.parse_assdraw(drawing)
+    if cnt:
+        min_x, min_y, max_x, max_y, cx, cy, w, h = ClipperEngine.get_bbox(cnt)
+    else:
+        coords = []
+        for token in tokens:
+            if token.startswith("{"):
+                continue
+            try:
+                coords.append(float(token))
+            except ValueError:
+                pass
 
-    min_x, max_x = 0.0, 0.0
-    min_y, max_y = 0.0, 0.0
-    cx, cy = 0.0, 0.0
+        min_x, max_x = 0.0, 0.0
+        min_y, max_y = 0.0, 0.0
+        cx, cy = 0.0, 0.0
 
-    if coords and len(coords) >= 2:
-        xs = coords[0::2]
-        ys = coords[1::2]
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
-        cx = (min_x + max_x) / 2.0
-        cy = (min_y + max_y) / 2.0
+        if coords and len(coords) >= 2:
+            xs = coords[0::2]
+            ys = coords[1::2]
+            min_x, max_x = min(xs), max(xs)
+            min_y, max_y = min(ys), max(ys)
+            cx = (min_x + max_x) / 2.0
+            cy = (min_y + max_y) / 2.0
 
     if ref_bbox is not None and anchor_str != "pieces":
         if isinstance(ref_bbox, dict):
@@ -3777,7 +3966,7 @@ def apply_geometric_anchor(drawing, anchor="center", context=None, ref_bbox=None
         except ValueError:
             out_tokens.append(token)
             i += 1
-    return " ".join(out_tokens)
+    return _join_shape_tokens(out_tokens, trailing_space=False)
 
 
 def eval_shapes_lib_node(context=None, **kwargs):
@@ -3799,7 +3988,18 @@ def eval_shapes_lib_node(context=None, **kwargs):
     shape_name = str(kwargs.get("shape", "circle")).strip()
     if shape_name.startswith("shape."):
         shape_name = shape_name[6:].strip()
-    return RAW_PRESET_SHAPES.get(shape_name, "")
+    raw_shape = RAW_PRESET_SHAPES.get(shape_name, "")
+    if not raw_shape:
+        return ""
+    v_factor = 1.0
+    if isinstance(context, dict):
+        try:
+            v_factor = float(context.get("video_x_correct_factor", 1.0))
+        except Exception:
+            v_factor = 1.0
+    if abs(v_factor - 1.0) > 1e-5 and v_factor > 0:
+        return scale_shape_x(raw_shape, v_factor)
+    return raw_shape
 
 NODE_REGISTRY["Shape/Library"] = eval_shapes_lib_node
 
@@ -4336,6 +4536,10 @@ def shape_walker_node(
     if not shp_val:
         return "", "", 0.0, 0.0, 0.0, 0.0
 
+    tags_prefix, raw_drawing = split_shape_and_tags(shp_val)
+    if not raw_drawing:
+        return tags_prefix.strip(), "", 0.0, 0.0, 0.0, 0.0
+
     p_val = _eval_num_expr(progress, context, 1.0)
     s_val = _eval_num_expr(start_t, context, 0.0)
     sub_val = int(_eval_num_expr(subdivs, context, 30.0))
@@ -4373,7 +4577,7 @@ def shape_walker_node(
     mode_str = str(mode).strip()
 
     final_shp, tx, ty, angle, cut_len, _ = shape_walker_core(
-        shp_val,
+        raw_drawing,
         progress=p_val,
         start_t=s_val,
         mode=mode_str,
@@ -4421,7 +4625,8 @@ def shape_walker_node(
 
     pos_str = f"\\pos({_format_num(abs_x)},{_format_num(abs_y)})" if (abs_x != 0 or abs_y != 0) else ""
 
-    return final_shp, pos_str, round(angle, 2), round(cut_len, 2), abs_x, abs_y
+    out_shp = (tags_prefix + final_shp) if tags_prefix else final_shp
+    return out_shp, pos_str, round(angle, 2), round(cut_len, 2), abs_x, abs_y
 
 
 NODE_REGISTRY["Shape/Walker"] = shape_walker_node
@@ -4474,18 +4679,23 @@ def shape_stroke_node(
     if not shp_val or not shp_val.strip():
         return ""
 
+    tags_prefix, raw_drawing = split_shape_and_tags(shp_val)
+    if not raw_drawing:
+        return tags_prefix.strip()
+
     w_val = max(0.01, _eval_num_expr(width, context, 4.0))
     miter_val = max(1.0, _eval_num_expr(miter_limit, context, 2.0))
     jm_str = str(join_mode).strip()
     cm_str = str(cap_mode).strip()
 
-    return ClipperEngine.stroke_shape(
-        shp_val,
+    stroked_shp = ClipperEngine.stroke_shape(
+        raw_drawing,
         width=w_val,
         join_mode=jm_str,
         cap_mode=cm_str,
         miter_limit=miter_val
     )
+    return (tags_prefix + stroked_shp) if tags_prefix else stroked_shp
 
 
 NODE_REGISTRY["Shape/Stroke"] = shape_stroke_node
@@ -4782,11 +4992,16 @@ def shape_array_core(
         raw_p_list = ["m 0 0 l 10 0 l 10 10 l 0 10"]
 
     resolved_particles = []
+    particle_tags_list = []
     for p_str in raw_p_list:
         r_shp = resolve_shape_value(p_str, context)
         if not r_shp or not r_shp.strip():
             r_shp = "m 0 0 l 10 0 l 10 10 l 0 10"
-        resolved_particles.append(r_shp)
+        p_tag, clean_p = split_shape_and_tags(r_shp)
+        if not clean_p or not clean_p.strip():
+            clean_p = "m 0 0 l 10 0 l 10 10 l 0 10"
+        resolved_particles.append(clean_p)
+        particle_tags_list.append(p_tag)
 
     prepared_particles = []
     eff_widths = []
@@ -4819,7 +5034,12 @@ def shape_array_core(
         if not f_shp or not f_shp.strip():
             f_shp = "m 0 0 l 100 0 l 100 100 l 0 100"
 
-        f_cnts = ClipperEngine.parse_assdraw(f_shp)
+        # Discard formation guide tags, isolating pure silhouette geometry for ray-casting
+        _, clean_formation = split_shape_and_tags(f_shp)
+        if not clean_formation or not clean_formation.strip():
+            clean_formation = "m 0 0 l 100 0 l 100 100 l 0 100"
+
+        f_cnts = ClipperEngine.parse_assdraw(clean_formation)
         f_min_x, f_min_y, f_max_x, f_max_y, fcx, fcy, fw, fh = ClipperEngine.get_bbox(f_cnts)
 
         f_scale_x = (target_w / fw) if (target_w > 0 and fw > 0) else 1.0
@@ -5044,6 +5264,7 @@ def shape_array_core(
     combined_parts = []
     for i, it in enumerate(sorted_items):
         p_base = prepared_particles[i % len(prepared_particles)]
+        p_tag = particle_tags_list[i % len(particle_tags_list)] if particle_tags_list else ""
         cx = float(it["x"])
         cy = float(it["y"])
         rel_code = shape_manipulator(context, drawing=p_base, offset_x=cx, offset_y=cy, mode="center")
@@ -5058,7 +5279,8 @@ def shape_array_core(
             "angle": it["angle"],
             "ring": it.get("ring", 1),
             "idx_ring": it.get("idx_ring", 1),
-            "base_particle": p_base
+            "base_particle": p_base,
+            "tags": p_tag
         })
 
     unified_relative_shape = " ".join(combined_parts)
@@ -5225,11 +5447,18 @@ def shape_array_node(
         active_pieces = pieces[:visible_count]
         piece_drawings = []
         eff_anchor = "relative" if anchor_mode in ("pieces", "relative") else anchor_mode
+        tags_val = tags if tags else (kwargs.get("tag") or "")
         for p in active_pieces:
             anc_res = resolve_piece_anchor(p["rel_code"], piece_cx=p["cx"], piece_cy=p["cy"], parent_x=parent_x, parent_y=parent_y, anchor=eff_anchor, context=context)
-            piece_drawings.append(anc_res["formatted_code"])
+            formatted_code = anc_res["formatted_code"]
+            p_tags = p.get("tags", "")
+            if p_tags and not (tags_val and str(tags_val).strip()):
+                anc_tags, pure_code = split_shape_and_tags(formatted_code)
+                final_tags = merge_override_tags(p_tags, anc_tags)
+                piece_drawings.append(f"{final_tags}{pure_code}")
+            else:
+                piece_drawings.append(formatted_code)
 
-        tags_val = tags if tags else (kwargs.get("tag") or "")
         if tags_val and str(tags_val).strip():
             from clipper_engine import ClipperEngine
             combined_code = ClipperEngine.fusion_shapes_tags(piece_drawings, tags=tags_val)
@@ -5260,7 +5489,14 @@ def shape_array_node(
     row_val = piece["row"]
 
     anc_res = resolve_piece_anchor(piece["rel_code"], piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
-    piece_code = anc_res["formatted_code"]
+    formatted_code = anc_res["formatted_code"]
+    p_tags = piece.get("tags", "")
+    if p_tags:
+        anc_tags, pure_code = split_shape_and_tags(formatted_code)
+        final_tags = merge_override_tags(p_tags, anc_tags)
+        piece_code = f"{final_tags}{pure_code}"
+    else:
+        piece_code = formatted_code
     px = round(anc_res["pos_x"], 2)
     py = round(anc_res["pos_y"], 2)
 
@@ -5297,17 +5533,20 @@ def _split_shape_contours(raw_shp):
     """
     if not raw_shp or not str(raw_shp).strip():
         return []
-    tokens = str(raw_shp).strip().split()
+    tokens = _tokenize_shape_with_tags(str(raw_shp).strip())
     contours = []
     current_tokens = []
     for tok in tokens:
-        if tok.lower() == 'm' and current_tokens:
-            contours.append(" ".join(current_tokens) + " ")
+        if tok.startswith('{') and tok.endswith('}') and any(not t.startswith('{') for t in current_tokens):
+            contours.append(_join_shape_tokens(current_tokens, trailing_space=True))
+            current_tokens = [tok]
+        elif tok.lower() == 'm' and any(not t.startswith('{') for t in current_tokens):
+            contours.append(_join_shape_tokens(current_tokens, trailing_space=True))
             current_tokens = [tok]
         else:
             current_tokens.append(tok)
     if current_tokens:
-        contours.append(" ".join(current_tokens) + " ")
+        contours.append(_join_shape_tokens(current_tokens, trailing_space=True))
     return contours
 
 
@@ -5360,7 +5599,7 @@ def _shape_filter_vertices(drawing, expr_x="x", expr_y="y", t=1.0, subdivs=0, co
         raw_shp = _shape_redraw_bezier(raw_shp, factor=sub_val, context=context)
 
     all_coords = []
-    tokens = raw_shp.strip().split()
+    tokens = _tokenize_shape_with_tags(raw_shp.strip())
     cmd = None
     i = 0
     n_tok = len(tokens)
@@ -5464,7 +5703,7 @@ def _shape_filter_vertices(drawing, expr_x="x", expr_y="y", t=1.0, subdivs=0, co
         out_tokens[idx_x] = _format_num(final_x)
         out_tokens[idx_y] = _format_num(final_y)
 
-    return " ".join(out_tokens) + " "
+    return _join_shape_tokens(out_tokens, trailing_space=True)
 
 
 def _shape_filter_group(drawing, rot_step=0.0, scale_step=100.0, offset_x=0.0, offset_y=0.0, t=1.0, anchor="center", context=None):
@@ -5602,7 +5841,7 @@ def _shape_filter_noise(drawing, radius_x=5.0, radius_y=5.0, subdivs=2.0, seed=0
     import random
     rng = random.Random(s_seed if s_seed != 0 else 42)
 
-    tokens = raw_shp.strip().split()
+    tokens = _tokenize_shape_with_tags(raw_shp.strip())
     out_tokens = []
     i = 0
     n_tok = len(tokens)
@@ -5631,7 +5870,7 @@ def _shape_filter_noise(drawing, radius_x=5.0, radius_y=5.0, subdivs=2.0, seed=0
         out_tokens.append(tok)
         i += 1
 
-    return " ".join(out_tokens) + " "
+    return _join_shape_tokens(out_tokens, trailing_space=True)
 
 
 def shape_filter(
@@ -5683,21 +5922,30 @@ def shape_filter(
     Returns:
         str: Filtered ASS vector drawing string.
     """
-    mode_clean = str(mode or "Vértices").strip().lower().replace("é", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u")
+    raw_shp = resolve_shape_value(drawing, context)
+    if not raw_shp:
+        return ""
+
+    tags_prefix, raw_shp = split_shape_and_tags(raw_shp)
+    if not raw_shp:
+        return tags_prefix.strip()
+
+    mode_clean = str(mode or "Vertices").strip().lower().replace("é", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u")
 
     if "vert" in mode_clean or "expr" in mode_clean:
-        return _shape_filter_vertices(
-            drawing=drawing,
+        res = _shape_filter_vertices(
+            drawing=raw_shp,
             expr_x=expr_x if expr_x is not None else kwargs.get("expr_x", "x"),
             expr_y=expr_y if expr_y is not None else kwargs.get("expr_y", "y"),
             t=t if t is not None else kwargs.get("t", 1.0),
             subdivs=subdivs if subdivs is not None else kwargs.get("subdivs", 0.0),
             context=context
         )
+        return (tags_prefix + res) if res else tags_prefix.strip()
 
     elif "grup" in mode_clean or "group" in mode_clean or "piez" in mode_clean:
-        return _shape_filter_group(
-            drawing=drawing,
+        res = _shape_filter_group(
+            drawing=raw_shp,
             rot_step=rot_step if rot_step is not None else kwargs.get("rot_step", 0.0),
             scale_step=scale_step if scale_step is not None else kwargs.get("scale_step", 100.0),
             offset_x=offset_x if offset_x is not None else kwargs.get("offset_x", 0.0),
@@ -5706,18 +5954,21 @@ def shape_filter(
             anchor=anchor if anchor is not None else kwargs.get("anchor", "center"),
             context=context
         )
+        return (tags_prefix + res) if res else tags_prefix.strip()
 
     elif "ruid" in mode_clean or "noise" in mode_clean or "rand" in mode_clean:
-        return _shape_filter_noise(
-            drawing=drawing,
+        res = _shape_filter_noise(
+            drawing=raw_shp,
             radius_x=radius_x if radius_x is not None else kwargs.get("radius_x", 5.0),
             radius_y=radius_y if radius_y is not None else kwargs.get("radius_y", 5.0),
             subdivs=subdivs if subdivs is not None else kwargs.get("subdivs", 2.0),
             seed=seed if seed is not None else kwargs.get("seed", 0),
             context=context
         )
+        return (tags_prefix + res) if res else tags_prefix.strip()
 
-    return _shape_filter_vertices(drawing=drawing, expr_x=expr_x, expr_y=expr_y, t=t, subdivs=subdivs, context=context)
+    res = _shape_filter_vertices(drawing=raw_shp, expr_x=expr_x, expr_y=expr_y, t=t, subdivs=subdivs, context=context)
+    return tags_prefix + res if tags_prefix else res
 
 
 NODE_REGISTRY["Shape/Filter"] = shape_filter
@@ -5803,7 +6054,9 @@ def _get_drawing_bbox(drawing):
     Returns:
         tuple of float: (min_x, max_x, min_y, max_y) bounding coordinates.
     """
-    tokens = str(drawing).split()
+    s = str(drawing)
+    clean_s = re.sub(r'\{[^}]*\}', ' ', s) if '{' in s else s
+    tokens = clean_s.split()
     coords = []
     for tok in tokens:
         try:
@@ -5981,7 +6234,15 @@ def _finish_multi_pieces(pieces, anchor="center", tags="", context=None, return_
             ref_x, ref_y = cx, cy
         base_x, base_y = 0.0, 0.0
 
-    if abs(ref_x) < 1e-6 and abs(ref_y) < 1e-6 and abs(base_x) < 1e-6 and abs(base_y) < 1e-6:
+    v_factor = 1.0
+    if isinstance(context, dict):
+        try:
+            v_factor = float(context.get('video_x_correct_factor', 1.0))
+        except Exception:
+            v_factor = 1.0
+    is_anamorphic = abs(v_factor - 1.0) > 1e-5 and v_factor > 0
+
+    if abs(ref_x) < 1e-6 and abs(ref_y) < 1e-6 and abs(base_x) < 1e-6 and abs(base_y) < 1e-6 and not is_anamorphic:
         anchored_pieces = valid_pieces
     else:
         anchored_pieces = []
@@ -5995,7 +6256,7 @@ def _finish_multi_pieces(pieces, anchor="center", tags="", context=None, return_
                     if i + 1 < len(toks):
                         try:
                             y_val = float(toks[i + 1])
-                            rel_x = (x_val - ref_x) + base_x
+                            rel_x = (x_val - ref_x) * v_factor + base_x if is_anamorphic else (x_val - ref_x) + base_x
                             rel_y = (y_val - ref_y) + base_y
                             out_tokens.append(_format_num(rel_x))
                             out_tokens.append(_format_num(rel_y))
@@ -6165,7 +6426,7 @@ def _gen_multi3_concentric_rings(base_shape=None, size=100.0, bord_pattern="4", 
             base_shape = RAW_PRESET_SHAPES["circle"]
             is_preset_shape = True
         else:
-            base_shape = resolved
+            _, base_shape = split_shape_and_tags(resolved)
             if base_shape in RAW_PRESET_SHAPES.values():
                 is_preset_shape = True
 
@@ -6486,16 +6747,19 @@ def _gen_multi5_multi_shape_mosaic(shapes=None, width=60.0, height=50.0, dx=0.0,
     if not shapes:
         shapes = [RAW_PRESET_SHAPES.get("rectangle", "m 0 0 l 0 8 8 8 8 0")]
     elif isinstance(shapes, (list, tuple)):
-        shapes = [resolve_shape_value(s, context) for s in shapes if s]
+        shapes = [split_shape_and_tags(resolve_shape_value(s, context))[1] for s in shapes if s]
     else:
         s_str = str(shapes).strip()
         if "," in s_str:
             raw_items = [s.strip() for s in s_str.split(",") if s.strip()]
-            shapes = [resolve_shape_value(item, context) for item in raw_items if item]
+            shapes = [split_shape_and_tags(resolve_shape_value(item, context))[1] for item in raw_items if item]
         else:
             resolved = resolve_shape_value(s_str, context)
-            cnts = _split_shape_contours(resolved)
-            shapes = cnts if (cnts and len(cnts) > 1) else [resolved]
+            _, clean_res = split_shape_and_tags(resolved)
+            cnts = _split_shape_contours(clean_res)
+            shapes = cnts if (cnts and len(cnts) > 1) else [clean_res]
+
+    shapes = [split_shape_and_tags(s)[1] for s in shapes if s and split_shape_and_tags(s)[1].strip()]
 
     if not shapes:
         shapes = [RAW_PRESET_SHAPES.get("rectangle", "m 0 0 l 0 8 8 8 8 0")]
@@ -6580,6 +6844,8 @@ def _gen_multi6_segmented_border(base_shape=None, width=104.0, height=104.0, bor
         return _finish_multi_pieces([], anchor=anchor, tags=tags, context=context, return_list=return_list, canonical_center=(xsize / 2.0, ysize / 2.0), t=t_clamped)
 
     resolved_base = resolve_shape_value(base_shape, context) if base_shape and str(base_shape).strip() else None
+    if resolved_base:
+        _, resolved_base = split_shape_and_tags(resolved_base)
 
     if not resolved_base or not resolved_base.strip():
         rect_key = ("rect_border", round(xsize, 2), round(ysize, 2), round(bord_val, 2), round(space_val, 2), round(len_val, 2), str(order))
@@ -6861,6 +7127,8 @@ def _gen_multi8_tunnel_cascade(base_shape=None, size1=100.0, size2=10.0, loop=8,
         base_shape = resolve_shape_value(base_shape, context)
         if not base_shape:
             base_shape = RAW_PRESET_SHAPES["rectangle"]
+        else:
+            _, base_shape = split_shape_and_tags(base_shape)
 
     loop_val = max(2, int(round(abs(float(loop))))) if loop is not None else 8
     s1 = abs(float(size1)) if size1 is not None else 100.0
@@ -7390,6 +7658,10 @@ def shape_multi(
     mode_str = str(mode or "concentric_squares").strip()
     mode_clean = mode_str.lower().replace("é", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u")
 
+    d_tags, clean_drawing = split_shape_and_tags(drawing)
+    if any(k in mode_clean for k in ["segment", "borde", "border", "multi6"]):
+        d_tags = ""  # Discard tags for spatial guide contour per canonical guide isolation rule
+
     t_val = _eval_num_expr(t, context, 1.0) if (t is not None and t != "") else 1.0
     sep_val = _eval_num_expr(separation if separation is not None else kwargs.get("sep", kwargs.get("space", 0.0)), context, 0.0)
     anc_val = str(anchor if (anchor is not None and str(anchor).strip() != "") else kwargs.get("anchor", kwargs.get("anchor_mode", "center"))).strip().lower()
@@ -7420,7 +7692,7 @@ def shape_multi(
         if cache_dict is not None:
             unit_id = id(unit) if unit else (id(context.get('line')) if isinstance(context, dict) and context.get('line') else 0)
             multi_sig = (
-                unit_id, mode_clean, str(drawing),
+                unit_id, mode_clean, str(clean_drawing), d_tags,
                 str(size), str(width), str(height), str(px), str(bord),
                 str(length), str(sides), str(rings), str(n_layers),
                 str(dx), str(dy), str(parts), str(r_out), str(r_in),
@@ -7448,13 +7720,13 @@ def shape_multi(
         res = _gen_multi2_diagonal_stripes(width=w_val, height=h_val, px_pattern=px_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "anillo" in mode_clean or "multi3" in mode_clean or "ring" in mode_clean or "concentric_rings" in mode_clean:
-        base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shape", "")
+        base_shp = clean_drawing if (clean_drawing and str(clean_drawing).strip() != "") else kwargs.get("shape", "")
         s_val = _eval_num_expr(size, context, 100.0) if (size is not None and size != "") else 100.0
         bord_val = bord if bord is not None else kwargs.get("bord_pattern", "4")
         res = _gen_multi3_concentric_rings(base_shape=base_shp, size=s_val, bord_pattern=bord_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "multi-forma" in mode_clean or "multiforma" in mode_clean or "multi-shape" in mode_clean or "multishape" in mode_clean or "multi5" in mode_clean or "multi_shape_mosaic" in mode_clean:
-        base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shapes", kwargs.get("shape", ""))
+        base_shp = clean_drawing if (clean_drawing and str(clean_drawing).strip() != "") else kwargs.get("shapes", kwargs.get("shape", ""))
         w_val = _eval_num_expr(width, context, 60.0) if (width is not None and width != "") else 60.0
         h_val = _eval_num_expr(height, context, 50.0) if (height is not None and height != "") else 50.0
         dx_val = _eval_num_expr(dx if dx is not None else kwargs.get("sep_x", 0.0), context, 0.0)
@@ -7469,7 +7741,7 @@ def shape_multi(
         res = _gen_multi4_polygonal_mosaic(size=s_val, sides=sides_val, rings=rings_val, n_layers=layers_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "segment" in mode_clean or "borde" in mode_clean or "border" in mode_clean or "multi6" in mode_clean:
-        base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shape", "")
+        base_shp = clean_drawing if (clean_drawing and str(clean_drawing).strip() != "") else kwargs.get("shape", "")
         w_val = _eval_num_expr(width, context, 104.0) if (width is not None and width != "") else 104.0
         h_val = _eval_num_expr(height, context, 104.0) if (height is not None and height != "") else 104.0
         bord_val = _eval_num_expr(bord, context, 4.0) if (bord is not None and bord != "") else 4.0
@@ -7484,7 +7756,7 @@ def shape_multi(
         res = _gen_multi7_radial_rosette(parts=parts_val, r_out=r_out_val, r_in=r_in_val, separation=sep_val, t=t_val, anchor=anc_val, context=context, tags=tags_val, return_list=return_list, order=order_val)
 
     elif "tunel" in mode_clean or "cascada" in mode_clean or "multi8" in mode_clean or "tunnel" in mode_clean:
-        base_shp = drawing if (drawing is not None and str(drawing).strip() != "") else kwargs.get("shape", "")
+        base_shp = clean_drawing if (clean_drawing and str(clean_drawing).strip() != "") else kwargs.get("shape", "")
         s1_val = _eval_num_expr(size1, context, 100.0) if (size1 is not None and size1 != "") else 100.0
         s2_val = _eval_num_expr(size2, context, 10.0) if (size2 is not None and size2 != "") else 10.0
         loop_val = int(_eval_num_expr(loop, context, 8)) if (loop is not None and loop != "") else 8
@@ -7667,7 +7939,12 @@ def shape_multi(
             abs_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=parent_x, offset_y=parent_y)
             final_piece = f"{{\\clip({abs_code})}}"
         else:
-            final_piece = final_code
+            if d_tags and not tags_val:
+                anc_tags, pure_code = split_shape_and_tags(final_code)
+                final_tags = merge_override_tags(d_tags, anc_tags)
+                final_piece = f"{final_tags}{pure_code}"
+            else:
+                final_piece = final_code
 
         pos_str = f"\\pos({abs_x:.2f},{abs_y:.2f})".rstrip('0').rstrip('.')
         return final_piece, pos_str, round(abs_x, 2), round(abs_y, 2), 0.0, m_i_val, total_pieces, 1, 1
@@ -7678,7 +7955,10 @@ def shape_multi(
     elif "clip" in out_mode_clean:
         final_res = f"{{\\clip({combined_code})}}"
     else:
-        final_res = combined_code
+        if d_tags and not tags_val:
+            final_res = f"{d_tags}{combined_code}"
+        else:
+            final_res = combined_code
 
     if isinstance(context, dict):
         context['m_i'] = 1
@@ -7693,7 +7973,7 @@ NODE_REGISTRY["Shape/Multi"] = shape_multi
 NODE_REGISTRY["Multi"] = shape_multi
 
 
-def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=None, fill_type=None, clean_self_intersect=None, index_j=None, index_d=None, tags=None, tagmode=None, order=None, **kwargs):
+def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=None, fill_type=None, clean_self_intersect=None, index_j=None, index_d=None, tags=None, tagmode=None, order=None, split_mode=None, accel=None, **kwargs):
     """
     Decomposes, merges, or fuses complex vector shapes via Clipper2 topological PolyTree.
 
@@ -7722,6 +8002,8 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
         tagmode (str): Tag formatting mode for fusion ('ipol' for interpolation, 'line' for static).
         order (str): 2D spatial sorting order (Numpad: '79','97','13','31','71','17','93','39',
             Radials: '5','-5','cw','ccw', or stochastic 'rand').
+        split_mode (str, optional): Decomposition method for fusion ('islands' or 'path').
+        accel (float | str, optional): Non-linear acceleration exponent for tag/color keyframe interpolation in fusion mode.
         **kwargs: Extended parameters (return_all_pieces, return_list, etc.).
 
     Returns:
@@ -7734,6 +8016,30 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
     
     _shp_b_in = shape_b if (shape_b is not None and str(shape_b).strip() != "") else kwargs.get("shape_2", kwargs.get("clip_shape", ""))
     raw_shp_b = resolve_shape_value(_shp_b_in, context) if (_shp_b_in is not None and str(_shp_b_in).strip() != "") else ""
+
+    tags_prefix = ""
+    if isinstance(raw_shp, list):
+        clean_raw_shp = []
+        for item in raw_shp:
+            t_pfx, clean_item = split_shape_and_tags(item)
+            if not tags_prefix and t_pfx:
+                tags_prefix = t_pfx
+            clean_raw_shp.append(clean_item)
+        raw_shp = clean_raw_shp
+    elif raw_shp:
+        tags_prefix, raw_shp = split_shape_and_tags(raw_shp)
+
+    tags_b = ""
+    if isinstance(raw_shp_b, list):
+        clean_raw_b = []
+        for item in raw_shp_b:
+            t_b, clean_item = split_shape_and_tags(item)
+            if not tags_b and t_b:
+                tags_b = t_b
+            clean_raw_b.append(clean_item)
+        raw_shp_b = clean_raw_b
+    elif raw_shp_b:
+        tags_b, raw_shp_b = split_shape_and_tags(raw_shp_b)
 
     raw_mode = mode if (mode is not None and str(mode).strip() != "") else kwargs.get("mode", "divide")
     mode_clean = str(raw_mode).strip().lower()
@@ -7769,11 +8075,15 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
         global_bbox = get_drawing_bbox(shapes_to_merge)
         merged = ClipperEngine.merge_multiple_shapes(shapes_to_merge, fill_rule=fill_clean)
         anchored_merged = apply_geometric_anchor(merged, anchor=anchor_clean, context=context, ref_bbox=global_bbox) if merged else ""
+        final_tags = tags_prefix if tags_prefix else tags_b
+        res = (final_tags + anchored_merged) if final_tags else anchored_merged
         if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
-            return [anchored_merged] if anchored_merged else []
-        return anchored_merged
+            return [res] if res else []
+        return res
 
     elif "fusi" in mode_clean or "fusion" in mode_clean:
+        split_mode_val = split_mode if (split_mode is not None and str(split_mode).strip() != "") else kwargs.get("split_mode", "islands")
+        split_mode_clean = str(split_mode_val).strip().lower()
         shapes_list = []
         if isinstance(raw_shp, list):
             for item in raw_shp:
@@ -7781,6 +8091,7 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
                     shapes_list.extend([str(s).strip() for s in item if str(s).strip()])
                 elif item and str(item).strip():
                     shapes_list.append(str(item).strip())
+            shapes_list = [s for s in shapes_list if s]
             if len(shapes_list) > 1 and order_val not in ("raw", "none", "0"):
                 entries = []
                 for s in shapes_list:
@@ -7793,16 +8104,25 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
                 sorted_entries = ClipperEngine.sort_islands_by_order(entries, order=order_val)
                 shapes_list = [e['figure'] for e in sorted_entries]
         elif raw_shp:
-            shapes_list.extend(ClipperEngine.decompose_shape_islands(raw_shp, fill_rule=fill_clean, bbox_mode="marco", clean_self_intersect=auto_clean, order=order_val))
+            if split_mode_clean in ("path", "subpaths", "subpath"):
+                shapes_list.extend(ClipperEngine.decompose_shape_subpaths(raw_shp, bbox_mode="marco", order=order_val))
+            else:
+                shapes_list.extend(ClipperEngine.decompose_shape_islands(raw_shp, fill_rule=fill_clean, bbox_mode="marco", clean_self_intersect=auto_clean, order=order_val))
 
         if "rel" in anchor_clean:
-            anchored_list = shapes_list
+            anchored_list = list(shapes_list)
         else:
             global_bbox = get_drawing_bbox(shapes_list)
             anchored_list = [apply_geometric_anchor(p, anchor=anchor_clean, context=context, ref_bbox=global_bbox) for p in shapes_list]
         tags_val = tags if (tags is not None and str(tags).strip() != "") else kwargs.get("tags_list", kwargs.get("tags", ""))
         tag_mode_val = tagmode if (tagmode is not None and str(tagmode).strip() != "") else kwargs.get("tag_mode", kwargs.get("tagmode", "ipol"))
-        fused = ClipperEngine.fusion_shapes_tags(anchored_list, tags=tags_val, bbox_mode="marco", tag_mode=tag_mode_val)
+        accel_raw = accel if (accel is not None and str(accel).strip() != "") else kwargs.get("accel", "1.0")
+        accel_val = _eval_num_expr(accel_raw, context, 1.0)
+        fused = ClipperEngine.fusion_shapes_tags(anchored_list, tags=tags_val, bbox_mode="marco", tag_mode=tag_mode_val, accel=accel_val)
+        if fused and tags_prefix:
+            fused_prefix, fused_body = split_shape_and_tags(fused)
+            merged_prefix = merge_override_tags(tags_prefix, fused_prefix).rstrip()
+            fused = merged_prefix + fused_body
         if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
             return [fused] if fused else []
         return fused
@@ -7839,9 +8159,12 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
             _lru_cache_put(_SHAPE_DIVIDE_ISLANDS_CACHE, _SHAPE_DIVIDE_ISLANDS_MAX_CACHE, subpath_cache_key, anchored_pieces)
 
         if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
+            if tags_prefix:
+                return [(tags_prefix + p) for p in anchored_pieces]
             return list(anchored_pieces)
         target_idx = max(1, min(len(anchored_pieces), idx_val)) - 1
-        return anchored_pieces[target_idx]
+        target_piece = anchored_pieces[target_idx]
+        return (tags_prefix + target_piece) if tags_prefix else target_piece
 
     else:
         if not raw_shp:
@@ -7875,9 +8198,12 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
             _lru_cache_put(_SHAPE_DIVIDE_ISLANDS_CACHE, _SHAPE_DIVIDE_ISLANDS_MAX_CACHE, divide_cache_key, anchored_pieces)
 
         if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
+            if tags_prefix:
+                return [(tags_prefix + p) for p in anchored_pieces]
             return list(anchored_pieces)
         target_idx = max(1, min(len(anchored_pieces), idx_val)) - 1
-        return anchored_pieces[target_idx]
+        target_piece = anchored_pieces[target_idx]
+        return (tags_prefix + target_piece) if tags_prefix else target_piece
 
 
 NODE_REGISTRY["Shape/Union & Divide"] = shape_union_divide_node
@@ -7971,6 +8297,9 @@ def shape_clipper_node(
         context
     )
 
+    tags_a, clean_a = split_shape_and_tags(raw_a)
+    tags_b, clean_b = split_shape_and_tags(raw_b)
+
     raw_mode = mode if (mode is not None and str(mode).strip() != "") else kwargs.get("modo", "difference")
     mode_clean = str(raw_mode).strip().lower()
 
@@ -8031,8 +8360,8 @@ def shape_clipper_node(
     end_type_str = str(end_type if end_type is not None else "closed_polygon").strip().lower()
 
     combined_res, pieces_list = ClipperEngine.execute_clipper_advanced(
-        subject_shape=raw_a,
-        clip_shape=raw_b,
+        subject_shape=clean_a,
+        clip_shape=clean_b,
         mode=mode_clean,
         delta=delta_val,
         post_offset=post_offset_val,
@@ -8056,11 +8385,15 @@ def shape_clipper_node(
             return {"x1": 0.0, "y1": 0.0, "x2": 0.0, "y2": 0.0, "cx": 0.0, "cy": 0.0, "w": 0.0, "h": 0.0}
         return ""
 
-    ref_bbox = get_drawing_bbox([raw_a, raw_b]) if (raw_a or raw_b) else None
+    ref_bbox = get_drawing_bbox([clean_a, clean_b]) if (clean_a or clean_b) else None
     anchored_combined = apply_geometric_anchor(combined_res, anchor=anchor_clean, context=context, ref_bbox=ref_bbox)
     anchored_pieces = [apply_geometric_anchor(p, anchor=anchor_clean, context=context, ref_bbox=ref_bbox) for p in pieces_list]
 
+    final_tags = tags_a if tags_a else tags_b
+
     if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
+        if final_tags:
+            return [(final_tags + p) for p in anchored_pieces]
         return anchored_pieces
 
     if kwargs.get("return_bbox", False):
@@ -8071,6 +8404,8 @@ def shape_clipper_node(
     elif "clip" in out_mode_clean:
         return f"{{\\clip({anchored_combined})}}"
 
+    if final_tags:
+        return final_tags + anchored_combined
     return anchored_combined
 
 

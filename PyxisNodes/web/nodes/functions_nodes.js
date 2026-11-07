@@ -1314,13 +1314,40 @@
                     const offX = (iw - totalGridW) / 2.0;
                     const offY = (ih - totalGridH) / 2.0;
 
-                    for (let i = 0; i < pts.length; i++) {
-                        const pt = pts[i];
-                        const px = drawX + (pt[0] + offX) * fitScale;
-                        const py = drawY + (pt[1] + offY) * fitScale;
-                        const r = pt[2], g = pt[3], b = pt[4], a = (pt[5] !== undefined ? pt[5] / 255.0 : 1.0);
-                        ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
-                        ctx.fillRect(px, py, pSize, pSize);
+                    // Offscreen pre-rendered buffer check
+                    const bufferKey = `${pts.length}_${drawW.toFixed(1)}_${drawH.toFixed(1)}_${actualStep}_${iw}_${ih}`;
+                    if (!this._particlesBuffer || this._particlesBufferKey !== bufferKey) {
+                        const offCanvas = document.createElement("canvas");
+                        offCanvas.width = Math.max(1, Math.round(drawW));
+                        offCanvas.height = Math.max(1, Math.round(drawH));
+                        const offCtx = offCanvas.getContext("2d");
+                        if (offCtx) {
+                            const bStepScale = fitScale;
+                            const bPSize = Math.max(1.0, actualStep * bStepScale + 0.05);
+                            for (let i = 0; i < pts.length; i++) {
+                                const pt = pts[i];
+                                const px = (pt[0] + offX) * bStepScale;
+                                const py = (pt[1] + offY) * bStepScale;
+                                const r = pt[2], g = pt[3], b = pt[4], a = (pt[5] !== undefined ? pt[5] / 255.0 : 1.0);
+                                offCtx.fillStyle = `rgba(${r},${g},${b},${a})`;
+                                offCtx.fillRect(px, py, bPSize, bPSize);
+                            }
+                            this._particlesBuffer = offCanvas;
+                            this._particlesBufferKey = bufferKey;
+                        }
+                    }
+
+                    if (this._particlesBuffer) {
+                        ctx.drawImage(this._particlesBuffer, drawX, drawY);
+                    } else {
+                        for (let i = 0; i < pts.length; i++) {
+                            const pt = pts[i];
+                            const px = drawX + (pt[0] + offX) * fitScale;
+                            const py = drawY + (pt[1] + offY) * fitScale;
+                            const r = pt[2], g = pt[3], b = pt[4], a = (pt[5] !== undefined ? pt[5] / 255.0 : 1.0);
+                            ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+                            ctx.fillRect(px, py, pSize, pSize);
+                        }
                     }
                     ctx.restore();
                 }
@@ -2211,7 +2238,8 @@
             if (node.properties.end_time === undefined) node.properties.end_time = "";
             if (!node.properties.alpha_tag) node.properties.alpha_tag = "\\alpha";
             if (!node.properties.order) node.properties.order = "sequential";
-            if (!node.properties.var_name) node.properties.var_name = "an";
+            if (!node.properties.anchor) node.properties.anchor = "relative";
+            if (node.properties.base === undefined) node.properties.base = "0";
 
             if (node.outputs && node.outputs.length > 0) {
                 node.outputs.forEach(out => { delete out.pos; });
@@ -2382,12 +2410,31 @@
                     return;
                 }
 
+                const computeSeqDims = (frames) => {
+                    if (!Array.isArray(frames) || frames.length === 0) return { maxW: 0, maxH: 0 };
+                    let maxSeqW = 0;
+                    let maxSeqH = 0;
+                    for (let fi = 0; fi < frames.length; fi++) {
+                        const fShp = frames[fi];
+                        if (fShp && typeof fShp === "string") {
+                            const b = getAssPathBBox(fShp);
+                            if (b && b.w > maxSeqW) maxSeqW = b.w;
+                            if (b && b.h > maxSeqH) maxSeqH = b.h;
+                        }
+                    }
+                    return { maxW: maxSeqW, maxH: maxSeqH };
+                };
+
                 // Instant client-side resolution if frames are known presets or raw ASSdraw paths
                 if (!hasUpstreamImg && rawFramesStr) {
                     const localFrames = resolveClientSideFrames(rawFramesStr);
                     if (localFrames.length > 0) {
                         selfNode._animFrames = localFrames;
                         selfNode._totalFrames = localFrames.length;
+                        const seqDims = computeSeqDims(localFrames);
+                        selfNode._cachedSeqFramesRef = localFrames;
+                        selfNode._cachedSeqW = seqDims.maxW;
+                        selfNode._cachedSeqH = seqDims.maxH;
                         const clampedF = Math.max(1, Math.min(curF, localFrames.length));
                         selfNode._currentFrame = clampedF;
                         selfNode._lastTracedShape = localFrames[clampedF - 1] || "";
@@ -2420,6 +2467,10 @@
                     if (res) {
                         if (Array.isArray(res.frames)) {
                             selfNode._animFrames = res.frames;
+                            const seqDims = computeSeqDims(res.frames);
+                            selfNode._cachedSeqFramesRef = res.frames;
+                            selfNode._cachedSeqW = seqDims.maxW;
+                            selfNode._cachedSeqH = seqDims.maxH;
                         }
                         if (res.total_frames !== undefined) {
                             const prevTot = selfNode._totalFrames;
@@ -2453,10 +2504,21 @@
                     selfNode._startPlayWhenReady = false;
                     if (selfNode.computeSize) {
                         const sz = selfNode.computeSize();
-                        if (selfNode.size) {
-                            selfNode.size[0] = Math.max(selfNode.size[0], sz[0]);
-                            selfNode.size[1] = Math.max(selfNode.size[1], sz[1]);
-                        }
+                        const curW = Math.max(
+                            (selfNode._customSize && selfNode._customSize[0] > 0) ? selfNode._customSize[0] : 0,
+                            (selfNode._manual_width !== undefined) ? selfNode._manual_width : 0,
+                            (selfNode.size && selfNode.size[0] > 0) ? selfNode.size[0] : 0
+                        );
+                        const curH = Math.max(
+                            (selfNode._customSize && selfNode._customSize[1] > 0) ? selfNode._customSize[1] : 0,
+                            (selfNode._manual_height !== undefined) ? selfNode._manual_height : 0,
+                            (selfNode.size && selfNode.size[1] > 0) ? selfNode.size[1] : 0
+                        );
+                        selfNode.size[0] = Math.max(curW, sz[0]);
+                        selfNode.size[1] = Math.max(curH, sz[1]);
+                        selfNode._customSize = [selfNode.size[0], selfNode.size[1]];
+                        if (selfNode._manual_width !== undefined) selfNode._manual_width = selfNode.size[0];
+                        if (selfNode._manual_height !== undefined) selfNode._manual_height = selfNode.size[1];
                     }
                     if (selfNode.setDirtyCanvas) selfNode.setDirtyCanvas(true, true);
 
@@ -2500,12 +2562,26 @@
                         resetImgPreviewTransform(this, false);
                     }
                     scheduleAnimationPreview(this, 1);
-                } else if (property === "mode") {
+                } else if (property === "mode" || property === "order") {
                     updateNodeModeInputs(this);
                     if (this.computeSize) {
                         const sz = this.computeSize();
-                        this.size[0] = Math.max(this.size[0], sz[0]);
-                        this.size[1] = Math.max(this.size[1], sz[1]);
+                        const curW = Math.max(
+                            (this._customSize && this._customSize[0] > 0) ? this._customSize[0] : 0,
+                            (this._manual_width !== undefined) ? this._manual_width : 0,
+                            (this.size && this.size[0] > 0) ? this.size[0] : 0
+                        );
+                        const curH = Math.max(
+                            (this._customSize && this._customSize[1] > 0) ? this._customSize[1] : 0,
+                            (this._manual_height !== undefined) ? this._manual_height : 0,
+                            (this.size && this.size[1] > 0) ? this.size[1] : 0
+                        );
+                        const finalW = Math.max(curW, sz[0]);
+                        const finalH = Math.max(curH, sz[1]);
+                        this.size = [finalW, finalH];
+                        this._customSize = [finalW, finalH];
+                        if (this._manual_width !== undefined) this._manual_width = finalW;
+                        if (this._manual_height !== undefined) this._manual_height = finalH;
                     }
                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                 }
@@ -2679,6 +2755,8 @@
                 if (oldResize) oldResize.call(this, size);
                 if (size && size[0] > 0 && size[1] > 0) {
                     this._customSize = [size[0], size[1]];
+                    this._manual_width = size[0];
+                    this._manual_height = size[1];
                 }
             };
 
@@ -2694,6 +2772,9 @@
             };
 
             node.computeSize = function() {
+                const canvas = (this.graph && this.graph.canvas) || (typeof LGraphCanvas !== "undefined" && LGraphCanvas.active_canvas);
+                const isResizingThis = !!(canvas && canvas.resizing_node === this);
+
                 const modeInfo = getTitleModeInfo(this);
                 let modeW = 0;
                 if (modeInfo) {
@@ -2706,7 +2787,7 @@
                 let max_in_text_w = 0;
                 if (this.properties) {
                     for (const k in this.properties) {
-                        if (k === "mode" || k === "order" || k === "alpha_tag" || k === "var_name" || k.startsWith("_")) continue;
+                        if (k === "mode" || k === "order" || k === "alpha_tag" || k.startsWith("_")) continue;
                         let val = String(this.properties[k] || "");
                         if (k === "frames") {
                             if (val.length === 0) {
@@ -2741,7 +2822,22 @@
                 const req_w = Math.round(base_w * 1.1);
                 const req_h = Math.max(245, 11 + num_in * 23 + 32);
 
-                return [req_w, req_h];
+                if (isResizingThis) {
+                    return [req_w, req_h];
+                }
+
+                const curW = Math.max(
+                    (this._customSize && this._customSize[0] > 0) ? this._customSize[0] : 0,
+                    (this._manual_width !== undefined) ? this._manual_width : 0,
+                    (this.size && this.size[0] > 0) ? this.size[0] : 0
+                );
+                const curH = Math.max(
+                    (this._customSize && this._customSize[1] > 0) ? this._customSize[1] : 0,
+                    (this._manual_height !== undefined) ? this._manual_height : 0,
+                    (this.size && this.size[1] > 0) ? this.size[1] : 0
+                );
+
+                return [Math.max(req_w, curW), Math.max(req_h, curH)];
             };
 
             const oldConfigure = node.onConfigure;
@@ -2763,10 +2859,15 @@
                     const confW = Math.max(info.size[0], sz[0]);
                     const confH = Math.max(info.size[1], sz[1]);
                     this._customSize = [confW, confH];
+                    this._manual_width = confW;
+                    this._manual_height = confH;
                     this.size = [confW, confH];
                 } else {
                     this.size[0] = Math.max(this.size[0] || 0, sz[0]);
                     this.size[1] = Math.max(this.size[1] || 0, sz[1]);
+                    this._customSize = [this.size[0], this.size[1]];
+                    this._manual_width = this.size[0];
+                    this._manual_height = this.size[1];
                 }
                 scheduleAnimationPreview(this);
             };
@@ -2790,30 +2891,7 @@
                 const isTracing = Boolean(this._isTracing);
                 const totF = this._totalFrames || 1;
 
-                // Handle live playback timer
-                if (this._isPlaying && totF > 1) {
-                    const now = performance.now();
-                    const rawStep = parseFloat(this.properties && this.properties.step_ms);
-                    const stepMs = (!isNaN(rawStep) && rawStep >= 15) ? rawStep : 41.7;
-                    if (!this._lastPlayTick) this._lastPlayTick = now;
-                    if (now - this._lastPlayTick >= stepMs) {
-                        this._lastPlayTick = now;
-                        this._playStepIdx = ((typeof this._playStepIdx === "number") ? this._playStepIdx : 0) + 1;
-                        const nextFrame = mapPlaybackStepToFrameIndex(
-                            this._playStepIdx,
-                            totF,
-                            this.properties ? this.properties.order : "sequential"
-                        );
-                        this._currentFrame = nextFrame;
-                        if (Array.isArray(this._animFrames) && this._animFrames.length >= nextFrame) {
-                            this._lastTracedShape = this._animFrames[nextFrame - 1] || "";
-                        }
-                    }
-                    if (!this._playRafId) {
-                        startPlaybackLoop(this);
-                    }
-                    if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
-                } else if (isTracing) {
+                if (isTracing) {
                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, false);
                 }
 
@@ -3003,17 +3081,40 @@
                     : (this._lastTracedShape || "");
 
                 if (activeShape && typeof activeShape === "string" && activeShape.trim().length > 0) {
-                    if (!this._cachedShapePath || this._cachedShapeKey !== activeShape) {
-                        const svgD = assPathToSvg(activeShape);
-                        this._cachedShapePath = new Path2D(svgD);
-                        this._cachedShapeKey = activeShape;
+                    const cachedPath = (typeof getOrCreateAssPath2D === "function")
+                        ? getOrCreateAssPath2D(activeShape)
+                        : (this._cachedShapePath && this._cachedShapeKey === activeShape ? this._cachedShapePath : new Path2D(assPathToSvg(activeShape)));
+
+                    // Retrieve sequence dimensions precomputed when frames were populated
+                    let seqW = this._cachedSeqW || 0;
+                    let seqH = this._cachedSeqH || 0;
+                    if ((!seqW || !seqH) && Array.isArray(this._animFrames) && this._animFrames.length > 0) {
+                        if (this._cachedSeqFramesRef !== this._animFrames) {
+                            let maxSeqW = 0;
+                            let maxSeqH = 0;
+                            for (let fi = 0; fi < this._animFrames.length; fi++) {
+                                const fShp = this._animFrames[fi];
+                                if (fShp && typeof fShp === "string") {
+                                    const b = getAssPathBBox(fShp);
+                                    if (b && b.w > maxSeqW) maxSeqW = b.w;
+                                    if (b && b.h > maxSeqH) maxSeqH = b.h;
+                                }
+                            }
+                            this._cachedSeqFramesRef = this._animFrames;
+                            this._cachedSeqW = maxSeqW;
+                            this._cachedSeqH = maxSeqH;
+                        }
+                        seqW = this._cachedSeqW || 0;
+                        seqH = this._cachedSeqH || 0;
                     }
 
                     const bbox = getAssPathBBox(activeShape);
-                    if (bbox && bbox.w > 0 && bbox.h > 0) {
+                    if (cachedPath && bbox && bbox.w > 0 && bbox.h > 0) {
                         const availW = Math.max(10, cardW - 24);
                         const availH = Math.max(10, cardH - 24);
-                        const scale = Math.min(availW / bbox.w, availH / bbox.h);
+                        const refW = Math.max(bbox.w, seqW);
+                        const refH = Math.max(bbox.h, seqH);
+                        const scale = Math.min(availW / refW, availH / refH);
                         const effScale = scale * cardZoom;
 
                         ctx.save();
@@ -3022,17 +3123,20 @@
                         else ctx.rect(cardX + 2, cardY + 2, cardW - 4, cardH - 4);
                         ctx.clip();
 
-                        ctx.translate(cardCenterX + cardPanX, cardCenterY + cardPanY);
+                        // Anchor at \an7 (Top-Left of the preview card interior)
+                        const anchorX = cardX + 12 + cardPanX;
+                        const anchorY = cardY + 12 + cardPanY;
+                        ctx.translate(anchorX, anchorY);
                         ctx.scale(effScale, effScale);
-                        ctx.translate(-bbox.cx, -bbox.cy);
+                        ctx.translate(-bbox.minX, -bbox.minY);
 
                         ctx.fillStyle = "rgba(139, 92, 246, 0.35)";
                         ctx.strokeStyle = "#a7f3d0";
                         ctx.lineWidth = 1.6 / Math.max(0.1, effScale);
                         ctx.lineJoin = "round";
                         ctx.lineCap = "round";
-                        ctx.fill(this._cachedShapePath);
-                        ctx.stroke(this._cachedShapePath);
+                        ctx.fill(cachedPath);
+                        ctx.stroke(cachedPath);
                         ctx.restore();
                     }
                 } else if (!isTracing) {
@@ -3081,6 +3185,9 @@
                 node.size[0] = Math.max(node.size[0], initSz[0]);
                 node.size[1] = Math.max(node.size[1], initSz[1]);
             }
+            node._customSize = [node.size[0], node.size[1]];
+            node._manual_width = node.size[0];
+            node._manual_height = node.size[1];
             scheduleAnimationPreview(node);
         }
 

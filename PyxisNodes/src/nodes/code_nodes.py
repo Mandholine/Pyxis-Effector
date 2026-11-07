@@ -30,16 +30,119 @@ _COMPILED_SCRIPT_CACHE = OrderedDict()
 _MAX_COMPILED_SCRIPT_CACHE = 512
 
 def clear_compiled_script_cache():
-    """Clears cached compiled script code and AST structures."""
+    """Clears cached compiled script code, AST structures, and static scopes."""
+    global _STATIC_BASE_SCOPE, _EXCLUDED_SYNC_KEYS
     _COMPILED_SCRIPT_CACHE.clear()
+    _STATIC_BASE_SCOPE = None
+    _EXCLUDED_SYNC_KEYS = None
+
+
+class DirtyTrackingDict(dict):
+    """Execution scope dictionary that tracks keys modified or added during script execution."""
+    __slots__ = ("dirty_keys",)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dirty_keys = set()
+
+    def __setitem__(self, key, value):
+        self.dirty_keys.add(key)
+        super().__setitem__(key, value)
+
+    def update(self, *args, **kwargs):
+        if args:
+            other = args[0]
+            if isinstance(other, dict):
+                self.dirty_keys.update(other.keys())
+            elif hasattr(other, "keys"):
+                self.dirty_keys.update(other.keys())
+            else:
+                for k, v in other:
+                    self.dirty_keys.add(k)
+        if kwargs:
+            self.dirty_keys.update(kwargs.keys())
+        super().update(*args, **kwargs)
+
+    def setdefault(self, key, default=None):
+        if key not in self:
+            self.dirty_keys.add(key)
+        return super().setdefault(key, default)
+
+    def pop(self, key, *args):
+        self.dirty_keys.add(key)
+        return super().pop(key, *args)
+
+
+class ScriptMutationMeta:
+    """Pre-compiled AST metadata describing variable assignments and object mutations."""
+    __slots__ = ("assigned_vars", "mutated_unit_attrs", "mutated_fx_attrs", "has_dynamic_mutation")
+
+    def __init__(self, assigned_vars, mutated_unit_attrs, mutated_fx_attrs, has_dynamic_mutation):
+        self.assigned_vars = assigned_vars
+        self.mutated_unit_attrs = mutated_unit_attrs
+        self.mutated_fx_attrs = mutated_fx_attrs
+        self.has_dynamic_mutation = has_dynamic_mutation
+
+
+def _analyze_script_mutations(tree):
+    """Analyses script AST to discover statically assigned variables and object mutations.
+
+    Extracts stored names, attribute assignments on typographical units (syl, char, word, line, fx),
+    and flags dynamic mutation attempts (setattr, exec, eval, globals, locals) to allow
+    skipping full scope diffing when safe.
+
+    Args:
+        tree (ast.AST): Parsed AST of the user script.
+
+    Returns:
+        ScriptMutationMeta: Metadata container with mutation targets and dynamic flags.
+    """
+    import ast
+    assigned_vars = set()
+    mutated_unit_attrs = set()
+    mutated_fx_attrs = set()
+    has_dynamic_mutation = False
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            assigned_vars.add(node.id)
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+            if isinstance(node.value, ast.Name):
+                obj_id = node.value.id
+                if obj_id in ("syl", "char", "word", "active_unit"):
+                    mutated_unit_attrs.add((obj_id, node.attr))
+                elif obj_id == "fx":
+                    mutated_fx_attrs.add(node.attr)
+                elif obj_id in ("line", "l"):
+                    mutated_unit_attrs.add(("line", node.attr))
+                else:
+                    has_dynamic_mutation = True
+            else:
+                has_dynamic_mutation = True
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                fn_id = node.func.id
+                if fn_id in ("setattr", "exec", "eval", "globals", "locals", "vars"):
+                    has_dynamic_mutation = True
+            elif isinstance(node.func, ast.Attribute):
+                if node.func.attr in ("update", "pop", "clear", "popitem", "setdefault"):
+                    has_dynamic_mutation = True
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            assigned_vars.update(node.names)
+
+    return ScriptMutationMeta(assigned_vars, mutated_unit_attrs, mutated_fx_attrs, has_dynamic_mutation)
+
+
 _STATIC_BASE_SCOPE = None
+_EXCLUDED_SYNC_KEYS = None
 
 def _get_static_base_scope():
     """Initialises and caches the immutable base execution scope.
 
     Pre-populates the dictionary with standard mathematical routines, type casting
     built-ins, ASS formatting wrappers, vector shape resolvers, easing curves,
-    and registered node functions to optimise per-iteration execution overhead.
+    registered node functions, neutral subloop defaults, and output ports to optimise
+    per-iteration execution overhead.
 
     Returns:
         dict: A reusable global mapping of base functions and utilities.
@@ -104,8 +207,61 @@ def _get_static_base_scope():
         fn_name = v.__name__
         scope[fn_name] = v
 
+    # Neutral output port defaults
+    for i in range(1, 17):
+        scope[f"out{i}"] = None
+        scope[f"out_{i}"] = None
+        scope[f"Out{i}"] = None
+
+    # Canonical neutral defaults for subloop indices/pieces (additive identity)
+    for subloop_i in (
+        "s_i", "slice_i", "d_i", "divide_i", "p_i", "particle_i", "b_i", "ring_i",
+        "a_i", "array_i", "m_i", "multi_i", "tp_i", "text_p_i", "ip_i", "img_p_i",
+        "c_i", "clip_i", "an_i", "anim_i", "an_j"
+    ):
+        scope[subloop_i] = 0
+
+    # Canonical neutral defaults for subloop totals/denominators (multiplicative identity)
+    for subloop_n in (
+        "s_n", "s_max", "slice_n", "slice_max", "slicer_loop_count",
+        "d_n", "d_max", "divide_n", "divide_max",
+        "p_n", "p_max", "particle_n", "particle_max",
+        "b_n", "b_max", "ring_n", "ring_max",
+        "a_n", "a_max", "array_n", "array_max",
+        "m_n", "m_max", "multi_n", "multi_max",
+        "tp_n", "tp_max", "text_p_n", "text_p_max",
+        "ip_n", "ip_max", "img_p_n", "img_p_max", "total_pixels",
+        "c_n", "c_max", "clip_n", "clip_max",
+        "an_n", "an_max", "anim_n", "anim_max"
+    ):
+        scope[subloop_n] = 1
+
+    for k_alias in ("order", "style", "actor", "effect", "layer"):
+        scope[k_alias] = k_alias
+
     _STATIC_BASE_SCOPE = scope
     return _STATIC_BASE_SCOPE
+
+
+def _get_excluded_sync_keys():
+    """Initialises and caches the set of internal keys excluded from context synchronisation."""
+    global _EXCLUDED_SYNC_KEYS
+    if _EXCLUDED_SYNC_KEYS is not None:
+        return _EXCLUDED_SYNC_KEYS
+    base_scope = _get_static_base_scope()
+    keys = set(base_scope.keys()) | {
+        "__builtins__", "inputs", "outputs", "out", "active_unit", "syl", "char", "word", "line", "l", "fx", "ink",
+        "prev", "next", "is_first", "is_last", "has_prev", "has_next",
+        "frame_dur", "ratio", "R", "Rs", "Rc", "Rd", "Rm", "Re", "Rfake", "Rcolor", "Rds", "Rcs",
+        "Rms", "R2d", "Rbool", "Rstep", "Rr", "clamp", "lerp", "tag_only", "time_lead_in",
+        "time_lead_out", "time_middle_1", "time_middle_2", "time_loop_1", "time_loop_2",
+        "li", "lo", "m1", "m2", "l1", "l2", "audio_rms", "audio_peak", "audio_band", "audio_fft", "result",
+        "by", "sync", "calculate_sync_gap", "rand"
+    }
+    for i in range(1, 17):
+        keys.update({f"in{i}", f"in_{i}", f"In{i}", f"out{i}", f"out_{i}", f"Out{i}"})
+    _EXCLUDED_SYNC_KEYS = keys
+    return _EXCLUDED_SYNC_KEYS
 
 
 def _pyxis_fmt_num(val):
@@ -124,10 +280,26 @@ def _pyxis_fmt_num(val):
     if isinstance(val, int):
         return str(val)
     if isinstance(val, float):
+        if abs(val) < 1e-9:
+            return "0"
         if val.is_integer():
             return str(int(val))
-        return f"{val:.3f}".rstrip('0').rstrip('.')
-    return str(val)
+        res = f"{val:.4f}".rstrip('0').rstrip('.')
+        return "0" if res in ("", "-0", "-") else res
+
+    s_val = str(val).strip()
+    try:
+        f = float(s_val)
+        if abs(f) < 1e-9:
+            return "0"
+        if f.is_integer() and '.' not in s_val and 'e' not in s_val.lower():
+            return str(int(f))
+        res = f"{f:.4f}".rstrip('0').rstrip('.')
+        return "0" if res in ("", "-0", "-") else res
+    except (ValueError, TypeError):
+        pass
+
+    return s_val
 
 
 def _pyxis_pos(x, y):
@@ -588,8 +760,14 @@ VAR_ALIAS_GROUPS = {
     "org_y": ["org_y", "fx_org_y"],
     "fx_org_y": ["org_y", "fx_org_y"],
 
+    # Alignment group
+    "align": ["align", "an", "fx_align"],
+    "an": ["align", "an", "fx_align"],
+    "fx_align": ["align", "an", "fx_align"],
+
     # Line & Queue group
-    "layer": ["layer", "line_layer"],
+    "layer": ["layer", "fx_layer", "line_layer"],
+    "fx_layer": ["layer", "fx_layer", "line_layer"],
     "actor": ["actor", "queue_id", "line_actor"],
     "queue_id": ["actor", "queue_id", "line_actor"],
     "queue_order": ["queue_order"],
@@ -600,11 +778,15 @@ VAR_ALIAS_GROUPS = {
 
 
 def _propagate_alias_changes(context, user_modified_keys, active_unit=None, line_obj=None):
-    """Propagates mutated variable aliases across context dictionaries and unit models.
+    """Propagates mutated variable aliases across context dictionaries while protecting unit ground-truth metrics.
 
     Identifies modified attributes (such as position coordinates, timing bounds,
-    or duration), reflects updates to all canonical aliases in the cluster, and
-    flags override states (e.g. pos_overridden, has_org).
+    alignment, layer, or duration), reflects updates to all canonical aliases in the
+    cluster, and flags override states (`pos_overridden`, `has_org`, `st_overridden`,
+    `et_overridden`, `align_overridden`, `layer_overridden`). Subtitle timing attributes
+    (start_time, end_time, st, et, dur, duration, val_dur, layer) on active_unit and line_obj
+    are strictly shielded from direct mutation to preserve original karaoke ground truth
+    and prevent compounding timing errors across sub-loops and downstream iterations.
 
     Args:
         context (dict): The active Pyxis DAG context dictionary.
@@ -628,16 +810,16 @@ def _propagate_alias_changes(context, user_modified_keys, active_unit=None, line
                 all_modified_aliases.add(f"char_{alias}")
                 all_modified_aliases.add(f"word_{alias}")
                 context[alias] = val
-                if active_unit and hasattr(active_unit, alias):
+                if active_unit and hasattr(active_unit, alias) and alias not in ("start_time", "end_time", "st", "et", "start", "end", "val_start", "val_end", "dur", "duration", "val_dur", "layer"):
                     try: setattr(active_unit, alias, val)
                     except Exception: pass
-                if line_obj and hasattr(line_obj, alias) and alias not in ("start_time", "end_time", "st", "et", "start", "end", "val_start", "val_end", "dur", "duration", "val_dur"):
+                if line_obj and hasattr(line_obj, alias) and alias not in ("start_time", "end_time", "st", "et", "start", "end", "val_start", "val_end", "dur", "duration", "val_dur", "layer"):
                     try: setattr(line_obj, alias, val)
                     except Exception: pass
-        elif val is not None and active_unit and hasattr(active_unit, mod_key):
+        elif val is not None and active_unit and hasattr(active_unit, mod_key) and mod_key not in ("start_time", "end_time", "st", "et", "start", "end", "val_start", "val_end", "dur", "duration", "val_dur", "layer"):
             try: setattr(active_unit, mod_key, val)
             except Exception: pass
-        elif val is not None and line_obj and hasattr(line_obj, mod_key):
+        elif val is not None and line_obj and hasattr(line_obj, mod_key) and mod_key not in ("start_time", "end_time", "st", "et", "dur", "duration", "layer"):
             try: setattr(line_obj, mod_key, val)
             except Exception: pass
 
@@ -646,6 +828,65 @@ def _propagate_alias_changes(context, user_modified_keys, active_unit=None, line
 
     if any(k in all_modified_aliases for k in ("org_x", "org_y", "fx_org_x", "fx_org_y", "syl_org_x", "syl_org_y", "char_org_x", "char_org_y", "word_org_x", "word_org_y", "line_org_x", "line_org_y")):
         context["has_org"] = True
+        context["org_overridden"] = True
+        if "org_x" in context or "fx_org_x" in context:
+            context["defvars_org_x"] = float(context.get("org_x", context.get("fx_org_x", 0.0)))
+        if "org_y" in context or "fx_org_y" in context:
+            context["defvars_org_y"] = float(context.get("org_y", context.get("fx_org_y", 0.0)))
+
+    if any(k in all_modified_aliases for k in ("start_time", "st", "val_start", "start", "fx_start_time", "fx_st")):
+        try:
+            st_over_val = float(context.get("start_time", context.get("st", 0.0)))
+            context["st_overridden"] = True
+            context["defvars_st"] = st_over_val
+            context["fx_start_time"] = st_over_val
+            context["fx_st"] = st_over_val
+            context["effect_st"] = st_over_val
+        except Exception:
+            pass
+
+    if any(k in all_modified_aliases for k in ("end_time", "et", "val_end", "end", "fx_end_time", "fx_et")):
+        try:
+            et_over_val = float(context.get("end_time", context.get("et", 0.0)))
+            context["et_overridden"] = True
+            context["defvars_et"] = et_over_val
+            context["fx_end_time"] = et_over_val
+            context["fx_et"] = et_over_val
+            context["effect_et"] = et_over_val
+        except Exception:
+            pass
+    elif any(k in all_modified_aliases for k in ("dur", "duration", "val_dur", "fx_dur", "time_dur")):
+        try:
+            dur_over_val = float(context.get("dur", context.get("duration", context.get("fx_dur", 0.0))))
+            st_ref = float(context.get("defvars_st", context.get("start_time", context.get("st", 0.0))))
+            et_over_val = round(st_ref + dur_over_val, 3)
+            for et_alias in ("end_time", "et", "val_end", "end", "fx_end_time", "fx_et", "effect_et"):
+                context[et_alias] = et_over_val
+            context["et_overridden"] = True
+            context["defvars_et"] = et_over_val
+        except Exception:
+            pass
+
+    if any(k in all_modified_aliases for k in ("align", "an", "fx_align")):
+        try:
+            al_val = max(1, min(9, int(round(float(context.get("fx_align", context.get("align", context.get("an", 5))))))))
+            context["fx_align"] = al_val
+            context["align"] = al_val
+            context["an"] = al_val
+            context["align_overridden"] = True
+            context["defvars_align"] = al_val
+        except Exception:
+            pass
+
+    if any(k in all_modified_aliases for k in ("layer", "fx_layer", "line_layer")):
+        try:
+            ly_val = int(round(float(context.get("fx_layer", context.get("layer", 0)))))
+            context["fx_layer"] = ly_val
+            context["layer"] = ly_val
+            context["layer_overridden"] = True
+            context["defvars_layer"] = ly_val
+        except Exception:
+            pass
 
     if any(k in all_modified_aliases for k in ("start_time", "st", "val_start", "start", "end_time", "et", "val_end", "end")):
         st_val = float(context.get("start_time", context.get("st", getattr(active_unit, "start_time", 0.0))))
@@ -654,76 +895,115 @@ def _propagate_alias_changes(context, user_modified_keys, active_unit=None, line
         for d_alias in ("dur", "duration", "val_dur", "fx_dur", "time_dur"):
             context[d_alias] = dur_val
             all_modified_aliases.add(d_alias)
-        if active_unit:
-            try:
-                setattr(active_unit, "duration", dur_val)
-                setattr(active_unit, "dur", dur_val)
-            except Exception:
-                pass
 
     return all_modified_aliases
 
 
-def _sync_python_scope_to_context(eval_scope, context, initial_vals=None):
+def _sync_python_scope_to_context(eval_scope, context, initial_vals=None, ast_meta=None):
     """Synchronises modified global variables from the Python sandbox back to the DAG context.
 
     Inspects variables mutated during script execution, filters out internal and
     system primitives, updates the active unit and line attributes, and synchronises
-    all alias groups.
+    all alias groups. Employs pre-compiled AST metadata when dynamic execution is absent
+    to eliminate full-scope diffing overhead.
 
     Args:
         eval_scope (dict): Local execution namespace populated during script run.
         context (dict): Active Pyxis DAG context to update.
         initial_vals (dict, optional): Baseline snapshot of variable values prior to execution.
+        ast_meta (ScriptMutationMeta, optional): Pre-compiled AST mutation metadata.
     """
     if not isinstance(context, dict):
         return
-    base_scope = _get_static_base_scope()
-    excluded_keys = set(base_scope.keys()) | {
-        "__builtins__", "inputs", "outputs", "out", "active_unit", "syl", "char", "word", "line", "l", "fx", "ink",
-        "prev", "next", "is_first", "is_last", "has_prev", "has_next",
-        "frame_dur", "ratio", "R", "Rs", "Rc", "Rd", "Rm", "Re", "Rfake", "Rcolor", "Rds", "Rcs",
-        "Rms", "R2d", "Rbool", "Rstep", "Rr", "clamp", "lerp", "tag_only", "time_lead_in",
-        "time_lead_out", "time_middle_1", "time_middle_2", "time_loop_1", "time_loop_2",
-        "li", "lo", "m1", "m2", "l1", "l2", "audio_rms", "audio_peak", "audio_band", "audio_fft", "result"
-    }
-    for i in range(1, 17):
-        excluded_keys.update({f"in{i}", f"in_{i}", f"In{i}", f"out{i}", f"out_{i}", f"Out{i}"})
 
+    excluded_keys = _get_excluded_sync_keys()
     user_modified_keys = set()
-    for k, v in eval_scope.items():
-        if isinstance(k, str) and not k.startswith("_") and k not in excluded_keys:
-            context[k] = v
-            if not callable(v):
-                if initial_vals is None or k not in initial_vals or initial_vals[k] != v:
-                    user_modified_keys.add(k)
-    for unit_key in ("syl", "char", "word"):
-        unit_obj = eval_scope.get(unit_key)
-        if unit_obj:
-            for attr in ("x", "y", "center", "middle", "left", "right", "top", "bottom", "start_time", "end_time", "st", "et", "start", "end", "val_start", "val_end", "dur", "duration", "val_dur", "text", "text_stripped"):
-                if hasattr(unit_obj, attr):
+
+    # Fast path: targeted sync based on pre-compiled AST write-set analysis
+    if ast_meta is not None and not ast_meta.has_dynamic_mutation:
+        dirty = getattr(eval_scope, "dirty_keys", None)
+        candidate_keys = (dirty | ast_meta.assigned_vars) if dirty is not None else set(ast_meta.assigned_vars)
+        for k in candidate_keys:
+            if isinstance(k, str) and not k.startswith("_") and k not in excluded_keys:
+                if k in eval_scope:
+                    v = eval_scope[k]
+                    if not callable(v):
+                        if k not in context or context[k] != v:
+                            user_modified_keys.add(k)
+                    context[k] = v
+
+        for unit_key, attr in ast_meta.mutated_unit_attrs:
+            if unit_key == "line":
+                line_obj = eval_scope.get("line") or context.get("line")
+                if line_obj and hasattr(line_obj, attr):
+                    val = getattr(line_obj, attr)
+                    user_modified_keys.add(attr)
+                    user_modified_keys.add(f"line_{attr}")
+                    context[attr] = val
+                    context[f"line_{attr}"] = val
+            else:
+                unit_obj = eval_scope.get(unit_key)
+                if unit_obj and hasattr(unit_obj, attr):
                     val = getattr(unit_obj, attr)
                     init_key = f"{unit_key}_{attr}"
-                    if initial_vals is not None and (init_key in initial_vals and initial_vals[init_key] != val):
-                        user_modified_keys.add(attr)
-                        user_modified_keys.add(init_key)
-                        context[attr] = val
-                        context[init_key] = val
+                    user_modified_keys.add(attr)
+                    user_modified_keys.add(init_key)
+                    context[attr] = val
+                    context[init_key] = val
 
-    py_fx = eval_scope.get("fx")
-    if py_fx is not None:
-        for attr in ("pos_x", "x", "pos_y", "y", "start_time", "st", "end_time", "et", "dur", "duration", "align", "i", "n"):
-            try:
-                val = getattr(py_fx, attr, None)
-                if val is not None:
-                    init_key = f"fx_{attr}"
-                    if initial_vals is not None and (init_key in initial_vals and initial_vals[init_key] != val):
-                        from node_engine import _apply_fx_setting
-                        _apply_fx_setting(attr, val, context)
-                        user_modified_keys.add(attr)
-                        user_modified_keys.add(init_key)
-            except Exception:
-                pass
+        if ast_meta.mutated_fx_attrs:
+            py_fx = eval_scope.get("fx")
+            if py_fx is not None:
+                from node_engine import _apply_fx_setting
+                for attr in ast_meta.mutated_fx_attrs:
+                    try:
+                        val = getattr(py_fx, attr, None)
+                        if val is not None:
+                            _apply_fx_setting(attr, val, context)
+                            user_modified_keys.add(attr)
+                            user_modified_keys.add(f"fx_{attr}")
+                    except Exception:
+                        pass
+    else:
+        # Fallback path: comprehensive iteration when dynamic metaprogramming is detected
+        for k, v in eval_scope.items():
+            if isinstance(k, str) and not k.startswith("_") and k not in excluded_keys:
+                context[k] = v
+                if not callable(v):
+                    if initial_vals is None or k not in initial_vals or initial_vals[k] != v:
+                        user_modified_keys.add(k)
+
+        for unit_key in ("syl", "char", "word"):
+            unit_obj = eval_scope.get(unit_key)
+            if unit_obj:
+                for attr in ("x", "y", "center", "middle", "left", "right", "top", "bottom", "start_time", "end_time", "st", "et", "start", "end", "val_start", "val_end", "dur", "duration", "val_dur", "text", "text_stripped"):
+                    if hasattr(unit_obj, attr):
+                        val = getattr(unit_obj, attr)
+                        init_key = f"{unit_key}_{attr}"
+                        if initial_vals is not None and (init_key in initial_vals and initial_vals[init_key] != val):
+                            user_modified_keys.add(attr)
+                            user_modified_keys.add(init_key)
+                            context[attr] = val
+                            context[init_key] = val
+
+        py_fx = eval_scope.get("fx")
+        if py_fx is not None:
+            for attr in ("pos_x", "x", "pos_y", "y", "start_time", "st", "end_time", "et", "dur", "duration", "align", "i", "n"):
+                try:
+                    val = getattr(py_fx, attr, None)
+                    if val is not None:
+                        init_key = f"fx_{attr}"
+                        if initial_vals is not None and (init_key in initial_vals and initial_vals[init_key] != val):
+                            from node_engine import _apply_fx_setting
+                            _apply_fx_setting(attr, val, context)
+                            user_modified_keys.add(attr)
+                            user_modified_keys.add(init_key)
+                except Exception:
+                    pass
+
+    # If no variables or unit attributes were modified, skip redundant propagation
+    if not user_modified_keys:
+        return
 
     active_unit = context.get("active_unit") or eval_scope.get("active_unit")
     line_obj = eval_scope.get("line") or context.get("line")
@@ -1161,7 +1441,7 @@ def execute_python_script(context, script, inputs_map):
     script_str = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*f\b', rf'(\1 * {frame_dur})', script_str)
     script_str = re.sub(r'(?<![a-zA-Z0-9_])([+-]?\d+(?:\.\d+)?)\s*r\b', rf'(\1 * {ratio})', script_str)
 
-    eval_scope = _get_static_base_scope().copy()
+    eval_scope = DirtyTrackingDict(_get_static_base_scope())
     if context and isinstance(context, dict):
         eval_scope.update(context)
 
@@ -1193,34 +1473,6 @@ def execute_python_script(context, script, inputs_map):
     eval_scope["has_next"] = (next_obj is not None)
     eval_scope["outputs"] = {}
     eval_scope["out"] = eval_scope["outputs"]
-    for i in range(1, 17):
-        eval_scope[f"out{i}"] = None
-        eval_scope[f"out_{i}"] = None
-        eval_scope[f"Out{i}"] = None
-
-    # Defaults neutros canónicos para iteradores y totales de sub-bucles cuando no están activos
-    # Indices/Piezas: default 0 (identidad aditiva neutra)
-    for subloop_i in (
-        "s_i", "slice_i", "d_i", "divide_i", "p_i", "particle_i", "b_i", "ring_i",
-        "a_i", "array_i", "m_i", "multi_i", "tp_i", "text_p_i", "ip_i", "img_p_i",
-        "c_i", "clip_i", "an_i", "anim_i", "an_j"
-    ):
-        eval_scope.setdefault(subloop_i, 0)
-
-    # Totales/Denominadores: default 1 (evita ZeroDivisionError y desfases en razones)
-    for subloop_n in (
-        "s_n", "s_max", "slice_n", "slice_max", "slicer_loop_count",
-        "d_n", "d_max", "divide_n", "divide_max",
-        "p_n", "p_max", "particle_n", "particle_max",
-        "b_n", "b_max", "ring_n", "ring_max",
-        "a_n", "a_max", "array_n", "array_max",
-        "m_n", "m_max", "multi_n", "multi_max",
-        "tp_n", "tp_max", "text_p_n", "text_p_max",
-        "ip_n", "ip_max", "img_p_n", "img_p_max", "total_pixels",
-        "c_n", "c_max", "clip_n", "clip_max",
-        "an_n", "an_max", "anim_n", "anim_max"
-    ):
-        eval_scope.setdefault(subloop_n, 1)
 
     if inputs_map and isinstance(inputs_map, dict):
         eval_scope["inputs"] = inputs_map
@@ -1304,8 +1556,6 @@ def execute_python_script(context, script, inputs_map):
     eval_scope["calculate_sync_gap"] = lambda *a, **kw: calculate_sync_gap(context, *a, **kw)
     eval_scope["prev"] = AdjacentUnitProxy("prev", eval_scope.get("prev"))
     eval_scope["next"] = AdjacentUnitProxy("next", eval_scope.get("next"))
-    for k_alias in ("order", "style", "actor", "effect", "layer"):
-        eval_scope[k_alias] = k_alias
 
     from nodes.audio_nodes import audio_rms, audio_peak, audio_band, audio_fft
     eval_scope["audio_rms"] = lambda *args, **kwargs: audio_rms(*args, context=context, **kwargs)
@@ -1315,47 +1565,55 @@ def execute_python_script(context, script, inputs_map):
 
     eval_scope["result"] = ""
 
-    initial_vals = {k: eval_scope[k] for k in eval_scope if isinstance(k, str) and not callable(eval_scope[k])}
-    for unit_key in ("syl", "char", "word"):
-        u_obj = eval_scope.get(unit_key)
-        if u_obj:
-            for attr in ("x", "y", "center", "middle", "left", "right", "top", "bottom", "start_time", "end_time", "st", "et", "start", "end", "dur", "duration", "text", "text_stripped"):
-                val = getattr(u_obj, attr, None)
-                if val is not None:
-                    initial_vals[f"{unit_key}_{attr}"] = val
-
     if script_str in _COMPILED_SCRIPT_CACHE:
         compiled_entry = _COMPILED_SCRIPT_CACHE[script_str]
         _COMPILED_SCRIPT_CACHE.move_to_end(script_str)
     else:
-        import builtins
         import ast
         try:
             tree = ast.parse(script_str, "<pyxis_script>", "exec")
+            ast_meta = _analyze_script_mutations(tree)
             if tree.body and isinstance(tree.body[-1], ast.Expr):
                 exec_body = tree.body[:-1]
                 eval_expr = ast.Expression(tree.body[-1].value)
                 code_exec = compile(ast.Module(body=exec_body, type_ignores=[]), "<pyxis_script>", "exec") if exec_body else None
                 code_eval = compile(eval_expr, "<pyxis_script>", "eval")
-                compiled_entry = ("ast_split", (code_exec, code_eval))
+                compiled_entry = ("ast_split", (code_exec, code_eval), ast_meta)
             else:
                 code_exec = compile(tree, "<pyxis_script>", "exec")
-                compiled_entry = ("exec", code_exec)
+                compiled_entry = ("exec", code_exec, ast_meta)
         except Exception:
             try:
-                code_eval = compile(script_str, "<pyxis_script>", "eval")
-                compiled_entry = ("eval", code_eval)
+                tree = ast.parse(script_str, "<pyxis_script>", "eval")
+                code_eval = compile(tree, "<pyxis_script>", "eval")
+                ast_meta = _analyze_script_mutations(tree)
+                compiled_entry = ("eval", code_eval, ast_meta)
             except Exception:
                 try:
-                    code_exec = compile(script_str, "<pyxis_script>", "exec")
-                    compiled_entry = ("exec", code_exec)
+                    tree = ast.parse(script_str, "<pyxis_script>", "exec")
+                    code_exec = compile(tree, "<pyxis_script>", "exec")
+                    ast_meta = _analyze_script_mutations(tree)
+                    compiled_entry = ("exec", code_exec, ast_meta)
                 except Exception as comp_err:
-                    compiled_entry = ("err", str(comp_err))
+                    compiled_entry = ("err", str(comp_err), None)
         if len(_COMPILED_SCRIPT_CACHE) >= _MAX_COMPILED_SCRIPT_CACHE:
             _COMPILED_SCRIPT_CACHE.popitem(last=False)
         _COMPILED_SCRIPT_CACHE[script_str] = compiled_entry
 
-    kind, code_obj = compiled_entry
+    kind, code_obj, ast_meta = compiled_entry
+
+    initial_vals = None
+    if ast_meta is None or ast_meta.has_dynamic_mutation:
+        initial_vals = {k: eval_scope[k] for k in eval_scope if isinstance(k, str) and not callable(eval_scope[k])}
+        for unit_key in ("syl", "char", "word"):
+            u_obj = eval_scope.get(unit_key)
+            if u_obj:
+                for attr in ("x", "y", "center", "middle", "left", "right", "top", "bottom", "start_time", "end_time", "st", "et", "start", "end", "dur", "duration", "text", "text_stripped"):
+                    val = getattr(u_obj, attr, None)
+                    if val is not None:
+                        initial_vals[f"{unit_key}_{attr}"] = val
+
+    eval_scope.dirty_keys.clear()
     import builtins
     eval_scope["__builtins__"] = builtins
     res_str = ""
@@ -1393,7 +1651,7 @@ def execute_python_script(context, script, inputs_map):
     else:
         res_str = f"[Err Python Script: {code_obj}]"
 
-    _sync_python_scope_to_context(eval_scope, context, initial_vals=initial_vals)
+    _sync_python_scope_to_context(eval_scope, context, initial_vals=initial_vals, ast_meta=ast_meta)
 
     script_outputs = {}
     py_outputs = eval_scope.get("outputs")

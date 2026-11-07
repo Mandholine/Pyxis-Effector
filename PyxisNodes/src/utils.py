@@ -196,3 +196,49 @@ def rgb_to_hex_color(r: int, g: int, b: int) -> str:
     g = max(0, min(255, int(g)))
     b = max(0, min(255, int(b)))
     return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def to_pyxis_num(val, default=None):
+    """
+    Safely parses an arbitrary value or string representation into an integer or floating-point number.
+
+    Accepts native numeric types, standard decimal strings, comma-separated decimals,
+    scientific exponential notation (e.g. '1e-16', '3.5e+2'), and handles IEEE-754 arithmetic
+    cancellations by snapping infinitesimal values (abs(val) < 1e-9) to 0.
+
+    Args:
+        val (Any): Input scalar, string, or object to parse.
+        default (Any, optional): Fallback value returned on ValueError or TypeError.
+            If None, returns the original input value upon failure.
+
+    Returns:
+        int | float | Any: Parsed integer, float, or fallback value.
+    """
+    if val is None:
+        return default if default is not None else None
+    if isinstance(val, bool):
+        return int(val)
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        if abs(val) < 1e-9:
+            return 0
+        return int(val) if val.is_integer() else val
+
+    s_val = str(val).strip()
+    if not s_val:
+        return default if default is not None else val
+
+    # Normalise comma decimal notation
+    if re.match(r"^[+-]?\d+,\d+$", s_val):
+        s_val = s_val.replace(',', '.')
+
+    try:
+        f = float(s_val)
+        if abs(f) < 1e-9:
+            return 0
+        if f.is_integer() and 'e' not in s_val.lower():
+            return int(f)
+        return f
+    except (ValueError, TypeError):
+        return default if default is not None else val

@@ -11512,13 +11512,17 @@ LGraphNode.prototype.executeAction = function(action)
 
             //value could contain invalid html characters, clean that
             value = LGraphCanvas.decodeHTML(value);
+            var displayVal = String(value);
+            if (displayVal.length > 35) {
+                displayVal = displayVal.substring(0, 32) + "...";
+            }
             entries.push({
                 content:
                     "<span class='property_name'>" +
                     (info.label ? info.label : i) +
                     "</span>" +
                     "<span class='property_value'>" +
-                    value +
+                    displayVal +
                     "</span>",
                 value: i
             });

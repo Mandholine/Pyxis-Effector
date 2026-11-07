@@ -40,7 +40,10 @@ El catálogo se organiza en 10 familias canónicas, con identificadores internos
 ### 1.3. Puertos de Salida (*Outputs*)
 1. **`[1.1] Shape`:** Emite el código de dibujo ASSdraw centrado en `(0, 0)` listo para alimentar `System/Output (Return)` o nodos de procesamiento vectorial downstream (`Stroke`, `Manipulator`, `Slicer`).
 
-### 1.4. Ejemplo Práctico de Producción
+### 1.4. Compensación Anamórfica Automática
+Cuando el script opera sobre resoluciones de video anamórficas (`PlayResX / PlayResY != DAR`, ej. DVD 720x480 mostrado a 16:9), `Shape/Library` escala automáticamente las coordenadas horizontales $X$ de cada primitiva geométrica por `video_x_correct_factor`. Esto garantiza que figuras simétricas como `circle`, `square`, `star` o `gear` se perciban completamente redondas y equiláteras en pantalla tras el estiramiento de aspecto del reproductor, sin deformarse en elipses ni requerir tags `\fscx` correctivos.
+
+### 1.5. Ejemplo Práctico de Producción
 * **Emisión de Icono Vectorial con Rotación y Escala:**
   Conectando `Shape` al puerto `Return` de `System/Output` y configurando `category: stars`, `shape: star`:
   
@@ -83,7 +86,7 @@ El catálogo se organiza en 10 familias canónicas, con identificadores internos
 ### 2.2. Parámetros Universales y Controles Globales
 Estos parámetros y botones de configuración están presentes o aplican de manera transversal a todos los modos de corte:
 
-1. **`[2.1] Shape`:** Forma vectorial ASSdraw o glifo de texto a cortar. Si no se conecta ningún enlace ni se especifica texto, toma automáticamente el trazado del contexto activo (sílaba, palabra o línea).
+1. **`[2.1] Shape`:** Forma vectorial ASSdraw o glifo de texto a cortar. Admite tanto trazados vectoriales limpios como cadenas con etiquetas de estilo ASS prefijadas (ej. `{\1c&HFFFFFF&\bord2}m ...`). El motor separa automáticamente la geometría limpia para alimentar a Clipper2 sin colapsos de caché y restituye las etiquetas de estilo heredadas en cada fragmento resultante (en modo `Loops` combinado con el posicionamiento `\pos`, o en modo `Shape` prefijado al trazado compuesto; en modos `\clip`/`\iclip` emite exclusivamente geometría pura). Si no se conecta ningún enlace ni se especifica texto, toma automáticamente el trazado del contexto activo (sílaba, palabra o línea).
 2. **`[2.2] Text Scale`:** Factor de escala previo aplicado a la forma antes de proceder a la subdivisión y corte.
 3. **`[2.3] Pre-Offset`:** Desplazamiento perimetral (*dilatación / erosión*) aplicado a los contornos de la forma original antes de ejecutar el corte booleano.
 4. **`[2.4] Anchor` (Punto de Anclaje, Posicionamiento y Origen Inyectado):** Botón selector que define el sistema de coordenadas local de cada pieza y cómo se inyectan las etiquetas de posición `\pos(x,y)` y origen de rotación/escala `\org(x,y)` en el contexto:
@@ -252,6 +255,10 @@ Cada modo de segmentación reconfigura dinámicamente los campos editables y pue
   ```
   Cada fragmento Voronoi rota sobre su propio centroide individual y colapsa progresivamente con una rotación dependiente de `s_i`, manteniendo el anclaje local sin desfasar el trazado general.
 
+> [!NOTE]
+> **Saneamiento Automático de Contornos Degenerados:**
+> En importaciones vectoriales o siluetas tipográficas complejas, pueden existir contornos parásitos, nodos duplicados o curvas colapsadas cuya área matemática superficial es $0.0$. `Shape/Slicer` y el motor `ClipperEngine` filtran y descartan automáticamente estos contornos colapsados antes de realizar la teselación booleana en C++, evitando excepciones por trayectorias no válidas (*The path is invalid for clipping*) y garantizando un corte continuo y limpio en todos los fotogramas.
+
 ---
 
 ## 3. Nodo `Shape/Manipulator` (Transformación y Deformación Espacial)
@@ -270,7 +277,7 @@ Cada modo de segmentación reconfigura dinámicamente los campos editables y pue
 ### 3.2. Parámetros Universales Comunes
 Estos parámetros aplican de forma transversal a todos los modos de manipulación:
 
-1. **`Shape / Text`:** Forma vectorial ASSdraw o texto a manipular. Si no se conecta ningún enlace, toma el glifo del contexto activo (sílaba, palabra o línea).
+1. **Shape / Text:** Forma vectorial ASSdraw o texto a manipular. Admite cadenas con prefijos de tags ASS (actuando como filtro transparente) o trazados vectoriales puros. Si no se conecta ningún enlace, toma el glifo del contexto activo (sílaba, palabra o línea)..
 2. **`Factor (t)`:** Factor de progresión temporal o interpolación paramétrica ($0.0 \to 1.0$) para animar la transformación de manera continua.
 3. **`Anchor` (Punto de Anclaje de Forma Monolítica):** Sistema de referencia espacial utilizado para centrar o proyectar la forma durante la transformación:
    * **`center`:** Centra la masa de la forma alrededor de su centroide local `(0, 0)` (tinta).
@@ -294,8 +301,8 @@ Permite escalar independientemente los ejes horizontal y vertical con anclaje co
 Dilata o erosiona paramétricamente los contornos cerrados mediante cálculo de offset morfológico acelerado por Clipper.
 * **`Shape / Text`:** Forma base sobre la que se engrosará o adelgazará el perímetro.
 * **`Factor (t)`:** Factor de progresión ($0.0 \to 1.0$).
-* **`Offset (px)` (`offset_border`):** Distancia en píxeles del desplazamiento perimetral (valores positivos expanden la silueta hacia afuera; valores negativos contraen la masa hacia adentro; default: `2.0`).
-* **`Anchor`:** Punto de anclaje de la forma resultante.
+* **`Offset (px)` (`offset_border`):** Distancia en píxeles del desplazamiento perimetral (valores positivos dilatan la silueta hacia afuera; valores negativos erosionan/contraen la masa hacia adentro; default: `2.0`). Si la contracción negativa disuelve completamente la silueta, el nodo retorna limpiamente una cadena vacía o los prefijos de tags sin revertir a la forma previa.
+* **`Anchor`:** Punto de anclaje de la forma resultante (`center`, `origin`, `relative`, `absolute`).
 
 #### 3. Modo `Deform` (Deformación Direccional Asimétrica)
 Aplica distorsiones y estiramientos direccionales basados en vectores de tracción o empuje sobre la geometría.
@@ -349,7 +356,7 @@ $$\text{Desfase Clipper (Offset Border)} \longrightarrow \text{Remuestreo (Densi
 * **`Skew X` / `Skew Y`:** Factores de cizallamiento transversal (*shear*) en los ejes $X$ e $Y$.
 * **`Rotate X` / `Rotate Y` / `Rotate Z`:** Ángulos de rotación en grados sobre los 3 ejes cartesianos (Euler con proyección de perspectiva cónica $fov$).
 * **`Offset X` / `Offset Y`:** Desplazamientos cartesianos en píxeles.
-* **`Offset Border`:** Desfase perimetral geométrico previo mediante Clipper en píxeles (valores positivos dilatan/expanden la forma; valores negativos la erosionan/contraen; default: `0.0`).
+* **`Offset Border`:** Desfase perimetral geométrico previo mediante Clipper en píxeles (valores positivos dilatan/expanden la forma; valores negativos la erosionan/contraen; disolución limpia a vacío si se supera el radio de la figura; default: `0.0`).
 * **`Axis`:** Eje de reflexión especular (`none`, `x`, `y`, `xy`).
 * **`Density`:** Remuestreo previo de curvas Bézier (default: `0` para desactivado; $> 0$ para densificar con paso en px).
 * **`Anchor`:** Punto de anclaje de referencia espacial (`center`, `origin`, `relative`, `absolute`).
@@ -540,7 +547,7 @@ Convierte tipografías vectoriales en trazos de tiza o contornos inestables en c
 ### 5.2. Parámetros Universales Comunes
 Estos parámetros aplican de forma transversal a las transformaciones:
 
-1. **`Shape / Text`:** Forma vectorial ASSdraw o texto base a transformar. Si no se conecta ningún enlace, toma el glifo del contexto activo (sílaba, palabra o línea).
+1. **Shape / Text:** Forma vectorial ASSdraw o texto base a transformar. Admite cadenas con prefijos de tags ASS (actuando como filtro transparente) o trazados vectoriales puros. Si no se conecta ningún enlace, toma el glifo del contexto activo (sílaba, palabra o línea).a).
 2. **`Factor (t)`:** Factor de progresión temporal o interpolación paramétrica ($0.0 \to 1.0$) que anima la transición suavemente desde el estado original hacia la forma transformada.
 3. **`Anchor` (Punto de Anclaje y Relación Espacial entre Siluetas):** Define el sistema de coordenadas local y la relación geométrica de superposición y alineación entre la silueta de origen y la silueta objetivo durante la transformación o metamorfosis (*morphing*):
    * **Superposición y Normalización Automática:** Antes de la interpolación de vértices, la silueta objetivo se escala proporcionalmente y se superpone sobre la silueta base para hacer coincidir sus dimensiones relativas. Durante la animación ($t = 0.0 \to 1.0$), el *bounding box* resultante evoluciona de manera continua ($W(t) = W_A(1-t) + W_B(t)$ y $H(t) = H_A(1-t) + H_B(t)$).
@@ -815,10 +822,10 @@ El nodo procesa la geometría delegando en el motor de dilatación bilateral de 
 
 #### 1. Modo `[DIVIDE]` (Dividir PolyTree)
 Analiza la estructura anidada del trazado mediante el árbol de polígonos de Clipper (*PolyTree*). A diferencia de una simple separación por comandos `m`, este modo distingue correctamente entre contornos exteriores e islas con agujeros internos (por ejemplo, en letras como "O", "B", "A", "8" o caracteres kanji complejos), agrupando cada figura externa con sus respectivos huecos en una pieza cerrada autónoma.
-* **`[2.1] Shape In`:** Trazado ASSdraw o texto a descomponer en islas.
+* **`[2.1] Shape In`:** Trazado ASSdraw o texto a descomponer en islas. Soporta prefijos de etiquetas ASS (como `{\pos(...)\1c...}`), los cuales se extraen para el cálculo geométrico y se heredan limpiamente en cada pieza resultante.
 * **`[2.2] Rule:` (`fill_type`):** Regla de devanado y relleno booleano (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
 * **`[2.3] Clean:` (`clean_self_intersect`):** Limpieza automática de auto-intersecciones de bordes (`Auto (1)` activado, `Off (0)` desactivado).
-* **`[2.4] Anchor` (`Pieces`):** Botón selector de anclaje de referencia espacial (`Pieces` recentra cada pieza en su centroide local, `Relative`, `Parent Org` / `Org Padre`, `Pos`, `Absolute`).
+* **`[2.4] Anchor` (`Pieces`):** Botón selector de anclaje de referencia espacial (`Pieces` recentra cada pieza en su centroide local, `Relative` mantiene las coordenadas originales, `Center` centra globalmente la forma en (0, 0), `Origin` sitúa el origen (0, 0) en la esquina superior izquierda de la caja delimitadora, `Parent Org` / `Org Padre`, `Pos`, `Absolute`).
 * **`[2.5] Order:` (`order`):** Criterio de ordenamiento espacial de las piezas para la secuencia de iteración (`79 (TL->BR)`, `97 (TR->BL)`, `13 (BL->TR)`, `31 (BR->TL)`, `71 (TL->BL)`, `17 (BL->TL)`, `93 (TR->BR)`, `39 (BR->TR)`, `5 (Centro)`, `-5 (Inverso)`, `cw` horario, `ccw` antihorario, `rand` aleatorio, `path` secuencia de dibujo original, `path_inv` secuencia invertida).
 
 #### 2. Modo `[UNION]` (Unir Boolean Union)
@@ -838,12 +845,20 @@ Descompone el dibujo dividiendo de manera directa por cada comando de inicio `m 
 #### 4. Modo `[FUSION]` (Fusión Tags con Keyframes)
 Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo ASS** (`{\tags1}m ... {\tags2}m ...`), eliminando la necesidad de generar múltiples líneas en el archivo subtítulo. Permite estilizar individualmente cada pieza mediante bloques de etiquetas y transiciones de color.
 * **`[2.1] Shape In`:** Trazado multitrazo, texto o lista de formas vectoriales independientes a fusionar.
-* **`[2.2] Tag Mode:` (`tagmode`):** Mecanismo de asignación de etiquetas:
+* **`[2.2] Split:` (`split_mode`):** Selector de descomposición de la forma de entrada antes de aplicar las etiquetas:
+  * **`[Isla]` (`islands`, por defecto):** Descompone la silueta en islas topológicas reales mediante Clipper2 PolyTree (`decompose_shape_islands`). Las piezas que se tocan o comparten aristas se unifican limpiamente en una sola masa exterior con sus respectivos agujeros interiores.
+  * **`[Path]` (`path`):** Descompone la silueta de forma literal por cada comando `m` (*move to*) mediante `decompose_shape_subpaths`, sin aplicar unión booleana. Preserva intactas las rebanadas adyacentes emitidas por `Shape/Slicer` (en modo `Shape`) o contornos intencionalmente superpuestos, permitiendo que cada segmento reciba su propio bloque de tags o color independiente.
+* **`[2.3] Tag Mode:` (`tagmode`):** Mecanismo de asignación de etiquetas:
   * **`ipol` (Interpolado Progresivo):** Trata la lista de etiquetas como *keyframes*. Calcula la progresión espacial ($0.0 \to 1.0$) y realiza una interpolación matemática suave de los valores entre la primera y la última pieza (ideal para gradientes continuos de color `\1c`, rotaciones progresivas `\frz`, variaciones de transparencia `\alpha` o desenfoque `\blur`).
   * **`line` (Lineal 1:1 Estricto):** Asigna cada bloque de etiquetas de la lista uno a uno a su pieza correspondiente según el orden establecido. Si faltan etiquetas, el resto de piezas recibe `{\p1}`; si sobran, se descartan ordenadamente.
-* **`[2.3] Tags` (`tags`):** Lista de etiquetas ASS o colores hexadecimales separados por comas o bloques (ej. `\1c&H0000FF&, \1c&H00FF00&, \1c&HFF0000&` o `#87F337, #61FBC7, #AF6DF6`).
-* **`[2.4] Anchor` (`Pieces`):** Anclaje espacial de alineación.
-* **`[2.5] Order:` (`order`):** Orden espacial en que se asignan o interpolan los tags sobre las piezas (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
+* **`[2.4] Tags` (`tags`):** Lista de etiquetas ASS o colores hexadecimales separados por comas o bloques (ej. `\1c&H0000FF&, \1c&H00FF00&, \1c&HFF0000&` o `#87F337, #61FBC7, #AF6DF6`).
+* **`[2.5] Accel` (`accel`):** Exponente no lineal de aceleración temporal/espacial para la interpolación progresiva de etiquetas y colores (Tipo A, valor por defecto: `1.0`). Se activa dinámicamente de forma exclusiva cuando `Tag Mode` está configurado en `ipol` (en modo `line` el puerto y campo de entrada se ocultan automáticamente). En la interfaz de usuario, este control se presenta como un campo de texto inline limpio sin etiqueta lateral fija, mostrando el texto descriptivo *"Aceleración"* como marcador de posición (*placeholder*) cuando se encuentra vacío. Permite doblar la curva de progresión normalizada ($t \in [0.0, 1.0]$) aplicando la función potencia $t' = t^{\text{accel}}$:
+  * $\text{accel} = 1.0$: Interpolación lineal uniforme tradicional (distribución homogénea de tonos y valores numéricos).
+  * $\text{accel} > 1.0$ (ej. `2.0`, `3.0`): Curva de aceleración (*ease-in* / concentración inicial). Los colores iniciales se prolongan a lo largo de la mayor parte de las piezas, concentrando la transición cromática y la aceleración de valores hacia el tramo final.
+  * $\text{accel} < 1.0$ (ej. `0.5`, `0.3`): Curva de desaceleración (*ease-out* / dispersión rápida). La transición cromática ocurre rápidamente en las primeras piezas y se estabiliza con suavidad hacia el tramo final.
+  * Admite expresiones matemáticas dinámicas y variables de contexto (ej. `1.0 + 0.5 * fx.i`). Si se deja vacío, revierte transparentemente al valor canónico `1.0`.
+* **`[2.6] Anchor` (`Pieces`):** Anclaje espacial de alineación (`Pieces`, `Relative`, `Center`, `Origin`, `Parent Org`, `Pos`, `Absolute`). En modo `Fusion (Tags)`, el motor aplica la compensación tipográfica de glifo para VSFilter/libass ($dx = -\text{sum\_w}$, $dy = -(\text{max\_h} - h_i)$) para neutralizar el avance del cursor horizontal y la caída a la línea base que el formateador ASS introduce al intercalar bloques de estilo, eliminando tags `\pos` de bloques intermedios para respetar la posición única de la línea, fusionando transparentemente los prefijos de estilo de entrada (como animaciones `\alpha` y `\t(...)` de `Functions/Animation`) y aislando atómicamente los bloques `{...}` intermedios al encadenarse con nodos de transformación posteriores (`Shape/Manipulator`, `Shape/Transform`, `Shape/Filter`).
+* **`[2.7] Order:` (`order`):** Orden espacial en que se asignan o interpolan los tags sobre las piezas (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
 
 ---
 
@@ -901,7 +916,7 @@ Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo
 ---
 
 ### 10.2. Puertos de Entrada y Controles de Configuración Dinámica
-1. **`[2.1] Shape A (Subject)`:** Forma vectorial principal o sujeto sobre el que se aplica la operación booleana o morfológica. Si se omite, toma la geometría activa del contexto.
+1. **`[2.1] Shape A (Subject)`:** Forma vectorial principal o sujeto sobre el que se aplica la operación booleana o morfológica. Soporta prefijos de etiquetas ASS (como `{\pos(...)\1c...}`), los cuales se separan automáticamente para el procesamiento booleano y se preservan al frente de la figura resultante. Si se omite, toma la geometría activa del contexto.
 2. **`[2.2] Shape B (Clip)`:** Forma vectorial secundaria que actúa como máscara de corte, patrón de Minkowski o segundo operando.
 3. **`[2.3] Subj Fill:` (`subj_fill`):** Botón cíclico de regla de relleno y devanado para la forma sujeto A (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
 4. **`[2.4] Clip Fill:` (`clip_fill`):** Botón cíclico de regla de relleno y devanado para la forma de corte B (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
@@ -967,7 +982,7 @@ Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo
 ---
 
 ### 11.2. Parámetros Universales (Comunes a Todos los Modos)
-1. **`[2.1] Particle`:** Código ASSdraw de la forma base o partícula a replicar (ej. un círculo, estrella, diamante, polígono o fragmento vectorial).
+1. **`[2.1] Particle`:** Código ASSdraw de la forma base o partícula a replicar (ej. un círculo, estrella, diamante, polígono o fragmento vectorial). Admite trazados con etiquetas de estilo prefijadas (ej. `{\1c&H00FFFF&\bord1}m ...`). El motor separa la geometría pura para los cálculos de bounding box y escala, y en modo `[LOOPS]` preserva e inyecta dichas etiquetas de estilo en cada pieza emitida a través del puerto `Piece`, fusionándolas coherentemente con el anclaje seleccionado.
 2. **`[2.6] Scale`:** Factor multiplicador de escala aplicado a cada partícula individual ($1.0 = 100\%$).
 3. **`[2.7] Factor (t)` (`t` / `progress`):** Factor de progresión o visibilidad ($0.0 \to 1.0$). Controla la cantidad efectiva de partículas generadas/visibles en función del ordenamiento espacial:
    $$\text{Visibles} = \text{round}(\text{Total} \cdot t)$$
@@ -995,7 +1010,7 @@ Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo
 * **`[2.5] Spacing Y`:** Espacio vertical en píxeles entre los centros de filas contiguas (default: `0`).
 
 #### 2. Modo `[FORM]` (Lattice sobre Silueta Guía)
-* **`[2.2] Formation`:** Código de dibujo ASSdraw o texto guía que sirve de matriz o silueta base sobre la cual se muestrean y posicionan las partículas.
+* **`[2.2] Formation`:** Código de dibujo ASSdraw o texto guía que sirve de matriz o silueta base sobre la cual se muestrean y posicionan las partículas. Si la silueta de entrada contiene etiquetas de estilo ASS previas, estas se descartan rigurosamente (aislamiento canónico de guías espaciales) extrayendo únicamente el contorno vectorial limpio para el cálculo de ray-casting y muestreo de lattice sin contaminación ni artefactos.
 * **`[2.3] Explosion` (`explosion`):** Factor de dispersión o estallido radial hacia los extremos (default: `0`). Cuando vale `0`, las partículas se posicionan con exactitud matemática 1:1 sobre la silueta base sin distorsionar su escala exterior. Valores positivos expanden las partículas centrífugamente desde el centroide hacia afuera. Admite retrocompatibilidad transparente con la propiedad previa `spacing`.
 
 #### 3. Modo `[RINGS]` (Anillos Concéntricos Radiales)
@@ -1173,6 +1188,7 @@ El nodo integra 10 algoritmos geométricos especializados:
     * **`radial_rosette`:** Angular radial `["cw", "ccw", "5", "odd_even", "rand"]`.
     * **`tunnel_cascade`:** Secuencia de profundidad `["normal", "invert", "odd_even", "rand"]`.
     * **`polygonal_mosaic` / `multi_shape_mosaic`:** Catálogo bidimensional completo (Numpad cartesianos, radiales y aleatorios).
+11. **Aislamiento Geométrico y Preservación de Estilos:** Cuando se conecta una forma base en los modos `concentric_rings`, `multi_shape_mosaic`, `segmented_border` o `tunnel_cascade`, el motor separa automáticamente la geometría limpia para alimentar a Clipper2 y a los cálculos de escala sin colapsos de caché. En modo `segmented_border`, la silueta actúa como guía perimetral y sus etiquetas de estilo se descartan al 100% (aislamiento canónico de guías espaciales). En modos donde la forma es el elemento replicado (`concentric_rings`, `tunnel_cascade`), las piezas resultantes heredan los estilos de la figura original en modo `Loops` o los prefijan al dibujo unificado en modo `Shape`, salvo que se suministre una cadena explícita en el puerto `Tags`.
 
 > [!NOTE]
 > **Arquitectura de Caché LRU de Alto Rendimiento:** `Shape/Multi` implementa un sistema de memoización espacial desacoplado de `Factor (t)`. La geometría estructural completa y su ordenamiento se calculan una sola vez y se almacenan en cachés LRU independientes de 512 entradas (`_MULTI_CONCENTRIC_RINGS_CACHE`, `_MULTI_SEGMENTED_BORDER_CACHE`, `_MULTI_PIECES_FULL_CACHE`, `_GLOBAL_MULTI_GRID_CACHE`). Al animar `t` fotograma a fotograma o en sub-bucles, las llamadas subsecuentes recuperan las piezas en $\mathcal{O}(1)$ y realizan un corte instantáneo, acelerando el renderizado hasta 10x–50x en siluetas complejas o tipografía.

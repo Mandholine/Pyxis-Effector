@@ -35,7 +35,7 @@ Al evaluar cada línea de diálogo de Aegisub, el nodo construye las estructuras
   Calcula y publica las coordenadas cartesianas de la unidad en píxeles:
   `center`, `middle`, `left`, `right`, `top`, `bottom`, `width`, `height`, `x`, `y`.
 * **Intervalo temporal:**
-  Define los límites $[t_{\text{start}}, t_{\text{end}}]$ y la duración $t_{\text{dur}} = t_{\text{end}} - t_{\text{start}}$ de la sílaba o carácter.
+  Define los límites $[t_{\text{start}}, t_{\text{end}}]$ y la duración $t_{\text{dur}} = t_{\text{end}} - t_{\text{start}}$ de la unidad. Para unidades sub-línea (`syl`, `char`, `word`), las propiedades intrínsecas (`syl.start_time`, `char.start_time`, etc.) representan métricas de karaoke relativas e inmutables (*ground truth*). Cuando la señal alcanza `System/Output`, dichas marcas se proyectan a la línea de tiempo global del vídeo sumando el offset correspondiente ($\text{line.start\_time}$ para sílabas y palabras; $\text{line.start\_time} + \text{syl.start\_time}$ para caracteres). Si el usuario sobreescribe `st` o `et` (mediante `Define Vars` o conectando `Output`), el intervalo resultante asume dichos valores soberanamente sin mutar destructivamente las métricas relativas de la unidad.
 * **Variables globales inyectadas:**
   `i`, `n`, `fx_i`, `fx_n`, junto con el objeto de datos correspondiente (`syl`, `char`, `word` o `line`).
 

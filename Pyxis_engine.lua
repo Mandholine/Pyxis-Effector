@@ -1,5 +1,5 @@
 -- Pyxis Effector - Plugin for Aegisub
--- Copyright (C) 2026 @mandholine, @effector2, @pholguinc
+-- Copyright (C) 2026 @mandholine, @effector2, @pholguinc and Pyxis Effector contributors
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -17,8 +17,11 @@
 script_name        = "Pyxis Node Engine"
 script_description = "Visual Node-Based Karaoke Automation"
 script_author      = "Pyxis Dev Team"
-script_version     = "1.1.6"
+script_version     = "1.1.7"
 script_namespace   = "pyxis.NodeEngine"
+
+-- [SELF SCRIPT PATH]
+local SELF_LUA_PATH = (debug and debug.getinfo and debug.getinfo(1, "S").source:gsub("^@", "")) or ""
 
 local ffi = require("ffi")
 local unicode = require("aegisub.unicode")
@@ -46,63 +49,212 @@ else
     karaskel = _G.karaskel
 end
 
-ffi.cdef[[
-    void Sleep(int dwMilliseconds);
-    int ShellExecuteA(void* hwnd, const char* lpOperation, const char* lpFile, const char* lpParameters, const char* lpDirectory, int nShowCmd);
-    uint32_t GetCurrentProcessId(void);
-    bool AllowSetForegroundWindow(uint32_t dwProcessId);
-    bool CreateDirectoryA(const char* lpPathName, void* lpSecurityAttributes);
+-- [CROSS-PLATFORM ABSTRACTION LAYER]
+-- Windows: Win32 native APIs via FFI (kernel32, shell32, user32, wininet).
+-- Linux/macOS: POSIX standards (libc usleep/getpid via ffi.C, curl/wget, nohup/subprocesses).
+local IS_WINDOWS = package.config:sub(1, 1) == "\\"
+local IS_MACOS = (not IS_WINDOWS) and ffi.os == "OSX"
 
-    void* InternetOpenA(const char* lpszAgent, uint32_t dwAccessType, const char* lpszProxy, const char* lpszProxyBypass, uint32_t dwFlags);
-    void* InternetConnectA(void* hInternet, const char* lpszServerName, uint16_t nServerPort, const char* lpszUsername, const char* lpszPassword, uint32_t dwService, uint32_t dwFlags, uintptr_t dwContext);
-    void* HttpOpenRequestA(void* hConnect, const char* lpszVerb, const char* lpszObjectName, const char* lpszVersion, const char* lpszReferrer, const char** lplpszAcceptTypes, uint32_t dwFlags, uintptr_t dwContext);
-    bool HttpSendRequestA(void* hRequest, const char* lpszHeaders, uint32_t dwHeadersLength, void* lpOptional, uint32_t dwOptionalLength);
-    bool InternetReadFile(void* hFile, void* lpBuffer, uint32_t dwNumberOfBytesToRead, uint32_t* lpdwNumberOfBytesRead);
-    bool InternetCloseHandle(void* hInternet);
-]]
-local kernel32 = ffi.load("kernel32")
-local shell32 = ffi.load("shell32")
+local POSIX_PATH_PREFIX = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:"
+
+local kernel32 = nil
+local shell32 = nil
 local user32 = nil
-pcall(function() user32 = ffi.load("user32") end)
 local wininet = nil
-pcall(function() wininet = ffi.load("wininet") end)
+
+if IS_WINDOWS then
+    ffi.cdef[[
+        void Sleep(int dwMilliseconds);
+        int ShellExecuteA(void* hwnd, const char* lpOperation, const char* lpFile, const char* lpParameters, const char* lpDirectory, int nShowCmd);
+        uint32_t GetCurrentProcessId(void);
+        bool AllowSetForegroundWindow(uint32_t dwProcessId);
+        bool CreateDirectoryA(const char* lpPathName, void* lpSecurityAttributes);
+
+        void* InternetOpenA(const char* lpszAgent, uint32_t dwAccessType, const char* lpszProxy, const char* lpszProxyBypass, uint32_t dwFlags);
+        void* InternetConnectA(void* hInternet, const char* lpszServerName, uint16_t nServerPort, const char* lpszUsername, const char* lpszPassword, uint32_t dwService, uint32_t dwFlags, uintptr_t dwContext);
+        void* HttpOpenRequestA(void* hConnect, const char* lpszVerb, const char* lpszObjectName, const char* lpszVersion, const char* lpszReferrer, const char** lplpszAcceptTypes, uint32_t dwFlags, uintptr_t dwContext);
+        bool HttpSendRequestA(void* hRequest, const char* lpszHeaders, uint32_t dwHeadersLength, void* lpOptional, uint32_t dwOptionalLength);
+        bool InternetReadFile(void* hFile, void* lpBuffer, uint32_t dwNumberOfBytesToRead, uint32_t* lpdwNumberOfBytesRead);
+        bool InternetCloseHandle(void* hInternet);
+    ]]
+    kernel32 = ffi.load("kernel32")
+    shell32 = ffi.load("shell32")
+    pcall(function() user32 = ffi.load("user32") end)
+    pcall(function() wininet = ffi.load("wininet") end)
+else
+    ffi.cdef[[
+        int usleep(unsigned int useconds);
+        int getpid(void);
+    ]]
+end
+
+local function sleep_ms(ms)
+    if IS_WINDOWS and kernel32 then
+        kernel32.Sleep(ms)
+    else
+        ffi.C.usleep(math.floor(tonumber(ms) or 0) * 1000)
+    end
+end
+
+local function get_process_id()
+    if IS_WINDOWS and kernel32 then
+        return tonumber(kernel32.GetCurrentProcessId()) or 0
+    end
+    return tonumber(ffi.C.getpid()) or 0
+end
+
+local function shell_quote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function has_bin(name)
+    local p = io.popen("PATH=\"" .. POSIX_PATH_PREFIX .. "$PATH\" command -v " .. tostring(name) .. " 2>/dev/null")
+    if not p then return false end
+    local out = p:read("*l")
+    p:close()
+    return out ~= nil and out ~= ""
+end
+
+-- [PLATFORM TAG & RELEASE URLS]
+local function platform_tag()
+    if IS_WINDOWS then return "win64" end
+    local arm = ffi.arch == "arm64"
+    if IS_MACOS then return arm and "macos-arm64" or "macos-x64" end
+    return arm and "linux-arm64" or "linux64"
+end
+
+local RELEASE_REPO = "Mandholine/Pyxis-Effector"
+do
+    local override = os.getenv("PYXIS_RELEASE_REPO")
+    if override and override:match("^[%w%-%._]+/[%w%-%._]+$") then
+        RELEASE_REPO = override
+    end
+end
+
+local function release_urls(zip_name, tag)
+    local base = "https://github.com/" .. RELEASE_REPO .. "/releases/download/"
+    return {
+        base .. "v" .. script_version .. "/" .. zip_name,
+        base .. "PyxisEffector-v" .. script_version .. "-" .. tag .. "/" .. zip_name,
+    }
+end
+
+local function file_size(path)
+    local f = io.open(path, "rb")
+    if not f then return 0 end
+    local size = f:seek("end") or 0
+    f:close()
+    return size
+end
+
+local function build_installer_bat(zip_path, urls, target_dir)
+    local lines = {
+        "@echo off",
+        "title Downloading Pyxis Effector Runtime",
+        "echo Downloading Pyxis engine (~370 MB)...",
+    }
+    for i, url in ipairs(urls) do
+        local cmd = string.format('curl.exe -# -L -f -o "%s" "%s"', zip_path, url)
+        lines[#lines + 1] = (i == 1) and cmd or ("if errorlevel 1 " .. cmd)
+    end
+    local quoted = {}
+    for _, url in ipairs(urls) do quoted[#quoted + 1] = "'" .. url .. "'" end
+    local ps = string.format(
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+        .. "$ProgressPreference = 'Continue'; $wc = New-Object Net.WebClient; $ok = $false; "
+        .. "foreach ($u in @(%s)) { if (-not $ok) { try { $wc.DownloadFile($u, '%s'); $ok = $true } catch {} } }; "
+        .. "if ($ok) { Expand-Archive -Path '%s' -DestinationPath '%s' -Force; Remove-Item '%s' -Force }",
+        table.concat(quoted, ", "), zip_path, zip_path, target_dir, zip_path)
+    local tail = {
+        "if errorlevel 1 goto fallback",
+        "echo Extracting files...",
+        string.format('tar.exe -xf "%s" -C "%s"', zip_path, target_dir),
+        "if errorlevel 1 goto fallback",
+        string.format('del /f /q "%s" >nul 2>&1', zip_path),
+        "exit /b 0",
+        "",
+        ":fallback",
+        "echo Retrying with PowerShell...",
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "' .. ps .. '"',
+        "exit /b 0",
+        "",
+    }
+    for _, l in ipairs(tail) do lines[#lines + 1] = l end
+    return table.concat(lines, "\n")
+end
 
 local function ping_and_reopen_daemon(payload_json)
-    if not wininet then return false end
-    local hInternet = wininet.InternetOpenA("PyxisLuaClient", 1, nil, nil, 0)
-    if not hInternet or hInternet == ffi.cast("void*", 0) then return false end
+    if IS_WINDOWS and wininet then
+        local hInternet = wininet.InternetOpenA("PyxisLuaClient", 1, nil, nil, 0)
+        if not hInternet or hInternet == ffi.cast("void*", 0) then return false end
 
-    local hConnect = wininet.InternetConnectA(hInternet, "127.0.0.1", 28723, nil, nil, 3, 0, 0)
-    if not hConnect or hConnect == ffi.cast("void*", 0) then
-        wininet.InternetCloseHandle(hInternet)
-        return false
-    end
+        local hConnect = wininet.InternetConnectA(hInternet, "127.0.0.1", 28723, nil, nil, 3, 0, 0)
+        if not hConnect or hConnect == ffi.cast("void*", 0) then
+            wininet.InternetCloseHandle(hInternet)
+            return false
+        end
 
-    local hRequest = wininet.HttpOpenRequestA(hConnect, "POST", "/reopen", nil, nil, nil, 0x80000000, 0)
-    if not hRequest or hRequest == ffi.cast("void*", 0) then
+        local hRequest = wininet.HttpOpenRequestA(hConnect, "POST", "/reopen", nil, nil, nil, 0x80000000, 0)
+        if not hRequest or hRequest == ffi.cast("void*", 0) then
+            wininet.InternetCloseHandle(hConnect)
+            wininet.InternetCloseHandle(hInternet)
+            return false
+        end
+
+        local headers = "Content-Type: application/json\r\n"
+        local res = wininet.HttpSendRequestA(hRequest, headers, #headers, ffi.cast("void*", payload_json), #payload_json)
+        local reopened = false
+        if res then
+            local buf = ffi.new("char[512]")
+            local bytes_read = ffi.new("uint32_t[1]")
+            if wininet.InternetReadFile(hRequest, buf, 512, bytes_read) and bytes_read[0] > 0 then
+                local str_resp = ffi.string(buf, bytes_read[0])
+                if str_resp:match("reopened") then
+                    reopened = true
+                end
+            end
+        end
+
+        wininet.InternetCloseHandle(hRequest)
         wininet.InternetCloseHandle(hConnect)
         wininet.InternetCloseHandle(hInternet)
-        return false
+
+        return reopened
     end
 
-    local headers = "Content-Type: application/json\r\n"
-    local res = wininet.HttpSendRequestA(hRequest, headers, #headers, ffi.cast("void*", payload_json), #payload_json)
+    -- Linux/macOS: send payload to local daemon (127.0.0.1:28723) via curl or wget
+    local tmp = os.tmpname()
+    local f = io.open(tmp, "w")
+    if not f then return false end
+    f:write(payload_json)
+    f:close()
+
+    local cmd = nil
+    if has_bin("curl") then
+        cmd = string.format(
+            "curl -s -m 1 -X POST -H 'Content-Type: application/json' --data-binary @%s http://127.0.0.1:28723/reopen 2>/dev/null",
+            shell_quote(tmp)
+        )
+    elseif has_bin("wget") then
+        cmd = string.format(
+            "wget -q -T 1 -O - --post-file=%s --header='Content-Type: application/json' http://127.0.0.1:28723/reopen 2>/dev/null",
+            shell_quote(tmp)
+        )
+    end
+
     local reopened = false
-    if res then
-        local buf = ffi.new("char[512]")
-        local bytes_read = ffi.new("uint32_t[1]")
-        if wininet.InternetReadFile(hRequest, buf, 512, bytes_read) and bytes_read[0] > 0 then
-            local str_resp = ffi.string(buf, bytes_read[0])
-            if str_resp:match("reopened") then
+    if cmd then
+        local p = io.popen(cmd)
+        if p then
+            local body = p:read("*all") or ""
+            p:close()
+            if body:match("reopened") then
                 reopened = true
             end
         end
     end
 
-    wininet.InternetCloseHandle(hRequest)
-    wininet.InternetCloseHandle(hConnect)
-    wininet.InternetCloseHandle(hInternet)
-
+    os.remove(tmp)
     return reopened
 end
 
@@ -120,7 +272,7 @@ end
 
 local function ensure_dir(path)
     if not path or path == "" then return end
-    if kernel32 and kernel32.CreateDirectoryA then
+    if IS_WINDOWS and kernel32 and kernel32.CreateDirectoryA then
         local current = ""
         for part in path:gmatch("[^\\/]+") do
             if current == "" and (path:sub(2,2) == ":" or path:sub(1,2) == "\\\\") then
@@ -131,10 +283,7 @@ local function ensure_dir(path)
             end
         end
     else
-        pcall(function()
-            local lfs = require("lfs")
-            if lfs and lfs.mkdir then lfs.mkdir(path) end
-        end)
+        os.execute("mkdir -p " .. shell_quote(path))
     end
 end
 
@@ -299,7 +448,7 @@ local function read_valid_session(path, timeout_ms)
             end
         end
 
-        kernel32.Sleep(interval)
+        sleep_ms(interval)
         elapsed = elapsed + interval
     end
 
@@ -336,6 +485,102 @@ function launch_Pyxis(subs, sel, act)
         return
     end
 
+    local function download_and_extract_runtime(target_dir)
+        local btn, _ = aegisub.dialog.display({
+            {class="label", label="Pyxis Effector requires the execution runtime (~370 MB).", x=0, y=0, width=2, height=1},
+            {class="label", label="Repository: https://github.com/" .. RELEASE_REPO, x=0, y=1, width=2, height=1},
+            {class="label", label="Do you want to start downloading now?", x=0, y=2, width=2, height=1}
+        }, {"Download", "Cancel"})
+
+        if btn ~= "Download" then
+            return nil
+        end
+
+        local temp_dir = (IS_WINDOWS and os.getenv("TEMP")) or os.getenv("TMPDIR") or "/tmp"
+        local arch_tag = platform_tag()
+        local zip_name = "PyxisEffector-v" .. script_version .. "-" .. arch_tag .. ".zip"
+        local zip_path = join_path(temp_dir, zip_name)
+        local download_urls = release_urls(zip_name, arch_tag)
+
+        if not IS_WINDOWS then
+            aegisub.progress.task("Downloading Pyxis runtime package...")
+            local dl_template = nil
+            if has_bin("curl") then
+                dl_template = "curl -# -L -f -o %s %s"
+            elseif has_bin("wget") then
+                dl_template = "wget --progress=bar:force -O %s %s"
+            end
+            local downloaded = false
+            if dl_template then
+                for _, url in ipairs(download_urls) do
+                    pcall(os.remove, zip_path)
+                    os.execute(string.format(dl_template, shell_quote(zip_path), shell_quote(url)))
+                    if file_size(zip_path) > 0 then
+                        downloaded = true
+                        break
+                    end
+                end
+                if not downloaded then pcall(os.remove, zip_path) end
+            end
+            if downloaded then
+                if has_bin("unzip") then
+                    os.execute(string.format("unzip -o -q %s -d %s", shell_quote(zip_path), shell_quote(target_dir)))
+                else
+                    os.execute(string.format("python3 -m zipfile -e %s %s", shell_quote(zip_path), shell_quote(target_dir)))
+                    local nodes_dir = join_path(target_dir, "PyxisNodes")
+                    os.execute(string.format("chmod -R u+x %s %s 2>/dev/null",
+                        shell_quote(join_path(join_path(nodes_dir, "python"), "bin")),
+                        shell_quote(join_path(nodes_dir, "bin"))))
+                end
+                if IS_MACOS then
+                    os.execute(string.format("xattr -dr com.apple.quarantine %s 2>/dev/null",
+                        shell_quote(join_path(target_dir, "PyxisNodes"))))
+                end
+                pcall(os.remove, zip_path)
+            end
+        else
+            local bat_file = join_path(temp_dir, "pyxis_installer.bat")
+            local f = io.open(bat_file, "w")
+            if f then
+                f:write(build_installer_bat(zip_path, download_urls, target_dir))
+                f:close()
+                os.execute('cmd.exe /c "' .. bat_file .. '"')
+                pcall(os.remove, bat_file)
+            end
+        end
+
+        -- Check if extracted package contains an updated Pyxis_engine.lua to self-update
+        local extracted_lua = join_path(target_dir, "Pyxis_engine.lua")
+        local f_lua = io.open(extracted_lua, "r")
+        if f_lua then
+            local lua_content = f_lua:read("*all")
+            f_lua:close()
+            if lua_content and lua_content:find("script_namespace", 1, true) and SELF_LUA_PATH and SELF_LUA_PATH ~= "" and SELF_LUA_PATH ~= extracted_lua then
+                local dst = io.open(SELF_LUA_PATH, "w")
+                if dst then
+                    dst:write(lua_content)
+                    dst:close()
+                    if IS_MACOS then
+                        os.execute(string.format("xattr -d com.apple.quarantine %s 2>/dev/null", shell_quote(SELF_LUA_PATH)))
+                    end
+                end
+            end
+        end
+
+        local extracted_pyxis = join_path(target_dir, "PyxisNodes")
+        local verify_file = io.open(join_path(extracted_pyxis, "main.py"), "r")
+        if verify_file then
+            verify_file:close()
+            return extracted_pyxis
+        end
+
+        aegisub.dialog.display({
+            {class="label", label="Error: Could not download or extract the Pyxis runtime package.", x=0, y=0, width=2, height=1},
+            {class="label", label="Please check your internet connection or install manually from GitHub Releases.", x=0, y=1, width=2, height=1}
+        }, {"Close"})
+        return nil
+    end
+
     local function find_pyxis_nodes_dir()
         local user_autoload = aegisub.decode_path("?user/automation/autoload")
         local p_user = join_path(user_autoload, "PyxisNodes")
@@ -353,17 +598,7 @@ function launch_Pyxis(subs, sel, act)
             return p_data
         end
 
-        local btn, _ = aegisub.dialog.display({
-            {class="label", label="Pyxis Effector requiere el entorno completo de ejecucion (PyxisNodes).", x=0, y=0, width=2, height=1},
-            {class="label", label="No se encontraron los archivos del motor en tu carpeta de automatizaciones de Aegisub.", x=0, y=1, width=2, height=1},
-            {class="label", label="Descarga el paquete oficial desde GitHub Releases para instalarlo.", x=0, y=2, width=2, height=1}
-        }, {"Abrir GitHub Releases", "Cerrar"})
-
-        if btn == "Abrir GitHub Releases" and shell32 and shell32.ShellExecuteA then
-            shell32.ShellExecuteA(nil, "open", "https://github.com/Mandholine/Pyxis-Effector/releases/latest", nil, nil, 1)
-        end
-
-        return nil
+        return download_and_extract_runtime(user_autoload)
     end
 
     local Pyxis_dir = find_pyxis_nodes_dir()
@@ -371,9 +606,14 @@ function launch_Pyxis(subs, sel, act)
         return
     end
 
-    -- Dynamic temporary directory in %APPDATA%\PyxisNodes\temp_cache
-    local appdata = os.getenv("APPDATA") or (os.getenv("USERPROFILE") and (os.getenv("USERPROFILE") .. "\\AppData\\Roaming")) or base_dir
-    local temp_cache_dir = join_path(join_path(appdata, "PyxisNodes"), "temp_cache")
+    -- Dynamic temporary directory in %APPDATA%\PyxisNodes\temp_cache (Linux/macOS: XDG_DATA_HOME)
+    local data_base
+    if IS_WINDOWS then
+        data_base = os.getenv("APPDATA") or (os.getenv("USERPROFILE") and (os.getenv("USERPROFILE") .. "\\AppData\\Roaming")) or "."
+    else
+        data_base = os.getenv("XDG_DATA_HOME") or (os.getenv("HOME") and (os.getenv("HOME") .. "/.local/share")) or "/tmp"
+    end
+    local temp_cache_dir = join_path(join_path(data_base, "PyxisNodes"), "temp_cache")
     ensure_dir(temp_cache_dir)
 
     -- Exclusive files for THIS Aegisub instance in temp_cache
@@ -434,6 +674,7 @@ function launch_Pyxis(subs, sel, act)
         end
 
         file:write("[Script Info]\nScriptType: v4.00+\n")
+        file:write("YCbCr Matrix: " .. tostring(meta["ycbcr matrix"] or "None") .. "\n")
         file:write("PlayResX: " .. tostring(meta.res_x or 1280) .. "\nPlayResY: " .. tostring(meta.res_y or 720) .. "\n\n")
 
         local msa, msb = nil, nil
@@ -498,7 +739,7 @@ function launch_Pyxis(subs, sel, act)
     end
 
     local aegisub_version = "3.4.2"
-    local aegisub_pid = kernel32.GetCurrentProcessId()
+    local aegisub_pid = get_process_id()
 
     -- Try instant launch (0ms) by communicating with background Python Daemon if it exists
     local json_payload = string.format(
@@ -515,35 +756,67 @@ function launch_Pyxis(subs, sel, act)
 
     if not daemon_reopened then
         aegisub.progress.task("Launching Pyxis Node Engine...")
-        local params = '-B "' .. main_script .. '" "' .. temp_ass .. '" "' .. result_file .. '" "' .. lock_file .. '" "' .. session_file .. '" "' .. aegisub_version .. '" "' .. tostring(aegisub_pid) .. '"'
 
-        -- Smart detection of Portable vs System Python (prefer pythonw, fallback to python)
-        local portable_pythonw = join_path(Pyxis_dir, "python\\pythonw.exe")
-        local portable_python = join_path(Pyxis_dir, "python\\python.exe")
-        local python_cmd = "pythonw"
-
-        local check_pyw = io.open(portable_pythonw, "r")
-        if check_pyw then
-            check_pyw:close()
-            python_cmd = portable_pythonw
-        else
-            local check_py = io.open(portable_python, "r")
-            if check_py then
-                check_py:close()
-                python_cmd = portable_python
+        if not IS_WINDOWS then
+            local python_cmd = nil
+            local bundled_py = join_path(Pyxis_dir, join_path("python", join_path("bin", "python3")))
+            local venv_py = join_path(Pyxis_dir, join_path(".venv", join_path("bin", "python3")))
+            local check_bundled = io.open(bundled_py, "r")
+            local check_venv = io.open(venv_py, "r")
+            if check_bundled then
+                check_bundled:close()
+                if check_venv then check_venv:close() end
+                python_cmd = bundled_py
+            elseif check_venv then
+                check_venv:close()
+                python_cmd = venv_py
+            elseif has_bin("python3") then
+                python_cmd = "python3"
+            elseif has_bin("python") then
+                python_cmd = "python"
             end
-        end
 
-        local launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
-        if launch_result <= 32 then
-            -- Fallback if pythonw is not registered in system PATH
-            python_cmd = "python"
-            launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
-        end
-        if launch_result <= 32 then
-            aegisub.debug.out("Error launching Python (" .. tostring(python_cmd) .. "). Error code: " .. tostring(launch_result) .. "\n")
-            pcall(os.remove, lock_file)
-            return
+            if not python_cmd then
+                aegisub.dialog.display({{class="label", label="Error: Python 3 was not found. Please install python3 or reinstall the Pyxis runtime from GitHub Releases."}}, {"Close"})
+                pcall(os.remove, lock_file)
+                return
+            end
+
+            local cmd_parts = { shell_quote(python_cmd), "-B", shell_quote(main_script) }
+            for _, arg in ipairs({ temp_ass, result_file, lock_file, session_file, aegisub_version, tostring(aegisub_pid) }) do
+                cmd_parts[#cmd_parts + 1] = shell_quote(arg)
+            end
+            local launch_cmd = "PATH=\"" .. POSIX_PATH_PREFIX .. "$PATH\" " .. table.concat(cmd_parts, " ") .. " >/dev/null 2>&1 &"
+            os.execute(launch_cmd)
+        else
+            local params = '-B "' .. main_script .. '" "' .. temp_ass .. '" "' .. result_file .. '" "' .. lock_file .. '" "' .. session_file .. '" "' .. aegisub_version .. '" "' .. tostring(aegisub_pid) .. '"'
+
+            local portable_pythonw = join_path(Pyxis_dir, "python\\pythonw.exe")
+            local portable_python = join_path(Pyxis_dir, "python\\python.exe")
+            local python_cmd = "pythonw"
+
+            local check_pyw = io.open(portable_pythonw, "r")
+            if check_pyw then
+                check_pyw:close()
+                python_cmd = portable_pythonw
+            else
+                local check_py = io.open(portable_python, "r")
+                if check_py then
+                    check_py:close()
+                    python_cmd = portable_python
+                end
+            end
+
+            local launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
+            if launch_result <= 32 then
+                python_cmd = "python"
+                launch_result = shell32.ShellExecuteA(nil, "open", python_cmd, params, Pyxis_dir, 1)
+            end
+            if launch_result <= 32 then
+                aegisub.debug.out("Error launching Python (" .. tostring(python_cmd) .. "). Error code: " .. tostring(launch_result) .. "\n")
+                pcall(os.remove, lock_file)
+                return
+            end
         end
     else
         aegisub.progress.task("Instant launch from background daemon...")
@@ -569,7 +842,7 @@ function launch_Pyxis(subs, sel, act)
         end
 
         check:close()
-        kernel32.Sleep(50)
+        sleep_ms(50)
     end
 
     if cancelled then

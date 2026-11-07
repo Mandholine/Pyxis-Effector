@@ -69,6 +69,16 @@ El nodo `Main Loop` establece la unidad base de iteración (`iterator`):
 
 La propiedad `blank_mode` (`no_blank` / `with_blanks`) controla si los espacios en blanco se omiten del ciclo o se procesan como elementos con ancho pero sin glifo visible.
 
+#### Resolución de Tiempos Absolutos por Defecto
+Cada iteración del dominio base calcula automáticamente las marcas temporales proyectadas en la línea de tiempo del vídeo. Cuando el nodo terminal `Output` no recibe conexiones en sus puertos `Start Time` y `End Time` (y no existe una sobreescritura explícita de `st` o `et`), la línea de diálogo ASS emitida asume las siguientes fronteras temporales por defecto:
+
+| Dominio (`iterator`) | Tiempo de Inicio del Evento ($t_{\text{start}}$) | Tiempo de Fin del Evento ($t_{\text{end}}$) | Duración Neta ($t_{\text{dur}}$) |
+| :--- | :--- | :--- | :--- |
+| **`line`** | $\text{line.start\_time}$ | $\text{line.end\_time}$ | $\text{line.dur}$ |
+| **`syl`** | $\text{line.start\_time} + \text{syl.start\_time}$ | $\text{line.start\_time} + \text{syl.end\_time}$ | $\text{syl.dur}$ |
+| **`char`** | $\text{line.start\_time} + \text{syl.start\_time} + \text{char.start\_time}$ | $\text{line.start\_time} + \text{syl.start\_time} + \text{char.end\_time}$ | $\text{char.dur}$ |
+| **`word`** | $\text{line.start\_time} + \text{word.start\_time}$ | $\text{line.start\_time} + \text{word.end\_time}$ | $\text{word.dur}$ |
+
 ### Fase 3: Multiplicación de Sub-bucles (`MaxLoop`) y Anidamiento Topológico de Generadores
 Para generar efectos volumétricos (estelas cinemáticas, enjambres de partículas, réplicas con retardo o animaciones fotograma a fotograma *FBF*), el flujo pasa por uno o varios nodos `MaxLoop`. Este nodo multiplica la unidad actual por $N$ sub-iteraciones, inyectando un contador local (por defecto `j` de $1 \dots N$) y subdividiendo los intervalos de tiempo.
 
@@ -81,6 +91,12 @@ Los nodos de datos conectados computan las posiciones `\pos`, deformaciones morf
 
 ### Fase 5: Ensamblado, Aislamiento y Emisión (`Output`)
 El nodo terminal `Output` recopila los flujos procesados, consolida los bloques de etiquetas del puerto `Tags` y los dibujos/textos del puerto `Return`, resuelve colisiones sintácticas entre tags, aplica las capas de renderizado (`Layer`) y emite las nuevas líneas de subtítulo generadas directamente hacia el documento de Aegisub.
+
+#### Principio de Sobrescritura Soberana Global e Invarianza de Métricas
+Cuando el usuario define explícitamente `st` o `et` mediante nodos de variables (`Define Vars`) o conecta los puertos de entrada `Start Time` / `End Time` en `Output`:
+1. **Soberanía Temporal:** Los valores sobreescritos dictan directamente la ventana de vida del evento ASS generado en la línea de tiempo global del vídeo ($t_{\text{start}}$ y $t_{\text{end}}$ de la línea).
+2. **Invarianza de Métricas Relativas (*Ground Truth*):** Las propiedades intrínsecas de las unidades activas (`syl.start_time`, `syl.dur`, `char.start_time`, `char.dur`, `word.start_time`, etc.) permanecen **100% inalteradas e invariantes**. No se suman ni se concatenan indebidamente a las marcas sobreescritas por el usuario.
+3. **Casos de Uso Avanzado:** Permite generar formas, partículas o trazados asociados a cada sílaba o carácter (`Main Loop: syl` o `Main Loop: char`) cuya permanencia en pantalla abarque la línea de diálogo completa (fijando `st = line.start_time` y `et = line.end_time`), sin que el tiempo de la sílaba o carácter desplace artificialmente el inicio de la línea generada.
 
 #### Arquitectura Multi-Output y Aislamiento de Contexto
 Al requerir múltiples capas o componentes visuales concurrentes (por ejemplo, sombra, cuerpo de glifo y partículas), se instancian múltiples nodos `System/Output` en el mismo lienzo:

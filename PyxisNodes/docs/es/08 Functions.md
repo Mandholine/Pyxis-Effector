@@ -347,7 +347,7 @@ $$\text{Out} = \begin{cases} \text{If True} & \text{si } \text{eval}(\text{Condi
 2. **`Color List` (`colors_str`):** Cadena con la lista de paradas de color separadas por comas, espacios o saltos de línea. Acepta códigos hexadecimales web (`#RRGGBB`), nombres HTML o códigos ASS (`&HBBGGRR&`). (Defecto: `"#95E648,#3E750C,#ED38CA"`).
 3. **`Total (N)` (`total`):** Cantidad total de divisiones requeridas cuando se consumen las salidas en lote (`Color List` o `Tags`). Si $N > 1$, el nodo genera $N$ muestras distribuidas uniformemente entre $t=0.0$ y $t=1.0$. (Defecto: `"1"`).
 4. **`Accel` (`accel`):** Exponente de aceleración no lineal para la curva de interpolación. Un valor de `1.0` produce interpolación lineal uniforme; valores $> 1.0$ concentran la transición al final (*ease-in*); valores $< 1.0$ concentran la transición al inicio (*ease-out*). (Defecto: `"1.0"`).
-5. **`Tag` (`tag_type`):** Selector de etiqueta ASS inyectada como prefijo en la salida `Tags` (`\1c`, `\2c`, `\3c`, `\4c` o `\c`). (Defecto: `"\1c"`).
+5. **`Tag` (`tag_type`):** Selector interactivo de etiqueta ASS inyectada en la salida `Tags`. Dispone de 16 combinaciones cíclicas: individuales (`\1c`, `\2c`, `\3c`, `\4c`, `\c`), pares (`\12c`, `\13c`, `\14c`, `\23c`, `\24c`, `\34c`), tríos (`\123c`, `\124c`, `\134c`, `\234c`) y cuarteto (`\1234c`). En configuraciones multicanal, el nodo desglosa automáticamente los canales en etiquetas ASS canónicas estándar (ej. `\13c` produce `\1c&H...&\3c&H...&`). (Defecto: `"\1c"`).
 
 ---
 
@@ -609,7 +609,7 @@ Imagen Ráster (Pillow / NumPy)          Enjambre Vectorial ASS
 
 ### 8.1. Encabezado y Modos Operativos (*Header Mode Combos*)
 1. **Modo Principal (`mode`):**
-   * **`fbf` (*Frame-by-Frame*):** Cada iteración del bucle principal (`an_i` o `j`) selecciona el fotograma correspondiente dentro de la secuencia. La salida `Shape` emite el trazado vectorial del cuadro activo prefijado con alineación `{\an7}`.
+   * **`fbf` (*Frame-by-Frame*):** En cada paso del bucle de animación gobernado por `an_i`, selecciona el fotograma correspondiente dentro de la secuencia. La salida `Shape` emite el trazado vectorial puro del cuadro activo sin forzar tags de alineación fijos.
    * **`alpha` (*Modulación Alfa Sincronizada*):** Genera una cadena continua de transiciones de visibilidad `\t` que enciende (`&H00&`) y apaga (`&HFF&`) cíclicamente cada forma en sus intervalos de tiempo calculados.
 2. **Orden de Secuencia (`order` - Pill Secundario):**
    * **`sequential` (`Seq` - Defecto):** Recorre los fotogramas en orden directo ($1 \to K$).
@@ -625,13 +625,17 @@ Imagen Ráster (Pillow / NumPy)          Enjambre Vectorial ASS
    * Arrays JSON (ej. `["m 0 0 l 10 10", "m 0 0 l 20 20"]`).
    * Listas separadas por comas, punto y coma `;`, barras `|` o saltos de línea `\n`.
    * Cadenas de texto ordinarias (convertidas automáticamente a vectores de fuente tipográfica).
-   * Referencias directas a variables del contexto (ej. `Shapes1`, `my_frames`).
+   * Referencias directas a variables, expresiones y atributos del contexto (ej. `Shapes1`, `my_frames`, `syl.text`, `line.text`).
    * Conexión directa desde `Shape/IMG to Shape` (traza automáticamente todos los fotogramas de un GIF animado).
-2. **`Step ms` (`step_ms`):** Duración temporal en milisegundos de cada fotograma individual de la animación. Un valor de `41.7` equivale aproximadamente a 24 FPS; `33.3` a 30 FPS; `16.6` a 60 FPS. (Defecto: `41.7`).
-3. **`Start Time` (`start_time`):** Instante de inicio de la animación en milisegundos relativos al evento activo (`0` o vacío toma el inicio del efecto `fx.st` / `syl.start_time`).
-4. **`End Time` (`end_time`):** Instante de finalización de la animación (`fx.dur` o vacío toma la duración total del efecto).
-5. **`Alpha Tag` (`alpha_tag`):** [Modo `alpha`] Etiqueta ASS o Dark Tag multicanal de transparencia modulada (`\alpha`, canales individuales `\1a`, `\2a`, `\3a`, `\4a`, dobles `\12a`, `\13a`, `\14a`, `\23a`, `\24a`, `\34a`, triples `\123a`, `\124a`, `\134a`, `\234a` o cuádruple `\1234a`). Permite conmutar la visibilidad de canales específicos (por ejemplo, `\13a` modula relleno primario y borde simultáneamente sin afectar la sombra `\4a`). (Defecto: `"\alpha"`).
-6. **`Variable Prefix` (`var_name`):** Prefijo identificador editable desde el pie del nodo para las variables de bucle inyectadas en el contexto. (Defecto: `"an"`).
+2. **`Anchor` (`anchor`):** Modo de anclaje geométrico global para la secuencia de fotogramas (`relative`, `center`, `origin`):
+   * **`relative` (Defecto):** Conserva las coordenadas relativas originales de cada fotograma sin aplicar ningún desplazamiento.
+   * **`center`:** Centra globalmente toda la animación posicionando el centroide de la caja delimitadora unificada de la secuencia (`global_bbox`) en `(0, 0)`. Al basarse en la caja delimitadora global y no en cada cuadro de forma independiente, preserva al 100% las trayectorias y los deltas de movimiento fotograma a fotograma sin oscilaciones espurias.
+   * **`origin`:** Alinea la esquina superior izquierda de la caja delimitadora unificada de la secuencia (`global_bbox`) en `(0, 0)`, conservando intactas todas las trayectorias y desplazamientos espaciales relativos entre cuadros.
+3. **`Step ms` (`step_ms`):** Duración temporal en milisegundos de cada fotograma individual de la animación. Un valor de `41.7` equivale aproximadamente a 24 FPS; `33.3` a 30 FPS; `16.6` a 60 FPS. (Defecto: `41.7`).
+4. **`Start Time` (`start_time`):** Instante de inicio de la animación en milisegundos relativos al evento activo (`0` o vacío toma el inicio del efecto `fx.st` / `syl.start_time`).
+5. **`End Time` (`end_time`):** Instante de finalización de la animación (`fx.dur` o vacío toma la duración total del efecto).
+6. **`Alpha Tag` (`alpha_tag`):** [Modo `alpha`] Etiqueta ASS o Dark Tag multicanal de transparencia modulada (`\alpha`, canales individuales `\1a`, `\2a`, `\3a`, `\4a`, dobles `\12a`, `\13a`, `\14a`, `\23a`, `\24a`, `\34a`, triples `\123a`, `\124a`, `\134a`, `\234a` o cuádruple `\1234a`). Permite conmutar la visibilidad de canales específicos (por ejemplo, `\13a` modula relleno primario y borde simultáneamente sin afectar la sombra `\4a`). (Defecto: `"\alpha"`).
+7. **`Base Alpha` (`base`):** [Modo `alpha`] Valor base de visibilidad para los fotogramas durante su fase visible activa. Se expone como un cuadro de texto en línea sin etiqueta lateral, mostrando `"base"` como hint interno cuando está vacío. Admite enteros del `0` al `255` (donde `0` corresponde a `&H00&` para opacidad total), literales hexadecimales de estilo ASS (`&HXX&`, por ejemplo `&H80&` para semitransparencia al 50%) o fórmulas y expresiones evaluables. (Defecto: `"0"`).
 
 ### 8.2.1. Previsualizador Vectorial Interactivo y Controles de Reproducción (*Interactive Preview Card*)
 > [!TIP]
@@ -644,7 +648,7 @@ Imagen Ráster (Pillow / NumPy)          Enjambre Vectorial ASS
 ### 8.3. Puertos de Salida (*Outputs*)
 
 #### En Modo FBF:
-1. **`[1.1] Shape`:** Código vectorial ASSdraw del fotograma activo con prefijo `{\an7}` si no contiene tags previos.
+1. **`[1.1] Shape`:** Código vectorial ASSdraw puro del fotograma activo (geometría limpia sin forzar tags de alineación fijos, permitiendo su conexión directa a nodos de álgebra booleana como `Shape/Union & Divide`). Si el shape original contenía tags de estilo previos, se preservan intactos.
 2. **`[1.2] Frame`:** Número del fotograma actual evaluado (entero base 1: $1, 2, \dots, N$).
 3. **`[1.3] Frames List`:** Lista completa de todos los trazados vectoriales procesados.
 
@@ -655,8 +659,8 @@ Imagen Ráster (Pillow / NumPy)          Enjambre Vectorial ASS
 4. **`[1.4] Frames List`:** Lista completa de trazados vectoriales.
 
 #### Variables Expuestas en Contexto:
-* `{var_name}_i` / `an_i`: Índice del fotograma actual ($1 \dots K$).
-* `{var_name}_n` / `an_n`: Cantidad total de fotogramas únicos disponibles ($K$).
+* `an_i`: Índice del fotograma actual ($1 \dots K$).
+* `an_n` / `an_max`: Cantidad total de fotogramas únicos disponibles ($K$).
 * `an_total_cycles`: Cantidad de repeticiones completas del ciclo de animación dentro de la duración total.
 
 ---
@@ -672,8 +676,8 @@ Ciclo:           └─────── Ciclo 1 ──────────
 ```
 
 #### 8.4.1. Mapeo Cíclico en Modo FBF
-En cada iteración del bucle con iterador activo $j \ge 1$:
-$$\text{active\_idx} = (j - 1) \pmod K$$
+En cada iteración del bucle con iterador activo $\text{an\_i} \ge 1$:
+$$\text{active\_idx} = (\text{an\_i} - 1) \pmod K$$
 $$\text{Frame} = \text{active\_idx} + 1$$
 El total de cuadros generados para cubrir la duración total es:
 $$N_{\text{total}} = \left\lceil \frac{D}{\Delta t_{\text{frame}}} \right\rceil$$
@@ -691,24 +695,22 @@ $$\backslash\text{t}(t_1, t_2, \text{tag}\&H00\&)\backslash\text{t}(t_3, t_4, \t
 
 ### 8.5. Sinergias y Buenas Prácticas
 * **GIFs y Spritesheets con `Shape/IMG to Shape`:** Conectar la salida `Shapes Array` de un `IMG to Shape` directamente a la entrada `Shape list` de `Animation` para reproducir animaciones extraídas de GIFs cuadro a cuadro.
-* **Integración con `Loops/MaxLoop (fbf)`:** Configurar un `MaxLoop` en modo `fbf` para que itere automáticamente la cantidad exacta de cuadros requerida por la duración del karaoke.
+* **Generación FBF Autónoma:** Conectar `Functions/Animation` en modo `fbf` como generador de bucle hacia `System/Output`, iterando los fotogramas de la animación de forma independiente gobernados por `an_i` sin requerir bucles externos.
 
 ### 8.6. Ejemplo Práctico de Producción
-* **Ciclo Vectorial Fotograma a Fotograma con MaxLoop FBF:**
+* **Ciclo Vectorial Fotograma a Fotograma en Modo FBF:**
   Reproduciendo una secuencia cíclica de formas vectoriales (`circle`, `star`, `heart`) a 24 FPS ($41.7\text{ ms}$ por cuadro):
 
   ```
-  [Loops/MaxLoop: mode=fbf, step_ms=41.7] ──► j ────────────────────────┐
-                                                                         ▼
   [Functions/Animation: mode=FBF, step_ms=41.7] ──► Shape ──► Shape / Text ──► [System/Output]
      frames: "circle, star, heart"
   ```
 
   * **Resultado Vectorial Emitido en `Shape`:**
-    * **Iteración $j=1$:** Emite `{\an7}m 50 0 b 22 0 0 22 0 50 ...` (primitiva de círculo de librería).
-    * **Iteración $j=2$:** Emite `{\an7}m 38 36 l 0 36 l 31 59 ...` (estrella vectorial).
-    * **Iteración $j=3$:** Emite `{\an7}m 50 25 b 50 10 35 0 20 0 ...` (corazón vectorial).
-    * **Iteración $j=4$:** Retorna automáticamente al fotograma inicial ($1$), repitiendo el bucle de forma infinita y continua durante la vida del subtítulo.
+    * **Iteración $\text{an\_i}=1$:** Emite `m 50 0 b 22 0 0 22 0 50 ...` (primitiva de círculo de librería).
+    * **Iteración $\text{an\_i}=2$:** Emite `m 38 36 l 0 36 l 31 59 ...` (estrella vectorial).
+    * **Iteración $\text{an\_i}=3$:** Emite `m 50 25 b 50 10 35 0 20 0 ...` (corazón vectorial).
+    * **Iteración $\text{an\_i}=4$:** Retorna automáticamente al fotograma inicial ($1$), repitiendo el bucle de forma infinita y continua durante la vida del subtítulo.
 
 ---
 
@@ -838,7 +840,7 @@ En el instante $t$, los puntos intermedios generados en la pirámide de De Caste
 
 ### 10.2. Puertos de Entrada y Propiedades del Cuerpo (*Inputs & Properties*)
 1. **`Tags` (`tags`):** Etiquetas ASS adicionales que se inyectan dentro del bloque final (ej. `\1c&HFFFFFF&\blur2`).
-2. **`Shape (d)` (`shape`):** Cadena de trazado vectorial ASSdraw que define la ruta espacial del movimiento (ej. `"m 0 0 b 50 100 150 100 200 0"`).
+2. **`Shape (d)` (`shape`):** Cadena de trazado vectorial ASSdraw que define la ruta espacial del movimiento (ej. `"m 0 0 b 50 100 150 100 200 0"`). Acepta comandos ASSdraw puros o trazados con etiquetas de override previas; el nodo aísla la geometría limpia para calcular la longitud de arco y descarta las etiquetas de la curva guía para no contaminar la cinemática.
 3. **`Step (px)` (`step_px`):** Distancia máxima en píxeles entre dos muestras consecutivas de la trayectoria. Valores más pequeños aumentan la suavidad a costa de generar más tags `\t`. (Defecto: `7.5`).
 4. **`Anchor` (`anchor`):** Modo de centrado y anclaje espacial:
    * `"center"`: Centra la trayectoria en el punto medio de su caja delimitadora $(B_{\text{center}} = (0, 0))$.
@@ -908,7 +910,7 @@ Dado un conjunto de $M$ puntos muestreados $\{P_0, P_1, \dots, P_{M-1}\}$ con di
 3. **`Delta Y` (`dy`):** Desplazamiento cartesiano total en el eje Y (px).
 4. **`Offset X` (`ox`):** Desfase inicial fijo en el eje X (px).
 5. **`Offset Y` (`oy`):** Desfase inicial fijo en el eje Y (px).
-6. **`Shape (d)` (`shape` / `trajectory`):** Trazado vectorial ASSdraw opcional que reemplaza a $\Delta X, \Delta Y$ para seguir trayectorias curvas arbitrarias.
+6. **`Shape (d)` (`shape` / `trajectory`):** Trazado vectorial ASSdraw opcional que reemplaza a $\Delta X, \Delta Y$ para seguir trayectorias curvas arbitrarias. Admite trazados puros o figuras con etiquetas previas; extrae la geometría limpia descartando las etiquetas de la trayectoria y manteniendo íntegro el hack de maquetación por espaciadores.
 7. **`Points` (`points`):** Lista de puntos discretos de control de ruta.
 8. **`Step (px)` (`step_px`):** Paso de muestreo para trayectorias vectoriales. (Defecto: `7.5`).
 9. **`Start Time (t1)` (`t1`):** Tiempo de inicio de la traslación (ms). (Defecto: `0`).
@@ -1049,8 +1051,8 @@ Los valores numéricos se formatean como enteros limpios si no presentan parte f
 ---
 
 ### 13.2. Puertos de Entrada y Propiedades del Cuerpo (*Inputs & Properties*)
-1. **`Path / Origin` (`shape`):** Trazado vectorial base ASSdraw (`m ...`) o nombre de primitiva. Si se deja vacío o se pasa una cadena tipográfica, Pyxis extrae automáticamente el contorno del glifo del contexto activo (`syl` o `char`).
-2. **`Particle` (`particle_shape`):** Forma vectorial empleada como partícula individual (ej. `"Circle"`, `"Star"`, `"Heart"` o código ASSdraw directo). Si está vacío, utiliza un cuadrado básico de $2 \times 2$ px (`m 0 0 l 2 0 l 2 2 l 0 2`).
+1. **`Path / Origin` (`shape`):** Trazado vectorial base ASSdraw (`m ...`) o nombre de primitiva. Acepta trazados puros o figuras con etiquetas previas; el analizador aísla la geometría limpia descartando las etiquetas para el muestreo sin recurrir a fallbacks de fuentes. Si se deja vacío o se pasa una cadena tipográfica, Pyxis extrae automáticamente el contorno del glifo del contexto activo (`syl` o `char`).
+2. **`Particle` (`particle_shape`):** Forma vectorial empleada como partícula individual (ej. `"Circle"`, `"Star"`, `"Heart"` o código ASSdraw directo). Si la forma incluye etiquetas de estilo propias (ej. `{\1c&H0000FF&\bord1}`), Pyxis las preserva íntegramente al emitir la partícula en `Shp Out`. Si está vacío, utiliza un cuadrado básico de $2 \times 2$ px (`m 0 0 l 2 0 l 2 2 l 0 2`).
 3. **`Density` (`density`):** Paso métrico de muestreo en píxeles. En modo `Outline`, define la distancia entre partículas a lo largo del trazo; en modo `Inner Fill`, define la separación de la grilla de relleno. (Defecto: `5.0`).
 4. **`RedrawDist` (`redraw_dist`):** Longitud máxima de tramo o paso de redibujado vectorial (*redraw tract*). Subdivide segmentos rectilíneos extensos y discretiza curvas Bézier cúbicas (`b ...`) en una sucesión de mini-segmentos lineales (`l ...`) de longitud máxima `redraw_dist`. Cuando su valor es `0` (defecto canónico), preserva la geometría y curvas del trazado original intactas sin alterarlas. (Defecto: `0.0`).
 5. **`Seed` (`seed`):** Semilla determinista que gobierna la fluctuación estocástica de posición (*jitter*). Si `seed > 0`, activa la dispersión aleatoria de cada partícula en un rango uniforme proporcional a la densidad ($\pm 0.5 \times \text{density}\text{ px}$). Si `seed <= 0` (defecto: `0`), no se aplica dispersión alguna y los puntos se ubican en sus coordenadas exactas calculadas. (Defecto: `0`).
@@ -1082,7 +1084,7 @@ Los valores numéricos se formatean como enteros limpios si no presentan parte f
 ---
 
 ### 13.3. Puertos de Salida (*Outputs*)
-1. **`[1.1] Shp Out`:** Bloque combinado con la etiqueta de posición absoluta y la partícula vectorial: `{\pos(X, Y)}forma_particula`.
+1. **`[1.1] Shp Out`:** Bloque combinado con la etiqueta de posición absoluta y la partícula vectorial: `{\pos(X, Y)\etiquetas_particula}forma_particula`. Preserva cualquier estilo de color o borde definido en `Particle`.
 2. **`[1.2] \pos Tag`:** Etiqueta ASS de posición cartesiana puntual `\pos(X, Y)`.
 3. **`[1.3] X Arr`:** Coordenada cartesiana horizontal $X$ de la partícula activa (px).
 4. **`[1.4] Y Arr`:** Coordenada cartesiana vertical $Y$ de la partícula activa (px).
@@ -1194,11 +1196,12 @@ $$t_{\text{eased}} = \begin{cases} t^{\text{accel}} & \text{si } \text{accel} > 
 
 #### 14.3.2. Mecánicas por Tipo de Dato
 1. **Geometrías ASSdraw (*Morphing* Vectorial):**
-   * Extrae los contornos de ambas formas con Clipper2.
+   * Separa cualquier bloque de etiquetas ASS prefijado en $V_1$ y $V_2$ mediante `split_shape_and_tags` y descarta al 100% los tags entrantes, asegurando que la metamorfosis morfológica opere pura y exclusivamente sobre coordenadas vectoriales sin artefactos de estilo ni colapsos en la caché de Clipper2.
+   * Extrae los contornos limpios de ambas formas con Clipper2.
    * Re-muestrea ambos contornos a una cantidad idéntica de vértices $M = \max(|C_1|, |C_2|, 30)$ distribuidos uniformemente por longitud de arco.
    * Interpola linealmente cada par de vértices homólogos:
      $$P_k(t) = (1 - t_{\text{eased}}) \cdot P_{1,k} + t_{\text{eased}} \cdot P_{2,k}$$
-   * Reconstruye el trazado ASSdraw continuo resultante.
+   * Reconstruye y emite el trazado ASSdraw continuo resultante en geometría pura (`m ... l ...`).
 2. **Colores Hex / ASS:**
    * Descompone los canales $(R_1, G_1, B_1)$ y $(R_2, G_2, B_2)$ e interpola independientemente cada canal en espacio lineal.
 3. **Bloques de Etiquetas ASS (*Keyframing*):**
@@ -1247,7 +1250,7 @@ $$t_{\text{eased}} = \begin{cases} t^{\text{accel}} & \text{si } \text{accel} > 
 ---
 
 ### 15.2. Puertos de Entrada y Propiedades del Cuerpo (*Inputs & Properties*)
-1. **`Path / Shape` (`shape`):** Trazado vectorial ASSdraw que actúa como guía o riel espacial para el texto.
+1. **`Path / Shape` (`shape`):** Trazado vectorial ASSdraw que actúa como guía o riel espacial para el texto. Acepta trazados puros o splines con etiquetas previas; el analizador extrae la geometría limpia descartando las etiquetas de la curva para calcular arcos y rotaciones tangenciales sin colapsar.
 2. **`Offset` (`offset`):** Desfase de desplazamiento longitudinal sobre el trazo en píxeles (o progreso $0.0 \to 1.0$ en modo `Animated`). (Defecto: `"0"`).
 3. **`Extra Angle` (`extra_angle`):** Rotación angular adicional en grados sexagesimales que se suma algebraicamente al ángulo tangencial calculado. (Defecto: `"0"`).
 4. **`Subdivs` (`subdivs`):** Número de subdivisiones para el muestreo de curvas Bézier internas dentro del trazo guía. (Defecto: `"30"`).
@@ -1355,6 +1358,7 @@ Fuente TrueType/OpenType ───> FontVectorEngine (Win32 GDI 64x Subpixel) �
    * **`typographic` (Por defecto):** Origen centrado en el espacio de avance del texto, garantizando calce idéntico con `\pos(line.center, line.middle)` de libass.
    * **`ink`:** Origen centrado en el baricentro físico de la tinta, ideal para mallas morfológicas y explosión de partículas.
    * **`baseline` / `origin`:** Origen fijado en la línea base de la pluma tipográfica.
+4. **Compensación Anamórfica Automática:** Cuando la relación de aspecto del script ASS (`PlayResX / PlayResY`) difiere de la relación de aspecto de pantalla (`DAR`, p. ej. en resoluciones anamórficas como DVD 720x480 mostrado a 16:9), `FontVectorEngine` comprime o expande automáticamente las coordenadas horizontales $X$ y el ancho de avance (`advance_width`) mediante `video_x_correct_factor`. Esto asegura que los glifos convertidos a shape calcen píxel a píxel con las métricas de sílaba (`syl.width`, `syl.left`, `syl.center`) calculadas por Aegisub/libass, preservando estrictamente los tags de salida en `\fscx100\fscy100` sin introducir factores fraccionarios en los tags ASS.
 
 ---
 

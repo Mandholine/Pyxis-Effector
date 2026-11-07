@@ -35,7 +35,7 @@ Upon evaluating each Aegisub dialogue line, the node constructs contextual metri
   Calculates and exposes the unit's pixel Cartesian coordinates:
   `center`, `middle`, `left`, `right`, `top`, `bottom`, `width`, `height`, `x`, `y`.
 * **Timing intervals:**
-  Establishes boundaries $[t_{\text{start}}, t_{\text{end}}]$ and duration $t_{\text{dur}} = t_{\text{end}} - t_{\text{start}}$ for the active unit.
+  Establishes boundaries $[t_{\text{start}}, t_{\text{end}}]$ and duration $t_{\text{dur}} = t_{\text{end}} - t_{\text{start}}$ for the active unit. For sub-line units (`syl`, `char`, `word`), intrinsic properties (`syl.start_time`, `char.start_time`, etc.) represent immutable relative karaoke metrics (*ground truth*). When the signal reaches `System/Output`, these timestamps are projected onto the global video timeline by adding the appropriate offset ($\text{line.start\_time}$ for syllables and words; $\text{line.start\_time} + \text{syl.start\_time}$ for characters). If the user overrides `st` or `et` (via `Define Vars` or wiring into `Output`), the emitted event adopts those values sovereignly without destructively mutating the unit's relative metrics.
 * **Injected global variables:**
   `i`, `n`, `fx_i`, `fx_n`, alongside the active unit object (`syl`, `char`, `word`, or `line`).
 
