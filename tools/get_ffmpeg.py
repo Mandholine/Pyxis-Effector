@@ -86,11 +86,30 @@ def default_source(plat: str) -> dict:
     """Resolve the default hosted build metadata (URL and upstream SHA-256 digest) for ``plat``."""
     if plat in BTBN_TARGETS:
         key, ext = BTBN_TARGETS[plat]
-        filename = f"ffmpeg-n{BTBN_BRANCH}-latest-{key}-gpl-{BTBN_BRANCH}.{ext}"
         checksums = http_get(BTBN_BASE + "checksums.sha256").decode("utf-8", "replace")
-        digest = _first_hash(checksums, filename)
+
+        # 1. Prefer permanent master-latest asset which is always kept current in BtbN releases
+        preferred_fn = f"ffmpeg-master-latest-{key}-gpl.{ext}"
+        digest = _first_hash(checksums, preferred_fn)
+        filename = preferred_fn
+
+        # 2. Dynamic fallback: scan checksums.sha256 for release branch assets if master is unavailable
         if not digest:
-            raise SystemExit(f"{filename} not found in BtbN checksums.sha256; did the release branch change?")
+            for line in checksums.splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and re.fullmatch(r"[0-9a-fA-F]{64}", parts[0]):
+                    candidate = parts[-1].lstrip("*")
+                    if (
+                        f"-{key}-gpl" in candidate
+                        and candidate.endswith(f".{ext}")
+                        and "shared" not in candidate
+                    ):
+                        filename = candidate
+                        digest = parts[0].lower()
+                        break
+
+        if not digest:
+            raise SystemExit(f"Could not locate SHA-256 for {key} in BtbN checksums.sha256")
         return {
             "provider": "BtbN/FFmpeg-Builds",
             "url": BTBN_BASE + filename,
