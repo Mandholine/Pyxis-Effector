@@ -6726,7 +6726,7 @@ def main():
         if isinstance(saved_win_state, dict):
             w_val = saved_win_state.get("width")
             h_val = saved_win_state.get("height")
-            if isinstance(w_val, int) and isinstance(h_val, int) and w_val >= 800 and h_val >= 600:
+            if isinstance(w_val, int) and isinstance(h_val, int) and w_val >= 680 and h_val >= 420:
                 init_width = w_val
                 init_height = h_val
 
@@ -6746,6 +6746,7 @@ def main():
             js_api=api,
             width=init_width,
             height=init_height,
+            min_size=(680, 420),
             background_color="#121212",
         )
 

@@ -231,7 +231,7 @@ system_node(
 system_node(
     "Basics", "Concatenate", node_kind="data", 
     inputs=["In1", "In2"], outputs=["String"], color="#4B4B4B",
-    properties={"expandable": True, "separator": "nil"},
+    properties={"expandable": True, "mode": "basic", "separator": "nil"},
     widgets=[]
 )
 

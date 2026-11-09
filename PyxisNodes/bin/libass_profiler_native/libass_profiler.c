@@ -1,3 +1,7 @@
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 /**
  * libass_profiler - Native Subtitle Rendering Performance Benchmark
  * 

@@ -2469,6 +2469,133 @@ class ClipperEngine:
         return subpaths if subpaths else [raw_str]
 
     @staticmethod
+    def group_subpaths_by_holes(shape_str, bbox_mode: str = "marco", order: str = "79") -> list:
+        """Groups ASSdraw subpaths by associating internal hole contours with enclosing parent contours.
+
+        Identifies compound shapes with holes (e.g. counter-clockwise inner cutouts inside
+        clockwise outer perimeters) and preserves them as a single multi-contour drawing
+        ('m ... m ...'), while keeping disjoint subpaths as separate individual pieces.
+
+        Args:
+            shape_str (str | list): Input ASS vector drawing or list of drawings.
+            bbox_mode (str): Bounding box alignment mode ('marco', 'origin', 'center').
+            order (str): 2D spatial sorting order (Numpad, Radials, or stochastic).
+
+        Returns:
+            list[str]: Evaluated list of true shape pieces and compound figures with holes.
+        """
+        if not shape_str:
+            return []
+
+        if isinstance(shape_str, (list, tuple)):
+            res = []
+            for item in shape_str:
+                res.extend(ClipperEngine.group_subpaths_by_holes(item, bbox_mode=bbox_mode, order=order))
+            return res
+
+        if isinstance(shape_str, str) and shape_str.strip().startswith("[") and shape_str.strip().endswith("]"):
+            try:
+                import json
+                parsed = json.loads(shape_str)
+                if isinstance(parsed, list):
+                    return ClipperEngine.group_subpaths_by_holes(parsed, bbox_mode=bbox_mode, order=order)
+            except Exception:
+                pass
+
+        raw_str = str(shape_str).strip()
+        if not raw_str:
+            return []
+
+        parts = re.split(r'(?=(?:^|\s)m\s+-?\d)', raw_str)
+        tokens = [p.strip() for p in parts if p.strip()]
+        if len(tokens) <= 1:
+            return [raw_str]
+
+        parsed = []
+        for t in tokens:
+            cnt = ClipperEngine.parse_assdraw(t)
+            if not cnt or len(cnt[0]) < 3:
+                continue
+            c = cnt[0]
+            area = 0.0
+            n = len(c)
+            for i in range(n):
+                j = (i + 1) % n
+                area += c[i][0] * c[j][1] - c[j][0] * c[i][1]
+            area /= 2.0
+            bbox = ClipperEngine.get_bbox([c])
+            parsed.append({
+                'raw': t,
+                'cnt': c,
+                'area': area,
+                'abs_area': abs(area),
+                'bbox': bbox
+            })
+
+        if len(parsed) <= 1:
+            return [raw_str]
+
+        parent_map = {}
+        for i, child in enumerate(parsed):
+            c_min_x, c_min_y, c_max_x, c_max_y = child['bbox'][:4]
+            best_parent = None
+            best_parent_area = float('inf')
+            for j, parent in enumerate(parsed):
+                if i == j:
+                    continue
+                p_min_x, p_min_y, p_max_x, p_max_y = parent['bbox'][:4]
+                if c_min_x >= p_min_x - 1e-2 and c_max_x <= p_max_x + 1e-2 and c_min_y >= p_min_y - 1e-2 and c_max_y <= p_max_y + 1e-2:
+                    if (child['area'] > 0 and parent['area'] < 0) or (child['area'] < 0 and parent['area'] > 0):
+                        if parent['abs_area'] < best_parent_area:
+                            test_pt = child['cnt'][0]
+                            if pyclipper is not None:
+                                scaled_parent = [[int(x * 100), int(y * 100)] for x, y in parent['cnt']]
+                                scaled_pt = [int(test_pt[0] * 100), int(test_pt[1] * 100)]
+                                pip = pyclipper.PointInPolygon(scaled_pt, scaled_parent)
+                                if pip != 0:
+                                    best_parent = j
+                                    best_parent_area = parent['abs_area']
+                            else:
+                                best_parent = j
+                                best_parent_area = parent['abs_area']
+            if best_parent is not None:
+                parent_map[i] = best_parent
+
+        sub_entries = []
+        children_set = set(parent_map.keys())
+        for idx, item in enumerate(parsed):
+            if idx in children_set:
+                continue
+            holes = [parsed[c_idx]['raw'] for c_idx, p_idx in parent_map.items() if p_idx == idx]
+            combined = item['raw'] + (' ' + ' '.join(holes) if holes else '')
+            f_cnt = ClipperEngine.parse_assdraw(combined)
+            if f_cnt:
+                f_min_x, f_min_y, f_max_x, f_max_y, f_cx, f_cy, f_w, f_h = ClipperEngine.get_bbox(f_cnt)
+            else:
+                f_min_x = f_min_y = f_max_x = f_max_y = f_cx = f_cy = f_w = f_h = 0.0
+            sub_entries.append({
+                'figure': combined,
+                'min_x': f_min_x, 'min_y': f_min_y,
+                'max_x': f_max_x, 'max_y': f_max_y,
+                'cx': f_cx, 'cy': f_cy,
+                'w': f_w, 'h': f_h
+            })
+
+        sub_entries = ClipperEngine.sort_islands_by_order(sub_entries, order=order)
+
+        subpaths = []
+        bbox_clean = str(bbox_mode).lower()
+        for it in sub_entries:
+            sub = it['figure']
+            if "origin" in bbox_clean or "origen" in bbox_clean:
+                sub = ClipperEngine.translate_shape(sub, -it['min_x'], -it['min_y'])
+            elif "center" in bbox_clean or "centro" in bbox_clean:
+                sub = ClipperEngine.translate_shape(sub, -it['cx'], -it['cy'])
+            subpaths.append(sub)
+
+        return subpaths if subpaths else [raw_str]
+
+    @staticmethod
     def merge_multiple_shapes(shapes_list: list, fill_rule=None, scale: float = 10000.0) -> str:
         """
         Merges multiple vector shapes into a single clean closed geometry using Clipper CT_UNION.

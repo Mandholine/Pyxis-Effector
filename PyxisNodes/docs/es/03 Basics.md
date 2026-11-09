@@ -284,10 +284,10 @@ Dentro del mismo ciclo del iterador indicado, las llamadas repetidas devuelven e
 
 ---
 
-## 7. Nodo `Basics/Concatenate` (Concatenador Extensible y Modo Zip)
+## 7. Nodo `Basics/Concatenate` (Concatenador Extensible, Zip y Merge)
 
 * **Categoría Canónica:** `Basics` (UI: *Básicos / Concatenate*)
-* **Propósito:** Ensambla múltiples fragmentos de texto, etiquetas ASS o comandos vectoriales en una cadena unificada mediante separador configurable o entrelazado paralelo (modo `zip`).
+* **Propósito:** Ensambla múltiples fragmentos de texto, etiquetas ASS o comandos vectoriales mediante tres modos de operación (`basic`, `zip`, `merge`) seleccionables desde la cabecera, incorporando un selector contextual de separador en la esquina inferior derecha para el modo básico.
 
 ![Basics/Concatenate](img/concatenate.png)
 
@@ -296,21 +296,32 @@ Dentro del mismo ciclo del iterador indicado, las llamadas repetidas devuelven e
 * **Precedencia:** Si un puerto no tiene cable de enlace conectado, el nodo toma el valor escrito manualmente en su campo de texto inline.
 
 ### 7.2. Puertos de Salida (*Outputs*)
-1. **`[1.1] String`:** Cadena de texto resultante tras ensamblar las entradas activas.
+1. **`[1.1] String`:** Cadena de texto resultante tras ensamblar las entradas activas según el modo seleccionado.
 
-### 7.3. Modos de Separador (`separator`)
+### 7.3. Modos Operativos Principales (`mode`)
+La píldora en el extremo derecho de la barra de título conmuta entre los 3 modos canónicos:
 
-| Separador (`separator`) | Carácter Inyectado | Propósito / Caso de Uso |
+| Modo (`mode`) | Insignia UI | Descripción Algorítmica |
 | :--- | :---: | :--- |
-| `nil` / `none` / `""` | *(Ninguno)* | Unión continua directa (ej. fusión de tags en bloque `\pos(X,Y)\blur2\1c&HFFFFFF&`). |
-| `space` / `" "` | Espacio | Separación de palabras o secuencias de coordenadas en instrucciones ASSdraw (`m 0 0 l 10 10`). |
-| `comma` / `","` | Coma `,` | Construcción de listas delimitadas para nodos de paleta o arrays de valores. |
-| `semicolon` / `";"` | Punto y coma `;` | Agrupación de especificaciones de datos o scripts. |
-| `newline` / `"\n"` | Salto de línea | Generación de múltiples líneas de subtítulos o bloques de texto apilados. |
-| `zip` | *(Entrelazado)* | Algoritmo de combinación paralela posicional para listas de valores. |
+| `basic` | `BASIC` | Concatenación lineal de entradas intercalando el delimitador seleccionado en el cuerpo (`separator`). |
+| `zip` | `ZIP` | Entrelazado posicional elemento a elemento para generar listas de keyframes temporizados. |
+| `merge` | `MERGE` | Fusión geométrica de formas vectoriales ASSdraw (`m ... m ...`) con compensación de posición relativa (`\pos`) y despojo de tags intermedios. |
 
-### 7.4. Algoritmo de Entrelazado Paralelo (*Vector Zip*)
-Cuando `separator` se configura en `zip`, el nodo trata cada entrada como una lista de elementos separados por comas y los combina elemento a elemento:
+### 7.4. Selector de Separador en Modo Básico (`separator`)
+Cuando el nodo opera en modo `basic`, se dibuja un botón interactivo en la esquina inferior derecha (bajo el puerto de salida *Texto / String*). Al pulsarlo, cicla entre los delimitadores soportados:
+
+| Separador (`separator`) | Píldora UI | Carácter Inyectado | Caso de Uso Típico |
+| :--- | :---: | :---: | :--- |
+| `nil` | `NIL` | *(Ninguno)* | Unión continua directa (ej. `\pos(X,Y)\blur2\1c&HFFFFFF&`). |
+| `space` | `SPACE` | Espacio `" "` | Secuencias de palabras o comandos ASSdraw simples. |
+| `comma` | `,` | Coma `,` | Listas de parámetros y arrays de valores numéricos. |
+| `semicolon` | `;` | Punto y coma `;` | Agrupación de instrucciones o sentencias de scripting. |
+| `newline` | `ENTER` | Salto de línea `\n` | Subtítulos apilados en múltiples líneas de diálogo. |
+
+*Nota:* En los modos `zip` y `merge`, el botón de separador se oculta automáticamente del lienzo interactivo, ya que ambos modos gestionan su propia unión algorítmica sin requerir delimitadores textuales.
+
+### 7.5. Algoritmo de Entrelazado Paralelo (*Modo zip*)
+Cuando `mode` se configura en `zip`, el nodo trata cada entrada como una lista de elementos separados por comas y los combina elemento a elemento:
 
 $$\text{In}_1 = [A_1, A_2, A_3], \quad \text{In}_2 = [B_1, B_2, B_3] \implies \text{Out} = [A_1 B_1, \, A_2 B_2, \, A_3 B_3]$$
 
@@ -318,9 +329,20 @@ $$\text{In}_1 = [A_1, A_2, A_3], \quad \text{In}_2 = [B_1, B_2, B_3] \implies \t
 2. Si el campo inline de un puerto contiene un prefijo de tag (ej. `\1c`, `\blur`), lo antepone a cada token individual de esa lista.
 3. Empareja los elementos posición a posición hasta alcanzar la longitud de la lista más corta con más de un elemento, emitiendo una lista de keyframes fusionados delimitada por comas.
 
-### 7.5. Sinergias y Buenas Prácticas
-* **Ensamblado Limpio de Bloques ASS:** Configurar `separator` en `nil` para fusionar salidas de `MultiTag` o cadenas directas sin insertar espacios accidentales que puedan alterar el renderizado de libass.
-* **Construcción de Keyframes Vectorizados:** Emplear el modo `zip` combinando una lista de colores de `Functions/Color Gradient` con una lista de opacidades para alimentar secuencias de transformación por fotograma.
+### 7.6. Algoritmo de Fusión Vectorial (*Modo merge*)
+Cuando `mode` se configura en `merge`, el nodo actúa como un ensamblador geométrico de formas vectoriales ASSdraw:
+
+1. **Extracción y Limpieza de Trazados:** Analiza cada entrada para extraer exclusivamente las órdenes vectoriales (`m ...`, `b ...`, `l ...`), separando las etiquetas de sobreescritura ASS intermedias para evitar corromper la sintaxis del modo de dibujo (`\p1`).
+2. **Preservación del Encabezado de Estilo:** Conserva el bloque de etiquetas inicial de la primera entrada (ej. `{\pos(X,Y)\an7\p1}`) para que el trazado unificado mantenga su anclaje y propiedades visuales de referencia.
+3. **Desempaquetado Automático:** Si alguna entrada contiene una lista de formas (como colecciones delimitadas por comas o arrays JSON procedentes de troceadores vectoriales), las desempaqueta e integra individualmente en la secuencia.
+4. **Compensación Posicional Relativa:** Si una forma secundaria posee una etiqueta `\pos(x_2, y_2)` diferente a la posición base `\pos(x_1, y_1)` de la primera entrada, el motor calcula el desplazamiento diferencial $\Delta x = x_2 - x_1$, $\Delta y = y_2 - y_1$ y traslada los vértices de dicha forma mediante Clipper2 antes de anexarla. Esto asegura que la posición espacial relativa entre piezas permanezca intacta en un único lienzo compartido.
+5. **Sincronización de Animaciones Paralelas:** Cuando múltiples nodos generadores `Functions/Animation` convergen hacia `Concatenate` en modo `merge`, el motor evalúa las capas en sincronía estricta (*lockstep*) sobre la misma línea temporal de fotogramas (`an_i`), generando exactamente $N$ fotogramas combinados en lugar de un producto cartesiano anidado.
+6. **Publicación de Manifiesto Contextual (`_merge_manifest`):** Al operar en modo `merge`, el nodo registra en el contexto de evaluación (`context['_merge_manifest']`) la lista ordenada de dibujos limpios de cada entrada. Esto permite que nodos receptores como `Shape/Union & Divide` (en modo `Fusion (Tags)`, `split_mode: path`) conozcan los límites de procedencia de cada trazado y puedan discriminar de forma precisa entre contornos compuestos con agujeros interiores (preservándolos unidos) y piezas disjuntas (separándolas como elementos individuales).
+
+### 7.7. Sinergias y Buenas Prácticas
+* **Ensamblado Limpio de Bloques ASS:** Usar `mode: basic` con `separator: nil` para fusionar salidas de `MultiTag` o cadenas directas sin insertar espacios accidentales que puedan alterar el renderizado de libass.
+* **Construcción de Keyframes Vectorizados:** Emplear `mode: zip` combinando una lista de colores de `Functions/Color Gradient` con una lista de opacidades para alimentar secuencias de transformación por fotograma.
+* **Fusión de Animaciones y Capas Vectoriales:** Conectar múltiples salidas de animación hacia `Concatenate` en `mode: merge` para unificar siluetas multicapa en una sola línea ASS, o alimentar directamente `Shape/Union & Divide` (modo `fusion`, `split_mode: path`) para partición o coloreado independiente por sub-trazado sin duplicar geometrías.
 
 ---
 

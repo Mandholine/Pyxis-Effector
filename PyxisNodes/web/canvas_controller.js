@@ -357,8 +357,50 @@
             };
         }
         canvas.background_color = (window.PyxisThemeManager && window.PyxisThemeManager.THEMES && typeof window.PyxisThemeManager.getCurrentTheme === 'function' && window.PyxisThemeManager.THEMES[window.PyxisThemeManager.getCurrentTheme()]) ? window.PyxisThemeManager.THEMES[window.PyxisThemeManager.getCurrentTheme()].canvasBg : "#0d0f12";
-        window.addEventListener("resize", () => canvas.resize());
-        setTimeout(() => canvas.resize(), 50);
+
+        let _lastCanvasViewportW = (canvas && canvas.canvas) ? (canvas.canvas.offsetWidth || canvas.canvas.width || 0) : 0;
+        let _lastCanvasViewportH = (canvas && canvas.canvas) ? (canvas.canvas.offsetHeight || canvas.canvas.height || 0) : 0;
+        let _resizeRafId = null;
+
+        function handleViewportResize() {
+            _resizeRafId = null;
+            if (!canvas || !canvas.canvas) return;
+            const newW = canvas.canvas.offsetWidth || canvas.canvas.clientWidth || window.innerWidth || 0;
+            const newH = canvas.canvas.offsetHeight || canvas.canvas.clientHeight || Math.max(300, (window.innerHeight || 720) - 52);
+            const prevW = _lastCanvasViewportW;
+            const prevH = _lastCanvasViewportH;
+
+            canvas.resize();
+
+            if (newW > 0 && newH > 0) {
+                if (prevW > 0 && prevH > 0 && (prevW !== newW || prevH !== newH) && canvas.ds && canvas.ds.offset) {
+                    const scale = (canvas.ds.scale && canvas.ds.scale > 0) ? canvas.ds.scale : 1.0;
+                    const deltaW = newW - prevW;
+                    const deltaH = newH - prevH;
+                    canvas.ds.offset[0] = Math.round(canvas.ds.offset[0] + (deltaW / 2) / scale);
+                    canvas.ds.offset[1] = Math.round(canvas.ds.offset[1] + (deltaH / 2) / scale);
+                    canvas.setDirty(true, true);
+                    if (typeof canvas.draw === "function") canvas.draw(true, true);
+                }
+                _lastCanvasViewportW = newW;
+                _lastCanvasViewportH = newH;
+            }
+        }
+
+        function scheduleViewportResize() {
+            if (_resizeRafId !== null) return;
+            _resizeRafId = requestAnimationFrame(handleViewportResize);
+        }
+
+        window.addEventListener("resize", scheduleViewportResize);
+        if (typeof ResizeObserver !== "undefined") {
+            const workspaceEl = document.querySelector(".workspace") || (canvas && canvas.canvas);
+            if (workspaceEl) {
+                const viewportResizeObserver = new ResizeObserver(() => scheduleViewportResize());
+                viewportResizeObserver.observe(workspaceEl);
+            }
+        }
+        setTimeout(handleViewportResize, 50);
 
         window.addEventListener("pyxis:languageChanged", () => {
             if (window.PyxisI18n && typeof window.PyxisI18n.applyToDOM === "function") {
@@ -1187,42 +1229,80 @@
             _pyxis_pan_anim_id = requestAnimationFrame(step);
         }
 
+        function getGraphBoundingBox(targetGraph) {
+            const g = targetGraph || window.graph || graph;
+            if (!g || !g._nodes || g._nodes.length === 0) return null;
+            const titleHeight = LiteGraph.NODE_TITLE_HEIGHT || 30;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (let i = 0; i < g._nodes.length; ++i) {
+                const n = g._nodes[i];
+                if (!n) continue;
+                const sz = normalizeSize(n.size, 200, 100);
+                const isCollapsed = !!(n.flags && n.flags.collapsed);
+                const nw = isCollapsed ? (n._collapsed_width || sz[0]) : sz[0];
+                const nh = isCollapsed ? titleHeight : sz[1];
+                if (!n.pos || !Array.isArray(n.pos) || isNaN(n.pos[0]) || isNaN(n.pos[1])) {
+                    n.pos = [180 + i * 260, 220];
+                }
+                const leftX = n.pos[0];
+                const topY = n.pos[1] - titleHeight;
+                const rightX = leftX + nw;
+                const bottomY = n.pos[1] + nh;
+                if (leftX < minX) minX = leftX;
+                if (topY < minY) minY = topY;
+                if (rightX > maxX) maxX = rightX;
+                if (bottomY > maxY) maxY = bottomY;
+            }
+            if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) return null;
+            return {
+                minX,
+                minY,
+                maxX,
+                maxY,
+                width: Math.max(50, maxX - minX),
+                height: Math.max(50, maxY - minY),
+                centerX: (minX + maxX) / 2,
+                centerY: (minY + maxY) / 2
+            };
+        }
+
         function resetView(animated = true) {
             if (typeof closeAllActiveNodeEditors === "function") closeAllActiveNodeEditors(true);
             if (!canvas || !canvas.canvas) return;
             canvas.resize();
             const w = (canvas.canvas.offsetWidth > 0) ? canvas.canvas.offsetWidth : (canvas.canvas.width > 0 ? canvas.canvas.width : 1280);
             const h = (canvas.canvas.offsetHeight > 0) ? canvas.canvas.offsetHeight : (canvas.canvas.height > 0 ? canvas.canvas.height : 720);
+            _lastCanvasViewportW = w;
+            _lastCanvasViewportH = h;
             
             let targetOffset = [0, 0];
-            const targetScale = 1.0;
+            let targetScale = 1.0;
 
-            if (graph._nodes && graph._nodes.length > 0) {
-                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                for (let i = 0; i < graph._nodes.length; ++i) {
-                    let n = graph._nodes[i];
-                    let sz = normalizeSize(n.size, 200, 100);
-                    let nw = sz[0];
-                    let nh = sz[1];
-                    if (!n.pos || !Array.isArray(n.pos) || isNaN(n.pos[0]) || isNaN(n.pos[1])) {
-                        n.pos = [200 + i * 250, 250];
-                    }
-                    if (n.pos[0] < minX) minX = n.pos[0];
-                    if (n.pos[1] < minY) minY = n.pos[1];
-                    if (n.pos[0] + nw > maxX) maxX = n.pos[0] + nw;
-                    if (n.pos[1] + nh > maxY) maxY = n.pos[1] + nh;
-                }
-                let centerX = (minX + maxX) / 2;
-                let centerY = (minY + maxY) / 2;
-                targetOffset = [ Math.round((w / 2) - centerX), Math.round((h / 2) - centerY) ];
+            const bbox = getGraphBoundingBox(graph);
+            if (bbox) {
+                const padX = 60;
+                const padY = 68;
+                const availW = Math.max(120, w - padX * 2);
+                const availH = Math.max(120, h - padY * 2);
+                const fitScale = Math.min(availW / bbox.width, availH / bbox.height);
+                targetScale = Math.max(0.35, Math.min(1.0, fitScale));
+                targetOffset = [
+                    Math.round((w / 2) / targetScale - bbox.centerX),
+                    Math.round((h / 2) / targetScale - bbox.centerY)
+                ];
             }
 
             if (animated && typeof smoothPanAndZoomTo === "function") {
                 smoothPanAndZoomTo(targetOffset[0], targetOffset[1], targetScale, 800);
             } else {
+                if (typeof _pyxis_pan_anim_id !== "undefined" && _pyxis_pan_anim_id) {
+                    cancelAnimationFrame(_pyxis_pan_anim_id);
+                    _pyxis_pan_anim_id = null;
+                }
                 canvas.ds.scale = targetScale;
-                canvas.ds.offset = targetOffset;
+                canvas.ds.offset = new Float32Array([targetOffset[0], targetOffset[1]]);
                 canvas.setDirty(true, true);
+                if (typeof canvas.draw === "function") canvas.draw(true, true);
             }
         }
 
@@ -1239,8 +1319,36 @@
                 const activeCanvas = window.canvas || (typeof canvas !== "undefined" ? canvas : null);
                 if (activeCanvas && activeCanvas.ds) {
                     if (typeof activeCanvas.resize === "function") activeCanvas.resize();
+                    const w = (activeCanvas.canvas.offsetWidth > 0) ? activeCanvas.canvas.offsetWidth : (activeCanvas.canvas.width > 0 ? activeCanvas.canvas.width : 1280);
+                    const h = (activeCanvas.canvas.offsetHeight > 0) ? activeCanvas.canvas.offsetHeight : (activeCanvas.canvas.height > 0 ? activeCanvas.canvas.height : 720);
+                    _lastCanvasViewportW = w;
+                    _lastCanvasViewportH = h;
+                    const ox = Number(offset[0]);
+                    const oy = Number(offset[1]);
+                    const activeG = window.graph || graph;
+                    const bbox = getGraphBoundingBox(activeG);
+                    if (bbox) {
+                        const screenMinX = (bbox.minX + ox) * zoom;
+                        const screenMaxX = (bbox.maxX + ox) * zoom;
+                        const screenMinY = (bbox.minY + oy) * zoom;
+                        const screenMaxY = (bbox.maxY + oy) * zoom;
+                        const margin = 80;
+                        const isCompletelyOffscreen = (
+                            screenMaxX < margin ||
+                            screenMinX > w - margin ||
+                            screenMaxY < margin ||
+                            screenMinY > h - margin
+                        );
+                        const isClippedDefaultGraph = (
+                            activeG && activeG._nodes && activeG._nodes.length <= 3 &&
+                            (screenMinX < 12 || screenMaxX > w - 12 || screenMinY < 12 || screenMaxY > h - 12)
+                        );
+                        if (isCompletelyOffscreen || isClippedDefaultGraph) {
+                            return false;
+                        }
+                    }
                     activeCanvas.ds.scale = zoom;
-                    activeCanvas.ds.offset = new Float32Array([Number(offset[0]), Number(offset[1])]);
+                    activeCanvas.ds.offset = new Float32Array([ox, oy]);
                     activeCanvas.setDirty(true, true);
                     if (typeof activeCanvas.draw === "function") activeCanvas.draw(true, true);
                     return true;

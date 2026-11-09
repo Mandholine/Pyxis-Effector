@@ -284,10 +284,10 @@ Within the same cycle of the specified iterator, repeated queries return the ide
 
 ---
 
-## 7. Node `Basics/Concatenate` (Extensible Concatenator and Zip Mode)
+## 7. Node `Basics/Concatenate` (Extensible Concatenator, Zip, and Merge)
 
 * **Canonical Category:** `Basics` (UI: *Basics / Concatenate*)
-* **Purpose:** Assembles multiple text strings, ASS tags, or vector commands into a unified string via a configurable separator or parallel interleaving (`zip` mode).
+* **Purpose:** Assembles multiple text strings, ASS tags, or vector commands using three operational modes (`basic`, `zip`, `merge`) selectable from the header pill, with a contextual separator selector in the bottom-right corner for basic mode.
 
 ![Basics/Concatenate](img/concatenate.png)
 
@@ -296,21 +296,32 @@ Within the same cycle of the specified iterator, repeated queries return the ide
 * **Precedence:** If a port has no incoming connection wire, the node uses the value typed into its inline text field.
 
 ### 7.2. Output Ports (*Outputs*)
-1. **`[1.1] String`:** Resulting text string after joining active inputs.
+1. **`[1.1] String`:** Resulting text string after joining active inputs according to the active mode.
 
-### 7.3. Separator Modes (`separator`)
+### 7.3. Primary Operational Modes (`mode`)
+The pill on the right side of the title bar toggles between the 3 canonical modes:
 
-| Separator (`separator`) | Injected Character | Purpose / Use Case |
+| Mode (`mode`) | UI Badge | Algorithmic Description |
 | :--- | :---: | :--- |
-| `nil` / `none` / `""` | *(None)* | Seamless continuous join (e.g. merging tags into a block `\pos(X,Y)\blur2\1c&HFFFFFF&`). |
-| `space` / `" "` | Space | Word separation or coordinate lists in ASSdraw instructions (`m 0 0 l 10 10`). |
-| `comma` / `","` | Comma `,` | Constructing delimited lists for palette nodes or value arrays. |
-| `semicolon` / `";"` | Semicolon `;` | Grouping data parameters or script sequences. |
-| `newline` / `"\n"` | Line break | Generating multiline subtitles or stacked dialogue blocks. |
-| `zip` | *(Interleaved)* | Positional parallel combination algorithm for value lists. |
+| `basic` | `BASIC` | Sequential linear concatenation interleaving the separator chosen on the body (`separator`). |
+| `zip` | `ZIP` | Positional element-by-element pairing algorithm to assemble timed keyframe lists. |
+| `merge` | `MERGE` | Geometric fusion of ASSdraw vector shapes (`m ... m ...`) with relative position offsetting (`\pos`) and tag cleansing. |
 
-### 7.4. Parallel Interleaving Algorithm (*Vector Zip*)
-When `separator` is set to `zip`, the node treats each input as a comma-separated list and joins them element by element:
+### 7.4. Contextual Separator Selector in Basic Mode (`separator`)
+When the node operates in `basic` mode, an interactive button is drawn at the bottom-right corner (beneath the *String / Texto* output slot). Clicking it cycles through supported delimiters:
+
+| Separator (`separator`) | UI Badge | Injected Character | Typical Use Case |
+| :--- | :---: | :---: | :--- |
+| `nil` | `NIL` | *(None)* | Seamless continuous join (e.g. `\pos(X,Y)\blur2\1c&HFFFFFF&`). |
+| `space` | `SPACE` | Space `" "` | Word separation or simple ASSdraw coordinate sequences. |
+| `comma` | `,` | Comma `,` | Parameter lists and numeric arrays. |
+| `semicolon` | `;` | Semicolon `;` | Grouping script instructions or data declarations. |
+| `newline` | `ENTER` | Line break `\n` | Multiline stacked dialogue subtitle events. |
+
+*Note:* In `zip` and `merge` modes, the separator button is automatically hidden from the canvas, as both modes execute algorithmic joins that do not require textual delimiters.
+
+### 7.5. Parallel Interleaving Algorithm (*zip Mode*)
+When `mode` is set to `zip`, the node treats each input as a comma-separated list and joins them element by element:
 
 $$\text{In}_1 = [A_1, A_2, A_3], \quad \text{In}_2 = [B_1, B_2, B_3] \implies \text{Out} = [A_1 B_1, \, A_2 B_2, \, A_3 B_3]$$
 
@@ -318,9 +329,20 @@ $$\text{In}_1 = [A_1, A_2, A_3], \quad \text{In}_2 = [B_1, B_2, B_3] \implies \t
 2. If an input port's inline field contains a tag prefix (e.g. `\1c`, `\blur`), it prepends it to each individual token of that list.
 3. Pairs tokens position by position up to the length of the shortest list containing more than one item, outputting a comma-separated list of merged keyframes.
 
-### 7.5. Synergies and Best Practices
-* **Clean ASS Block Assembly:** Set `separator` to `nil` when combining outputs from `MultiTag` or literal strings to prevent unintended spaces that could affect libass rendering.
-* **Vectorised Keyframe Generation:** Use `zip` mode pairing a colour list from `Functions/Color Gradient` with an alpha list to drive complex per-frame transitions.
+### 7.6. Vector Shape Merging Algorithm (*merge Mode*)
+When `mode` is set to `merge`, the node operates as a geometric assembler for ASSdraw vector paths:
+
+1. **Path Extraction and Cleansing:** Analyses each input to isolate ASSdraw vector drawing instructions (`m ...`, `b ...`, `l ...`), stripping intermediate ASS override tags to prevent corrupting drawing mode (`\p1`) syntax.
+2. **Style Header Preservation:** Retains the opening override tag block of the first input (e.g. `{\pos(X,Y)\an7\p1}`) so that the consolidated path preserves its screen anchor and initial visual styling.
+3. **Automatic Unpacking:** If an input receives a collection of shapes (such as comma-separated lists or JSON arrays produced by vector slicers), it automatically unpacks and stitches them individually into the sequence.
+4. **Relative Position Offsetting:** If a subsequent shape carries a `\pos(x_2, y_2)` tag that differs from the base `\pos(x_1, y_1)` coordinates of the first input, the engine computes the offset vector $\Delta x = x_2 - x_1$, $\Delta y = y_2 - y_1$ and transforms the vertices of that shape via Clipper2 prior to appending. This guarantees that relative spatial alignment across separate elements remains perfectly intact within a unified coordinate space.
+5. **Synchronised Parallel Animations:** When multiple `Functions/Animation` generator nodes feed into `Concatenate` in `merge` mode, the engine evaluates layers in strict lockstep across identical frame timestamps (`an_i`), producing exactly $N$ merged frames rather than an unwanted Cartesian product.
+6. **Contextual Manifest Publishing (`_merge_manifest`):** In `merge` mode, the node records the ordered list of clean vector paths from each connected input into the evaluation context (`context['_merge_manifest']`). This enables downstream nodes such as `Shape/Union & Divide` (in `Fusion (Tags)` mode with `split_mode: path`) to recognise the provenance boundaries of each drawing, cleanly distinguishing compound figures with internal holes (preserving them unified) from disjoint pieces (separating them individually).
+
+### 7.7. Synergies and Best Practices
+* **Clean ASS Block Assembly:** Use `mode: basic` with `separator: nil` when combining outputs from `MultiTag` or literal strings to prevent unintended spaces that could affect libass rendering.
+* **Vectorised Keyframe Generation:** Use `mode: zip` pairing a colour list from `Functions/Color Gradient` with an alpha list to drive complex per-frame transitions.
+* **Multilayer Animation and Shape Merging:** Connect multiple animation branches into `Concatenate` set to `mode: merge` to consolidate multicolour layers into a single ASS dialogue event, or route the combined path directly into `Shape/Union & Divide` (mode `fusion`, `split_mode: path`) for sub-path partitioning or individual styling without duplicating geometry.
 
 ---
 

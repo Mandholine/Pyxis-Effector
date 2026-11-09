@@ -82,7 +82,7 @@ _KNOWN_GLOBAL_VARS: Set[str] = {
     "margins", "queueid", "queue_id", "queueorder", "queue_order",
     "ratio", "module", "prog", "progress", "order", "prev", "next", "is_first", "is_last",
     "has_prev", "has_next", "val", "value", "v", "v1", "v2", "accel", "step", "seed",
-    "return_raw",
+    "return_raw", "_merge_manifest",
     "p0", "p1", "p2", "p3", "color", "c", "r", "g", "b", "a",
     "color1", "color2", "color3", "color4",
     "alpha1", "alpha2", "alpha3", "alpha4",
@@ -1068,6 +1068,8 @@ class GraphValidator:
                     continue  # Interpolator expressions are already validated in _validate_interpolator_node
                 if node_type in ("System/Previewer", "Previewer") and prop_name in ("output_ids", "render_mode"):
                     continue  # Previewer UI pass-through properties (Type C)
+                if (node_type in ("Basics/Concatenate", "Concatenate") or node_title == "Concatenate") and prop_name in ("mode", "separator"):
+                    continue  # Concatenate mode and separator (Type C enum pass-through)
                 self._validate_string_property(node_id, node_title, category, prop_name, prop_val)
 
     def _validate_multitag_node(

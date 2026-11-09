@@ -441,10 +441,25 @@
 
 
         function setupConcatenateNode(node) {
-            node.properties = node.properties || { expandable: true, separator: "nil" };
+            node.properties = node.properties || { expandable: true, mode: "basic", separator: "nil" };
+            if (!node.properties.mode) node.properties.mode = "basic";
             if (!node.properties.separator) node.properties.separator = "nil";
             if (node.properties.separador !== undefined) delete node.properties.separador;
             node.widgets_up = true;
+
+            const CONCATENATE_MODES = window.CONCATENATE_MODES || [
+                { full: "basic", short: "BASIC" },
+                { full: "zip", short: "ZIP" },
+                { full: "merge", short: "MERGE" }
+            ];
+
+            const CONCATENATE_SEPARATORS = window.CONCATENATE_SEPARATORS || [
+                { full: "nil", short: "NIL" },
+                { full: "space", short: "SPACE" },
+                { full: "comma", short: "," },
+                { full: "semicolon", short: ";" },
+                { full: "newline", short: "ENTER" }
+            ];
 
             node.updateConcatenarInputs = function(targetCount) {
                 let count = targetCount;
@@ -526,7 +541,7 @@
                         if (tw > text_req_w) text_req_w = tw;
                     }
                 }
-                const right_space = getNodeRightReserve(this);
+                const right_space = Math.max(getNodeRightReserve(this), 72);
                 const boxW = Math.max(65, Math.ceil(text_req_w + 28));
                 const reqH = 30 + count * 23 + 22;
                 return [Math.max(base_w, 22 + boxW + right_space), reqH];
@@ -535,13 +550,15 @@
             node.onMouseDown = function(e, local_pos, canvas) {
                 if (local_pos) {
                     const nodeW = this.size[0];
+                    const nodeH = this.size[1];
 
+                    // 1. Header mode pill button click
                     if (local_pos[1] < 0) {
-                        const curSep = String(this.properties ? (this.properties.separator || "nil") : "nil");
-                        let curIdx = CONCATENAR_MODES.findIndex(m => m.full.toLowerCase() === curSep.toLowerCase() || m.short.toLowerCase() === curSep.toLowerCase());
+                        const curMode = String(this.properties ? (this.properties.mode || "basic") : "basic");
+                        let curIdx = CONCATENATE_MODES.findIndex(m => m.full.toLowerCase() === curMode.toLowerCase() || m.short.toLowerCase() === curMode.toLowerCase());
                         if (curIdx < 0) curIdx = 0;
 
-                        const btnText = CONCATENAR_MODES[curIdx].short;
+                        const btnText = CONCATENATE_MODES[curIdx].short;
                         const font = "bold 10px monospace";
                         if (canvas && canvas.ctx) canvas.ctx.font = font;
                         const textW = (canvas && canvas.ctx) ? canvas.ctx.measureText(btnText).width : 30;
@@ -549,10 +566,8 @@
                         const modeBtnX = nodeW - modeBtnW - 8;
 
                         if (local_pos[0] >= modeBtnX - 2 && local_pos[0] <= modeBtnX + modeBtnW + 2) {
-                            const nextIdx = (curIdx + 1) % CONCATENAR_MODES.length;
-                            const nextSep = CONCATENAR_MODES[nextIdx].full;
-                            this.properties.separator = nextSep;
-                            if (this.properties.separador !== undefined) delete this.properties.separador;
+                            const nextIdx = (curIdx + 1) % CONCATENATE_MODES.length;
+                            this.properties.mode = CONCATENATE_MODES[nextIdx].full;
                             if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                             if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("mode-cycle-concat");
                             if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
@@ -560,6 +575,7 @@
                         }
                     }
 
+                    // 2. Plus / Minus input slot buttons
                     if (local_pos[1] >= 4 && local_pos[1] <= 26) {
                         const plusBtnX = 22;
                         const plusBtnW = 26;
@@ -594,19 +610,49 @@
                             }
                         }
                     }
+
+                    // 3. Bottom-right contextual separator button (only in basic mode)
+                    const curMode = String(this.properties ? (this.properties.mode || "basic") : "basic").toLowerCase();
+                    if (curMode === "basic") {
+                        const curSep = String(this.properties ? (this.properties.separator || "nil") : "nil");
+                        let curSepIdx = CONCATENATE_SEPARATORS.findIndex(s => s.full.toLowerCase() === curSep.toLowerCase() || s.short.toLowerCase() === curSep.toLowerCase());
+                        if (curSepIdx < 0) curSepIdx = 0;
+
+                        const sepText = CONCATENATE_SEPARATORS[curSepIdx].short;
+                        const font = "bold 10px monospace";
+                        if (canvas && canvas.ctx) canvas.ctx.font = font;
+                        const textW = (canvas && canvas.ctx) ? canvas.ctx.measureText(sepText).width : 25;
+                        const sepBtnW = Math.max(48, textW + 12);
+                        const sepBtnH = 20;
+                        const sepBtnX = nodeW - sepBtnW - 12;
+                        const sepBtnY = Math.max(50, nodeH - sepBtnH - 8);
+
+                        if (local_pos[0] >= sepBtnX - 2 && local_pos[0] <= sepBtnX + sepBtnW + 2 &&
+                            local_pos[1] >= sepBtnY - 2 && local_pos[1] <= sepBtnY + sepBtnH + 2) {
+                            const nextSepIdx = (curSepIdx + 1) % CONCATENATE_SEPARATORS.length;
+                            this.properties.separator = CONCATENATE_SEPARATORS[nextSepIdx].full;
+                            if (this.properties.separador !== undefined) delete this.properties.separador;
+                            if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("separator-cycle-concat");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                            return true;
+                        }
+                    }
                 }
             };
 
             node.onDrawForeground = function(ctx) {
                 if (this.flags && this.flags.collapsed) return;
                 const nodeW = this.size[0];
+                const nodeH = this.size[1];
 
                 ctx.save();
 
-                const curSep = String(this.properties ? (this.properties.separator || "nil") : "nil");
-                let curIdx = CONCATENAR_MODES.findIndex(m => m.full.toLowerCase() === curSep.toLowerCase() || m.short.toLowerCase() === curSep.toLowerCase());
+                // 1. Header mode pill button (BASIC / ZIP / MERGE)
+                const curMode = String(this.properties ? (this.properties.mode || "basic") : "basic");
+                let curIdx = CONCATENATE_MODES.findIndex(m => m.full.toLowerCase() === curMode.toLowerCase() || m.short.toLowerCase() === curMode.toLowerCase());
                 if (curIdx < 0) curIdx = 0;
-                const btnText = CONCATENAR_MODES[curIdx].short;
+                const btnText = CONCATENATE_MODES[curIdx].short;
 
                 ctx.font = "bold 10px monospace";
                 const textW = ctx.measureText(btnText).width;
@@ -628,6 +674,7 @@
                 ctx.textAlign = "center";
                 ctx.fillText(btnText, modeBtnX + modeBtnW / 2, modeBtnY + 14);
 
+                // 2. Plus and minus buttons
                 const headerY = 6;
                 const btnH = 18;
                 const plusBtnX = 22;
@@ -660,6 +707,35 @@
                 ctx.fillStyle = canRemove ? "#fca5a5" : "#64748b";
                 ctx.fillText("-", minusBtnX + minusBtnW / 2, headerY + 13);
 
+                // 3. Contextual separator selector button in bottom-right (only in basic mode)
+                if (curMode.toLowerCase() === "basic") {
+                    const curSep = String(this.properties ? (this.properties.separator || "nil") : "nil");
+                    let curSepIdx = CONCATENATE_SEPARATORS.findIndex(s => s.full.toLowerCase() === curSep.toLowerCase() || s.short.toLowerCase() === curSep.toLowerCase());
+                    if (curSepIdx < 0) curSepIdx = 0;
+                    const sepText = CONCATENATE_SEPARATORS[curSepIdx].short;
+
+                    ctx.font = "bold 10px monospace";
+                    const sepTextW = ctx.measureText(sepText).width;
+                    const sepBtnW = Math.max(48, sepTextW + 12);
+                    const sepBtnH = 20;
+                    const sepBtnX = nodeW - sepBtnW - 12;
+                    const sepBtnY = Math.max(50, nodeH - sepBtnH - 8);
+
+                    ctx.fillStyle = "rgba(18, 22, 31, 0.85)";
+                    ctx.strokeStyle = "#0284c7";
+                    ctx.lineWidth = 1.2;
+                    ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(sepBtnX, sepBtnY, sepBtnW, sepBtnH, 10);
+                    else ctx.rect(sepBtnX, sepBtnY, sepBtnW, sepBtnH);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = "#38bdf8";
+                    ctx.textAlign = "center";
+                    ctx.fillText(sepText, sepBtnX + sepBtnW / 2, sepBtnY + 14);
+                }
+
+                // 4. Update widget and slot positions
                 const count = this.inputs ? this.inputs.length : 2;
                 for (let i = 0; i < count; i++) {
                     const widgetY = 30 + i * 23;

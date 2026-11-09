@@ -8105,7 +8105,12 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
                 shapes_list = [e['figure'] for e in sorted_entries]
         elif raw_shp:
             if split_mode_clean in ("path", "subpaths", "subpath"):
-                shapes_list.extend(ClipperEngine.decompose_shape_subpaths(raw_shp, bbox_mode="marco", order=order_val))
+                manifest = context.get('_merge_manifest') if isinstance(context, dict) else None
+                if manifest and isinstance(manifest, list):
+                    for entry in manifest:
+                        shapes_list.extend(ClipperEngine.group_subpaths_by_holes(entry, bbox_mode="marco", order=order_val))
+                else:
+                    shapes_list.extend(ClipperEngine.decompose_shape_subpaths(raw_shp, bbox_mode="marco", order=order_val))
             else:
                 shapes_list.extend(ClipperEngine.decompose_shape_islands(raw_shp, fill_rule=fill_clean, bbox_mode="marco", clean_self_intersect=auto_clean, order=order_val))
 

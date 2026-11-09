@@ -778,25 +778,35 @@
                 ]
             },
             "Concatenate": {
-                propKey: "separator",
+                propKey: "mode",
                 modes: [
+                    { full: "basic", short: "BASIC" },
+                    { full: "zip", short: "ZIP" },
+                    { full: "merge", short: "MERGE" }
+                ],
+                secondaryPropKey: "separator",
+                secondaryModes: [
                     { full: "nil", short: "NIL" },
                     { full: "space", short: "SPACE" },
                     { full: "comma", short: "," },
                     { full: "semicolon", short: ";" },
-                    { full: "newline", short: "ENTER" },
-                    { full: "zip", short: "ZIP" }
+                    { full: "newline", short: "ENTER" }
                 ]
             },
             "Basics/Concatenate": {
-                propKey: "separator",
+                propKey: "mode",
                 modes: [
+                    { full: "basic", short: "BASIC" },
+                    { full: "zip", short: "ZIP" },
+                    { full: "merge", short: "MERGE" }
+                ],
+                secondaryPropKey: "separator",
+                secondaryModes: [
                     { full: "nil", short: "NIL" },
                     { full: "space", short: "SPACE" },
                     { full: "comma", short: "," },
                     { full: "semicolon", short: ";" },
-                    { full: "newline", short: "ENTER" },
-                    { full: "zip", short: "ZIP" }
+                    { full: "newline", short: "ENTER" }
                 ]
             },
             "Kana Transliteration": [
@@ -6319,14 +6329,21 @@ remainingOldInputs.forEach(unmatchedInp => {
             }
         }
 
-        const CONCATENAR_MODES = [
-            { full: "nil", short: "NIL" },
-            { full: "espacio", short: "SPACE" },
-            { full: "coma", short: "," },
-            { full: "punto_coma", short: ";" },
-            { full: "salto", short: "ENTER" },
-            { full: "zip", short: "ZIP" }
+        const CONCATENATE_MODES = [
+            { full: "basic", short: "BASIC" },
+            { full: "zip", short: "ZIP" },
+            { full: "merge", short: "MERGE" }
         ];
+        window.CONCATENATE_MODES = CONCATENATE_MODES;
+
+        const CONCATENATE_SEPARATORS = [
+            { full: "nil", short: "NIL" },
+            { full: "space", short: "SPACE" },
+            { full: "comma", short: "," },
+            { full: "semicolon", short: ";" },
+            { full: "newline", short: "ENTER" }
+        ];
+        window.CONCATENATE_SEPARATORS = CONCATENATE_SEPARATORS;
 
 
         function createNodeConstructor(category, node_name, definition, is_system) {
@@ -6747,7 +6764,7 @@ remainingOldInputs.forEach(unmatchedInp => {
                 },
                 "Concatenate": {
                     "node_kind": "data", "inputs": ["In1", "In2"], "outputs": ["String"], "color": "#4B4B4B",
-                    "properties": { "expandable": true, "separator": "nil" },
+                    "properties": { "expandable": true, "mode": "basic", "separator": "nil" },
                     "widgets": []
                 },
                 "Dynamic Format": {
@@ -7094,23 +7111,8 @@ remainingOldInputs.forEach(unmatchedInp => {
                 canvas.resize();
             }
 
-            let cw = 1280;
-            let ch = 720;
-            if (canvas && canvas.canvas) {
-                if (canvas.canvas.width > 0) cw = canvas.canvas.width;
-                else if (canvas.canvas.offsetWidth > 0) cw = canvas.canvas.offsetWidth;
-                if (canvas.canvas.height > 0) ch = canvas.canvas.height;
-                else if (canvas.canvas.offsetHeight > 0) ch = canvas.canvas.offsetHeight;
-            } else if (window.innerWidth) {
-                cw = window.innerWidth;
-                ch = Math.max(400, window.innerHeight - 52);
-            }
-
-            const centerX = cw / 2;
-            const centerY = ch / 2;
-            const totalW = 720;
-            const startX = Math.round(centerX - (totalW / 2));
-            const startY = Math.round(centerY - 70);
+            const startX = 180;
+            const startY = 220;
 
             var node_loop = LiteGraph.createNode("Loops/Main Loop");
             if (node_loop) { node_loop.pos = [startX, startY]; graph.add(node_loop); }
@@ -7150,7 +7152,7 @@ remainingOldInputs.forEach(unmatchedInp => {
             if (typeof window.updateTemplateUIState === "function") window.updateTemplateUIState();
             if (typeof window.__pyxis_schedule_save === "function") window.__pyxis_schedule_save(50);
 
-            resetView();
+            resetView(false);
             canvas.draw(true, true);
             canvas.setDirty(true, true);
         }
@@ -7567,21 +7569,32 @@ remainingOldInputs.forEach(unmatchedInp => {
                     viewRestored = window.restoreGraphView(extraToRestore);
                 }
                 if (!viewRestored) {
-                    resetView();
-                    requestAnimationFrame(() => resetView());
-                    setTimeout(resetView, 100);
-                    setTimeout(resetView, 350);
+                    resetView(false);
+                    requestAnimationFrame(() => resetView(false));
+                    setTimeout(() => resetView(false), 100);
+                    setTimeout(() => resetView(false), 350);
                 } else {
                     requestAnimationFrame(() => {
                         if (window.restoreGraphView && extraToRestore) {
-                            window.restoreGraphView(extraToRestore);
+                            if (!window.restoreGraphView(extraToRestore)) {
+                                resetView(false);
+                            }
                         }
                     });
                     setTimeout(() => {
                         if (window.restoreGraphView && extraToRestore) {
-                            window.restoreGraphView(extraToRestore);
+                            if (!window.restoreGraphView(extraToRestore)) {
+                                resetView(false);
+                            }
                         }
                     }, 100);
+                    setTimeout(() => {
+                        if (window.restoreGraphView && extraToRestore) {
+                            if (!window.restoreGraphView(extraToRestore)) {
+                                resetView(false);
+                            }
+                        }
+                    }, 350);
                 }
                 window.__pyxis_graph_initialized = true;
                 if (window.PyxisUndoManager) {

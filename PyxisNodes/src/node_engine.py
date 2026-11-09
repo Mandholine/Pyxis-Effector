@@ -6181,10 +6181,10 @@ class GraphEngine:
         #   interleaving multi-frame keyframe lists.
         # -------------------------------------------------------------------------
         elif node_type in ["Basics/Concatenate", "Concatenate", "Functions/Concatenate", "Text/Concatenate"] or name == "Concatenate":
-            inputs_count =len (node .get ('inputs',[]))
-            sep =str (_get_prop_value (props ,"separator","nil")).strip ().lower ()
+            inputs_count = len(node.get('inputs', []))
+            mode = str(_get_prop_value(props, "mode", "basic")).strip().lower()
 
-            if sep in ("zip",):
+            if mode in ("zip",):
                 input_lists =[]
                 for i in range (inputs_count ):
                     inp_def =node .get ('inputs',[])[i ]if i <len (node .get ('inputs',[]))else {}
@@ -6230,6 +6230,77 @@ class GraphEngine:
 
                 return ", ".join (keyframes )
 
+            elif mode in ("merge",):
+                from nodes.shape_nodes import split_shape_and_tags
+                from clipper_engine import ClipperEngine
+
+                clean_drawings = []
+                base_pos = None
+                first_prefix = ""
+
+                for i in range(inputs_count):
+                    inp_def = node.get('inputs', [])[i] if i < len(node.get('inputs', [])) else {}
+                    has_link = inp_def.get('link') is not None
+                    wire_val = self.get_input_value(node, i, context) if has_link else None
+                    if not has_link or wire_val is None or str(wire_val).strip() == "":
+                        wire_val = props.get(f"In{i + 1}", props.get(f"in{i + 1}", ""))
+
+                    if wire_val is None or str(wire_val).strip() == "":
+                        continue
+
+                    raw_items = []
+                    if isinstance(wire_val, (list, tuple)):
+                        raw_items = list(wire_val)
+                    elif isinstance(wire_val, str) and wire_val.strip().startswith("[") and wire_val.strip().endswith("]"):
+                        try:
+                            import json
+                            parsed = json.loads(wire_val)
+                            if isinstance(parsed, list):
+                                raw_items = parsed
+                            else:
+                                raw_items = [wire_val]
+                        except Exception:
+                            raw_items = [wire_val]
+                    else:
+                        raw_items = [wire_val]
+
+                    for item in raw_items:
+                        if item is None or str(item).strip() == "":
+                            continue
+                        t_pfx, clean_shp = split_shape_and_tags(item)
+                        clean_shp = str(clean_shp or "").strip()
+                        if not clean_shp:
+                            continue
+
+                        if not first_prefix and t_pfx:
+                            first_prefix = str(t_pfx).strip()
+
+                        m_pos = re.search(r'\\pos\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)', str(t_pfx or ""))
+                        if m_pos:
+                            cur_pos = (float(m_pos.group(1)), float(m_pos.group(2)))
+                            if base_pos is None:
+                                base_pos = cur_pos
+                            else:
+                                dx = cur_pos[0] - base_pos[0]
+                                dy = cur_pos[1] - base_pos[1]
+                                if abs(dx) > 1e-4 or abs(dy) > 1e-4:
+                                    clean_shp = ClipperEngine.transform_shape(
+                                        clean_shp, mode="Offset", offset_x=dx, offset_y=dy
+                                    )
+
+                        clean_drawings.append(clean_shp)
+
+                if not clean_drawings:
+                    return ""
+
+                if isinstance(context, dict):
+                    context['_merge_manifest'] = list(clean_drawings)
+
+                merged_body = " ".join(clean_drawings)
+                if first_prefix:
+                    return f"{first_prefix}{merged_body}"
+                return merged_body
+
             else :
                 static_an_match = None
                 for j in range(inputs_count):
@@ -6248,6 +6319,7 @@ class GraphEngine:
                         val =props .get (f"In{i +1 }",props .get (f"in{i +1 }",""))
                     if val !="":
                         values .append (str (val ))
+                sep = str(_get_prop_value(props, "separator", "nil")).strip().lower()
                 if sep in ("nil","","none"):
                     sep_char =""
                 elif sep in ("space","espacio"," "):
@@ -6926,6 +6998,15 @@ class GraphEngine:
             )
             return
 
+        # If an animation timeline is already actively looping in context, parallel Animation nodes
+        # execute in lockstep across the same frames (an_i) rather than nesting multiplicatively.
+        if gen_type in ("Functions/Animation", "Animation") and context.get("_active_animation_loop"):
+            self._execute_subloops_recursive(
+                pipeline, idx + 1, context, output_node, active_unit,
+                layer_in, st_in, et_in, check_cancel, progress_tracker, progress_callback
+            )
+            return
+
         # Execute probe pass to ascertain dynamic iteration count (gen_n)
         probe_ctx = context.copy()
         probe_ctx[f"_gen_idx_{gen_id}"] = 1
@@ -6952,6 +7033,8 @@ class GraphEngine:
             if self.is_cancelled:
                 break
             iter_ctx = context.copy()
+            if gen_type in ("Functions/Animation", "Animation"):
+                iter_ctx["_active_animation_loop"] = True
             iter_ctx[f"_gen_idx_{gen_id}"] = gen_j
             for ik in spec["i"]:
                 iter_ctx[ik] = gen_j
@@ -7787,13 +7870,18 @@ class GraphEngine:
                     active_pipeline =self ._trace_generator_pipeline (out_node ,context =iter_ctx )
                     if not active_pipeline :
                         return 1 
-                    mult_acc =1 
+                    mult_acc = 1 
+                    seen_animation_gen = False
                     for gen_id ,_gen_node ,gen_type ,_stage in active_pipeline :
                         spec =self ._SUBLOOP_GENERATOR_SPECS .get (gen_type )
                         if not spec :
                             continue 
                         if any (ik in explicit_loop_vars for ik in spec ["i"]):
                             continue 
+                        if gen_type in ("Functions/Animation", "Animation"):
+                            if seen_animation_gen:
+                                continue
+                            seen_animation_gen = True
                         probe_ctx =iter_ctx .copy ()
                         probe_ctx [f"_gen_idx_{gen_id }"]=1 
                         for ik in spec ["i"]:
