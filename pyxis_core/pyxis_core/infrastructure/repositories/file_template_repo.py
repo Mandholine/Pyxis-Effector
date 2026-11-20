@@ -80,8 +80,19 @@ class FileTemplateRepository(ITemplateRepository):
         return tid
 
     def delete_template(self, identifier: str) -> bool:
-        target_path = os.path.join(self.user_dir, f"{identifier}.json")
-        if os.path.exists(target_path):
-            os.remove(target_path)
-            return True
+        """Elimina una plantilla del usuario por id o por nombre (las del sistema no se tocan)."""
+        if not os.path.isdir(self.user_dir):
+            return False
+        for fname in os.listdir(self.user_dir):
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(self.user_dir, fname)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+            if identifier in (os.path.splitext(fname)[0], str(data.get("id", "")), data.get("name")):
+                os.remove(path)
+                return True
         return False

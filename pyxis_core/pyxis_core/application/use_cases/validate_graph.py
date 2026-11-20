@@ -12,8 +12,7 @@ class ValidateGraphUseCase:
 
     def execute(self, request: ValidateGraphRequestDTO) -> ValidationResultDTO:
         try:
-            node_graph = GraphMapper.to_domain(request.graph)
-            graph_dict = GraphMapper.to_dict(node_graph)
+            graph_dict = GraphMapper.to_engine_dict(request.graph)
 
             from ...infrastructure.engine.graph import NodeValidator
 

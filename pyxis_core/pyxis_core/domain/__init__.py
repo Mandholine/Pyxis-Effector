@@ -20,6 +20,7 @@ from .entities import (
 )
 from .value_objects import Resolution, Timecode
 from .repositories import ISubtitleRepository, ITemplateRepository
+from . import services  # noqa: F401  (port de la libreria `ke` de Effector)
 
 __all__ = [
     "SubtitleScript",

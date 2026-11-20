@@ -9,6 +9,11 @@ from ...domain.value_objects.resolution import Resolution
 from ...domain.value_objects.timecode import Timecode
 
 
+def _ass_time(ms) -> str:
+    cs = int(round(float(ms) / 10.0))
+    return "%d:%02d:%02d.%02d" % (cs // 360000, cs // 6000 % 60, cs // 100 % 60, cs % 100)
+
+
 class SubtitleMapper:
     """Maps between raw ASS parser structures and SubtitleScript domain entities."""
 
@@ -124,6 +129,13 @@ class SubtitleMapper:
         raw_dialogues: List[Dict[str, Any]] = []
         for d in script.dialogues:
             raw_dialogues.append({
+                # el motor lee la linea ASS original: se reconstruye con el formato de `Dialogue:`
+                "raw": "%s: %d,%s,%s,%s,%s,%d,%d,%d,%s,%s" % (
+                    "Comment" if d.is_comment else "Dialogue", d.layer, _ass_time(d.start_time.milliseconds),
+                    _ass_time(d.end_time.milliseconds), d.style, d.actor, d.margin_l, d.margin_r, d.margin_v,
+                    d.effect, d.text),
+                "metrics": {},
+                "is_selected": True,
                 "layer": d.layer,
                 "start": d.start_time.milliseconds,
                 "end": d.end_time.milliseconds,

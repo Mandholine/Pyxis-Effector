@@ -12,6 +12,16 @@ class GraphMapper:
     """Maps between raw JSON/Dict payloads and NodeGraph domain entities."""
 
     @staticmethod
+    def to_engine_dict(raw_data: Union[Dict[str, Any], str]) -> Dict[str, Any]:
+        """Grafo listo para el motor. Si ya viene en el formato del motor (`links` + `inputs`/`outputs` por nodo, el que
+        guardan las plantillas y genera la app) se conserva TAL CUAL: normalizarlo a la entidad de dominio descarta los
+        enlaces y el motor recibiria nodos sin conexiones. Los grafos en formato de dominio (`connections`) se mapean."""
+        payload = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
+        if isinstance(payload, dict) and isinstance(payload.get("links"), list):
+            return payload
+        return GraphMapper.to_dict(GraphMapper.to_domain(payload))
+
+    @staticmethod
     def to_domain(raw_data: Union[Dict[str, Any], str]) -> NodeGraph:
         """Converts a dict or JSON string into a NodeGraph entity."""
         if isinstance(raw_data, str):

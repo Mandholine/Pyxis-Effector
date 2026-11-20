@@ -29,6 +29,34 @@ class ProcessGraphUseCase:
         if self._active_engine is not None:
             setattr(self._active_engine, "is_cancelled", True)
 
+    @staticmethod
+    def _parse_for_engine(request: ProcessGraphRequestDTO):
+        """(styles, dialogues, res_x, res_y, frame_dur) leidos con el ASSParser del motor, o None si no se puede."""
+        import os
+        import tempfile
+
+        from ...infrastructure.engine.subtitles.ass_parser import ASSParser
+
+        path, tmp = request.ass_path, None
+        try:
+            if not path and request.ass_content:
+                fd, tmp = tempfile.mkstemp(suffix=".ass")
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(request.ass_content)
+                path = tmp
+            if not path:
+                return None
+            res = ASSParser.read_file(path)
+            return res[0], res[1], res[2], res[3], res[4]
+        except Exception:
+            return None
+        finally:
+            if tmp:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
     def execute(
         self,
         request: ProcessGraphRequestDTO,
@@ -57,7 +85,7 @@ class ProcessGraphUseCase:
             # 2. Normalize and Map Graph
             _emit_progress(10, "Parsing node graph...")
             node_graph = GraphMapper.to_domain(request.graph)
-            graph_dict = GraphMapper.to_dict(node_graph)
+            graph_dict = GraphMapper.to_engine_dict(request.graph)
 
             # 3. Audio preprocessing if required
             audio_source = (
@@ -74,7 +102,6 @@ class ProcessGraphUseCase:
             if has_audio_node and audio_source:
                 try:
                     _emit_progress(15, "Preparing audio source...")
-                    from ..mappers.subtitle_mapper import SubtitleMapper
                     # Lazy import infrastructure engines for execution
                     from ...infrastructure.engine.audio import AudioPreprocessor, AudioEngine
 
@@ -89,6 +116,11 @@ class ProcessGraphUseCase:
 
             # 4. Prepare data for GraphEngine
             raw_styles, raw_dialogues, res_x, res_y, frame_duration = SubtitleMapper.to_engine_structures(script)
+            # El motor trabaja sobre las lineas ASS originales con sus metricas de karaoke (que el mapeo a entidades
+            # de dominio pierde): se leen con el parser del motor.
+            parsed = self._parse_for_engine(request)
+            if parsed is not None:
+                raw_styles, raw_dialogues, res_x, res_y, frame_duration = parsed
 
             from ...infrastructure.engine.graph import GraphEngine
 

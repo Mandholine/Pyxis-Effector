@@ -6248,6 +6248,8 @@ class GraphEngine :
         ):
             return
 
+        # El Queue ID es solo el grupo interno de ordenacion ("default" si no hay): NUNCA se escribe en el campo
+        # Actor de las lineas generadas, que debe quedar en blanco.
         queue_id = queue_id.strip() if queue_id else "default"
         queue_order = _to_int_or_default(queue_order, 0, context=context)
 
@@ -6283,7 +6285,7 @@ class GraphEngine :
             "start_time": st,
             "end_time": et,
             "style_name": pyxis_line.style_name,
-            "actor": queue_id,
+            "actor": "",
             "margin_l": pyxis_line.margin_l,
             "margin_r": pyxis_line.margin_r,
             "margin_v": pyxis_line.margin_v,
