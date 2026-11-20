@@ -1,0 +1,1520 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "template_id": "20261015_144516_8e03fdb3",
+    "name": "Example Simple Effect",
+    "comment": "This is the basic sample effect in Pyxis Effector.",
+    "created_at": "2026-10-15T14:45:16-03:00",
+    "updated_at": "2026-10-15T14:45:16-03:00",
+    "aegisub_version": "3.4.2",
+    "os": "Windows 10 (AMD64)",
+    "pyxis_engine_version": "1.1.4",
+    "node_count": 22,
+    "node_types": [
+      "Basics/Color Picker",
+      "Basics/Concatenate",
+      "Basics/Number",
+      "Functions/Color Gradient",
+      "Loops/Main Loop",
+      "System/Output",
+      "System/Previewer",
+      "Variables/Define Vars"
+    ],
+    "is_favorite": false
+  },
+  "graph": {
+    "last_node_id": 33,
+    "last_link_id": 51,
+    "nodes": [
+      {
+        "id": 19,
+        "type": "Basics/Number",
+        "pos": [
+          142.18300765625008,
+          1084.3950912812484
+        ],
+        "size": [
+          304,
+          62
+        ],
+        "flags": {},
+        "order": 0,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Number",
+            "type": "data",
+            "links": [
+              18
+            ],
+            "slot_index": 0,
+            "pos": [
+              294,
+              20
+            ]
+          }
+        ],
+        "properties": {
+          "value": "l.start_time + syl.start_time"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 16,
+        "type": "Functions/Color Gradient",
+        "pos": [
+          -118.25903642578126,
+          1301.2494522399895
+        ],
+        "size": [
+          232,
+          148
+        ],
+        "flags": {},
+        "order": 12,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "Progress (0-1)",
+            "type": 0,
+            "link": null,
+            "pos": [
+              10,
+              20
+            ],
+            "label": " ",
+            "property": "prog"
+          },
+          {
+            "name": "Color List",
+            "type": 0,
+            "link": 21,
+            "pos": [
+              10,
+              43
+            ],
+            "label": " ",
+            "property": "colors_str"
+          },
+          {
+            "name": "Total (N)",
+            "type": 0,
+            "link": null,
+            "pos": [
+              10,
+              66
+            ],
+            "label": " ",
+            "property": "total"
+          },
+          {
+            "name": "Accel",
+            "type": 0,
+            "link": null,
+            "pos": [
+              10,
+              89
+            ],
+            "label": " ",
+            "property": "accel"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "ASS Color",
+            "type": "data",
+            "links": [],
+            "slot_index": 0
+          },
+          {
+            "name": "Color List",
+            "type": "data",
+            "links": null
+          },
+          {
+            "name": "Tags",
+            "type": "data",
+            "links": [
+              26,
+              29
+            ],
+            "slot_index": 2
+          }
+        ],
+        "properties": {
+          "prog": "syl.i / syl.n",
+          "colors_str": "",
+          "total": "1",
+          "accel": "1.0",
+          "tag_type": "\\3c"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 13,
+        "type": "Basics/Concatenate",
+        "pos": [
+          1454,
+          756
+        ],
+        "size": [
+          205,
+          121
+        ],
+        "flags": {},
+        "order": 20,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "In1",
+            "type": "data",
+            "link": 43,
+            "label": " ",
+            "links": [],
+            "pos": [
+              10,
+              39
+            ]
+          },
+          {
+            "name": "In2",
+            "type": "data",
+            "link": 41,
+            "label": " ",
+            "links": [],
+            "pos": [
+              10,
+              62
+            ]
+          },
+          {
+            "name": "In3",
+            "type": "data",
+            "link": 42,
+            "label": " ",
+            "pos": [
+              10,
+              85
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "String",
+            "type": "data",
+            "links": [
+              30
+            ],
+            "slot_index": 0
+          }
+        ],
+        "properties": {
+          "expandable": true,
+          "separator": "coma",
+          "In1": "",
+          "In2": "",
+          "In3": ""
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 11,
+        "type": "Basics/Number",
+        "pos": [
+          486,
+          469
+        ],
+        "size": [
+          231,
+          62
+        ],
+        "flags": {},
+        "order": 1,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Number",
+            "type": "data",
+            "links": [
+              8
+            ],
+            "slot_index": 0,
+            "pos": [
+              221,
+              20
+            ]
+          }
+        ],
+        "properties": {
+          "value": "l.end_time + 15lo"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 30,
+        "type": "Basics/Number",
+        "pos": [
+          193.7816892929268,
+          -167.72200651782643
+        ],
+        "size": [
+          243,
+          62
+        ],
+        "flags": {},
+        "order": 2,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Number",
+            "type": "data",
+            "links": [
+              35
+            ],
+            "slot_index": 0,
+            "pos": [
+              233,
+              20
+            ]
+          }
+        ],
+        "properties": {
+          "value": "l.start_time + 15li"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 14,
+        "type": "Loops/Main Loop",
+        "pos": [
+          353,
+          914
+        ],
+        "size": [
+          255,
+          82
+        ],
+        "flags": {},
+        "order": 3,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Loop",
+            "type": "loop",
+            "links": [
+              28
+            ],
+            "slot_index": 0
+          },
+          {
+            "name": "Iterator (i)",
+            "type": "data",
+            "links": null
+          },
+          {
+            "name": "Total (N)",
+            "type": "data",
+            "links": null
+          }
+        ],
+        "properties": {
+          "iterator": "syl",
+          "blank_mode": "no_blank"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 20,
+        "type": "Basics/Number",
+        "pos": [
+          283,
+          1197
+        ],
+        "size": [
+          352,
+          62
+        ],
+        "flags": {},
+        "order": 4,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Number",
+            "type": "data",
+            "links": [
+              19
+            ],
+            "slot_index": 0,
+            "pos": [
+              342,
+              20
+            ]
+          }
+        ],
+        "properties": {
+          "value": "l.start_time + syl.end_time + depends"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 15,
+        "type": "System/Output",
+        "pos": [
+          1130.5744000000002,
+          1148.714899999998
+        ],
+        "size": [
+          200,
+          214
+        ],
+        "flags": {},
+        "order": 17,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "Loop / Domain",
+            "type": "loop",
+            "link": 27,
+            "label": "Loop / Domain",
+            "links": []
+          },
+          {
+            "name": "Layer",
+            "type": "data",
+            "link": 25,
+            "label": "Layer",
+            "links": []
+          },
+          {
+            "name": "Start Time",
+            "type": "data",
+            "link": 18,
+            "label": "Start Time"
+          },
+          {
+            "name": "End Time",
+            "type": "data",
+            "link": 19,
+            "label": "End Time"
+          },
+          {
+            "name": "Tags",
+            "type": "data",
+            "link": 20,
+            "label": "Tags"
+          },
+          {
+            "name": "Return",
+            "type": "data",
+            "link": null,
+            "label": "Return"
+          },
+          {
+            "name": "Queue ID",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "pos": [
+              10,
+              154
+            ]
+          },
+          {
+            "name": "Queue Order",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "pos": [
+              10,
+              177
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "Preview",
+            "type": "data",
+            "links": [
+              41
+            ],
+            "slot_index": 0
+          }
+        ],
+        "properties": {
+          "apply_to": "Style Lines",
+          "queue_id": "Highlight",
+          "queue_order": "2",
+          "origin_align": 5
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 3,
+        "type": "System/Output",
+        "pos": [
+          1152,
+          410
+        ],
+        "size": [
+          200,
+          214
+        ],
+        "flags": {},
+        "order": 18,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "Loop / Domain",
+            "type": "loop",
+            "link": 45,
+            "label": "Loop / Domain",
+            "links": []
+          },
+          {
+            "name": "Layer",
+            "type": "data",
+            "link": 50,
+            "label": "Layer",
+            "links": []
+          },
+          {
+            "name": "Start Time",
+            "type": "data",
+            "link": 10,
+            "label": "Start Time"
+          },
+          {
+            "name": "End Time",
+            "type": "data",
+            "link": 8,
+            "label": "End Time"
+          },
+          {
+            "name": "Tags",
+            "type": "data",
+            "link": 5,
+            "label": "Tags"
+          },
+          {
+            "name": "Return",
+            "type": "data",
+            "link": null,
+            "label": "Return"
+          },
+          {
+            "name": "Queue ID",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "pos": [
+              10,
+              154
+            ]
+          },
+          {
+            "name": "Queue Order",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "pos": [
+              10,
+              177
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "Preview",
+            "type": "data",
+            "links": [
+              42
+            ],
+            "slot_index": 0
+          }
+        ],
+        "properties": {
+          "apply_to": "Style Lines",
+          "queue_id": "Leadout",
+          "queue_order": "3",
+          "origin_align": 5
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 26,
+        "type": "System/Output",
+        "pos": [
+          1152,
+          -232
+        ],
+        "size": [
+          200,
+          214
+        ],
+        "flags": {},
+        "order": 19,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "Loop / Domain",
+            "type": "loop",
+            "link": 51,
+            "label": "Loop / Domain",
+            "links": []
+          },
+          {
+            "name": "Layer",
+            "type": "data",
+            "link": 34,
+            "label": "Layer",
+            "links": []
+          },
+          {
+            "name": "Start Time",
+            "type": "data",
+            "link": 35,
+            "label": "Start Time"
+          },
+          {
+            "name": "End Time",
+            "type": "data",
+            "link": 36,
+            "label": "End Time"
+          },
+          {
+            "name": "Tags",
+            "type": "data",
+            "link": 37,
+            "label": "Tags"
+          },
+          {
+            "name": "Return",
+            "type": "data",
+            "link": null,
+            "label": "Return"
+          },
+          {
+            "name": "Queue ID",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "pos": [
+              10,
+              154
+            ]
+          },
+          {
+            "name": "Queue Order",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "pos": [
+              10,
+              177
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "Preview",
+            "type": "data",
+            "links": [
+              43
+            ],
+            "slot_index": 0
+          }
+        ],
+        "properties": {
+          "apply_to": "Style Lines",
+          "queue_id": "Leadin",
+          "queue_order": "1",
+          "origin_align": 5
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 18,
+        "type": "Basics/Concatenate",
+        "pos": [
+          184,
+          1314
+        ],
+        "size": [
+          515,
+          167
+        ],
+        "flags": {},
+        "order": 14,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "In1",
+            "type": "data",
+            "link": 26,
+            "label": " ",
+            "links": [],
+            "pos": [
+              10,
+              39
+            ]
+          },
+          {
+            "name": "In2",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "links": [],
+            "pos": [
+              10,
+              62
+            ]
+          },
+          {
+            "name": "In3",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "pos": [
+              10,
+              85
+            ]
+          },
+          {
+            "name": "In4",
+            "type": "data",
+            "link": 29,
+            "label": " ",
+            "pos": [
+              10,
+              108
+            ]
+          },
+          {
+            "name": "In5",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "pos": [
+              10,
+              131
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "String",
+            "type": "data",
+            "links": [
+              20
+            ],
+            "slot_index": 0
+          }
+        ],
+        "properties": {
+          "expandable": true,
+          "separator": "nil",
+          "In1": "",
+          "In2": "\\1c&HFFFFFF&\\shad0\\bord2.5\\blur2\\t(0,100,\\bord4\\blur5\\3c&HC9FFFC&)",
+          "In3": "\\t(100,fx.dur-depends,\\bord2.5\\blur2",
+          "In4": "",
+          "In5": ")\\fad(0,depends)"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 7,
+        "type": "Basics/Concatenate",
+        "pos": [
+          205,
+          575
+        ],
+        "size": [
+          660,
+          98
+        ],
+        "flags": {},
+        "order": 15,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "In1",
+            "type": "data",
+            "link": 46,
+            "label": " ",
+            "links": [],
+            "pos": [
+              10,
+              39
+            ]
+          },
+          {
+            "name": "In2",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "links": [],
+            "pos": [
+              10,
+              62
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "String",
+            "type": "data",
+            "links": [
+              5
+            ],
+            "slot_index": 0
+          }
+        ],
+        "properties": {
+          "expandable": true,
+          "separator": "nil",
+          "In1": "",
+          "In2": "\\1c&HFFFFFF&\\shad0\\bord2.5\\blur2\\t(fx.dur-250,fx.dur,\\bord5\\blur7\\13c&HFFFFFF&)\\fad(0,200)"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 29,
+        "type": "Basics/Concatenate",
+        "pos": [
+          198.7816892929268,
+          -33.72200651782654
+        ],
+        "size": [
+          442,
+          121
+        ],
+        "flags": {},
+        "order": 16,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "In1",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "links": [],
+            "pos": [
+              10,
+              39
+            ]
+          },
+          {
+            "name": "In2",
+            "type": "data",
+            "link": 49,
+            "label": " ",
+            "links": [],
+            "pos": [
+              10,
+              62
+            ]
+          },
+          {
+            "name": "In3",
+            "type": "data",
+            "link": null,
+            "label": " ",
+            "pos": [
+              10,
+              85
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "String",
+            "type": "data",
+            "links": [
+              37
+            ],
+            "slot_index": 0
+          }
+        ],
+        "properties": {
+          "expandable": true,
+          "separator": "nil",
+          "In1": "\\13c&HFFFFFF&\\shad0\\bord5\\blur7\\t(0,250,\\bord2.5\\blur2",
+          "In2": "",
+          "In3": ")\\fad(200,0)"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 5,
+        "type": "Functions/Color Gradient",
+        "pos": [
+          -214,
+          226
+        ],
+        "size": [
+          244,
+          148
+        ],
+        "flags": {},
+        "order": 13,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "Progress (0-1)",
+            "type": 0,
+            "link": null,
+            "pos": [
+              10,
+              20
+            ],
+            "label": " ",
+            "property": "prog"
+          },
+          {
+            "name": "Color List",
+            "type": 0,
+            "link": 47,
+            "pos": [
+              10,
+              43
+            ],
+            "label": " ",
+            "property": "colors_str"
+          },
+          {
+            "name": "Total (N)",
+            "type": 0,
+            "link": null,
+            "pos": [
+              10,
+              66
+            ],
+            "label": " ",
+            "property": "total"
+          },
+          {
+            "name": "Accel",
+            "type": 0,
+            "link": null,
+            "pos": [
+              10,
+              89
+            ],
+            "label": " ",
+            "property": "accel"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "ASS Color",
+            "type": "data",
+            "links": [],
+            "slot_index": 0
+          },
+          {
+            "name": "Color List",
+            "type": "data",
+            "links": null
+          },
+          {
+            "name": "Tags",
+            "type": "data",
+            "links": [
+              46,
+              49
+            ],
+            "slot_index": 2
+          }
+        ],
+        "properties": {
+          "prog": "char.i / char.n",
+          "colors_str": "",
+          "total": "1",
+          "accel": "1.0",
+          "tag_type": "\\3c"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 10,
+        "type": "Basics/Number",
+        "pos": [
+          137,
+          438
+        ],
+        "size": [
+          292,
+          62
+        ],
+        "flags": {},
+        "order": 5,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Number",
+            "type": "data",
+            "links": [
+              10
+            ],
+            "slot_index": 0,
+            "pos": [
+              282,
+              20
+            ]
+          }
+        ],
+        "properties": {
+          "value": "l.start_time + syl.end_time"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 17,
+        "type": "Basics/Color Picker",
+        "pos": [
+          -560,
+          616
+        ],
+        "size": [
+          210,
+          124
+        ],
+        "flags": {},
+        "order": 6,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Color List",
+            "type": "data",
+            "links": [
+              21,
+              47
+            ],
+            "label": " ",
+            "slot_index": 0
+          },
+          {
+            "name": "Color 1",
+            "type": "data",
+            "links": null,
+            "label": " "
+          },
+          {
+            "name": "Color 2",
+            "type": "data",
+            "links": null,
+            "label": " "
+          },
+          {
+            "name": "Color 3",
+            "type": "data",
+            "links": null,
+            "label": " "
+          }
+        ],
+        "properties": {
+          "colors": [
+            "#D534D2",
+            "#DE6961",
+            "#D62DD3"
+          ],
+          "formats": [
+            "ASS",
+            "ASS",
+            "ASS"
+          ]
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 1,
+        "type": "Loops/Main Loop",
+        "pos": [
+          573,
+          -392
+        ],
+        "size": [
+          255,
+          82
+        ],
+        "flags": {},
+        "order": 7,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Loop",
+            "type": "loop",
+            "links": [
+              45,
+              51
+            ],
+            "slot_index": 0
+          },
+          {
+            "name": "Iterator (i)",
+            "type": "data",
+            "links": null
+          },
+          {
+            "name": "Total (N)",
+            "type": "data",
+            "links": null
+          }
+        ],
+        "properties": {
+          "iterator": "char",
+          "blank_mode": "no_blank"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 31,
+        "type": "Basics/Number",
+        "pos": [
+          486,
+          -193
+        ],
+        "size": [
+          304,
+          62
+        ],
+        "flags": {},
+        "order": 8,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Number",
+            "type": "data",
+            "links": [
+              36
+            ],
+            "slot_index": 0,
+            "pos": [
+              294,
+              20
+            ]
+          }
+        ],
+        "properties": {
+          "value": "l.start_time + syl.start_time"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 32,
+        "type": "Basics/Number",
+        "pos": [
+          589,
+          174
+        ],
+        "size": [
+          165,
+          62
+        ],
+        "flags": {},
+        "order": 9,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Number",
+            "type": "data",
+            "links": [
+              34,
+              50
+            ],
+            "slot_index": 0,
+            "pos": [
+              155,
+              20
+            ]
+          }
+        ],
+        "properties": {
+          "value": "7"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 22,
+        "type": "Basics/Number",
+        "pos": [
+          678,
+          897
+        ],
+        "size": [
+          165,
+          62
+        ],
+        "flags": {},
+        "order": 10,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "Number",
+            "type": "data",
+            "links": [
+              25
+            ],
+            "slot_index": 0,
+            "pos": [
+              155,
+              20
+            ]
+          }
+        ],
+        "properties": {
+          "value": "10"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 23,
+        "type": "Variables/Define Vars",
+        "pos": [
+          690,
+          1061
+        ],
+        "size": [
+          308,
+          106
+        ],
+        "flags": {},
+        "order": 11,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "In",
+            "type": "loop",
+            "link": 28
+          }
+        ],
+        "outputs": [
+          {
+            "name": "Out",
+            "type": "loop",
+            "links": [
+              27
+            ],
+            "slot_index": 0
+          }
+        ],
+        "properties": {
+          "variables": "depends = (150 if syl.i == syl.n else 0)"
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      },
+      {
+        "id": 4,
+        "type": "System/Previewer",
+        "pos": [
+          1743,
+          616
+        ],
+        "size": [
+          938,
+          363
+        ],
+        "flags": {
+          "resizable": true
+        },
+        "order": 21,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "Output",
+            "type": "data",
+            "link": 30,
+            "multiple": true,
+            "label": " ",
+            "links": [
+              30
+            ],
+            "pos": [
+              10,
+              23
+            ]
+          }
+        ],
+        "properties": {
+          "output_ids": "",
+          "preview_source": "base",
+          "is_pinned": false,
+          "previewer_width": 938,
+          "previewer_height": 363,
+          "viewport_zoom": 1,
+          "viewport_pan_x": 0,
+          "viewport_pan_y": 0,
+          "viewport_custom": false,
+          "preview_aspect_ratio": 3.8461538461538463
+        },
+        "color": "#A27AFF",
+        "bgcolor": "#181426",
+        "boxcolor": "#DDD6FE"
+      }
+    ],
+    "links": [
+      [
+        5,
+        7,
+        0,
+        3,
+        4,
+        "data"
+      ],
+      [
+        8,
+        11,
+        0,
+        3,
+        3,
+        "data"
+      ],
+      [
+        10,
+        10,
+        0,
+        3,
+        2,
+        "data"
+      ],
+      [
+        18,
+        19,
+        0,
+        15,
+        2,
+        "data"
+      ],
+      [
+        19,
+        20,
+        0,
+        15,
+        3,
+        "data"
+      ],
+      [
+        20,
+        18,
+        0,
+        15,
+        4,
+        "data"
+      ],
+      [
+        21,
+        17,
+        0,
+        16,
+        1,
+        "data"
+      ],
+      [
+        25,
+        22,
+        0,
+        15,
+        1,
+        "data"
+      ],
+      [
+        26,
+        16,
+        2,
+        18,
+        0,
+        "data"
+      ],
+      [
+        27,
+        23,
+        0,
+        15,
+        0,
+        "loop"
+      ],
+      [
+        28,
+        14,
+        0,
+        23,
+        0,
+        "loop"
+      ],
+      [
+        29,
+        16,
+        2,
+        18,
+        3,
+        "data"
+      ],
+      [
+        30,
+        13,
+        0,
+        4,
+        0,
+        "data"
+      ],
+      [
+        34,
+        32,
+        0,
+        26,
+        1,
+        "data"
+      ],
+      [
+        35,
+        30,
+        0,
+        26,
+        2,
+        "data"
+      ],
+      [
+        36,
+        31,
+        0,
+        26,
+        3,
+        "data"
+      ],
+      [
+        37,
+        29,
+        0,
+        26,
+        4,
+        "data"
+      ],
+      [
+        41,
+        15,
+        0,
+        13,
+        1,
+        "data"
+      ],
+      [
+        42,
+        3,
+        0,
+        13,
+        2,
+        "data"
+      ],
+      [
+        43,
+        26,
+        0,
+        13,
+        0,
+        "data"
+      ],
+      [
+        45,
+        1,
+        0,
+        3,
+        0,
+        "loop"
+      ],
+      [
+        46,
+        5,
+        2,
+        7,
+        0,
+        "data"
+      ],
+      [
+        47,
+        17,
+        0,
+        5,
+        1,
+        "data"
+      ],
+      [
+        49,
+        5,
+        2,
+        29,
+        1,
+        "data"
+      ],
+      [
+        50,
+        32,
+        0,
+        3,
+        1,
+        "data"
+      ],
+      [
+        51,
+        1,
+        0,
+        26,
+        0,
+        "loop"
+      ]
+    ],
+    "groups": [],
+    "config": {},
+    "extra": {
+      "canvas_zoom": 0.5050679529955183,
+      "canvas_offset": [
+        494.5571594238281,
+        -290.4759826660156
+      ],
+      "active_template_id": "20261014_204433_5d10de8a",
+      "active_template_name": "Example Simple Effect"
+    },
+    "version": 0.4
+  }
+}

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyxis-api"
+version = "0.1.0"
+description = "API FastAPI de Pyxis Effector: expone pyxis-core a la app Flutter y a Aegisub"
+requires-python = ">=3.9"
+license = "GPL-3.0-or-later"
+dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "pyxis-core"]
+
+[project.optional-dependencies]
+test = ["pytest", "httpx"]
+
+[project.scripts]
+pyxis-api = "pyxis_api.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["pyxis_api*"]
