@@ -336,7 +336,8 @@ def _pyxis_clip(*args):
     elif len(args) == 2:
         return f"\\clip({_pyxis_fmt_num(args[0])},{args[1]})"
     elif len(args) == 1:
-        return f"\\clip({args[0]})"
+        from clipper_engine import ClipperEngine
+        return ClipperEngine.format_clip_tag(str(args[0]), is_iclip=False, braces=False)
     return "\\clip()"
 
 
@@ -347,7 +348,8 @@ def _pyxis_iclip(*args):
     elif len(args) == 2:
         return f"\\iclip({_pyxis_fmt_num(args[0])},{args[1]})"
     elif len(args) == 1:
-        return f"\\iclip({args[0]})"
+        from clipper_engine import ClipperEngine
+        return ClipperEngine.format_clip_tag(str(args[0]), is_iclip=True, braces=False)
     return "\\iclip()"
 
 
@@ -494,63 +496,85 @@ def _pyxis_map_range(val, in_min, in_max, out_min, out_max):
 
 
 def _pyxis_ease_in(t):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Easing", operation="ease_in", t=t)
+    tf = max(0.0, min(1.0, float(t)))
+    return tf * tf
 
 
 def _pyxis_ease_out(t):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Easing", operation="ease_out", t=t)
+    tf = max(0.0, min(1.0, float(t)))
+    return 1.0 - (1.0 - tf) * (1.0 - tf)
 
 
 def _pyxis_ease_in_out(t):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Easing", operation="ease_in_out", t=t)
+    tf = max(0.0, min(1.0, float(t)))
+    if tf < 0.5:
+        return 2.0 * tf * tf
+    return 1.0 - math.pow(-2.0 * tf + 2.0, 2) / 2.0
 
 
 def _pyxis_cubic_in(t):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Easing", operation="cubic_in", t=t)
+    tf = max(0.0, min(1.0, float(t)))
+    return tf * tf * tf
 
 
 def _pyxis_cubic_out(t):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Easing", operation="cubic_out", t=t)
+    tf = max(0.0, min(1.0, float(t)))
+    return 1.0 - (1.0 - tf) ** 3
 
 
 def _pyxis_elastic(t):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Easing", operation="elastic", t=t)
+    tf = max(0.0, min(1.0, float(t)))
+    if tf <= 0.0:
+        return 0.0
+    if tf >= 1.0:
+        return 1.0
+    c4 = (2.0 * math.pi) / 3.0
+    return -math.pow(2.0, 10.0 * tf - 10.0) * math.sin((tf * 10.0 - 10.75) * c4)
 
 
 def _pyxis_bounce(t):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Easing", operation="bounce", t=t)
+    tf = max(0.0, min(1.0, float(t)))
+    n1 = 7.5625
+    d1 = 2.75
+    if tf < 1.0 / d1:
+        return n1 * tf * tf
+    elif tf < 2.0 / d1:
+        tf -= 1.5 / d1
+        return n1 * tf * tf + 0.75
+    elif tf < 2.5 / d1:
+        tf -= 2.25 / d1
+        return n1 * tf * tf + 0.9375
+    else:
+        tf -= 2.625 / d1
+        return n1 * tf * tf + 0.984375
 
 
 def _pyxis_back(t):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Easing", operation="back", t=t)
+    tf = max(0.0, min(1.0, float(t)))
+    c1 = 1.70158
+    c3 = c1 + 1.0
+    return c3 * (tf ** 3) - c1 * (tf ** 2)
 
 
 def _pyxis_sine_wave(t, freq=1.0, amp=1.0, offset=0.0):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Waves", operation="sine", t=t, freq=freq, amp=amp, Offset=offset)
+    return float(amp) * math.sin(2.0 * math.pi * float(freq) * float(t)) + float(offset)
 
 
 def _pyxis_square_wave(t, freq=1.0, amp=1.0, offset=0.0):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Waves", operation="square", t=t, freq=freq, amp=amp, Offset=offset)
+    val = math.sin(2.0 * math.pi * float(freq) * float(t))
+    return (float(amp) if val >= 0.0 else -float(amp)) + float(offset)
 
 
 def _pyxis_triangle_wave(t, freq=1.0, amp=1.0, offset=0.0):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Waves", operation="triangle", t=t, freq=freq, amp=amp, Offset=offset)
+    phase = (float(t) * float(freq)) % 1.0
+    val = 2.0 * abs(2.0 * phase - 1.0) - 1.0
+    return float(amp) * val + float(offset)
 
 
 def _pyxis_sawtooth_wave(t, freq=1.0, amp=1.0, offset=0.0):
-    from nodes.math_nodes import eval_math_node
-    return eval_math_node(category="Waves", operation="sawtooth", t=t, freq=freq, amp=amp, Offset=offset)
+    phase = (float(t) * float(freq)) % 1.0
+    val = 2.0 * phase - 1.0
+    return float(amp) * val + float(offset)
 
 
 def _pyxis_polar(angle, dist):
@@ -702,7 +726,8 @@ def _build_unit_lua_table(lua, unit_obj, line_tbl=None):
         "descent": getattr(unit_obj, "descent", 0.0),
         "extlead": getattr(unit_obj, "extlead", 0.0),
         "text": getattr(unit_obj, "text", ""),
-        "text_stripped": getattr(unit_obj, "text_stripped", getattr(unit_obj, "text", ""))
+        "text_stripped": getattr(unit_obj, "text_stripped", getattr(unit_obj, "text", "")),
+        "tags": getattr(unit_obj, "tags", "")
     }
     ink_obj = getattr(unit_obj, "ink", None)
     if ink_obj is not None:
@@ -1225,7 +1250,7 @@ def _sync_lua_globals_to_context(g, context, ctx_dict, initial_vals=None):
     if hasattr(g, "fx") and g.fx is not None:
         from node_engine import _apply_fx_setting
         lua_fx = g.fx
-        for field in ("pos_x", "x", "pos_y", "y", "org_x", "org_y", "start_time", "st", "time_start", "end_time", "et", "time_end", "dur", "duration", "time_dur", "align", "i", "n"):
+        for field in ("pos_x", "x", "pos_y", "y", "org_x", "org_y", "start_time", "st", "time_start", "end_time", "et", "time_end", "dur", "duration", "time_dur", "align", "layer", "i", "n"):
             try:
                 val = _get_val_safe(lua_fx, field)
                 if val is not None:
@@ -1690,15 +1715,6 @@ def execute_python_script(context, script, inputs_map):
         context["outputs"] = script_outputs
         if res_str and not res_str.startswith("[Err"):
             context["script_result"] = res_str
-            if '\\' in res_str or '{' in res_str:
-                existing = str(context.get("loop_tags") or context.get("tags") or "")
-                try:
-                    from node_engine import merge_ass_tags
-                    context["loop_tags"] = merge_ass_tags(existing, res_str)
-                    context["tags"] = context["loop_tags"]
-                except Exception:
-                    context["loop_tags"] = (existing + res_str).strip()
-                    context["tags"] = context["loop_tags"]
 
     return res_str
 
@@ -2047,9 +2063,12 @@ def execute_lua_script(context, script, inputs_map):
                 "margin_v": getattr(line_obj, "margin_v", 0),
                 "actor": getattr(line_obj, "actor", ""),
                 "effect": getattr(line_obj, "effect", ""),
+                "tags": getattr(line_obj, "tags", ""),
                 "i": getattr(line_obj, "i", 1),
                 "n": getattr(line_obj, "n", 1)
             }
+            from ass_kinetics import extract_line_org_props
+            line_dict.update(extract_line_org_props(line_obj))
             if line_ink_tbl is not None:
                 line_dict["ink"] = line_ink_tbl
             line_tbl = lua.table_from(line_dict)
@@ -2135,7 +2154,7 @@ def execute_lua_script(context, script, inputs_map):
         fx_i = ctx_dict.get("fx_i", ctx_dict.get("i", 1))
         fx_n = ctx_dict.get("fx_n", ctx_dict.get("n", 1))
 
-        g.fx = lua.table_from({
+        g._fx_data = lua.table_from({
             "pos_x": fx_pos_x,
             "pos_y": fx_pos_y,
             "x": fx_pos_x,
@@ -2153,6 +2172,99 @@ def execute_lua_script(context, script, inputs_map):
             "time_dur": fx_dur,
             "align": fx_align
         })
+        lua.execute("""
+        do
+            local _init_st = st
+            local _init_start_time = start_time
+            local _init_et = et
+            local _init_end_time = end_time
+            local _init_dur = dur
+            local _init_duration = duration
+            local _dur_override = nil
+            local _data = _fx_data
+            local function _resolve_st()
+                if st ~= _init_st and type(st) == "number" then return st end
+                if start_time ~= _init_start_time and type(start_time) == "number" then return start_time end
+                return rawget(_data, "start_time")
+            end
+            local function _resolve_et()
+                if et ~= _init_et and type(et) == "number" then return et end
+                if end_time ~= _init_end_time and type(end_time) == "number" then return end_time end
+                return rawget(_data, "end_time")
+            end
+            fx = setmetatable({}, {
+                __index = function(_, k)
+                    if k == "start_time" or k == "st" or k == "time_start" then
+                        return _resolve_st()
+                    elseif k == "end_time" or k == "et" or k == "time_end" then
+                        return _resolve_et()
+                    elseif k == "dur" or k == "duration" or k == "time_dur" then
+                        local st_changed = (st ~= _init_st) or (start_time ~= _init_start_time)
+                        local et_changed = (et ~= _init_et) or (end_time ~= _init_end_time)
+                        if _dur_override ~= nil and not st_changed and not et_changed then
+                            return _dur_override
+                        end
+                        if dur ~= _init_dur and type(dur) == "number" and not st_changed and not et_changed then
+                            return dur
+                        end
+                        if duration ~= _init_duration and type(duration) == "number" and not st_changed and not et_changed then
+                            return duration
+                        end
+                        local s = _resolve_st()
+                        local e = _resolve_et()
+                        if type(s) == "number" and type(e) == "number" then
+                            local d = e - s
+                            if d < 0 then d = 0 end
+                            return math.floor(d * 1000 + 0.5) / 1000
+                        end
+                        return rawget(_data, "dur")
+                    end
+                    return rawget(_data, k)
+                end,
+                __newindex = function(_, k, v)
+                    if k == "start_time" or k == "st" or k == "time_start" then
+                        rawset(_data, "start_time", v)
+                        rawset(_data, "st", v)
+                        rawset(_data, "time_start", v)
+                        st = v
+                        start_time = v
+                        _init_st = v
+                        _init_start_time = v
+                        _dur_override = nil
+                    elseif k == "end_time" or k == "et" or k == "time_end" then
+                        rawset(_data, "end_time", v)
+                        rawset(_data, "et", v)
+                        rawset(_data, "time_end", v)
+                        et = v
+                        end_time = v
+                        _init_et = v
+                        _init_end_time = v
+                        _dur_override = nil
+                    elseif k == "dur" or k == "duration" or k == "time_dur" then
+                        rawset(_data, "dur", v)
+                        rawset(_data, "duration", v)
+                        rawset(_data, "time_dur", v)
+                        _dur_override = v
+                        if type(v) == "number" then
+                            local s = _resolve_st()
+                            if type(s) == "number" then
+                                local new_et = math.floor((s + v) * 1000 + 0.5) / 1000
+                                rawset(_data, "end_time", new_et)
+                                rawset(_data, "et", new_et)
+                                rawset(_data, "time_end", new_et)
+                                et = new_et
+                                end_time = new_et
+                                _init_et = new_et
+                                _init_end_time = new_et
+                            end
+                        end
+                    else
+                        rawset(_data, k, v)
+                    end
+                end
+            })
+        end
+        """)
 
         g.result = ""
 
@@ -2270,15 +2382,6 @@ def execute_lua_script(context, script, inputs_map):
             context["outputs"] = script_outputs
             if res_str and not res_str.startswith("[Err"):
                 context["script_result"] = res_str
-                if '\\' in res_str or '{' in res_str:
-                    existing = str(context.get("loop_tags") or context.get("tags") or "")
-                    try:
-                        from node_engine import merge_ass_tags
-                        context["loop_tags"] = merge_ass_tags(existing, res_str)
-                        context["tags"] = context["loop_tags"]
-                    except Exception:
-                        context["loop_tags"] = (existing + res_str).strip()
-                        context["tags"] = context["loop_tags"]
 
         return res_str
     except Exception as e:

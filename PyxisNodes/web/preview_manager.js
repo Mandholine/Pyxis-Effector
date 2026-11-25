@@ -708,7 +708,15 @@
                             }
                         }
 
-                        if (!p || !p.isPinned) {
+                        // INVARIANT 2: Evaluate effective pinned state by checking both runtime player state
+                        // (`p.isPinned`) and pre-initialisation node properties (`node.properties.is_pinned`).
+                        // This prevents the 60 FPS loopSync RAF cycle from expanding a pinned node to >= 140px
+                        // while `createInNodePlayer` is awaiting asynchronous IPC responses.
+                        const isEffectivelyPinned = Boolean(
+                            (p && p.isPinned) ||
+                            ((!p || !p.isInitialized) && node.properties && node.properties.is_pinned)
+                        );
+                        if (!isEffectivelyPinned) {
                             const isCustomZoom = Boolean(
                                 (p && p.transformState && p.transformState.isCustom) ||
                                 (node.properties && node.properties.viewport_custom)
@@ -723,10 +731,11 @@
                                     ? Number(node.properties.previewer_height)
                                     : calcH);
                             const isResizingNode = Boolean(window.canvas && window.canvas.resizing_node === node);
-                            if (!isResizingNode) {
+                            const isAnimOrSwitching = Boolean(p && (p.isSwitchingSource || p.isResettingAnim));
+                            if (!isResizingNode && !isAnimOrSwitching) {
                                 if (!node.size || node.size[0] < minW || node.size[1] < 140 || (!isCustomZoom && Math.abs(node.size[1] - targetH) > 1.5)) {
                                     node.size = [curW, targetH];
-                                    if (node.properties) {
+                                    if (node.properties && !node.properties.is_pinned) {
                                         node.properties.previewer_width = curW;
                                         node.properties.previewer_height = targetH;
                                     }
@@ -735,10 +744,14 @@
                             }
                         } else {
                             const isResizingNode = Boolean(window.canvas && window.canvas.resizing_node === node);
-                            if (!isResizingNode) {
+                            const isAnimOrSwitching = Boolean(p && (p.isSwitchingSource || p.isResettingAnim));
+                            if (!isResizingNode && !isAnimOrSwitching) {
                                 const minSz = (typeof node.computeSize === 'function') ? node.computeSize() : [284, 54];
                                 const minW = Math.max(270, minSz ? minSz[0] : 284);
-                                const curW = (node.size && node.size[0]) ? node.size[0] : minW;
+                                const savedPinnedW = (node.properties && Number(node.properties.pinned_width) >= minW)
+                                    ? Number(node.properties.pinned_width)
+                                    : 0;
+                                const curW = (node.size && node.size[0]) ? node.size[0] : (savedPinnedW || minW);
                                 const targetW = Math.max(curW, minW);
                                 if (!node.size || node.size[0] < minW || node.size[1] !== 54) {
                                     node.size = [targetW, 54];
@@ -772,9 +785,13 @@
                             const normalizedRatio = nodeIdx / maxNodes;
                             const baseZ = 1000 + Math.floor(normalizedRatio * 40000);
 
+                            const isEffectivelyPinnedUpdated = Boolean(
+                                pUpdated.isPinned ||
+                                (!pUpdated.isInitialized && node.properties && node.properties.is_pinned)
+                            );
                             if (pUpdated.headerActions) {
                                 pUpdated.headerActions.style.display = '';
-                                pUpdated.headerActions.classList.toggle('is-pinned', Boolean(pUpdated.isPinned));
+                                pUpdated.headerActions.classList.toggle('is-pinned', isEffectivelyPinnedUpdated);
                                 pUpdated.headerActions.style.zIndex = String(baseZ + 2);
 
                                 let leftStart = 138;
@@ -782,12 +799,12 @@
                                     const wOutput = node.widgets.find(w => w && (w.name === "Output IDs" || w.property === "output_ids"));
                                     if (wOutput && typeof getInlineBoxWidth === 'function') {
                                         const wBox = getInlineBoxWidth(node, wOutput, "Output IDs", "output_ids", node.size[0]);
-                                        leftStart = pUpdated.isPinned ? (22 + wBox + 8) : Math.max(135, 22 + wBox + 10);
+                                        leftStart = isEffectivelyPinnedUpdated ? (22 + wBox + 8) : Math.max(135, 22 + wBox + 10);
                                     }
                                 }
                                 const headX = (node.pos[0] + leftStart + tx) * scale;
                                 const headY = (node.pos[1] + 8 + ty) * scale;
-                                const headW = pUpdated.isPinned ? 164 : Math.max(168, node.size[0] - leftStart - 10);
+                                const headW = isEffectivelyPinnedUpdated ? 164 : Math.max(168, node.size[0] - leftStart - 10);
                                 pUpdated.headerActions.style.left = headX + 'px';
                                 pUpdated.headerActions.style.top = headY + 'px';
                                 pUpdated.headerActions.style.width = headW + 'px';
@@ -797,7 +814,7 @@
                                 pUpdated.headerActions.style.opacity = '1';
                                 pUpdated.headerActions.style.pointerEvents = 'auto';
                             }
-                            if (pUpdated.wrapper && !pUpdated.isPinned) {
+                            if (pUpdated.wrapper && !isEffectivelyPinnedUpdated) {
                                 pUpdated.wrapper.style.display = '';
                                 pUpdated.wrapper.style.zIndex = pUpdated.hasFFmpegMissing ? String(baseZ + 30) : String(baseZ);
 
@@ -882,12 +899,28 @@
                 }
             }
 
+            function storePlayerPreviewInfo(p, source, info) {
+                if (!info) return;
+                const srcKey = source || "base";
+                window.PyxisPreviewConfig = info;
+                if (srcKey === "base") window.PyxisPreviewConfigBase = info;
+                if (srcKey === "aegisub") window.PyxisPreviewConfigAegi = info;
+                if (p) {
+                    if (!p.previewInfoBySource) p.previewInfoBySource = {};
+                    p.previewInfoBySource[srcKey] = info;
+                    p.previewInfo = info;
+                    p.hasAegisub = Boolean(info.has_aegisub);
+                }
+            }
+
             function getPreviewBounds(nodeIdStr) {
                 const p = activePlayers[nodeIdStr];
                 const curSource = (p && p.node && p.node.properties && p.node.properties.preview_source) || "base";
-                const pInfo = (curSource === "aegisub" && window.PyxisPreviewConfigAegi) 
-                    ? window.PyxisPreviewConfigAegi 
-                    : ((curSource === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig) || {};
+                const pPerNode = (p && p.previewInfoBySource && p.previewInfoBySource[curSource]) || (p && p.previewInfo);
+                const pGlobal = (curSource === "aegisub" && window.PyxisPreviewConfigAegi)
+                    ? window.PyxisPreviewConfigAegi
+                    : ((curSource === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig);
+                const pInfo = pPerNode || pGlobal || {};
 
                 const winStart = Math.max(0, Number(pInfo.clip_start_sec) || 0);
                 let winEnd = Number(pInfo.clip_end_sec);
@@ -1046,9 +1079,18 @@
             function forceJassubPausedRefresh(jassub) {
                 if (!jassub) return;
                 try {
-                    if (jassub._video && jassub._video.paused && typeof jassub.setCurrentTime === "function") {
-                        const curT = (jassub._video.currentTime || 0) + (jassub.timeOffset || 0);
-                        jassub.setCurrentTime(true, curT);
+                    if (jassub._video && jassub._video.paused) {
+                        const rawT = jassub._video.currentTime || 0;
+                        const curT = rawT + (jassub.timeOffset || 0);
+                        if (jassub._onDemandRender && typeof jassub._demandRender === "function") {
+                            jassub._demandRender({
+                                mediaTime: rawT,
+                                width: jassub._videoWidth || jassub._video.videoWidth || 1920,
+                                height: jassub._videoHeight || jassub._video.videoHeight || 1080
+                            });
+                        } else if (typeof jassub.setCurrentTime === "function") {
+                            jassub.setCurrentTime(true, curT);
+                        }
                     }
                 } catch (e) {}
             }
@@ -1080,7 +1122,7 @@
                 }, delayMs);
             }
 
-            async function updateJassubTrack(jassub, assText, optNodeId, skipRawSave = false) {
+            async function updateJassubTrack(jassub, assText, optNodeId, skipRawSave = false, deferRender = false) {
                 if (!jassub || !assText) return;
                 try {
                     logPlayer("updateJassubTrack start, assText len: " + assText.length);
@@ -1100,7 +1142,7 @@
                     const activeMode = getNodeRenderMode(resolvedPlayer ? resolvedPlayer.node : optNodeId);
                     if (resolvedPlayer) {
                         syncJassubDomPlacement(resolvedPlayer, activeMode, jassub);
-                        if (typeof resolvedPlayer.applyTransform === "function") {
+                        if (!deferRender && typeof resolvedPlayer.applyTransform === "function") {
                             try { resolvedPlayer.applyTransform(); } catch (e) {}
                         }
                     }
@@ -1122,83 +1164,59 @@
                         jassub.setTrackByUrl(blobUrl);
                         logPlayer("setTrackByUrl executed successfully (" + activeMode + ").");
                     }
-                    if (typeof jassub.resize === 'function') {
-                        try { jassub.resize(0, 0, 0, 0, true); } catch (e) {}
+                    if (!deferRender) {
+                        if (typeof jassub.resize === 'function') {
+                            try { jassub.resize(0, 0, 0, 0, true); } catch (e) {}
+                        }
+                        forceJassubPausedRefresh(jassub);
                     }
-                    forceJassubPausedRefresh(jassub);
                 } catch (e) {
                     console.warn("[Pyxis JASSUB track update warning]", e);
                     logPlayer("updateJassubTrack exception: " + String(e));
                 }
             }
 
-            function convertFontEntryToUint8Array(fontEntry) {
-                if (!fontEntry) return null;
-                let dataUrl = "";
-                if (typeof fontEntry === "string") {
-                    dataUrl = fontEntry;
-                } else if (typeof fontEntry === "object") {
-                    dataUrl = fontEntry.data || fontEntry.data_url || "";
-                }
-                if (!dataUrl || typeof dataUrl !== "string") return null;
-                const commaIdx = dataUrl.indexOf(",");
-                if (commaIdx === -1) return null;
-                try {
-                    const base64Str = dataUrl.substring(commaIdx + 1);
-                    const binStr = window.atob(base64Str);
-                    const len = binStr.length;
-                    const bytes = new Uint8Array(len);
-                    for (let i = 0; i < len; i++) {
-                        bytes[i] = binStr.charCodeAt(i);
-                    }
-                    return bytes;
-                } catch (e) {
-                    console.error("[Pyxis Font Decode Error]", e);
-                    return null;
-                }
-            }
-
             function injectFontsIntoJassub(jassub, fontsMap) {
                 if (!jassub) {
-                    console.error("[Pyxis Font Chivato] ERROR: injectFontsIntoJassub llamado sin instancia de JASSUB!");
+                    console.error("[Pyxis Font] ERROR: injectFontsIntoJassub called without JASSUB instance");
                     return;
                 }
                 if (!fontsMap || typeof fontsMap !== "object") {
-                    console.warn("[Pyxis Font Chivato] AVISO: injectFontsIntoJassub llamado con fontsMap vacío/inválido:", fontsMap);
+                    console.warn("[Pyxis Font] WARNING: injectFontsIntoJassub called with empty/invalid fontsMap:", fontsMap);
                     return;
                 }
                 window.__pyxis_last_fonts_map = fontsMap;
-                const fontKeys = Object.keys(fontsMap);
-                console.log("[Pyxis Font Loader] Injecting fonts into JASSUB. Total keys:", fontKeys.length, fontKeys);
                 if (!window.__pyxis_injected_fonts) {
                     window.__pyxis_injected_fonts = new Set();
                 }
                 const processed = new Set();
                 let successCount = 0;
                 for (const [fName, fEntry] of Object.entries(fontsMap)) {
-                    const cacheKey = (typeof fEntry === 'object' && fEntry.path) ? fEntry.path : fName.toLowerCase();
+                    const cacheKey = (typeof fEntry === 'object' && fEntry && fEntry.path) ? fEntry.path : fName.toLowerCase();
                     if (processed.has(cacheKey) || window.__pyxis_injected_fonts.has(cacheKey)) continue;
                     processed.add(cacheKey);
 
-                    const u8 = convertFontEntryToUint8Array(fEntry);
-                    if (!u8) {
-                        console.error("[Pyxis Font Loader] ERROR decoding binary for font '" + fName + "'. Entry:", fEntry);
+                    const fontUrl = (typeof fEntry === "string") ? fEntry : (fEntry && fEntry.http_url);
+                    if (!fontUrl || typeof fontUrl !== "string") {
+                        console.error("[Pyxis Font Loader] ERROR missing HTTP URL for font '" + fName + "'. Entry:", fEntry);
                         continue;
                     }
                     try {
                         if (typeof jassub.addFont === "function") {
-                            jassub.addFont(u8);
+                            jassub.addFont(fontUrl);
                             window.__pyxis_injected_fonts.add(cacheKey);
                             successCount++;
-                            logPlayer("Font Loader -> Success addFont in JASSUB: " + fName + " (" + u8.length + " bytes)");
+                            logPlayer("Font Loader -> Queued HTTP font in JASSUB: " + fName);
                         } else {
-                            console.error("[Pyxis Font Loader] ERROR: jassub.addFont is NOT a function!");
+                            console.error("[Pyxis Font Loader] ERROR: jassub.addFont is NOT a function");
                         }
                     } catch (e) {
                         console.error("[Pyxis Font Loader] EXCEPTION invoking jassub.addFont for " + fName + ":", e);
                     }
                 }
-                console.log("[Pyxis Font Loader] Injection summary: " + successCount + " binary fonts loaded into libass.");
+                if (successCount > 0) {
+                    setTimeout(() => forceJassubPausedRefresh(jassub), 80);
+                }
             }
 
             function attachPyxisDelayTooltip(el, tooltipText, delayMs = 1000) {
@@ -1448,6 +1466,26 @@
 
                     const topProgressBar = topProgress.querySelector('.pyxis-player-top-progress-bar');
 
+                    // INVARIANT 2: Hydrate `isPinned`, `originalSize`, and `savedFloating*` synchronously
+                    // on `activePlayers[nodeIdStr]` at millisecond 0 (before the first `await`).
+                    // This guarantees that neither the 60 FPS `updateInNodePlayersPosition` loop nor
+                    // any `syncWidgetsToProperties` call during cold start or template reload can
+                    // mistake an initializing pinned node for an unpinned node.
+                    const initialIsPinned = Boolean(node.properties && node.properties.is_pinned);
+                    const initialAspect = getNodePreviewAspectRatio(node);
+                    const initialMinW = getDynamicMinPreviewWidth(initialAspect);
+                    const savedUnpinnedW = (node.properties && Number(node.properties.previewer_width) >= initialMinW)
+                        ? Number(node.properties.previewer_width)
+                        : ((node.size && !initialIsPinned && node.size[0] >= initialMinW) ? node.size[0] : Math.max(initialMinW, 520));
+                    const savedUnpinnedH = (node.properties && Number(node.properties.previewer_height) >= 140)
+                        ? Number(node.properties.previewer_height)
+                        : ((node.size && !initialIsPinned && node.size[1] >= 140)
+                            ? node.size[1]
+                            : calculatePrevisualizadorNodeHeight(savedUnpinnedW, initialAspect));
+                    if (initialIsPinned) {
+                        wrapper.style.display = 'none';
+                    }
+
                     activePlayers[nodeIdStr] = {
                         wrapper: wrapper,
                         box: box,
@@ -1457,6 +1495,13 @@
                         topProgressTrack: topProgress,
                         topProgressBar: topProgressBar,
                         isInitializing: true,
+                        isInitialized: false,
+                        isPinned: initialIsPinned,
+                        originalSize: [savedUnpinnedW, savedUnpinnedH],
+                        savedFloatingLeft: (node.properties && node.properties.floating_x !== undefined) ? (Number(node.properties.floating_x) + 'px') : undefined,
+                        savedFloatingTop: (node.properties && node.properties.floating_y !== undefined) ? (Number(node.properties.floating_y) + 'px') : undefined,
+                        savedFloatingWidth: (node.properties && node.properties.floating_width !== undefined) ? (Number(node.properties.floating_width) + 'px') : undefined,
+                        savedFloatingHeight: (node.properties && node.properties.floating_height !== undefined) ? (Number(node.properties.floating_height) + 'px') : undefined,
                         hasRefreshed: false
                     };
                     if (typeof updateInNodePlayersPosition === 'function') {
@@ -1483,7 +1528,6 @@
                     let videoUrl = '';
                     let audioUrl = '';
                     let initialAss = '';
-                    let fontUrl = '';
                     let fontsMap = {};
                     let previewInfo = null;
 
@@ -1493,9 +1537,11 @@
                             ? window.PyxisNodePlayerManager.activePlayers[nodeIdStr] 
                             : null;
                         const curSource = (pActive && pActive.node && pActive.node.properties && pActive.node.properties.preview_source) || (node.properties && node.properties.preview_source) || "base";
-                        const pInfo = (curSource === "aegisub" && window.PyxisPreviewConfigAegi) 
+                        const pPerNode = (pActive && pActive.previewInfoBySource && pActive.previewInfoBySource[curSource]) || (pActive && pActive.previewInfo);
+                        const pGlobal = (curSource === "aegisub" && window.PyxisPreviewConfigAegi) 
                             ? window.PyxisPreviewConfigAegi 
-                            : ((curSource === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig) || previewInfo || {};
+                            : ((curSource === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig);
+                        const pInfo = pPerNode || pGlobal || previewInfo || {};
 
                         const hasRealVideo = Boolean(pInfo && pInfo.real_video_file && vid && vid.videoWidth > 0 && vid.videoHeight > 0);
                         let nW = hasRealVideo ? vid.videoWidth : (pInfo.res_x || 1920);
@@ -1593,8 +1639,6 @@
                         }
                         if (typeof window.pywebview.api.get_preview_fonts_map === 'function') {
                             fontsMap = await window.pywebview.api.get_preview_fonts_map(curSource);
-                        } else if (typeof window.pywebview.api.get_preview_font_data_url === 'function') {
-                            fontUrl = await window.pywebview.api.get_preview_font_data_url(curSource);
                         }
                     }
                     logPlayer("Data loaded - videoUrl len: " + videoUrl.length + ", initialAss len: " + initialAss.length + ", fonts count: " + Object.keys(fontsMap || {}).length);
@@ -1604,22 +1648,42 @@
                     }
 
                     if (previewInfo) {
-                        window.PyxisPreviewConfig = previewInfo;
                         const cSrc = (node.properties && node.properties.preview_source) || "base";
-                        if (cSrc === "base") window.PyxisPreviewConfigBase = previewInfo;
-                        if (cSrc === "aegisub") window.PyxisPreviewConfigAegi = previewInfo;
-                        if (previewInfo.aspect_ratio) {
-                            node.preview_aspect_ratio = previewInfo.aspect_ratio;
-                            if (node.properties) node.properties.preview_aspect_ratio = previewInfo.aspect_ratio;
+                        const pExisting = activePlayers[nodeIdStr];
+                        const isCustomZoom = Boolean(
+                            (pExisting && pExisting.transformState && pExisting.transformState.isCustom) ||
+                            (node.properties && node.properties.viewport_custom)
+                        );
+                        const restoredAspect = (node.properties && Number(node.properties.preview_aspect_ratio) > 0.1)
+                            ? Number(node.properties.preview_aspect_ratio)
+                            : ((node._hasRestoredAspectRatio && Number(node.preview_aspect_ratio) > 0.1)
+                                ? Number(node.preview_aspect_ratio)
+                                : null);
+                        const isSyntheticDummy = Boolean(previewInfo.is_synthetic_dummy || !previewInfo.real_video_file);
+
+                        // INVARIANT 3 (Aspect Ratio Precedence Hierarchy):
+                        // When backed by the synthetic dummy clip (`isSyntheticDummy === true`, e.g. on
+                        // cold start without daemon or template reload using the base dummy stream) or
+                        // when `viewport_custom` is active, a restored aspect ratio from `node.properties`
+                        // must be preserved rather than overwritten by the dummy stream's 16:9 ratio.
+                        const effectiveAspect = (restoredAspect && (isSyntheticDummy || isCustomZoom))
+                            ? restoredAspect
+                            : (Number(previewInfo.aspect_ratio) > 0.1 ? Number(previewInfo.aspect_ratio) : (restoredAspect || (16 / 9)));
+
+                        previewInfo.aspect_ratio = effectiveAspect;
+                        storePlayerPreviewInfo(pExisting, cSrc, previewInfo);
+                        node.preview_aspect_ratio = effectiveAspect;
+                        if (node.properties) {
+                            node.properties.preview_aspect_ratio = effectiveAspect;
                         }
                         updatePreviewMetadataBadges(nodeIdStr, previewInfo);
-                        const pExisting = activePlayers[nodeIdStr];
-                        if (!pExisting || !pExisting.isPinned) {
-                            const isCustomZoom = Boolean(
-                                (pExisting && pExisting.transformState && pExisting.transformState.isCustom) ||
-                                (node.properties && node.properties.viewport_custom)
-                            );
-                            const dynMinW = getDynamicMinPreviewWidth(previewInfo.aspect_ratio);
+
+                        const isEffectivelyPinnedNow = Boolean(
+                            (pExisting && pExisting.isPinned) ||
+                            (node.properties && node.properties.is_pinned)
+                        );
+                        if (!isEffectivelyPinnedNow) {
+                            const dynMinW = getDynamicMinPreviewWidth(effectiveAspect);
                             let targetW = (node.size && node.size[0] && node.size[0] >= dynMinW) ? node.size[0] : 520;
                             if (node.properties && node.properties.previewer_width) {
                                 targetW = Math.max(dynMinW, Number(node.properties.previewer_width));
@@ -1633,7 +1697,7 @@
                             } else if (isCustomZoom && node.size && node.size[1] >= 140) {
                                 targetH = node.size[1];
                             } else {
-                                targetH = calculatePrevisualizadorNodeHeight(targetW, previewInfo.aspect_ratio);
+                                targetH = calculatePrevisualizadorNodeHeight(targetW, effectiveAspect);
                             }
                             if (!node.size || node.size[0] !== targetW || node.size[1] < 140 || (!isCustomZoom && Math.abs(node.size[1] - targetH) > 1.5)) {
                                 node.size = [targetW, targetH];
@@ -1652,8 +1716,21 @@
                         } else {
                             const minSz = (typeof node.computeSize === 'function') ? node.computeSize() : [284, 54];
                             const minW = Math.max(270, minSz ? minSz[0] : 284);
-                            const curW = (node.size && node.size[0]) ? node.size[0] : minW;
+                            const savedPinnedW = (node.properties && Number(node.properties.pinned_width) >= minW)
+                                ? Number(node.properties.pinned_width)
+                                : 0;
+                            const curW = (node.size && node.size[0]) ? node.size[0] : (savedPinnedW || minW);
                             node.size = [Math.max(curW, minW), 54];
+                            if (pExisting && pExisting.originalSize) {
+                                const unpinnedMinW = getDynamicMinPreviewWidth(effectiveAspect);
+                                const unpinnedW = Math.max(unpinnedMinW, Number(node.properties && node.properties.previewer_width) || pExisting.originalSize[0] || 520);
+                                const unpinnedH = (isCustomZoom && node.properties && Number(node.properties.previewer_height) >= 140)
+                                    ? Number(node.properties.previewer_height)
+                                    : ((node.properties && Number(node.properties.previewer_height) >= 140 && isSyntheticDummy)
+                                        ? Number(node.properties.previewer_height)
+                                        : calculatePrevisualizadorNodeHeight(unpinnedW, effectiveAspect));
+                                pExisting.originalSize = [unpinnedW, unpinnedH];
+                            }
                             if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
                             if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                         }
@@ -1732,40 +1809,63 @@
                                             try { artInstance.currentTime = b.winStart; } catch(e) {}
                                         }
                                         const { w: effectiveW, h: effectiveH, hasRealVideo } = getNativeResolution();
-                                        const detectedAspect = (effectiveH > 0) ? (effectiveW / effectiveH) : (16 / 9);
+                                        const rawDetectedAspect = (effectiveH > 0) ? (effectiveW / effectiveH) : (16 / 9);
+                                        const pActive = activePlayers[nodeIdStr];
+                                        const curSource = (node.properties && node.properties.preview_source) || "base";
+                                        const pInfoMeta = (pActive && pActive.previewInfoBySource && pActive.previewInfoBySource[curSource])
+                                            || (pActive && pActive.previewInfo)
+                                            || previewInfo
+                                            || {};
+                                        const isSyntheticDummy = Boolean(pInfoMeta.is_synthetic_dummy || !hasRealVideo);
+                                        const isCustomZoom = Boolean(
+                                            (pActive && pActive.transformState && pActive.transformState.isCustom) ||
+                                            (node.properties && node.properties.viewport_custom)
+                                        );
+                                        const restoredAspect = (node.properties && Number(node.properties.preview_aspect_ratio) > 0.1)
+                                            ? Number(node.properties.preview_aspect_ratio)
+                                            : ((node._hasRestoredAspectRatio && Number(node.preview_aspect_ratio) > 0.1)
+                                                ? Number(node.preview_aspect_ratio)
+                                                : null);
+
+                                        // INVARIANT 3 (Aspect Ratio Precedence Hierarchy in onVideoMeta):
+                                        // Do not allow the 1280x720 (16:9) synthetic dummy stream metadata to overwrite
+                                        // a restored template/session aspect ratio or custom viewport aspect ratio.
+                                        const detectedAspect = (restoredAspect && (isSyntheticDummy || isCustomZoom))
+                                            ? restoredAspect
+                                            : rawDetectedAspect;
 
                                         node.preview_aspect_ratio = detectedAspect;
                                         if (node.properties) node.properties.preview_aspect_ratio = detectedAspect;
-                                        const curSource = (node.properties && node.properties.preview_source) || "base";
-                                        if (curSource === "base" && window.PyxisPreviewConfigBase) {
+                                        if (curSource === "base" && window.PyxisPreviewConfigBase && !isSyntheticDummy) {
                                             window.PyxisPreviewConfigBase.aspect_ratio = detectedAspect;
                                             window.PyxisPreviewConfigBase.res_x = effectiveW;
                                             window.PyxisPreviewConfigBase.res_y = effectiveH;
-                                        } else if (curSource === "aegisub" && window.PyxisPreviewConfigAegi) {
+                                        } else if (curSource === "aegisub" && window.PyxisPreviewConfigAegi && !isSyntheticDummy) {
                                             window.PyxisPreviewConfigAegi.aspect_ratio = detectedAspect;
                                             window.PyxisPreviewConfigAegi.res_x = effectiveW;
                                             window.PyxisPreviewConfigAegi.res_y = effectiveH;
                                         }
-                                        if (window.PyxisPreviewConfig) {
+                                        if (window.PyxisPreviewConfig && !isSyntheticDummy) {
                                             window.PyxisPreviewConfig.aspect_ratio = detectedAspect;
                                             window.PyxisPreviewConfig.res_x = effectiveW;
                                             window.PyxisPreviewConfig.res_y = effectiveH;
                                         }
-                                        const pActive = activePlayers[nodeIdStr];
-                                        if (!pActive || !pActive.isPinned) {
-                                            const isCustomZoom = Boolean(
-                                                (pActive && pActive.transformState && pActive.transformState.isCustom) ||
-                                                (node.properties && node.properties.viewport_custom)
-                                            );
+                                        const isEffectivelyPinnedMeta = Boolean(
+                                            (pActive && pActive.isPinned) ||
+                                            ((!pActive || !pActive.isInitialized) && node.properties && node.properties.is_pinned)
+                                        );
+                                        if (pActive && pActive.isSwitchingSource) {
+                                            // Defer sizing to togglePreviewSource's animated resetTransform(true)
+                                        } else if (!isEffectivelyPinnedMeta) {
                                             const dynMinW = getDynamicMinPreviewWidth(detectedAspect);
                                             let curW = (node.size && node.size[0] && node.size[0] >= dynMinW) ? node.size[0] : 520;
                                             if (node.properties && node.properties.previewer_width) {
                                                 curW = Math.max(dynMinW, Number(node.properties.previewer_width));
                                             }
                                             let curH;
-                                            if (isCustomZoom && node.properties && node.properties.previewer_height) {
+                                            if (isCustomZoom && node.properties && Number(node.properties.previewer_height) >= 140) {
                                                 curH = Number(node.properties.previewer_height);
-                                            } else if (isCustomZoom && node.size && node.size[1]) {
+                                            } else if (isCustomZoom && node.size && node.size[1] >= 140) {
                                                 curH = node.size[1];
                                             } else {
                                                 curH = calculatePrevisualizadorNodeHeight(curW, detectedAspect);
@@ -1788,8 +1888,8 @@
                                             }
                                             if (typeof node.setDirtyCanvas === 'function') node.setDirtyCanvas(true, true);
                                             if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
-                                        } else if (pActive && pActive.isPinned) {
-                                            if (pActive.wrapper) {
+                                        } else if (pActive && isEffectivelyPinnedMeta) {
+                                            if (pActive.isPinned && pActive.wrapper) {
                                                 const rect = pActive.wrapper.getBoundingClientRect();
                                                 const curFloatingW = Math.max(340, rect.width || parseFloat(pActive.wrapper.style.width) || (pActive.savedFloatingWidth ? parseFloat(pActive.savedFloatingWidth) : 560));
                                                 const curFloatingH = Math.max(200, rect.height || parseFloat(pActive.wrapper.style.height) || (pActive.savedFloatingHeight ? parseFloat(pActive.savedFloatingHeight) : 380));
@@ -1859,12 +1959,13 @@
                             }
                             if (window.JASSUB) {
                                 try {
+                                    const isMacOS = /Mac|iPod|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || "");
                                     const jassOpts = {
                                         video: artInstance.template.$video,
                                         workerUrl: 'libs/jassub/jassub-worker.js',
                                         wasmUrl: location.origin + '/libs/jassub/jassub-worker.wasm',
-                                        offscreenRender: false,
-                                        onDemandRender: false,
+                                        offscreenRender: isMacOS,
+                                        onDemandRender: isMacOS,
                                         debug: false,
                                         prescaleFactor: 1.0,
                                         prescaleHeightLimit: 4320,
@@ -1882,23 +1983,13 @@
                                                 : true);
                                         jassOpts.subContent = formatAssForRenderMode(initialAss, initRenderMode, initBas);
                                     }
-                                    const fontByteArrays = [];
                                     const fontUrlsMap = {};
-                                    const processedSizes = new Set();
                                     if (fontsMap && typeof fontsMap === 'object') {
                                         for (const [fName, fEntry] of Object.entries(fontsMap)) {
-                                            const u8 = convertFontEntryToUint8Array(fEntry);
-                                            if (u8 && !processedSizes.has(u8.length)) {
-                                                processedSizes.add(u8.length);
-                                                fontByteArrays.push(u8);
-                                            }
-                                            if (typeof fEntry === 'object' && fEntry.http_url) {
+                                            if (typeof fEntry === 'object' && fEntry && fEntry.http_url) {
                                                 fontUrlsMap[fName.toLowerCase()] = fEntry.http_url;
                                             }
                                         }
-                                    }
-                                    if (fontByteArrays.length > 0) {
-                                        jassOpts.fonts = fontByteArrays;
                                     }
                                     if (Object.keys(fontUrlsMap).length > 0) {
                                         jassOpts.availableFonts = Object.assign({}, fontUrlsMap);
@@ -1983,7 +2074,7 @@
                                                     this._canvasParent.style.removeProperty('top');
                                                     this._canvasParent.style.removeProperty('left');
                                                 }
-                                                if (this._canvasctrl && (this._canvasctrl.width === 0 || this._canvasctrl.height === 0)) {
+                                                if ((!this._offscreenRender || this._ctx) && this._canvasctrl && (this._canvasctrl.width === 0 || this._canvasctrl.height === 0)) {
                                                     this._canvasctrl.width = targetW;
                                                     this._canvasctrl.height = targetH;
                                                 }
@@ -2015,7 +2106,7 @@
                                                     this._canvasParent.style.top = '0px';
                                                     this._canvasParent.style.left = '0px';
                                                 }
-                                                if (this._canvasctrl) {
+                                                if ((!this._offscreenRender || this._ctx) && this._canvasctrl) {
                                                     if (this._canvasctrl.width !== targetW || this._canvasctrl.height !== targetH) {
                                                         this._canvasctrl.width = targetW;
                                                         this._canvasctrl.height = targetH;
@@ -2048,6 +2139,15 @@
                                     logPlayer("JASSUB instance created for node: " + nodeIdStr + " with unapplied base subtitle (" + initialAss.length + " bytes)");
                                     if (window.PyxisTelemetry && typeof window.PyxisTelemetry.renderAllPreviewerHeatmaps === 'function') {
                                         window.PyxisTelemetry.renderAllPreviewerHeatmaps();
+                                    }
+                                    if (
+                                        curSource === "base" &&
+                                        (initialHasAegisub || (previewInfo && previewInfo.has_aegisub)) &&
+                                        window.pywebview &&
+                                        window.pywebview.api &&
+                                        typeof window.pywebview.api.prewarm_aegisub_preview === 'function'
+                                    ) {
+                                        Promise.resolve(window.pywebview.api.prewarm_aegisub_preview()).catch(() => {});
                                     }
                                 } catch (err) {
                                     console.error("[Pyxis JASSUB Error]", err);
@@ -2405,6 +2505,12 @@
                                 }
                                 applyTransform();
                                 syncTransformToNode();
+                                if (p && p.jassub && typeof p.jassub.resize === 'function') {
+                                    try { p.jassub.resize(0, 0, 0, 0, true); } catch(e) {}
+                                }
+                                if (p && p.jassub) {
+                                    forceJassubPausedRefresh(p.jassub);
+                                }
                                 if (typeof onComplete === 'function') onComplete();
                                 return;
                             }
@@ -2515,6 +2621,10 @@
                                     } else if (isNodeMode) {
                                         node.size[1] = targetH;
                                         if (p) p.lastH = targetH;
+                                        if (node.properties) {
+                                            node.properties.previewer_width = node.size[0];
+                                            node.properties.previewer_height = targetH;
+                                        }
                                         if (p && p.wrapper && !p.isPinned) {
                                             p.wrapper.style.height = Math.max(100, targetH - 56) + 'px';
                                         }
@@ -2535,7 +2645,10 @@
                                         try { p.art.resize(); } catch(e) {}
                                     }
                                     if (p && p.jassub && typeof p.jassub.resize === 'function') {
-                                        try { p.jassub.resize(); } catch(e) {}
+                                        try { p.jassub.resize(0, 0, 0, 0, true); } catch(e) {}
+                                    }
+                                    if (p && p.jassub) {
+                                        forceJassubPausedRefresh(p.jassub);
                                     }
                                     if (typeof onComplete === 'function') {
                                         onComplete();
@@ -2786,7 +2899,6 @@
                             activePlayers[nodeIdStr].cancelResetAnimation = cancelResetAnimation;
                             activePlayers[nodeIdStr].applyTransform = applyTransform;
                             activePlayers[nodeIdStr].getNativeResolution = getNativeResolution;
-                            activePlayers[nodeIdStr].isInitialized = true;
                             activePlayers[nodeIdStr].destroyZoomPan = () => {
                                 cancelResetAnimation();
                                 window.removeEventListener('keydown', onKeyDown);
@@ -3452,6 +3564,22 @@
 
                         let seekRafId = null;
                         let pendingSeekTargetTime = null;
+                        function flushPendingSeek(allowWhileSeeking = false) {
+                            if (pendingSeekTargetTime === null) return;
+                            const vid = artInstance.template ? artInstance.template.$video : null;
+                            if (!allowWhileSeeking && vid && vid.seeking) return;
+                            const t = pendingSeekTargetTime;
+                            pendingSeekTargetTime = null;
+                            try { artInstance.currentTime = t; } catch (err) {}
+                        }
+                        const seekVideoEl = artInstance.template ? artInstance.template.$video : null;
+                        if (seekVideoEl) {
+                            seekVideoEl.addEventListener('seeked', () => {
+                                if (pendingSeekTargetTime !== null) {
+                                    flushPendingSeek(true);
+                                }
+                            });
+                        }
                         function scheduleVideoSeek(targetSec, immediate = false) {
                             pendingSeekTargetTime = targetSec;
                             if (immediate) {
@@ -3459,21 +3587,13 @@
                                     cancelAnimationFrame(seekRafId);
                                     seekRafId = null;
                                 }
-                                if (pendingSeekTargetTime !== null) {
-                                    const t = pendingSeekTargetTime;
-                                    pendingSeekTargetTime = null;
-                                    try { artInstance.currentTime = t; } catch (err) {}
-                                }
+                                flushPendingSeek(true);
                                 return;
                             }
                             if (!seekRafId) {
                                 seekRafId = requestAnimationFrame(() => {
                                     seekRafId = null;
-                                    if (pendingSeekTargetTime !== null) {
-                                        const t = pendingSeekTargetTime;
-                                        pendingSeekTargetTime = null;
-                                        try { artInstance.currentTime = t; } catch (err) {}
-                                    }
+                                    flushPendingSeek(false);
                                 });
                             }
                         }
@@ -3624,10 +3744,10 @@
                             timeDuration.textContent = formatTime(winDur);
 
                             // Clamp playback to the effect window: when reaching winEnd, loop back to winStart
-                            if (!artInstance.paused && current >= (winEnd - 0.03)) {
+                            if (!isDraggingSeek && !artInstance.paused && current >= (winEnd - 0.03)) {
                                 artInstance.currentTime = winStart;
                                 return;
-                            } else if (!artInstance.paused && current < (winStart - 0.1)) {
+                            } else if (!isDraggingSeek && !artInstance.paused && current < (winStart - 0.1)) {
                                 artInstance.currentTime = winStart;
                                 return;
                             }
@@ -3697,6 +3817,7 @@
 
                     const hasAegi = Boolean(previewInfo && previewInfo.has_aegisub);
                     const existingP = activePlayers[nodeIdStr] || {};
+                    const shouldRestorePinned = Boolean(node && node.properties && node.properties.is_pinned);
                     activePlayers[nodeIdStr] = Object.assign(existingP, {
                         wrapper: wrapper,
                         box: box,
@@ -3710,7 +3831,8 @@
                         videoUrl: videoUrl,
                         scaledBorderAndShadow: (previewInfo && typeof previewInfo.scaled_border_and_shadow === 'boolean') ? previewInfo.scaled_border_and_shadow : true,
                         isInitializing: false,
-                        isInitialized: true,
+                        isInitialized: false,
+                        isPinned: false,
                         updateTimeUI: existingP.updateTimeUI || (box ? box._pyxisUpdateTimeUI : undefined),
                         updateVolumeUI: existingP.updateVolumeUI || (box ? box._pyxisUpdateVolumeUI : undefined)
                     });
@@ -3723,8 +3845,17 @@
                         teardownDecoupledAudio(activePlayers[nodeIdStr]);
                     }
 
-                    if (node && node.properties && node.properties.is_pinned && !activePlayers[nodeIdStr].isPinned) {
-                        togglePinPreview(nodeIdStr);
+                    // INVARIANT 1 & 2 (Canonical Pin Restoration Order):
+                    // If the node was saved in pinned state (`node.properties.is_pinned === true`),
+                    // mount the floating window via `togglePinPreview(nodeIdStr, { isRestoring: true })`
+                    // BEFORE flipping `isInitialized = true` (which transfers SSOT ownership from
+                    // `node.properties` to `activePlayers[nodeIdStr]`).
+                    if (shouldRestorePinned) {
+                        wrapper.style.display = '';
+                        togglePinPreview(nodeIdStr, { isRestoring: true });
+                    }
+                    if (activePlayers[nodeIdStr]) {
+                        activePlayers[nodeIdStr].isInitialized = true;
                     }
                 } finally {
                     delete creatingPlayers[nodeIdStr];
@@ -4023,39 +4154,142 @@
                 }
             }
 
-            async function safeArtSwitchUrl(artInstance, newUrl, timeoutMs = 2000) {
-                if (!artInstance || !newUrl) return;
-                if (artInstance.url === newUrl) return;
-                try {
-                    let timeoutId = null;
-                    const switchPromise = (typeof artInstance.switchUrl === 'function')
-                        ? artInstance.switchUrl(newUrl)
-                        : Promise.resolve();
-                    const timeoutPromise = new Promise(resolve => {
-                        timeoutId = setTimeout(() => {
-                            // Fallback: forcefully update video.src if Artplayer's canplay promise timed out
-                            try {
-                                const v = (artInstance.template && artInstance.template.$video) || artInstance.video;
-                                if (v && v.src !== newUrl) {
-                                    v.src = newUrl;
-                                    v.load();
-                                }
-                            } catch (e) {}
+            async function waitForVideoFrameReady(artInstance, targetTimeSec = null, timeoutMs = 4000) {
+                const v = artInstance && ((artInstance.template && artInstance.template.$video) || artInstance.video);
+                if (!v) return;
+
+                // Ensure at least HAVE_CURRENT_DATA (readyState >= 2) before seeking or revealing the frame
+                if (v.readyState < 2) {
+                    await new Promise(resolve => {
+                        let done = false;
+                        const finish = () => {
+                            if (done) return;
+                            done = true;
+                            v.removeEventListener('loadeddata', finish);
+                            v.removeEventListener('canplay', finish);
+                            v.removeEventListener('error', finish);
+                            clearTimeout(timer);
                             resolve();
-                        }, timeoutMs);
+                        };
+                        const timer = setTimeout(finish, timeoutMs);
+                        v.addEventListener('loadeddata', finish, { once: true });
+                        v.addEventListener('canplay', finish, { once: true });
+                        v.addEventListener('error', finish, { once: true });
                     });
-                    await Promise.race([switchPromise, timeoutPromise]);
-                    if (timeoutId) clearTimeout(timeoutId);
-                } catch (err) {
-                    console.warn("[Pyxis] safeArtSwitchUrl exception:", err);
-                    try {
-                        const v = (artInstance.template && artInstance.template.$video) || artInstance.video;
-                        if (v && v.src !== newUrl) {
-                            v.src = newUrl;
-                            v.load();
-                        }
-                    } catch (e) {}
                 }
+
+                if (targetTimeSec !== null && targetTimeSec !== undefined && Number.isFinite(targetTimeSec)) {
+                    const target = Math.max(0, Number(targetTimeSec));
+                    if (Math.abs((v.currentTime || 0) - target) > 0.02 || v.seeking) {
+                        await new Promise(resolve => {
+                            let done = false;
+                            const finish = () => {
+                                if (done) return;
+                                done = true;
+                                v.removeEventListener('seeked', finish);
+                                v.removeEventListener('error', finish);
+                                clearTimeout(timer);
+                                resolve();
+                            };
+                            const timer = setTimeout(finish, timeoutMs);
+                            v.addEventListener('seeked', finish, { once: true });
+                            v.addEventListener('error', finish, { once: true });
+                            try { artInstance.seek = target; } catch (e) {}
+                            try { v.currentTime = target; } catch (e) {}
+                        });
+                    }
+                }
+
+                // Allow one animation frame so the compositor paints the newly decoded frame before hiding the overlay
+                await new Promise(resolve => requestAnimationFrame(() => resolve()));
+            }
+
+            async function switchVideoSourceDirect(artInstance, newUrl, targetTimeSec = null, timeoutMs = 15000) {
+                if (!artInstance || !newUrl) return;
+                const v = (artInstance.template && artInstance.template.$video) || artInstance.video;
+                if (!v) return;
+
+                if (artInstance.url === newUrl && v.readyState >= 2) {
+                    await waitForVideoFrameReady(artInstance, targetTimeSec, 4000);
+                    return;
+                }
+
+                try { artInstance.pause(); } catch (e) {}
+                if (artInstance.option) {
+                    artInstance.option.url = newUrl;
+                }
+
+                const target = (targetTimeSec !== null && targetTimeSec !== undefined && Number.isFinite(targetTimeSec))
+                    ? Math.max(0, Number(targetTimeSec))
+                    : null;
+
+                await new Promise(resolve => {
+                    let done = false;
+                    let seekIssued = false;
+                    let timer = null;
+
+                    const cleanup = () => {
+                        if (timer) {
+                            clearTimeout(timer);
+                            timer = null;
+                        }
+                        v.removeEventListener('loadedmetadata', onMeta);
+                        v.removeEventListener('loadeddata', onFrameReady);
+                        v.removeEventListener('canplay', onFrameReady);
+                        v.removeEventListener('seeked', onSeeked);
+                        v.removeEventListener('error', finish);
+                    };
+
+                    const finish = () => {
+                        if (done) return;
+                        done = true;
+                        cleanup();
+                        resolve();
+                    };
+
+                    const issueInitialSeek = () => {
+                        if (seekIssued) return;
+                        seekIssued = true;
+                        if (target !== null && Math.abs((v.currentTime || 0) - target) > 0.02) {
+                            try { v.currentTime = target; } catch (e) {}
+                        }
+                    };
+
+                    const onMeta = () => {
+                        issueInitialSeek();
+                    };
+
+                    const onSeeked = () => {
+                        if (v.readyState >= 2) {
+                            finish();
+                        }
+                    };
+
+                    const onFrameReady = () => {
+                        if (target !== null && !seekIssued) {
+                            issueInitialSeek();
+                        }
+                        if (target === null || (!v.seeking && Math.abs((v.currentTime || 0) - target) <= 0.05)) {
+                            finish();
+                        }
+                    };
+
+                    timer = setTimeout(finish, timeoutMs);
+                    v.addEventListener('loadedmetadata', onMeta, { once: true });
+                    v.addEventListener('loadeddata', onFrameReady);
+                    v.addEventListener('canplay', onFrameReady);
+                    v.addEventListener('seeked', onSeeked);
+                    v.addEventListener('error', finish, { once: true });
+
+                    v.src = newUrl;
+                    v.load();
+                });
+
+                await waitForVideoFrameReady(artInstance, targetTimeSec, 4000);
+            }
+
+            async function safeArtSwitchUrl(artInstance, newUrl, timeoutMs = 15000, targetTimeSec = null) {
+                await switchVideoSourceDirect(artInstance, newUrl, targetTimeSec, timeoutMs);
             }
 
             async function revertToPreviewBase(nodeId) {
@@ -4085,9 +4319,13 @@
                         if (typeof window.pywebview.api.get_preview_info === 'function') {
                             const baseInfo = await window.pywebview.api.get_preview_info("base", connectedOutputs, serialized);
                             if (baseInfo) {
-                                window.PyxisPreviewConfig = baseInfo;
-                                window.PyxisPreviewConfigBase = baseInfo;
+                                storePlayerPreviewInfo(p, "base", baseInfo);
                                 updatePreviewMetadataBadges(nodeIdStr, baseInfo);
+                                if (baseInfo.aspect_ratio && p.node) {
+                                    p.node.preview_aspect_ratio = baseInfo.aspect_ratio;
+                                    p.node._hasRestoredAspectRatio = false;
+                                    if (p.node.properties) p.node.properties.preview_aspect_ratio = baseInfo.aspect_ratio;
+                                }
                             }
                         }
                         if (typeof window.pywebview.api.get_preview_fonts_map === 'function' && p.jassub) {
@@ -4103,6 +4341,9 @@
                             if (baseAss && typeof updateJassubTrack === "function") {
                                 await updateJassubTrack(p.jassub, baseAss, nodeIdStr);
                             }
+                        }
+                        if (typeof p.resetTransform === 'function') {
+                            try { p.resetTransform(true); } catch (e) {}
                         }
                         if (p.art) {
                             const b = getPreviewBounds(nodeIdStr);
@@ -4151,6 +4392,7 @@
                 teardownDecoupledAudio(p);
 
                 // Initialize cancellation and loading tracker
+                p.isSwitchingSource = true;
                 window.__pyxis_active_preview_node_id = nodeIdStr;
                 window.__pyxis_is_preview_running = true;
                 window.__pyxis_is_preview_cancelled = false;
@@ -4162,130 +4404,22 @@
                         const serialized = (window.graph) ? window.graph.serialize() : null;
                         const connectedOutputs = resolveConnectedOutputsForPreview(p.node);
 
-                        // Pre-query target media parameters and resize node immediately so that loading
-                        // overlays and audio conversion progress are rendered within correct aspect ratio
-                        let targetInfo = null;
-                        if (typeof window.pywebview.api.get_preview_info === 'function') {
-                            try {
-                                targetInfo = await window.pywebview.api.get_preview_info(nextSource, connectedOutputs, serialized);
-                                if (targetInfo && !window.__pyxis_is_preview_cancelled) {
-                                    updatePreviewMetadataBadges(nodeIdStr, targetInfo);
-                                    if (targetInfo.is_audio_decoupled) {
-                                        p.isDecoupled = true;
-                                        if (p.userVolume === undefined && p.art) {
-                                            p.userVolume = (typeof p.art.volume === 'number' && p.art.volume > 0) ? p.art.volume : 0.5;
-                                        }
-                                        if (p.userMuted === undefined && p.art) {
-                                            p.userMuted = Boolean(p.art.muted);
-                                        }
-                                        if (p.art && p.art.video) {
-                                            p.art.video.muted = true;
-                                            p.art.video.defaultMuted = true;
-                                        }
-                                    } else {
-                                        p.isDecoupled = false;
-                                    }
-                                    if (targetInfo.aspect_ratio && p.node) {
-                                        p.node.preview_aspect_ratio = targetInfo.aspect_ratio;
-                                        if (p.node.properties) p.node.properties.preview_aspect_ratio = targetInfo.aspect_ratio;
-                                        const nodeAspect = getNodePreviewAspectRatio(p.node);
-                                        if (!p.isPinned) {
-                                            const dynMinW = getDynamicMinPreviewWidth(nodeAspect);
-                                            let targetW = (p.node.size && p.node.size[0] && p.node.size[0] >= dynMinW) ? p.node.size[0] : 520;
-                                            if (p.node.properties && p.node.properties.previewer_width && p.node.properties.previewer_height) {
-                                                targetW = Math.max(dynMinW, Number(p.node.properties.previewer_width));
-                                            } else if (targetInfo.res_x && targetInfo.res_x > 0) {
-                                                const scaled = Math.round(targetInfo.res_x * 0.50);
-                                                targetW = Math.max(dynMinW, Math.min(1280, scaled));
-                                            }
-                                            const newH = (p.node.properties && p.node.properties.previewer_height)
-                                                ? Number(p.node.properties.previewer_height)
-                                                : calculatePrevisualizadorNodeHeight(targetW, nodeAspect);
-                                            p.node.size = [targetW, newH];
-                                            p.lastW = targetW;
-                                            p.lastH = newH;
-                                            if (p.wrapper && !p.isPinned) {
-                                                p.wrapper.style.width = Math.max(100, targetW - 20) + 'px';
-                                                p.wrapper.style.height = Math.max(100, newH - 56) + 'px';
-                                            }
-                                            if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
-                                            if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
-                                            if (typeof updateInNodePlayersPosition === 'function') {
-                                                updateInNodePlayersPosition();
-                                            }
-                                        } else {
-                                            const minSz = (typeof p.node.computeSize === 'function') ? p.node.computeSize() : [284, 54];
-                                            const minW = Math.max(270, minSz ? minSz[0] : 284);
-                                            const curW = (p.node.size && p.node.size[0]) ? p.node.size[0] : minW;
-                                            p.node.size = [Math.max(curW, minW), 54];
-                                            if (p.originalSize) {
-                                                let pinTargetW = p.originalSize[0];
-                                                if (targetInfo.res_x && targetInfo.res_x > 0) {
-                                                    pinTargetW = Math.max(getDynamicMinPreviewWidth(nodeAspect), Math.min(1280, Math.round(targetInfo.res_x * 0.50)));
-                                                    p.originalSize[0] = pinTargetW;
-                                                }
-                                                p.originalSize[1] = calculatePrevisualizadorNodeHeight(pinTargetW, nodeAspect);
-                                            }
-                                            if (p.wrapper) {
-                                                const rect = p.wrapper.getBoundingClientRect();
-                                                const curFloatingW = Math.max(340, rect.width || parseFloat(p.wrapper.style.width) || (p.savedFloatingWidth ? parseFloat(p.savedFloatingWidth) : 560));
-                                                const chromeH = 98;
-                                                const newFloatingH = Math.round(curFloatingW / nodeAspect) + chromeH;
-                                                p.wrapper.style.setProperty('width', curFloatingW + 'px', 'important');
-                                                p.wrapper.style.setProperty('height', newFloatingH + 'px', 'important');
-                                                p.savedFloatingWidth = curFloatingW + 'px';
-                                                p.savedFloatingHeight = newFloatingH + 'px';
-                                                if (p.art && typeof p.art.resize === 'function') {
-                                                    try { p.art.resize(); } catch(e) {}
-                                                }
-                                                if (typeof p.resetTransform === 'function') {
-                                                    try { p.resetTransform(); } catch(e) {}
-                                                } else if (typeof p.applyTransform === 'function') {
-                                                    try { p.applyTransform(); } catch(e) {}
-                                                }
-                                                if (p.jassub && typeof p.jassub.resize === 'function') {
-                                                    try { p.jassub.resize(); } catch(e) {}
-                                                }
-                                            }
-                                            if (typeof p.node.setDirtyCanvas === 'function') p.node.setDirtyCanvas(true, true);
-                                            if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
-                                        }
-                                    }
-                                }
-                            } catch (infoErr) {
-                                console.warn("[Pyxis] Pre-querying preview info failed:", infoErr);
-                            }
-                        }
+                        const bundle = (typeof window.pywebview.api.get_preview_source_bundle === 'function')
+                            ? await window.pywebview.api.get_preview_source_bundle(
+                                nextSource,
+                                connectedOutputs,
+                                serialized,
+                                p._lastFontsHash || null
+                            )
+                            : null;
 
-                        // Parallelise retrieval of video URL, decoupled audio URL, font map, and subtitle ASS
-                        const [newVideoUrl, nextAudioUrl, newFontsMap, baseAss] = await Promise.all([
-                            (typeof window.pywebview.api.get_preview_video_data_url === 'function')
-                                ? window.pywebview.api.get_preview_video_data_url(nextSource, connectedOutputs, serialized).catch(err => {
-                                    console.warn("[Pyxis] Failed to get preview video url:", err);
-                                    return null;
-                                })
-                                : Promise.resolve(null),
-                            (typeof window.pywebview.api.get_preview_audio_data_url === 'function')
-                                ? window.pywebview.api.get_preview_audio_data_url(nextSource, connectedOutputs, serialized).catch(err => {
-                                    console.warn("[Pyxis] Failed to get preview audio url:", err);
-                                    return null;
-                                })
-                                : Promise.resolve(null),
-                            (typeof window.pywebview.api.get_preview_fonts_map === 'function' && p.jassub)
-                                ? window.pywebview.api.get_preview_fonts_map(nextSource).catch(err => {
-                                    console.warn("[Pyxis] Failed to get preview fonts map:", err);
-                                    return null;
-                                })
-                                : Promise.resolve(null),
-                            (typeof window.pywebview.api.get_initial_base_ass === 'function' && p.jassub)
-                                ? window.pywebview.api.get_initial_base_ass(nextSource, connectedOutputs, serialized).catch(err => {
-                                    console.warn("[Pyxis] Failed to get initial ASS:", err);
-                                    return null;
-                                })
-                                : Promise.resolve(null)
-                        ]);
+                        const targetInfo = bundle ? bundle.info : null;
+                        const newVideoUrl = bundle ? bundle.video_url : null;
+                        const nextAudioUrl = bundle ? bundle.audio_url : null;
+                        const newFontsMap = bundle ? bundle.fonts_map : null;
+                        const baseAss = bundle ? bundle.base_ass : null;
 
-                        if (window.__pyxis_is_preview_cancelled || !newVideoUrl) {
+                        if (window.__pyxis_is_preview_cancelled || (bundle && bundle.cancelled) || !newVideoUrl) {
                             console.log("[Pyxis] Source switch aborted or cancelled; reverting to base");
                             await revertToPreviewBase(nodeIdStr);
                             setPlayerLoading(nodeIdStr, false);
@@ -4294,12 +4428,27 @@
                             return;
                         }
 
+                        if (targetInfo && !window.__pyxis_is_preview_cancelled) {
+                            updatePreviewMetadataBadges(nodeIdStr, targetInfo);
+                            if (targetInfo.is_audio_decoupled) {
+                                p.isDecoupled = true;
+                                if (p.userVolume === undefined && p.art) {
+                                    p.userVolume = (typeof p.art.volume === 'number' && p.art.volume > 0) ? p.art.volume : 0.5;
+                                }
+                                if (p.userMuted === undefined && p.art) {
+                                    p.userMuted = Boolean(p.art.muted);
+                                }
+                                if (p.art && p.art.video) {
+                                    p.art.video.muted = true;
+                                    p.art.video.defaultMuted = true;
+                                }
+                            } else {
+                                p.isDecoupled = false;
+                            }
+                        }
+
                         // Commit source change
                         p.node.properties.preview_source = nextSource;
-
-                        if (typeof p.resetTransform === 'function') {
-                            p.resetTransform();
-                        }
 
                         updateSourceButtonUI(nodeIdStr, nextSource, hasAegi);
 
@@ -4311,9 +4460,7 @@
                         }
 
                         if (targetInfo) {
-                            window.PyxisPreviewConfig = targetInfo;
-                            if (nextSource === "base") window.PyxisPreviewConfigBase = targetInfo;
-                            if (nextSource === "aegisub") window.PyxisPreviewConfigAegi = targetInfo;
+                            storePlayerPreviewInfo(p, nextSource, targetInfo);
                         }
 
                         // Update decoupled audio track immediately
@@ -4323,7 +4470,10 @@
                             teardownDecoupledAudio(p);
                         }
 
-                        // Inject binary font assets into libass / JASSUB
+                        // Inject binary font assets into libass / JASSUB only when font signature changed
+                        if (bundle && bundle.fonts_hash) {
+                            p._lastFontsHash = bundle.fonts_hash;
+                        }
                         if (newFontsMap && typeof newFontsMap === 'object' && p.jassub) {
                             try {
                                 injectFontsIntoJassub(p.jassub, newFontsMap);
@@ -4332,20 +4482,19 @@
                             }
                         }
 
-                        // Synchronise JASSUB subtitle track
+                        // Queue JASSUB track without redundant intermediate resize/refresh; resetTransform completes the redraw
                         if (baseAss && p.jassub && typeof updateJassubTrack === "function") {
-                            await updateJassubTrack(p.jassub, baseAss, nodeIdStr);
+                            await updateJassubTrack(p.jassub, baseAss, nodeIdStr, false, true);
                         }
 
-                        // Switch video track in ArtPlayer
+                        // Switch video track directly to winStart in a single seek/decode pass
                         if (newVideoUrl && p.art && p.videoUrl !== newVideoUrl) {
                             p.videoUrl = newVideoUrl;
-                            await safeArtSwitchUrl(p.art, newVideoUrl);
-                        }
-                        if (p.art) {
                             const b = getPreviewBounds(nodeIdStr);
-                            try { p.art.seek = b.winStart; } catch (e) {}
-                            try { p.art.currentTime = b.winStart; } catch (e) {}
+                            await switchVideoSourceDirect(p.art, newVideoUrl, b.winStart, 15000);
+                        } else if (p.art) {
+                            const b = getPreviewBounds(nodeIdStr);
+                            await waitForVideoFrameReady(p.art, b.winStart, 4000);
                         }
                         if (typeof p.updateTimeUI === 'function') {
                             try { p.updateTimeUI(); } catch (e) {}
@@ -4360,18 +4509,22 @@
                         if (p.art && typeof p.art.resize === 'function') {
                             try { p.art.resize(); } catch(e) {}
                         }
+                        if (targetInfo && targetInfo.aspect_ratio && p.node) {
+                            p.node.preview_aspect_ratio = targetInfo.aspect_ratio;
+                            p.node._hasRestoredAspectRatio = false;
+                            if (p.node.properties) p.node.properties.preview_aspect_ratio = targetInfo.aspect_ratio;
+                        }
+                        p.isSwitchingSource = false;
                         if (typeof p.resetTransform === 'function') {
-                            try { p.resetTransform(); } catch(e) {}
+                            try { p.resetTransform(true); } catch(e) {}
                         } else if (typeof p.applyTransform === 'function') {
                             p.applyTransform();
-                        }
-                        if (p.jassub && typeof p.jassub.resize === 'function') {
-                            try { p.jassub.resize(); } catch (e) {}
                         }
                     } catch (e) {
                         console.error("[Pyxis togglePreviewSource switch media error]", e);
                         await revertToPreviewBase(nodeIdStr);
                     } finally {
+                        p.isSwitchingSource = false;
                         if (window.__pyxis_is_preview_cancelled) {
                             await revertToPreviewBase(nodeIdStr);
                         }
@@ -4664,6 +4817,126 @@
                 setAllPlayersLoading(isLoading, messageKey);
             };
 
+            async function ensureDummyClipDurationIfNeeded(p, curSource, info, connectedOutputIds, serialized) {
+                if (!p || !p.art || !info || info.has_real_video) return;
+                if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.get_preview_video_data_url !== 'function') return;
+                const winStart = Math.max(0, Number(info.clip_start_sec) || 0);
+                let targetEnd = Number(info.clip_end_sec);
+                if (!targetEnd || targetEnd <= winStart) {
+                    targetEnd = winStart + (Number(info.clip_duration_sec) || 15.0);
+                }
+                const artDur = Number(p.art.duration || 0);
+                if (!artDur || (artDur + 0.05) < targetEnd) {
+                    try {
+                        const newVideoUrl = await window.pywebview.api.get_preview_video_data_url(curSource, connectedOutputIds, serialized);
+                        if (newVideoUrl && p.art && p.videoUrl !== newVideoUrl) {
+                            p.videoUrl = newVideoUrl;
+                            await safeArtSwitchUrl(p.art, newVideoUrl);
+                        }
+                    } catch (e) {
+                        console.warn("[Pyxis Window Sync] Failed extending dummy clip:", e);
+                    }
+                }
+            }
+
+            async function syncPreviewWindow(nodeId) {
+                if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.get_preview_info !== 'function' || !window.graph) return;
+                const nodeIdStr = String(nodeId);
+                const p = activePlayers[nodeIdStr];
+                if (!p || !p.node || p.isInitializing) return;
+
+                const myToken = (p._windowSyncToken || 0) + 1;
+                p._windowSyncToken = myToken;
+
+                try {
+                    if (typeof window.syncWidgetsToProperties === "function") {
+                        window.syncWidgetsToProperties();
+                    }
+                    const serialized = window.graph.serialize();
+                    const curSource = (p.node.properties && p.node.properties.preview_source) || "base";
+                    const connectedOutputIds = resolveConnectedOutputsForPreview(p.node);
+
+                    const updatedInfo = await window.pywebview.api.get_preview_info(curSource, connectedOutputIds, serialized);
+                    const liveP = activePlayers[nodeIdStr];
+                    if (!liveP || liveP._windowSyncToken !== myToken || !updatedInfo) return;
+
+                    storePlayerPreviewInfo(liveP, curSource, updatedInfo);
+                    updatePreviewMetadataBadges(nodeIdStr, updatedInfo);
+                    if (updatedInfo.is_audio_decoupled) {
+                        liveP.isDecoupled = true;
+                        if (liveP.userVolume === undefined && liveP.art) {
+                            liveP.userVolume = (typeof liveP.art.volume === 'number' && liveP.art.volume > 0) ? liveP.art.volume : 0.5;
+                        }
+                        if (liveP.userMuted === undefined && liveP.art) {
+                            liveP.userMuted = Boolean(liveP.art.muted);
+                        }
+                    } else {
+                        liveP.isDecoupled = false;
+                    }
+
+                    await ensureDummyClipDurationIfNeeded(liveP, curSource, updatedInfo, connectedOutputIds, serialized);
+                    if (!activePlayers[nodeIdStr] || activePlayers[nodeIdStr]._windowSyncToken !== myToken) return;
+
+                    const b = getPreviewBounds(nodeIdStr);
+                    if (liveP.art) {
+                        const curT = Number(liveP.art.currentTime);
+                        if (!isFinite(curT) || curT < (b.winStart - 0.05) || curT > (b.winEnd + 0.05)) {
+                            try { liveP.art.seek = b.winStart; } catch (e) {}
+                            try { liveP.art.currentTime = b.winStart; } catch (e) {}
+                        }
+                    }
+                    if (typeof liveP.updateTimeUI === 'function') {
+                        try { liveP.updateTimeUI(); } catch (e) {}
+                    }
+                } catch (err) {
+                    console.warn("[Pyxis syncPreviewWindow warning]", err);
+                }
+            }
+
+            function scheduleSyncPreviewWindow(nodeIdStr, delayMs = 40) {
+                const p = activePlayers[nodeIdStr];
+                if (!p) return;
+                if (p._windowSyncTimer) {
+                    clearTimeout(p._windowSyncTimer);
+                }
+                p._windowSyncTimer = setTimeout(() => {
+                    p._windowSyncTimer = null;
+                    syncPreviewWindow(nodeIdStr);
+                }, delayMs);
+            }
+
+            function matchesOutputNodeIdentifiers(connectedOutputIds, outputNode) {
+                if (!outputNode || !Array.isArray(connectedOutputIds) || connectedOutputIds.length === 0) return false;
+                if (connectedOutputIds.includes(String(outputNode.id))) return true;
+                const props = outputNode.properties || {};
+                const customId = String(props.output_id || props.queue_id || "").trim();
+                if (customId && connectedOutputIds.includes(customId)) return true;
+                const rawTitle = String(outputNode.title || "").trim();
+                if (rawTitle && rawTitle.toLowerCase() !== "output" && connectedOutputIds.includes(rawTitle)) return true;
+                return false;
+            }
+
+            function syncPreviewWindowsForGraphChange(changedOutputNode = null, targetPreviewNodeId = null) {
+                if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.get_preview_info !== 'function') return;
+                if (targetPreviewNodeId !== null && targetPreviewNodeId !== undefined) {
+                    scheduleSyncPreviewWindow(String(targetPreviewNodeId));
+                    return;
+                }
+                Object.keys(activePlayers).forEach(nodeIdStr => {
+                    const p = activePlayers[nodeIdStr];
+                    if (!p || !p.node) return;
+                    if (changedOutputNode) {
+                        const connectedIds = resolveConnectedOutputsForPreview(p.node);
+                        // Sync both Previewers connected to this Output and unconnected Previewers (which track the first Output window)
+                        if (connectedIds.length === 0 || matchesOutputNodeIdentifiers(connectedIds, changedOutputNode)) {
+                            scheduleSyncPreviewWindow(nodeIdStr);
+                        }
+                    } else {
+                        scheduleSyncPreviewWindow(nodeIdStr);
+                    }
+                });
+            }
+
             async function refreshPreview(nodeId, forceVideoReload = false) {
                 if (!window.pywebview || !window.pywebview.api || !window.graph) return;
 
@@ -4736,9 +5009,7 @@
                         updatedInfo = await window.pywebview.api.get_preview_info(curSource, connectedOutputIds, serialized);
                         if (window.__pyxis_is_preview_cancelled) return;
                         if (updatedInfo) {
-                            window.PyxisPreviewConfig = updatedInfo;
-                            if (curSource === "base") window.PyxisPreviewConfigBase = updatedInfo;
-                            if (curSource === "aegisub") window.PyxisPreviewConfigAegi = updatedInfo;
+                            storePlayerPreviewInfo(p, curSource, updatedInfo);
                             if (p) {
                                 p.hasAegisub = Boolean(updatedInfo.has_aegisub);
                                 if (p.node && updatedInfo.aspect_ratio) {
@@ -4890,16 +5161,23 @@
                         const targetCfg = (curSource === "aegisub" && window.PyxisPreviewConfigAegi)
                             ? window.PyxisPreviewConfigAegi
                             : ((curSource === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig);
-                        if (targetCfg && typeof res.clip_start_sec === 'number' && typeof res.clip_end_sec === 'number') {
-                            targetCfg.clip_start_sec = res.clip_start_sec;
-                            targetCfg.clip_end_sec = res.clip_end_sec;
-                            targetCfg.clip_duration_sec = res.clip_duration_sec;
-                            targetCfg.clip_start_ms = res.clip_start_ms;
+                        if (typeof res.clip_start_sec === 'number' && typeof res.clip_end_sec === 'number') {
+                            const applyWindowPatch = (cfgObj) => {
+                                if (!cfgObj || typeof cfgObj !== 'object') return;
+                                cfgObj.clip_start_sec = res.clip_start_sec;
+                                cfgObj.clip_end_sec = res.clip_end_sec;
+                                cfgObj.clip_duration_sec = res.clip_duration_sec;
+                                cfgObj.clip_start_ms = res.clip_start_ms;
+                            };
+                            applyWindowPatch(targetCfg);
                             if (window.PyxisPreviewConfig && window.PyxisPreviewConfig !== targetCfg) {
-                                window.PyxisPreviewConfig.clip_start_sec = res.clip_start_sec;
-                                window.PyxisPreviewConfig.clip_end_sec = res.clip_end_sec;
-                                window.PyxisPreviewConfig.clip_duration_sec = res.clip_duration_sec;
-                                window.PyxisPreviewConfig.clip_start_ms = res.clip_start_ms;
+                                applyWindowPatch(window.PyxisPreviewConfig);
+                            }
+                            if (p && p.previewInfoBySource && p.previewInfoBySource[curSource]) {
+                                applyWindowPatch(p.previewInfoBySource[curSource]);
+                            }
+                            if (p && p.previewInfo) {
+                                applyWindowPatch(p.previewInfo);
                             }
                         }
                         if (p && p.jassub) {
@@ -5072,9 +5350,76 @@
                 }
             }
 
-            function togglePinPreview(nodeId) {
+            /**
+             * Atomically synchronises runtime player state (`p.isPinned`, unpinned `originalSize`,
+             * floating window coordinates/dimensions, and `preview_aspect_ratio`) into `p.node.properties`,
+             * refreshes the template dirty-state badge (`window.updateTemplateUIState`), and schedules
+             * an asynchronous session persistence save (`window.__pyxis_schedule_save`).
+             *
+             * @param {Object} p - The active player entry from `activePlayers[nodeId]`.
+             * @param {boolean} [triggerSave=true] - Whether to notify template dirty check and schedule session save.
+             */
+            function persistPreviewerGeometryToNode(p, triggerSave = true) {
+                if (!p || !p.node) return;
+                if (!p.node.properties) p.node.properties = {};
+                const props = p.node.properties;
+
+                if (p.node.preview_aspect_ratio && Number(p.node.preview_aspect_ratio) > 0.1) {
+                    props.preview_aspect_ratio = Number(p.node.preview_aspect_ratio);
+                }
+
+                if (p.isPinned) {
+                    props.is_pinned = true;
+                    if (p.node.size && p.node.size[0] >= 200) {
+                        props.pinned_width = Math.round(p.node.size[0]);
+                    }
+                    if (p.originalSize && p.originalSize[0] >= 200 && p.originalSize[1] >= 140) {
+                        props.previewer_width = Math.round(p.originalSize[0]);
+                        props.previewer_height = Math.round(p.originalSize[1]);
+                    }
+                    const fl = parseFloat(p.savedFloatingLeft !== undefined ? p.savedFloatingLeft : (p.wrapper && p.wrapper.style.left));
+                    const ft = parseFloat(p.savedFloatingTop !== undefined ? p.savedFloatingTop : (p.wrapper && p.wrapper.style.top));
+                    const fw = parseFloat(p.savedFloatingWidth !== undefined ? p.savedFloatingWidth : (p.wrapper && p.wrapper.style.width));
+                    const fh = parseFloat(p.savedFloatingHeight !== undefined ? p.savedFloatingHeight : (p.wrapper && p.wrapper.style.height));
+                    if (!isNaN(fl)) props.floating_x = Math.round(fl);
+                    if (!isNaN(ft)) props.floating_y = Math.round(ft);
+                    if (!isNaN(fw) && fw >= 200) props.floating_width = Math.round(fw);
+                    if (!isNaN(fh) && fh >= 140) props.floating_height = Math.round(fh);
+                } else {
+                    props.is_pinned = false;
+                    delete props.pinned_width;
+                    delete props.floating_x;
+                    delete props.floating_y;
+                    delete props.floating_width;
+                    delete props.floating_height;
+                    if (p.node.size && p.node.size[0] >= 200 && p.node.size[1] >= 140) {
+                        props.previewer_width = Math.round(p.node.size[0]);
+                        props.previewer_height = Math.round(p.node.size[1]);
+                    }
+                }
+
+                if (triggerSave) {
+                    if (typeof window.updateTemplateUIState === 'function') {
+                        window.updateTemplateUIState();
+                    }
+                    if (typeof window.__pyxis_schedule_save === 'function') {
+                        window.__pyxis_schedule_save(50);
+                    }
+                }
+            }
+
+            /**
+             * Toggles the detached (pinned) floating window mode for a System/Previewer node.
+             *
+             * @param {string|number} nodeId - The LiteGraph node identifier.
+             * @param {Object} [options={}] - Optional configuration flags.
+             * @param {boolean} [options.isRestoring=false] - True when invoked during initial player
+             *   restoration in `createInNodePlayer` so template dirty state is not needlessly triggered.
+             */
+            function togglePinPreview(nodeId, options = {}) {
                 const p = activePlayers[nodeId];
                 if (!p || !p.wrapper) return;
+                const isRestoring = Boolean(options && options.isRestoring);
 
                 let floatingContainer = document.getElementById('pyxis-floating-players-container');
                 if (!floatingContainer) {
@@ -5093,11 +5438,19 @@
                 const btnPin = p.headerActions ? p.headerActions.querySelector('#btn-pin-' + nodeIdStr) : null;
 
                 if (p.isPinned) {
-                    if (!p.originalSize && p.node) {
-                        if (p.node.properties && p.node.properties.previewer_width && p.node.properties.previewer_height && Number(p.node.properties.previewer_height) >= 100) {
-                            p.originalSize = [Number(p.node.properties.previewer_width), Number(p.node.properties.previewer_height)];
-                        } else if (p.node.size) {
-                            p.originalSize = [p.node.size[0], p.node.size[1]];
+                    p.wrapper.style.display = '';
+                    if (p.node) {
+                        const curAspect = getNodePreviewAspectRatio(p.node);
+                        const dynMinW = getDynamicMinPreviewWidth(curAspect);
+                        if (!p.originalSize || p.originalSize[1] < 140) {
+                            if (p.node.properties && p.node.properties.previewer_width && p.node.properties.previewer_height && Number(p.node.properties.previewer_height) >= 140) {
+                                p.originalSize = [Math.max(dynMinW, Number(p.node.properties.previewer_width)), Number(p.node.properties.previewer_height)];
+                            } else if (p.node.size && p.node.size[1] >= 140) {
+                                p.originalSize = [Math.max(dynMinW, p.node.size[0]), p.node.size[1]];
+                            } else {
+                                const fallbackW = Math.max(dynMinW, Number(p.node.properties && p.node.properties.previewer_width) || 520);
+                                p.originalSize = [fallbackW, calculatePrevisualizadorNodeHeight(fallbackW, curAspect)];
+                            }
                         }
                     }
                     if (!p.originalComputeSize && p.node) {
@@ -5376,6 +5729,9 @@
                                 void p.wrapper.offsetWidth;
                                 p.wrapper.classList.add('pyxis-magnetic-pulse');
                             }
+                            p.savedFloatingLeft = (snapped ? finalLeft : pendingLeft) + 'px';
+                            p.savedFloatingTop = (snapped ? finalTop : pendingTop) + 'px';
+                            persistPreviewerGeometryToNode(p, true);
                             e.stopPropagation();
                         };
 
@@ -5462,6 +5818,10 @@
                     p.wrapper.style.left = targetLeft;
                     p.wrapper.style.top = targetTop;
                     p.wrapper.style.transform = 'none';
+                    p.wrapper.style.display = '';
+                    p.wrapper.style.visibility = 'visible';
+                    p.wrapper.style.opacity = '1';
+                    p.wrapper.style.pointerEvents = '';
 
                     function attachPyxisFloatingResizers(pObj) {
                         if (!pObj || !pObj.wrapper) return;
@@ -5743,6 +6103,15 @@
                                 pObj.savedFloatingHeight = currentH + 'px';
                                 pObj.savedFloatingLeft = currentLeft + 'px';
                                 pObj.savedFloatingTop = currentTop + 'px';
+                                const isZoomedFinal = Boolean(pObj && pObj.transformState && pObj.transformState.isCustom);
+                                if (isZoomedFinal && pObj.node && currentW >= 200 && currentH > 98) {
+                                    const customFloatingAspect = currentW / Math.max(40, currentH - 98);
+                                    if (customFloatingAspect > 0.1 && isFinite(customFloatingAspect)) {
+                                        pObj.node.preview_aspect_ratio = customFloatingAspect;
+                                        pObj.node._hasRestoredAspectRatio = true;
+                                    }
+                                }
+                                persistPreviewerGeometryToNode(pObj, true);
 
                                 if (pObj.art && typeof pObj.art.resize === 'function') {
                                     try { pObj.art.resize(); } catch (err) {}
@@ -5788,6 +6157,7 @@
                         });
                         p.resizeObserver.observe(p.wrapper);
                     }
+                    persistPreviewerGeometryToNode(p, !isRestoring);
 
                 } else {
                     if (p.wrapper) {
@@ -5829,12 +6199,13 @@
                             delete p.node.onResize;
                         }
                         const curAspect = getNodePreviewAspectRatio(p.node);
-                        const restoredW = (p.originalSize && p.originalSize[0]) 
+                        const dynMinW = getDynamicMinPreviewWidth(curAspect);
+                        const restoredW = (p.originalSize && p.originalSize[0] >= dynMinW) 
                             ? p.originalSize[0] 
-                            : ((p.node.properties && p.node.properties.previewer_width) ? Number(p.node.properties.previewer_width) : 520);
-                        const restoredH = (p.originalSize && p.originalSize[1])
+                            : ((p.node.properties && Number(p.node.properties.previewer_width) >= dynMinW) ? Number(p.node.properties.previewer_width) : Math.max(dynMinW, 520));
+                        const restoredH = (p.originalSize && p.originalSize[1] >= 140)
                             ? p.originalSize[1]
-                            : ((p.node.properties && p.node.properties.previewer_height)
+                            : ((p.node.properties && Number(p.node.properties.previewer_height) >= 140)
                                 ? Number(p.node.properties.previewer_height)
                                 : (typeof calculatePrevisualizadorNodeHeight === "function" 
                                     ? calculatePrevisualizadorNodeHeight(restoredW, curAspect) 
@@ -5842,12 +6213,9 @@
 
                         p.node.size[0] = restoredW;
                         p.node.size[1] = restoredH;
-                        if (p.node.properties) {
-                            p.node.properties.is_pinned = false;
-                            delete p.node.properties.pinned_width;
-                            p.node.properties.previewer_width = restoredW;
-                            p.node.properties.previewer_height = restoredH;
-                        }
+                        p.node.lastW = restoredW;
+                        p.node.lastH = restoredH;
+                        persistPreviewerGeometryToNode(p, !isRestoring);
                         if (typeof p.node.setDirtyCanvas === 'function') {
                             p.node.setDirtyCanvas(true, true);
                         }
@@ -6171,6 +6539,8 @@
                 suspendForDaemon: suspendForDaemon,
                 resumeFromDaemon: resumeFromDaemon,
                 getPreviewBounds: getPreviewBounds,
+                syncPreviewWindow: syncPreviewWindow,
+                syncPreviewWindowsForGraphChange: syncPreviewWindowsForGraphChange,
                 resolveConnectedOutputsForPreview: resolveConnectedOutputsForPreview,
                 get isDaemonSuspended() { return isDaemonSuspended; },
                 activePlayers: activePlayers

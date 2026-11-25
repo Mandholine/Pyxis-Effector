@@ -466,7 +466,7 @@ Franjas 1D (Cols: 4, Rows: 1)      Malla 2D (Cols: 3, Rows: 2)       Malla Rotad
 └───┴───┴───┴───┘                 └─────┴─────┴─────┘            └───────/───────┘
 ```
 
-#### 6.4.1. Caso Rectangular Ortogonal ($0^\circ$)
+#### 6.4.1. Caso Rectangular Ortogonal ($0^\circ, 90^\circ, 180^\circ, 270^\circ$)
 Cuando el ángulo es $0^\circ$, el nodo genera cajas rectangulares simples AABB `\clip(x1, y1, x2, y2)` con máxima velocidad de rasterizado en libass:
 $$W_{\text{cell}} = \frac{B_{\text{width}}}{C}, \quad H_{\text{cell}} = \frac{B_{\text{height}}}{R}$$
 $$x_1 = B_{\text{left}} + c \cdot W_{\text{cell}} - \text{ov}, \quad x_2 = B_{\text{left}} + (c + 1) \cdot W_{\text{cell}} + \text{ov}$$
@@ -833,8 +833,9 @@ En el instante $t$, los puntos intermedios generados en la pirámide de De Caste
 
 ### 10.1. Encabezado y Modos Operativos (*Header Mode Combos*)
 1. **`Trajectory` (`SMOVE`):** Toma una forma vectorial ASSdraw (`Shape`), calcula su longitud de arco total y la divide en segmentos regulares de longitud máxima `step_px` para generar una trayectoria continua suave.
-2. **`Waypoints` (`PMOVE`):** Toma una lista de puntos cartesianos discretos (`Points` o `Shape`) y genera transiciones lineales o interpoladas entre cada hito.
-3. **`Jitter` (`RMOVE`):** Genera una trayectoria de fluctuación pseudoaleatoria continua oscilando en un rango $(\pm \Delta X, \pm \Delta Y)$ con intervalos de tiempo regulares (`dur` ms) y semilla reproducible (`seed`).
+2. **`Waypoints` (`waypoints`):** Toma una lista plana separada por comas (`x1, y1, x2, y2, x3, y3...` con evaluación de variables y expresiones del contexto) o una `Shape`, y genera transiciones interpoladas entre cada hito.
+3. **`Jitter` (`jitter`):** Genera una trayectoria de fluctuación pseudoaleatoria continua oscilando en un rango $(\pm \Delta X, \pm \Delta Y)$ con intervalos de tiempo regulares (`dur` ms) y semilla reproducible (`seed`).
+4. **`Shadtrick` (`shadtrick`):** Anima desplazamientos independientes mediante canales de sombra (`\1a&HFF&\3a&HFF&\ko0\xshad...\yshad...` + `\t(...)`) usando la lista plana `x1, y1, x2, y2...` (o `0.001, 0.001` como mínimo de reposo si `Points` está vacío), emitiendo únicamente las `N - 1` transiciones directas. Si se introduce o conecta un trazado ASSDraw (incluso con bloques `{...}` previos, cuya geometría se aísla automáticamente), el campo `Step (px)` aparece en tiempo real para muestrear la ruta. Ideal para mover bloques `\r` individuales dentro de `Basics/Builder`.
 
 ---
 

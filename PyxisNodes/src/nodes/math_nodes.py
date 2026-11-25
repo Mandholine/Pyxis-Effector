@@ -16,13 +16,13 @@
 
 """
 Module: math_nodes.py
-Architectural Role: Mathematical Computation, Waveform Modulation, Stochastic Dispatch, and Geometric Kinematics Engine.
+Architectural Role: Canonical `ke.math` Mathematical Computation Engine, Stochastic Dispatch, and Geometric Kinematics.
 
-This module provides the central numeric evaluation infrastructure for Pyxis Effector:
-    - Master Math Evaluation (`eval_math_node`): Unifies arithmetic, modular, power,
-      trigonometric, easing curve, periodic waveform, and clamping/range-mapping algorithms under `Basics/Math`.
-    - Easing Formulas: Robert Penner standard animation curves (quad, cubic, exponential, elastic, bounce, back).
-    - Periodic Oscillators: Continuous wave modulators (sine, square, triangle, sawtooth) with frequency, amplitude, and DC offset.
+This module provides the numeric evaluation infrastructure for Pyxis Effector:
+    - Master Math Evaluation (`eval_math_node`): Direct 1:1 canonical reflection of the
+      `ke.math` module from Effector 2 (`newkara_library.lua`), organised into five categories
+      (`numeric`, `sequence`, `geometry`, `algebra`, `data`) covering all 27 public operations
+      plus the `KeMatrix` algebra class.
     - Stochastic Pseudo-Random Suite (`_pyxis_random_*`, `math_random_master`): Comprehensive deterministic
       and stepped pseudo-random generation supporting integer, signed, decimal, resolution-scaled, palette colour,
       boolean, and list-choice operations.
@@ -40,14 +40,24 @@ Upstream Dependencies:
 Downstream Callers:
     - node_engine.GraphEngine: Dispatches `Basics/Math`, `Basics/MultiRandom`, `Functions/Polar`, and `Functions/Bezier`.
     - code_nodes.py & string_evaluator.py: Injects `by` dispatcher and random helpers into the scripting sandbox.
-    - node_validator.GraphValidator: Validates mathematical expressions, easing names, and random signatures.
+    - node_validator.GraphValidator: Validates mathematical expressions and random signatures.
 """
 
 import math
 import random
 import re
 import sys
+import time
 from decorators import pyxis_node, NODE_REGISTRY
+
+ROUND_NUM = 3
+ROUND_MATRIX = 6
+EPSILON = 1e-6
+
+_NUM_TOKEN_RE = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
+_ASS_PAIR_RE = re.compile(r"(-?\d[\d.]*)\s+(-?\d[\d.]*)")
+_FMT_SPEC_RE = re.compile(r"%[-+#0 ]*\d*(?:\.\d+)?[aAcdeEfgGioqsuxX]")
+_ASS_SHAPE_RE = re.compile(r"m\s+-?\d[\d.\-\smlb]*", re.IGNORECASE)
 
 
 def _eval_num(val, context=None, default=0.0):
@@ -67,12 +77,14 @@ def _eval_num(val, context=None, default=0.0):
     """
     if val is None or val == "":
         return float(default)
-    if isinstance(val, (int, float)):
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
         return float(val)
 
     s_val = str(val).strip()
+    if s_val == "":
+        return float(default)
     if re.match(r"^[+-]?\d+,\d+$", s_val):
-        s_val = s_val.replace(',', '.')
+        s_val = s_val.replace(",", ".")
 
     try:
         from node_engine import _eval_num_expr
@@ -81,234 +93,1144 @@ def _eval_num(val, context=None, default=0.0):
         pass
 
     try:
-        return float(s_val.replace(',', '.'))
+        return float(s_val.replace(",", "."))
     except Exception:
         return float(default)
 
 
-def eval_math_node(context=None, **kwargs):
+def _ke_bool(val, default=False):
+    """Parse a boolean toggle value from UI checkbox properties or expressions."""
+    if val is None or val == "":
+        return bool(default)
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return val != 0
+    return str(val).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _ke_round_scalar(val, decimal=0):
+    """Round a scalar using Lua `ke.math.round` half-up semantics."""
+    dec = int(math.floor(abs(float(decimal))))
+    scale = 10.0 ** dec
+    res = math.floor(float(val) * scale + 0.5) / scale
+    if abs(res) < 1e-12:
+        return 0.0
+    return res
+
+
+def _fmt_num(val, decimals=None):
+    """Format a scalar number cleanly without trailing zeros or negative zero."""
+    v = float(val)
+    if decimals is not None:
+        v = _ke_round_scalar(v, decimals)
+    if abs(v) < 1e-12:
+        return "0"
+    if v.is_integer():
+        return str(int(round(v)))
+    prec = decimals if decimals is not None else 6
+    return f"{v:.{prec}f}".rstrip("0").rstrip(".")
+
+
+def _fmt_list(values, decimals=None):
+    """Format a list of numbers or strings into a comma-separated string."""
+    parts = []
+    for item in values:
+        if isinstance(item, (int, float)) and not isinstance(item, bool):
+            parts.append(_fmt_num(item, decimals))
+        else:
+            parts.append(str(item))
+    return ", ".join(parts)
+
+
+def _split_csv(raw):
+    """Split a comma-separated string into stripped non-empty tokens."""
+    if raw is None:
+        return []
+    s = str(raw).strip()
+    if not s:
+        return []
+    return [tok.strip() for tok in s.split(",") if tok.strip() != ""]
+
+
+def _ke_getnumbers(raw_items, context=None):
     """
-    Unified canonical execution dispatcher for the `Basics/Math` node.
-
-    Dispatches calculations based on `category` and `operation`:
-        - `Basic`: Arithmetic (+, -, *, /, %, ^), absolute, negation, and rounding (round, floor, ceil).
-        - `Trigonometry`: Angular trigonometric ratios (sin, cos, tan, asin, acos, atan, atan2, rad, deg).
-        - `Easing`: Normalized Penner curves (easein, easeout, easeinout, cubic, expo, elastic, bounce, back).
-        - `Waves`: Periodic oscillators (sine, square, triangle, sawtooth) with frequency, amplitude, and offset.
-        - `Utilities`: Numeric bounds (clamp, min, max), linear interpolation (lerp), random, and map range.
-
-    Args:
-        context (dict | None): Active execution context.
-        **kwargs: Node parameters, input slots (A, B, t, freq, amp, etc.), and mode selectors.
-
-    Returns:
-        float: Computed scalar numeric result.
+    Canonical port of `ke.math.getnumbers`: extract all numeric values from
+    scalars, comma-separated expressions, coordinate pairs, or ASSDraw strings.
     """
-    category = str(kwargs.get("category", kwargs.get("categoria", "Basic"))).strip()
-    operation = str(kwargs.get("operation", kwargs.get("operacion", "Add"))).strip()
-    
-    ctx = context or {}
+    nums = []
+    items = raw_items if isinstance(raw_items, (list, tuple)) else [raw_items]
+    for item in items:
+        if item is None:
+            continue
+        if isinstance(item, (int, float)) and not isinstance(item, bool):
+            nums.append(float(item))
+            continue
+        s = str(item).strip()
+        if not s:
+            continue
+        if "," in s and not _ASS_SHAPE_RE.search(s):
+            for part in s.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if _NUM_TOKEN_RE.fullmatch(part):
+                    nums.append(float(part))
+                else:
+                    try:
+                        from node_engine import _eval_num_expr
+                        nums.append(float(_eval_num_expr(part, context, default=0.0)))
+                    except Exception:
+                        for m in _NUM_TOKEN_RE.findall(part):
+                            nums.append(float(m))
+        else:
+            if _NUM_TOKEN_RE.fullmatch(s):
+                nums.append(float(s))
+            elif not _ASS_SHAPE_RE.search(s) and " " not in s and ";" not in s:
+                try:
+                    from node_engine import _eval_num_expr
+                    nums.append(float(_eval_num_expr(s, context, default=0.0)))
+                except Exception:
+                    for m in _NUM_TOKEN_RE.findall(s):
+                        nums.append(float(m))
+            else:
+                for m in _NUM_TOKEN_RE.findall(s):
+                    nums.append(float(m))
+    return nums
+
+
+def _ke_topoints(raw_items, context=None):
+    """Group extracted numeric values into a list of 2D (x, y) tuples."""
+    nums = _ke_getnumbers(raw_items, context)
+    pts = []
+    for idx in range(0, len(nums) - 1, 2):
+        pts.append((nums[idx], nums[idx + 1]))
+    return pts
+
+
+def _ke_sample_shape_y_ratio(shape_str, t):
+    """
+    Sample a point at normalized arc-length `t` along an ASSDraw path and return
+    its normalized Y ratio `|y - min_y| / height` matching `ke.math.normalize`.
+    """
+    tokens = re.findall(r"[mlb]|-?\d+(?:\.\d+)?", str(shape_str), flags=re.IGNORECASE)
+    if not tokens:
+        return t
+
+    segments = []
+    cmd = ""
+    idx = 0
+    cur = (0.0, 0.0)
+    n_tok = len(tokens)
+
+    def read_pt(pos):
+        return (float(tokens[pos]), float(tokens[pos + 1]))
+
+    while idx < n_tok:
+        tok = tokens[idx].lower()
+        if tok in ("m", "l", "b"):
+            cmd = tok
+            idx += 1
+            continue
+        if cmd == "m" and idx + 1 < n_tok:
+            cur = read_pt(idx)
+            idx += 2
+        elif cmd == "l" and idx + 1 < n_tok:
+            nxt = read_pt(idx)
+            segments.append(("l", cur, nxt))
+            cur = nxt
+            idx += 2
+        elif cmd == "b" and idx + 5 < n_tok:
+            p1 = read_pt(idx)
+            p2 = read_pt(idx + 2)
+            p3 = read_pt(idx + 4)
+            segments.append(("b", cur, p1, p2, p3))
+            cur = p3
+            idx += 6
+        else:
+            idx += 1
+
+    if not segments:
+        return t
+
+    polyline = []
+    for seg in segments:
+        if seg[0] == "l":
+            _, p0, p1 = seg
+            if not polyline:
+                polyline.append(p0)
+            polyline.append(p1)
+        else:
+            _, p0, p1, p2, p3 = seg
+            steps = 16
+            if not polyline:
+                polyline.append(p0)
+            for s in range(1, steps + 1):
+                u = s / float(steps)
+                om = 1.0 - u
+                bx = (om ** 3) * p0[0] + 3 * (om ** 2) * u * p1[0] + 3 * om * (u ** 2) * p2[0] + (u ** 3) * p3[0]
+                by = (om ** 3) * p0[1] + 3 * (om ** 2) * u * p1[1] + 3 * om * (u ** 2) * p2[1] + (u ** 3) * p3[1]
+                polyline.append((bx, by))
+
+    if len(polyline) < 2:
+        return t
+
+    ys = [p[1] for p in polyline]
+    min_y, max_y = min(ys), max(ys)
+    height = max_y - min_y
+    if height <= EPSILON:
+        return 0.0
+
+    cum = [0.0]
+    total = 0.0
+    for j in range(1, len(polyline)):
+        dx = polyline[j][0] - polyline[j - 1][0]
+        dy = polyline[j][1] - polyline[j - 1][1]
+        total += math.hypot(dx, dy)
+        cum.append(total)
+
+    if total <= EPSILON:
+        return 0.0
+
+    target = max(0.0, min(1.0, float(t))) * total
+    py = polyline[-1][1]
+    for j in range(1, len(cum)):
+        if cum[j] >= target:
+            seg_len = cum[j] - cum[j - 1]
+            u = (target - cum[j - 1]) / seg_len if seg_len > EPSILON else 0.0
+            py = polyline[j - 1][1] + u * (polyline[j][1] - polyline[j - 1][1])
+            break
+
+    return max(0.0, min(1.0, abs(py - min_y) / height))
+
+
+def ke_i(counter, seq_mode="+,-", a=1.0, b=1.0, c=1.0):
+    """Canonical port of `ke.math.i`: discrete numerical sequence generator."""
+    i_val = float(counter)
+    a_val = float(a)
+    b_val = float(b)
+    c_val = float(c)
+    d_val = a_val - b_val + 1.0
+    e_val = b_val - a_val + 1.0
+
+    def xt(v):
+        return float(math.ceil(i_val / v)) if abs(v) > EPSILON else 1.0
+
+    mode = str(seq_mode).strip()
+    if mode == "+,-":
+        res = (-1.0) ** (xt(a_val) + 1.0)
+    elif mode == "A,B":
+        res = a_val + ((b_val - a_val) / 2.0) * (1.0 + (-1.0) ** xt(c_val))
+    elif mode == "mxA":
+        res = a_val * xt(b_val)
+    elif mode == "A>B":
+        if a_val <= b_val:
+            res = ((xt(c_val) - 1.0) % e_val) + a_val if abs(e_val) > EPSILON else a_val
+        else:
+            res = -1.0 * (((xt(c_val) - 1.0) % d_val) - a_val) if abs(d_val) > EPSILON else a_val
+    elif mode == "ABA":
+        if a_val > b_val:
+            span = d_val - 1.0
+            if abs(span) <= EPSILON:
+                res = a_val
+            else:
+                x = xt(span)
+                res = b_val + d_val - ((span - span * x + i_val) * ((-1.0) ** (x + 1.0)) + (d_val + 1.0) * (1.0 + (-1.0) ** x) / 2.0)
+        else:
+            span = e_val - 1.0
+            if abs(span) <= EPSILON:
+                res = a_val
+            else:
+                x = xt(span)
+                res = a_val + (span - span * x + i_val) * ((-1.0) ** (x + 1.0)) + (e_val + 1.0) * (1.0 + (-1.0) ** x) / 2.0 - 1.0
+    elif mode == "ABB":
+        f_term = float(math.floor(1.0 / i_val)) if abs(i_val) > EPSILON else 1.0
+        res = a_val * f_term + b_val * (1.0 - f_term)
+    elif mode == "ABC":
+        f_term = float(math.floor((c_val * xt(c_val) - i_val + 1.0) / c_val)) if abs(c_val) > EPSILON else 1.0
+        res = a_val * f_term + b_val * (1.0 - f_term)
+    elif mode == "ACB":
+        f_term = float(math.floor((c_val - c_val * xt(c_val) + i_val) / c_val)) if abs(c_val) > EPSILON else 0.0
+        res = a_val * (1.0 - f_term) + b_val * f_term
+    elif mode == "N,n":
+        res = float(math.floor((i_val - 1.0) / a_val) + 1.0) if abs(a_val) > EPSILON else 1.0
+    else:
+        res = i_val
+
+    return 0.0 if abs(res) < 1e-12 else res
+
+
+def ke_clamp_scalar(num, min_val=0.0, max_val=1.0, cycle=False):
+    """Canonical port of `ke.math.clamp` for a single scalar value."""
+    c_min = min(float(min_val), float(max_val))
+    c_max = max(float(min_val), float(max_val))
+    v = float(num)
+    if cycle:
+        v_i = _ke_round_scalar(v * 10000.0, 0)
+        mn_i = _ke_round_scalar(c_min * 10000.0, 0)
+        mx_i = _ke_round_scalar(c_max * 10000.0, 0)
+        counter_val = (v_i - mn_i) + 1.0
+        bounced = ke_i(counter_val, "ABA", mn_i, mx_i, 1.0)
+        return _ke_round_scalar(bounced / 10000.0, ROUND_NUM)
+    if v < c_min:
+        return c_min
+    if v > c_max:
+        return c_max
+    return v
+
+
+def ke_rand(num1=None, num2=None, step=1.0, sign=False, range_spec=None, context=None):
+    """Canonical port of `ke.math.rand` supporting list choice, step, sign, and weighted sub-range."""
+    def fxrand(a=None, b=None):
+        offset = int(str(int(time.time()))[-3:])
+        if a is None and b is None:
+            return _ke_round_scalar(random.random(), 5)
+        if b is None:
+            if a == 0:
+                return 0.0
+            a, b = 1.0, float(a)
+        r1 = int(_ke_round_scalar(min(a, b), 0))
+        r2 = int(_ke_round_scalar(max(a, b), 0))
+        if r2 <= r1:
+            return float(r1)
+        return float(r1 + (random.randint(r1, r2) + offset - 1) % (r2 - r1 + 1))
+
+    s_num1 = "" if num1 is None else str(num1).strip()
+    s_num2 = "" if num2 is None else str(num2).strip()
+
+    if s_num1 and "," in s_num1 and s_num2 == "":
+        choices = _split_csv(s_num1)
+        if choices:
+            picked = random.choice(choices)
+            try:
+                return _eval_num(picked, context, 0.0)
+            except Exception:
+                return picked
+
+    if s_num1 == "":
+        return fxrand()
+    n1_val = _eval_num(s_num1, context, 0.0)
+    if s_num2 == "":
+        return fxrand(n1_val)
+    n2_val = _eval_num(s_num2, context, 100.0)
+
+    n1, n2 = min(n1_val, n2_val), max(n1_val, n2_val)
+    st = float(step) if step is not None and float(step) > 0 else 1.0
+
+    if range_spec is not None and str(range_spec).strip() != "":
+        r_nums = _ke_getnumbers(range_spec, context)
+        if len(r_nums) >= 2:
+            rmin, rmax = r_nums[0], r_nums[1]
+            pct = ke_clamp_scalar(r_nums[2] if len(r_nums) >= 3 else 100.0, 0.0, 100.0, False)
+            lsize = (rmin - n1) if rmin > n1 else 0.0
+            rsize = (n2 - rmax) if rmax < n2 else 0.0
+            if ke_rand(0, 100, 1.0, False, None, context) <= pct or (lsize + rsize) <= 0.0:
+                return ke_rand(rmin, rmax, st, sign, None, context)
+            pick = ke_rand(0, lsize + rsize, st, False, None, context)
+            if pick <= lsize:
+                return ke_rand(n1, rmin - 1.0, st, sign, None, context)
+            return ke_rand(rmax + 1.0, n2, st, sign, None, context)
+
+    max_steps = (n2 - n1) / st
+    result = n1 + fxrand(0.0, max_steps) * st
+    if result > n2:
+        result = n2
+    if sign:
+        result = result * ((-1.0) ** random.randint(1, 2))
+    return result
+
+
+def ke_normalize_scalar(t_val, accel=1.0, shape_str=""):
+    """Canonical port of `ke.math.normalize` for a single scalar `t`."""
+    t = abs(float(t_val))
+    if not (0.0 <= t <= 1.0):
+        int_digits = len(str(int(math.floor(t))))
+        t = t / (10.0 ** int_digits)
+    t = ke_clamp_scalar(t ** float(accel), 0.0, 1.0, False)
+    if shape_str and _ASS_SHAPE_RE.search(str(shape_str)):
+        t = _ke_sample_shape_y_ratio(shape_str, t)
+    return t
+
+
+def ke_ipol_scalar(values, t_val, accel=1.0, shape_str=""):
+    """Canonical port of `ke.math.ipol` for a single `t` across a numeric list."""
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        values = [0.0, values[0]]
+    t = ke_normalize_scalar(t_val, accel, shape_str)
+    if t <= 0.0:
+        return values[0]
+    n = len(values)
+    seg = min(n - 1, max(1, int(math.ceil(t * (n - 1)))))
+    ini = values[seg - 1]
+    fin = values[seg]
+    u = t * (n - 1) - (seg - 1)
+    return _ke_round_scalar(ini + u * (fin - ini), ROUND_NUM)
+
+
+def ke_quadratic(c1, c2, c3):
+    """Canonical port of `ke.math.quadratic`."""
+    c1, c2, c3 = float(c1), float(c2), float(c3)
+    if abs(c1) < EPSILON:
+        return [-c3 / c2] if abs(c2) >= EPSILON else []
+    d = c2 * c2 - 4.0 * c1 * c3
+    if d > EPSILON:
+        sq = math.sqrt(d)
+        return sorted([(-c2 - sq) / (2.0 * c1), (-c2 + sq) / (2.0 * c1)])
+    if abs(d) <= EPSILON:
+        return [(-c2) / (2.0 * c1)]
+    return []
+
+
+def ke_cubic(c1, c2, c3, c4):
+    """Canonical port of `ke.math.cubic` (Cardano / trigonometric real roots)."""
+    c1, c2, c3, c4 = float(c1), float(c2), float(c3), float(c4)
+    if abs(c1) < EPSILON:
+        return ke_quadratic(c2, c3, c4)
+
+    def cbrt(x):
+        return (x ** (1.0 / 3.0)) if x >= 0.0 else -((-x) ** (1.0 / 3.0))
+
+    inv_a = 1.0 / c1
+    b, c, d = c2 * inv_a, c3 * inv_a, c4 * inv_a
+    offset = b / 3.0
+    p = c - (b * b) / 3.0
+    q = (2.0 * b * b * b) / 27.0 - (b * c) / 3.0 + d
+    disc = (q * q) / 4.0 + (p * p * p) / 27.0
+    roots = []
+    if disc > EPSILON:
+        s_d = math.sqrt(disc)
+        u = cbrt(-q / 2.0 + s_d)
+        v = cbrt(-q / 2.0 - s_d)
+        roots.append((u + v) - offset)
+    elif abs(disc) <= EPSILON:
+        u = cbrt(-q / 2.0)
+        roots.append(2.0 * u - offset)
+        roots.append(-u - offset)
+    else:
+        denom = math.sqrt(max(EPSILON, -(p * p * p) / 27.0))
+        arg = max(-1.0, min(1.0, (-q / 2.0) / denom))
+        phi = math.acos(arg)
+        r = 2.0 * math.sqrt(max(0.0, -p / 3.0))
+        roots.append(r * math.cos(phi / 3.0) - offset)
+        roots.append(r * math.cos((2.0 * math.pi + phi) / 3.0) - offset)
+        roots.append(r * math.cos((4.0 * math.pi + phi) / 3.0) - offset)
+    return sorted(roots)
+
+
+def ke_equation(coeffs, reals_only=True):
+    """Canonical port of `ke.math.equation` (Aberth-Ehrlich solver, ascending coefficients)."""
+    cx = [float(x) for x in coeffs]
+    while len(cx) > 1 and abs(cx[-1]) < EPSILON:
+        cx.pop()
+    n = len(cx) - 1
+    if n < 1:
+        return []
+
+    def horner(c_list, z):
+        p = complex(c_list[-1], 0.0)
+        dp = complex(0.0, 0.0)
+        for idx in range(len(c_list) - 2, -1, -1):
+            dp = dp * z + p
+            p = p * z + complex(c_list[idx], 0.0)
+        return p, dp
+
+    radius = 1.0
+    lead = cx[-1]
+    for idx in range(n):
+        radius = max(radius, 1.0 + abs(cx[idx] / lead))
+
+    roots = []
+    for idx in range(n):
+        ang = (2.0 * math.pi * idx) / n + 0.001 * (idx + 1)
+        roots.append(complex(radius * math.cos(ang), radius * math.sin(ang)))
+
+    for _ in range(50):
+        done = True
+        for idx in range(n):
+            z = roots[idx]
+            p, dp = horner(cx, z)
+            if abs(dp) < 1e-18:
+                continue
+            newton = p / dp
+            s_term = complex(0.0, 0.0)
+            for j in range(n):
+                if idx != j and abs(z - roots[j]) > 1e-18:
+                    s_term += 1.0 / (z - roots[j])
+            denom = 1.0 - newton * s_term
+            if abs(denom) < 1e-18:
+                continue
+            corr = newton / denom
+            roots[idx] = z - corr
+            if abs(corr) > 1e-14:
+                done = False
+        if done:
+            break
+
+    roots.sort(key=lambda c: c.real)
+    out = []
+    for r in roots:
+        if abs(r.imag) < EPSILON:
+            out.append(_fmt_num(r.real, ROUND_MATRIX))
+        elif not reals_only:
+            sign_ch = "+" if r.imag >= 0 else "-"
+            out.append(f"{_fmt_num(r.real, ROUND_MATRIX)}{sign_ch}{_fmt_num(abs(r.imag), ROUND_MATRIX)}i")
+    return out
+
+
+def ke_gauss(rows):
+    """Canonical port of `ke.math.gauss`: Gaussian elimination with partial pivoting."""
+    n = len(rows)
+    if n == 0:
+        return "singular system"
+    mat = [list(map(float, r)) for r in rows]
+    for r in mat:
+        if len(r) < n + 1:
+            return "singular system"
+
+    for k in range(n):
+        max_val = abs(mat[k][k])
+        pivot_row = k
+        for i_r in range(k + 1, n):
+            if abs(mat[i_r][k]) > max_val:
+                max_val = abs(mat[i_r][k])
+                pivot_row = i_r
+        if max_val < EPSILON:
+            return "singular system"
+        if pivot_row != k:
+            mat[k], mat[pivot_row] = mat[pivot_row], mat[k]
+        pivot = mat[k][k]
+        for j in range(k, n + 1):
+            mat[k][j] /= pivot
+        for i_r in range(k + 1, n):
+            factor = mat[i_r][k]
+            for j in range(k, n + 1):
+                mat[i_r][j] -= factor * mat[k][j]
+
+    sol = [0.0] * n
+    for i_r in range(n - 1, -1, -1):
+        s_val = sum(mat[i_r][j] * sol[j] for j in range(i_r + 1, n))
+        sol[i_r] = _ke_round_scalar(mat[i_r][n] - s_val, ROUND_MATRIX)
+    return sol
+
+
+class KeMatrix:
+    """Canonical port of `ke.math.matrix` supporting n x n matrices and row vectors."""
+
+    def __init__(self, data, is_row=False):
+        self.is_row = bool(is_row)
+        nums = list(data)
+        if self.is_row:
+            self.data = [_ke_round_scalar(v, ROUND_MATRIX) for v in nums]
+            self.n = len(self.data)
+        else:
+            side = max(1, int(math.ceil(math.sqrt(len(nums))))) if nums else 1
+            padded = [_ke_round_scalar(nums[i] if i < len(nums) else 0.0, ROUND_MATRIX) for i in range(side * side)]
+            self.n = side
+            self.data = [padded[r * side:(r + 1) * side] for r in range(side)]
+
+    @classmethod
+    def identity(cls, n):
+        side = max(1, int(math.ceil(float(n))))
+        vals = [1.0 if r == c else 0.0 for r in range(side) for c in range(side)]
+        return cls(vals, is_row=False)
+
+    def to_array(self):
+        if self.is_row:
+            return list(self.data)
+        return [v for row in self.data for v in row]
+
+    def format_str(self):
+        if self.is_row:
+            return _fmt_list(self.data, ROUND_MATRIX)
+        return "; ".join(_fmt_list(row, ROUND_MATRIX) for row in self.data)
+
+    def determinant(self):
+        if self.is_row:
+            return 0.0
+        n = self.n
+        if n == 1:
+            return self.data[0][0]
+        if n == 2:
+            return self.data[0][0] * self.data[1][1] - self.data[0][1] * self.data[1][0]
+        det = 0.0
+        sign = 1.0
+        for col in range(n):
+            elem = self.data[0][col]
+            sub = [self.data[r][c] for r in range(1, n) for c in range(n) if c != col]
+            det += sign * elem * KeMatrix(sub).determinant()
+            sign = -sign
+        return _ke_round_scalar(det, ROUND_MATRIX)
+
+    def inverse(self):
+        det = self.determinant()
+        if abs(det) < EPSILON or self.is_row:
+            return None
+        n = self.n
+        cof = [[0.0] * n for _ in range(n)]
+        for i_r in range(n):
+            for j_c in range(n):
+                if n == 1:
+                    c_val = 1.0
+                else:
+                    sub = [self.data[r][c] for r in range(n) if r != i_r for c in range(n) if c != j_c]
+                    c_val = KeMatrix(sub).determinant()
+                if (i_r + j_c) % 2 == 1:
+                    c_val = -c_val
+                cof[i_r][j_c] = c_val
+        inv_flat = [cof[j_c][i_r] / det for i_r in range(n) for j_c in range(n)]
+        return KeMatrix(inv_flat, is_row=False)
+
+    def __add__(self, other):
+        if isinstance(other, (int, float)):
+            if self.is_row:
+                return KeMatrix([v + other for v in self.data], is_row=True)
+            return KeMatrix([v + other for row in self.data for v in row], is_row=False)
+        if self.is_row and other.is_row:
+            n = min(self.n, other.n)
+            return KeMatrix([self.data[i] + other.data[i] for i in range(n)], is_row=True)
+        n = min(self.n, other.n)
+        return KeMatrix([self.data[r][c] + other.data[r][c] for r in range(n) for c in range(n)], is_row=False)
+
+    def __sub__(self, other):
+        if isinstance(other, (int, float)):
+            if self.is_row:
+                return KeMatrix([v - other for v in self.data], is_row=True)
+            return KeMatrix([v - other for row in self.data for v in row], is_row=False)
+        if self.is_row and other.is_row:
+            n = min(self.n, other.n)
+            return KeMatrix([self.data[i] - other.data[i] for i in range(n)], is_row=True)
+        n = min(self.n, other.n)
+        return KeMatrix([self.data[r][c] - other.data[r][c] for r in range(n) for c in range(n)], is_row=False)
+
+    def __neg__(self):
+        if self.is_row:
+            return KeMatrix([-v for v in self.data], is_row=True)
+        return KeMatrix([-v for row in self.data for v in row], is_row=False)
+
+    def __mul__(self, other):
+        if isinstance(other, (int, float)):
+            if self.is_row:
+                return KeMatrix([v * other for v in self.data], is_row=True)
+            return KeMatrix([v * other for row in self.data for v in row], is_row=False)
+        if self.is_row and not other.is_row:
+            n = other.n
+            res = [sum((self.data[k] if k < self.n else 0.0) * other.data[k][j] for k in range(n)) for j in range(n)]
+            return KeMatrix(res, is_row=True)
+        if not self.is_row and other.is_row:
+            n = self.n
+            res = [sum(self.data[i][k] * (other.data[k] if k < other.n else 0.0) for k in range(n)) for i in range(n)]
+            return KeMatrix(res, is_row=True)
+        n = min(self.n, other.n)
+        res = [sum(self.data[i][k] * other.data[k][j] for k in range(n)) for i in range(n) for j in range(n)]
+        return KeMatrix(res, is_row=False)
+
+    def equals(self, other):
+        if self.is_row != other.is_row or self.n != other.n:
+            return False
+        a_arr, b_arr = self.to_array(), other.to_array()
+        return all(abs(x - y) < EPSILON for x, y in zip(a_arr, b_arr))
+
+    def rotate_xyz(self, ax, ay, az):
+        sx, sy, sz = math.sin(math.radians(ax)), math.sin(math.radians(ay)), math.sin(math.radians(az))
+        cx, cy, cz = math.cos(math.radians(ax)), math.cos(math.radians(ay)), math.cos(math.radians(az))
+        rot = KeMatrix([
+            cy * cz, -cx * sz + sx * sy * cz, sx * sz + cx * sy * cz,
+            cy * sz, cx * cz + sx * sy * sz, -sx * cz + cx * sy * sz,
+            -sy, sx * cy, cx * cy
+        ], is_row=False)
+        return self * rot
+
+
+def eval_math_node(context=None, node_id=None, **kwargs):
+    """
+    Canonical execution dispatcher for `Basics/Math` reflecting `ke.math` (`newkara_library.lua`)
+    plus expandable multi-input arithmetic operations under `basic`.
+
+    Categories and operations:
+        - `basic`: `add`, `sub`, `mul`, `div`, `mod`, `pow`, `min`, `max`, `avg`
+        - `numeric`: `round`, `clamp`, `rand`, `factk`, `to16`, `equality`, `between`
+        - `sequence`: `i`, `count`, `normalize`, `ipol`
+        - `geometry`: `angle`, `polar`, `distance`, `intersect`, `circle`, `rotate`
+        - `algebra`: `quadratic`, `cubic`, `resolve`, `equation`, `evaluate`, `gauss`, `matrix`
+        - `data`: `getpair`, `getnumbers`, `format`
+    """
+    ctx = context if isinstance(context, dict) else {}
+    category = str(kwargs.get("category", "basic")).strip().lower()
+    operation = str(kwargs.get("operation", "add" if category == "basic" else "round")).strip().lower()
 
     def get_num(key, default=0.0):
-        val = kwargs.get(key)
-        if val is None:
-            val = kwargs.get(key.lower())
-        return _eval_num(val, ctx, default)
+        return _eval_num(kwargs.get(key), ctx, default)
 
-    cat_clean = category.lower()
+    # ------------------------------------------------------------------
+    # Category 0: basic (expandable multi-input arithmetic: In1..InN)
+    # ------------------------------------------------------------------
+    if category == "basic":
+        indexed_inputs = {}
+        for k, v in kwargs.items():
+            m = re.match(r"^(?:in|input)[_\s]*(\d+)$", str(k).strip(), re.IGNORECASE)
+            if m:
+                idx = int(m.group(1))
+                # Prefer non-empty values if both lowercase and titlecase keys exist
+                if idx not in indexed_inputs or (v is not None and str(v).strip() != ""):
+                    indexed_inputs[idx] = v
 
-    if cat_clean in ("basic", "basico", "rounding", "redondeo"):
-        a = get_num("A", 0.0)
-        b = get_num("B", 0.0)
+        if not indexed_inputs:
+            if "a" in kwargs or "A" in kwargs:
+                indexed_inputs[1] = kwargs.get("a", kwargs.get("A"))
+            if "b" in kwargs or "B" in kwargs:
+                indexed_inputs[2] = kwargs.get("b", kwargs.get("B"))
 
-        op_clean = operation.strip().lower()
-        
-        if op_clean in ("add", "suma", "+"):
-            return a + b
-        elif op_clean in ("sub", "subtract", "resta", "-"):
-            return a - b
-        elif op_clean in ("mul", "multiply", "multiplicacion", "*"):
-            return a * b
-        elif op_clean in ("div", "divide", "division", "/"):
-            return a / b if b != 0 else 0.0
-        elif op_clean in ("mod", "modulo", "%"):
-            return a % b if b != 0 else 0.0
-        elif op_clean in ("pow", "power", "potencia", "^"):
-            try:
-                return math.pow(a, b)
-            except Exception:
-                return 0.0
-        elif op_clean in ("abs", "absolute", "absoluto"):
-            return abs(a)
-        elif op_clean in ("neg", "negative", "negativo"):
-            return -a
-        elif op_clean in ("round", "redondear"):
-            return float(round(a))
-        elif op_clean in ("floor", "piso"):
-            return float(math.floor(a))
-        elif op_clean in ("ceil", "techo"):
-            return float(math.ceil(a))
-        else:
-            return a + b
+        vals = []
+        for idx in sorted(indexed_inputs.keys()):
+            raw_v = indexed_inputs[idx]
+            if raw_v is not None and str(raw_v).strip() != "":
+                vals.append(_eval_num(raw_v, ctx, 0.0))
 
-    elif cat_clean in ("trig", "trigonometry", "trigono"):
-        a = get_num("A", get_num("Degrees", get_num("Radians", get_num("Grados", get_num("Radianes", 0.0)))))
-        op_clean = operation.lower()
-        
-        if op_clean in ("sin", "sine", "seno"):
-            return math.sin(math.radians(a))
-        elif op_clean in ("cos", "cosine", "coseno"):
-            return math.cos(math.radians(a))
-        elif op_clean in ("tan", "tangent", "tangente"):
-            return math.tan(math.radians(a))
-        elif op_clean in ("arcsin", "asin", "arcseno"):
-            clamped = max(-1.0, min(1.0, a))
-            return math.degrees(math.asin(clamped))
-        elif op_clean in ("arccos", "acos", "arccoseno"):
-            clamped = max(-1.0, min(1.0, a))
-            return math.degrees(math.acos(clamped))
-        elif op_clean in ("arctan", "atan", "arctangente"):
-            return math.degrees(math.atan(a))
-        elif op_clean in ("arctan2", "atan2", "arctangente2"):
-            y = get_num("Y", get_num("A", 0.0))
-            x = get_num("X", get_num("B", 1.0))
-            return math.degrees(math.atan2(y, x))
-        elif op_clean in ("radians", "rad", "radianes"):
-            return math.radians(a)
-        elif op_clean in ("degrees", "deg", "grados"):
-            return math.degrees(a)
-        else:
-            return math.sin(math.radians(a))
+        if not vals:
+            return 0.0
 
-    elif cat_clean in ("easing",):
-        raw_t = get_num("t", get_num("A", 0.0))
-        t = max(0.0, min(1.0, raw_t))
-        op_clean = operation.lower()
-        
-        if op_clean in ("easein", "ease_in"):
-            return t * t
-        elif op_clean in ("easeout", "ease_out"):
-            return 1.0 - (1.0 - t) * (1.0 - t)
-        elif op_clean in ("easeinout", "ease_in_out"):
-            if t < 0.5:
-                return 2.0 * t * t
-            else:
-                return 1.0 - math.pow(-2.0 * t + 2.0, 2) / 2.0
-        elif op_clean in ("cubicin", "cubic_in"):
-            return t * t * t
-        elif op_clean in ("cubicout", "cubic_out"):
-            return 1.0 - (1.0 - t) ** 3
-        elif op_clean in ("exponential", "expo", "exponencial"):
-            if t <= 0.0:
-                return 0.0
-            if t >= 1.0:
-                return 1.0
-            return math.pow(2.0, 10.0 * (t - 1.0))
-        elif op_clean in ("elastic", "elastico"):
-            if t <= 0.0:
-                return 0.0
-            if t >= 1.0:
-                return 1.0
-            c4 = (2.0 * math.pi) / 3.0
-            return -math.pow(2.0, 10.0 * t - 10.0) * math.sin((t * 10.0 - 10.75) * c4)
-        elif op_clean in ("bounce", "rebote"):
-            n1 = 7.5625
-            d1 = 2.75
-            if t < 1.0 / d1:
-                return n1 * t * t
-            elif t < 2.0 / d1:
-                t -= 1.5 / d1
-                return n1 * t * t + 0.75
-            elif t < 2.5 / d1:
-                t -= 2.25 / d1
-                return n1 * t * t + 0.9375
-            else:
-                t -= 2.625 / d1
-                return n1 * t * t + 0.984375
-        elif op_clean in ("back", "retroceso"):
-            c1 = 1.70158
-            c3 = c1 + 1.0
-            return c3 * (t ** 3) - c1 * (t ** 2)
-        else:
-            return t * t
-
-    elif cat_clean in ("waves", "wave", "ondas"):
-        t = get_num("t", 0.0)
-        frec = get_num("freq", get_num("Frecuencia", 1.0))
-        amp = get_num("amp", get_num("Amplitud", 1.0))
-        offset = get_num("Offset", 0.0)
-        op_clean = operation.lower()
-        
-        if op_clean in ("sine", "sin", "seno"):
-            return amp * math.sin(2.0 * math.pi * frec * t) + offset
-        elif op_clean in ("square", "cuadrada"):
-            val = math.sin(2.0 * math.pi * frec * t)
-            return (amp if val >= 0.0 else -amp) + offset
-        elif op_clean in ("triangle", "triangulo"):
-            phase = (t * frec) % 1.0
-            val = 2.0 * abs(2.0 * phase - 1.0) - 1.0
-            return amp * val + offset
-        elif op_clean in ("sawtooth", "dientesierra"):
-            phase = (t * frec) % 1.0
-            val = 2.0 * phase - 1.0
-            return amp * val + offset
-        else:
-            return amp * math.sin(2.0 * math.pi * frec * t) + offset
-
-    elif cat_clean in ("utilities", "utility", "utilidades", "clamping", "clamp", "random", "aleatorio"):
-        op_clean = operation.lower()
-        if op_clean in ("clamp",):
-            val = get_num("Value", get_num("Valor", get_num("A", 0.0)))
-            mn = get_num("Min", 0.0)
-            mx = get_num("Max", 1.0)
-            low = min(mn, mx)
-            high = max(mn, mx)
-            return max(low, min(high, val))
-        elif op_clean in ("lerp",):
-            a = get_num("A", 0.0)
-            b = get_num("B", 1.0)
-            t = get_num("t", 0.5)
-            t_norm = max(0.0, min(1.0, t))
-            return a + (b - a) * t_norm
-        elif op_clean in ("min", "minimum", "minimo"):
-            a = get_num("A", 0.0)
-            b = get_num("B", 0.0)
-            return min(a, b)
-        elif op_clean in ("max", "maximum", "maximo"):
-            a = get_num("A", 0.0)
-            b = get_num("B", 0.0)
-            return max(a, b)
-        elif op_clean in ("random", "aleatorio"):
-            mn = get_num("Min", 0.0)
-            mx = get_num("Max", 1.0)
-            seed = kwargs.get("Seed", kwargs.get("seed", kwargs.get("Semilla", kwargs.get("semilla"))))
-            if seed is not None and str(seed).strip() != "":
+        if operation == "add":
+            return sum(vals)
+        if operation == "sub":
+            res = vals[0]
+            for v in vals[1:]:
+                res -= v
+            return res
+        if operation == "mul":
+            res = vals[0]
+            for v in vals[1:]:
+                res *= v
+            return res
+        if operation == "div":
+            res = vals[0]
+            for v in vals[1:]:
+                if abs(v) < 1e-12:
+                    return 0.0
+                res /= v
+            return res
+        if operation == "mod":
+            res = vals[0]
+            for v in vals[1:]:
+                if abs(v) < 1e-12:
+                    return 0.0
+                res %= v
+            return res
+        if operation == "pow":
+            res = vals[0]
+            for v in vals[1:]:
                 try:
-                    s_val = int(_eval_num(seed, ctx, 0.0))
-                    rng = random.Random(s_val)
-                    return rng.uniform(min(mn, mx), max(mn, mx))
+                    out_p = res ** v
+                    if isinstance(out_p, complex) or not math.isfinite(out_p):
+                        return 0.0
+                    res = float(out_p)
                 except Exception:
-                    pass
-            return random.uniform(min(mn, mx), max(mn, mx))
-        elif op_clean in ("maprange", "map_range", "map range", "mapearrango"):
-            val = get_num("Value", get_num("Valor", 0.0))
-            in_min = get_num("MinIn", 0.0)
-            in_max = get_num("MaxIn", 1.0)
-            out_min = get_num("MinOut", 0.0)
-            out_max = get_num("MaxOut", 100.0)
-            
-            if in_max == in_min:
-                return out_min
-            t_ratio = (val - in_min) / (in_max - in_min)
-            return out_min + t_ratio * (out_max - out_min)
-        else:
-            val = get_num("Value", 0.0)
-            return val
+                    return 0.0
+            return res
+        if operation == "min":
+            return min(vals)
+        if operation == "max":
+            return max(vals)
+        if operation == "avg":
+            return sum(vals) / float(len(vals))
+        return 0.0
+
+    # ------------------------------------------------------------------
+    # Category 1: numeric
+    # ------------------------------------------------------------------
+    if category == "numeric":
+        if operation == "round":
+            raw = kwargs.get("value", "0")
+            dec = get_num("decimal", 0.0)
+            s_raw = str(raw).strip() if raw is not None else "0"
+            if "," in s_raw and not re.match(r"^[+-]?\d+,\d+$", s_raw):
+                vals = [_ke_round_scalar(_eval_num(tok, ctx, 0.0), dec) for tok in _split_csv(s_raw)]
+                return _fmt_list(vals, int(math.floor(abs(dec))))
+            return _ke_round_scalar(_eval_num(raw, ctx, 0.0), dec)
+
+        if operation == "clamp":
+            raw = kwargs.get("num", "0.5")
+            mn = get_num("min_val", 0.0)
+            mx = get_num("max_val", 1.0)
+            cycle = _ke_bool(kwargs.get("cycle", False), False)
+            s_raw = str(raw).strip() if raw is not None else "0.5"
+            if "," in s_raw and not re.match(r"^[+-]?\d+,\d+$", s_raw):
+                vals = [ke_clamp_scalar(_eval_num(tok, ctx, 0.5), mn, mx, cycle) for tok in _split_csv(s_raw)]
+                return _fmt_list(vals, ROUND_NUM if cycle else None)
+            return ke_clamp_scalar(_eval_num(raw, ctx, 0.5), mn, mx, cycle)
+
+        if operation == "rand":
+            num1 = kwargs.get("num1", None)
+            num2 = kwargs.get("num2", None)
+            step = get_num("step", 1.0)
+            sign = _ke_bool(kwargs.get("sign", False), False)
+            range_spec = kwargs.get("range", "")
+            return ke_rand(num1, num2, step, sign, range_spec, ctx)
+
+        if operation == "factk":
+            n = int(abs(math.ceil(get_num("n", 0.0))))
+            return math.factorial(min(n, 170))
+
+        if operation == "to16":
+            raw = kwargs.get("num", "0")
+            s_raw = str(raw).strip() if raw is not None else "0"
+            if "," in s_raw and not re.match(r"^[+-]?\d+,\d+$", s_raw):
+                hexes = [f"{int(_ke_round_scalar(_eval_num(tok, ctx, 0.0), 0)):X}" for tok in _split_csv(s_raw)]
+                return ", ".join(hexes)
+            return f"{int(_ke_round_scalar(_eval_num(raw, ctx, 0.0), 0)):X}"
+
+        if operation == "equality":
+            n1 = get_num("n1", 0.0)
+            n2 = get_num("n2", 0.0)
+            tol = get_num("tolerance", 5.0)
+            return abs(n1 - n2) < (0.1 ** tol)
+
+        if operation == "between":
+            val = get_num("num", 0.0)
+            n1 = get_num("n1", 0.0)
+            n2 = get_num("n2", 10.0)
+            lo, hi = min(n1, n2), max(n1, n2)
+            return lo <= val <= hi
+
+    # ------------------------------------------------------------------
+    # Category 2: sequence
+    # ------------------------------------------------------------------
+    elif category == "sequence":
+        if operation == "i":
+            counter = get_num("counter", 1.0)
+            seq_mode = str(kwargs.get("seq_mode", "+,-")).strip()
+            a = get_num("a", 1.0)
+            b = get_num("b", 1.0)
+            c = get_num("c", 1.0)
+            return ke_i(counter, seq_mode, a, b, c)
+
+        if operation == "count":
+            init_raw = kwargs.get("init", "")
+            step = get_num("step", 1.0)
+            seq_mode = str(kwargs.get("seq_mode", "none")).strip()
+            a = get_num("a", 1.0)
+            b = get_num("b", 1.0)
+            c = get_num("c", 1.0)
+            counters = ctx.setdefault("_math_counters", {})
+            c_key = str(node_id) if node_id is not None else "default"
+            if c_key not in counters:
+                if init_raw is not None and str(init_raw).strip() != "":
+                    counters[c_key] = _eval_num(init_raw, ctx, 1.0) - step
+                else:
+                    counters[c_key] = 0.0
+            counters[c_key] = counters[c_key] + step
+            cur = counters[c_key]
+            if seq_mode and seq_mode.lower() != "none":
+                return ke_i(cur, seq_mode, a, b, c)
+            return cur
+
+        if operation == "normalize":
+            raw_t = kwargs.get("t", "0.5")
+            accel = get_num("accel", 1.0)
+            shape_str = str(kwargs.get("shape", "") or "").strip()
+            s_t = str(raw_t).strip() if raw_t is not None else "0.5"
+            if "," in s_t and not re.match(r"^[+-]?\d+,\d+$", s_t):
+                t_list = [_eval_num(tok, ctx, 0.0) for tok in _split_csv(s_t)]
+                res_list = []
+                last = 0.0
+                for ti in t_list:
+                    denom = (1.0 - last) if abs(1.0 - last) > EPSILON else 1.0
+                    rel = (ti - last) / denom
+                    last = ti
+                    res_list.append(ke_normalize_scalar(rel, accel, shape_str))
+                return _fmt_list(res_list, ROUND_NUM)
+            return ke_normalize_scalar(_eval_num(raw_t, ctx, 0.5), accel, shape_str)
+
+        if operation == "ipol":
+            raw_vals = kwargs.get("values", "0, 100")
+            vals = _ke_getnumbers(raw_vals, ctx)
+            t_val = get_num("t", 0.5)
+            accel = get_num("accel", 1.0)
+            shape_str = str(kwargs.get("shape", "") or "").strip()
+            raw_size = kwargs.get("size", "")
+            if raw_size is not None and str(raw_size).strip() != "":
+                sz = int(_eval_num(raw_size, ctx, 0.0))
+                if sz >= 2:
+                    batch = [ke_ipol_scalar(vals, idx / float(sz - 1), accel, shape_str) for idx in range(sz)]
+                    return _fmt_list(batch, ROUND_NUM)
+                if sz == 1:
+                    return ke_ipol_scalar(vals, 0.0, accel, shape_str)
+            return ke_ipol_scalar(vals, t_val, accel, shape_str)
+
+    # ------------------------------------------------------------------
+    # Category 3: geometry
+    # ------------------------------------------------------------------
+    elif category == "geometry":
+        if operation == "angle":
+            nums = _ke_getnumbers([kwargs.get("p1", ""), kwargs.get("p2", ""), kwargs.get("p3", "")], ctx)
+            if len(nums) < 2:
+                return 0.0
+            if len(nums) < 4:
+                x1, y1, x2, y2 = 0.0, 0.0, nums[0], nums[1]
+                x3 = y3 = None
+            else:
+                x1, y1, x2, y2 = nums[0], nums[1], nums[2], nums[3]
+                x3 = nums[4] if len(nums) >= 6 else None
+                y3 = nums[5] if len(nums) >= 6 else None
+            a1 = math.degrees(math.atan2(y1 - y2, x2 - x1))
+            if a1 < 0.0:
+                a1 += 360.0
+            if x3 is not None and y3 is not None:
+                a2 = math.degrees(math.atan2(y2 - y3, x3 - x2))
+                if a2 < 0.0:
+                    a2 += 360.0
+                ang = 180.0 - a1 + a2
+            else:
+                ang = a1
+            if ang < 0.0:
+                ang += 360.0
+            elif ang > 360.0:
+                ang -= 360.0
+            return _ke_round_scalar(ang, ROUND_NUM)
+
+        if operation == "polar":
+            ang = get_num("angle", 0.0)
+            rad = get_num("radius", 0.0)
+            get_mode = str(kwargs.get("get", "xy")).strip().lower()
+            px = _ke_round_scalar(rad * math.cos(math.radians(ang)), ROUND_NUM)
+            py = _ke_round_scalar(-rad * math.sin(math.radians(ang)), ROUND_NUM)
+            if get_mode == "y":
+                return (py, py)
+            return (px, py)
+
+        if operation == "distance":
+            raw_list = [kwargs.get("p1", ""), kwargs.get("p2", "")]
+            pts = _ke_topoints(raw_list, ctx)
+            if len(pts) > 2:
+                total = 0.0
+                for idx in range(len(pts) - 1):
+                    dx = pts[idx][0] - pts[idx + 1][0]
+                    dy = pts[idx][1] - pts[idx + 1][1]
+                    total += _ke_round_scalar(math.hypot(dx, dy), ROUND_NUM)
+                return _ke_round_scalar(total, ROUND_NUM)
+            nums = _ke_getnumbers(raw_list, ctx)
+            if len(nums) < 2:
+                return 0.0
+            x1, y1 = nums[0], nums[1]
+            x2 = nums[2] if len(nums) >= 3 else 0.0
+            y2 = nums[3] if len(nums) >= 4 else 0.0
+            return _ke_round_scalar(math.hypot(x1 - x2, y1 - y2), ROUND_NUM)
+
+        if operation == "intersect":
+            nums = _ke_getnumbers([kwargs.get("s1", ""), kwargs.get("s2", "")], ctx)
+            if len(nums) < 8:
+                return ("parallels", "", "")
+            x1, y1, x2, y2, x3, y3, x4, y4 = nums[:8]
+            if (x1 == x3 and y1 == y3) or (x1 == x4 and y1 == y4):
+                return (_ke_round_scalar(x1, ROUND_NUM), _ke_round_scalar(y1, ROUND_NUM), 0.0)
+            if (x2 == x3 and y2 == y3) or (x2 == x4 and y2 == y4):
+                return (_ke_round_scalar(x2, ROUND_NUM), _ke_round_scalar(y2, ROUND_NUM), 1.0)
+            denom = (x2 - x1) * (y3 - y4) - (x3 - x4) * (y2 - y1)
+            if abs(denom) < 1e-12:
+                return ("parallels", "", "")
+            t = ((x3 - x1) * (y3 - y4) - (x3 - x4) * (y3 - y1)) / denom
+            ix = _ke_round_scalar(x1 + t * (x2 - x1), ROUND_NUM)
+            iy = _ke_round_scalar(y1 + t * (y2 - y1), ROUND_NUM)
+            return (ix, iy, _ke_round_scalar(t, ROUND_NUM))
+
+        if operation == "circle":
+            pts = _ke_topoints([kwargs.get("p1", ""), kwargs.get("p2", ""), kwargs.get("p3", "")], ctx)
+            if len(pts) < 3:
+                return ("collineals", "", "")
+            (x1, y1), (x2, y2), (x3, y3) = pts[0], pts[1], pts[2]
+            det = x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2)
+            if abs(det) < EPSILON:
+                return ("collineals", "", "")
+            d1 = x1 * x1 + y1 * y1
+            d2 = x2 * x2 + y2 * y2
+            d3 = x3 * x3 + y3 * y3
+            ux = (d1 * (y2 - y3) + d2 * (y3 - y1) + d3 * (y1 - y2)) / (2.0 * det)
+            uy = (d1 * (x3 - x2) + d2 * (x1 - x3) + d3 * (x2 - x1)) / (2.0 * det)
+            rad = math.hypot(ux - x1, uy - y1)
+            return (_ke_round_scalar(ux, ROUND_NUM), _ke_round_scalar(uy, ROUND_NUM), _ke_round_scalar(rad, ROUND_NUM))
+
+        if operation == "rotate":
+            p_raw = str(kwargs.get("p", "") or "").strip()
+            ang_rad = math.radians(get_num("angle", 0.0))
+            axis = str(kwargs.get("axis", "z")).strip().lower()
+            ca, sa = math.cos(ang_rad), math.sin(ang_rad)
+
+            def rot_pt(x, y, z):
+                if axis == "x":
+                    return x, ca * y - sa * z, sa * y + ca * z
+                if axis == "y":
+                    return ca * x + sa * z, y, ca * z - sa * x
+                return ca * x - sa * y, sa * x + ca * y, z
+
+            if _ASS_SHAPE_RE.search(p_raw):
+                def _sub_pair(m):
+                    rx, ry, _ = rot_pt(float(m.group(1)), float(m.group(2)), 0.0)
+                    return f"{_fmt_num(rx, ROUND_NUM)} {_fmt_num(ry, ROUND_NUM)}"
+                rotated = _ASS_PAIR_RE.sub(_sub_pair, p_raw)
+                return (rotated, "", "", "")
+
+            nums = _ke_getnumbers(p_raw, ctx)
+            x = nums[0] if len(nums) >= 1 else 0.0
+            y = nums[1] if len(nums) >= 2 else 0.0
+            z = nums[2] if len(nums) >= 3 else 0.0
+            rx, ry, rz = rot_pt(x, y, z)
+            rx_r = _ke_round_scalar(rx, ROUND_NUM)
+            ry_r = _ke_round_scalar(ry, ROUND_NUM)
+            rz_r = _ke_round_scalar(rz, ROUND_NUM)
+            return (_fmt_list([rx_r, ry_r, rz_r], ROUND_NUM), rx_r, ry_r, rz_r)
+
+    # ------------------------------------------------------------------
+    # Category 4: algebra
+    # ------------------------------------------------------------------
+    elif category == "algebra":
+        if operation == "quadratic":
+            roots = ke_quadratic(get_num("c1", 1.0), get_num("c2", 0.0), get_num("c3", 0.0))
+            return _fmt_list(roots, ROUND_MATRIX)
+
+        if operation == "cubic":
+            roots = ke_cubic(get_num("c1", 1.0), get_num("c2", 0.0), get_num("c3", 0.0), get_num("c4", 0.0))
+            return _fmt_list(roots, ROUND_MATRIX)
+
+        if operation == "resolve":
+            coeffs = _ke_getnumbers(kwargs.get("coefficients", ""), ctx)
+            while coeffs and abs(coeffs[0]) < EPSILON:
+                coeffs.pop(0)
+            if len(coeffs) <= 1:
+                return ""
+            if len(coeffs) >= 4:
+                roots = ke_cubic(coeffs[0], coeffs[1], coeffs[2], coeffs[3])
+            elif len(coeffs) == 3:
+                roots = ke_quadratic(coeffs[0], coeffs[1], coeffs[2])
+            else:
+                roots = [-coeffs[1] / coeffs[0]]
+            return _fmt_list(roots, ROUND_MATRIX)
+
+        if operation == "equation":
+            coeffs = _ke_getnumbers(kwargs.get("coefficients", ""), ctx)
+            reals = _ke_bool(kwargs.get("reals", True), True)
+            return ", ".join(ke_equation(coeffs, reals_only=reals))
+
+        if operation == "evaluate":
+            coeffs = _ke_getnumbers(kwargs.get("coefficients", ""), ctx)
+            t_val = get_num("t", 0.0)
+            if not coeffs:
+                return 0.0
+            res = coeffs[-1]
+            for idx in range(len(coeffs) - 2, -1, -1):
+                res = res * t_val + coeffs[idx]
+            return res
+
+        if operation == "gauss":
+            raw_mat = str(kwargs.get("matrix", "") or "").strip()
+            rows = [_ke_getnumbers(r_str, ctx) for r_str in raw_mat.split(";") if r_str.strip()]
+            sol = ke_gauss(rows)
+            if isinstance(sol, str):
+                return sol
+            return _fmt_list(sol, ROUND_MATRIX)
+
+        if operation == "matrix":
+            op = str(kwargs.get("matrix_op", "mul")).strip().lower()
+            is_row = _ke_bool(kwargs.get("is_row", False), False)
+            nums_a = _ke_getnumbers(kwargs.get("matrix_a", "1, 0, 0, 1"), ctx)
+            raw_b = str(kwargs.get("matrix_b", "") or "").strip()
+            nums_b = _ke_getnumbers(raw_b, ctx) if raw_b else []
+
+            if op == "identity":
+                size_n = nums_a[0] if nums_a else 3
+                m = KeMatrix.identity(size_n)
+                return (m.format_str(), m.determinant())
+
+            m_a = KeMatrix(nums_a, is_row=is_row)
+
+            if op == "det":
+                d = m_a.determinant()
+                return (d, d)
+            if op == "toarray":
+                return (_fmt_list(m_a.to_array(), ROUND_MATRIX), m_a.determinant())
+            if op == "neg":
+                res_m = -m_a
+                return (res_m.format_str(), res_m.determinant())
+            if op == "inverse":
+                inv_m = m_a.inverse()
+                if inv_m is None:
+                    return ("singular matrix", 0.0)
+                return (inv_m.format_str(), inv_m.determinant())
+            if op == "rotate":
+                ang_nums = _ke_getnumbers(kwargs.get("angles", "0, 0, 0"), ctx)
+                ax = ang_nums[0] if len(ang_nums) >= 1 else 0.0
+                ay = ang_nums[1] if len(ang_nums) >= 2 else 0.0
+                az = ang_nums[2] if len(ang_nums) >= 3 else 0.0
+                res_m = m_a.rotate_xyz(ax, ay, az)
+                return (res_m.format_str(), res_m.determinant())
+
+            # Binary operations: mul, add, sub, eq
+            if len(nums_b) == 1 and op in ("mul", "add", "sub"):
+                operand = nums_b[0]
+            else:
+                b_is_row = is_row if op != "mul" else (len(nums_b) == m_a.n and not m_a.is_row and ";" not in raw_b and len(nums_b) != m_a.n * m_a.n)
+                operand = KeMatrix(nums_b, is_row=b_is_row)
+
+            if op == "add":
+                res_m = m_a + operand
+                return (res_m.format_str(), res_m.determinant())
+            if op == "sub":
+                res_m = m_a - operand
+                return (res_m.format_str(), res_m.determinant())
+            if op == "eq":
+                eq_res = m_a.equals(operand) if isinstance(operand, KeMatrix) else False
+                return (eq_res, m_a.determinant())
+            res_m = m_a * operand
+            return (res_m.format_str(), res_m.determinant())
+
+    # ------------------------------------------------------------------
+    # Category 5: data
+    # ------------------------------------------------------------------
+    elif category == "data":
+        if operation == "getpair":
+            nums = _ke_getnumbers(kwargs.get("val", ""), ctx)
+            defx = get_num("defx", 0.0)
+            defy = get_num("defy", 0.0)
+            vx = nums[0] if len(nums) >= 1 else defx
+            if len(nums) >= 2:
+                vy = nums[1]
+            elif kwargs.get("defy") is not None and str(kwargs.get("defy")).strip() != "":
+                vy = defy
+            elif len(nums) >= 1:
+                vy = nums[0]
+            else:
+                vy = 0.0
+            return (vx, vy)
+
+        if operation == "getnumbers":
+            nums = _ke_getnumbers(kwargs.get("val", ""), ctx)
+            return _fmt_list(nums)
+
+        if operation == "format":
+            fmt_str = str(kwargs.get("fmt", "%s") or "%s")
+            raw_vals = kwargs.get("values", "1")
+            val_tokens = _split_csv(raw_vals) if (raw_vals is not None and str(raw_vals).strip() != "") else ["1"]
+            specs = _FMT_SPEC_RE.findall(fmt_str)
+            if not specs:
+                return fmt_str
+            args = []
+            for idx, spec in enumerate(specs):
+                tok = val_tokens[idx % len(val_tokens)]
+                conv = spec[-1]
+                if conv in ("d", "i", "u", "o", "x", "X", "c"):
+                    args.append(int(_ke_round_scalar(_eval_num(tok, ctx, 0.0), 0)))
+                elif conv in ("e", "E", "f", "g", "G", "a", "A"):
+                    args.append(_eval_num(tok, ctx, 0.0))
+                else:
+                    args.append(tok)
+            try:
+                return fmt_str % tuple(args)
+            except Exception:
+                return fmt_str
 
     return 0.0
 
 
-NODE_REGISTRY["Math"] = eval_math_node
 NODE_REGISTRY["Basics/Math"] = eval_math_node
 
 
@@ -757,18 +1679,19 @@ def _get_callsite_id(kwargs, context):
             return (explicit_key, str(kwargs[explicit_key]))
 
     node_id = context.get("_active_node_id") if isinstance(context, dict) else None
+    callsite_label = context.get("_active_callsite_label") if isinstance(context, dict) else None
 
     try:
         f = sys._getframe(2)
         while f:
             c_name = f.f_code.co_name
             if c_name not in _WRAPPER_FUNC_NAMES and "math_nodes.py" not in f.f_code.co_filename:
-                return (node_id, hash(f.f_code.co_code), f.f_lasti)
+                return (node_id, callsite_label, hash(f.f_code.co_code), f.f_lasti)
             f = f.f_back
     except (AttributeError, ValueError):
         pass
 
-    return (node_id, 0, 0)
+    return (node_id, callsite_label, 0, 0)
 
 
 class PyxisScopedRandom:

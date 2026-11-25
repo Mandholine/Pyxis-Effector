@@ -811,6 +811,133 @@ class ClipperEngine:
             return str(subject_shape or ""), [str(subject_shape or "")] if subject_shape else []
 
     @staticmethod
+    def _fmt_clip_coord(val: float) -> str:
+        """Format a numeric coordinate for 2-point rectangular ASS clip tags without trailing zeros."""
+        rounded = round(float(val), 2)
+        if abs(rounded) < 1e-9:
+            return "0"
+        if rounded == int(rounded):
+            return str(int(rounded))
+        return f"{rounded:.2f}".rstrip("0").rstrip(".")
+
+    @staticmethod
+    def extract_aabb_rect(shape_str: str, tol: float = 1e-2) -> tuple[float, float, float, float] | None:
+        """Detect whether an ASSDraw string represents a single solid axis-aligned rectangle (AABB).
+
+        Validates that the drawing consists of exactly one closed linear contour ('m' and 'l'
+        commands only, no curves or interior holes) whose simplified non-collinear vertices form
+        4 orthogonal corners at 0, 90, 180, or 270 degrees.
+
+        Args:
+            shape_str: ASSDraw vector string to inspect.
+            tol: Numeric tolerance in pixels for vertex deduplication and orthogonality checks.
+
+        Returns:
+            A 4-tuple `(min_x, min_y, max_x, max_y)` representing top-left and bottom-right
+            coordinates if the shape is an axis-aligned rectangle, or `None` otherwise.
+        """
+        s = str(shape_str or "").strip()
+        if not s or s[0] not in ("m", "M"):
+            return None
+
+        tokens = s.split()
+        m_count = 0
+        pts: list[tuple[float, float]] = []
+        i = 0
+        n_tok = len(tokens)
+        while i < n_tok:
+            tok = tokens[i]
+            if tok[0].isalpha():
+                cmd = tok.lower()
+                if cmd == "m":
+                    m_count += 1
+                    if m_count > 1:
+                        return None
+                elif cmd != "l":
+                    return None
+                i += 1
+                continue
+            if i + 1 >= n_tok:
+                return None
+            try:
+                px = float(tokens[i])
+                py = float(tokens[i + 1])
+            except ValueError:
+                return None
+            pts.append((px, py))
+            i += 2
+
+        if m_count != 1 or len(pts) < 4:
+            return None
+
+        # 1. Remove consecutive duplicate vertices and redundant closing vertex
+        dedup: list[tuple[float, float]] = []
+        for px, py in pts:
+            if not dedup or abs(px - dedup[-1][0]) > tol or abs(py - dedup[-1][1]) > tol:
+                dedup.append((px, py))
+        while len(dedup) > 1 and abs(dedup[-1][0] - dedup[0][0]) <= tol and abs(dedup[-1][1] - dedup[0][1]) <= tol:
+            dedup.pop()
+        if len(dedup) < 4:
+            return None
+
+        # 2. Collapse collinear intermediate vertices along horizontal or vertical edges
+        changed = True
+        while changed and len(dedup) >= 4:
+            changed = False
+            n_pts = len(dedup)
+            for idx in range(n_pts):
+                prev_pt = dedup[(idx - 1) % n_pts]
+                curr_pt = dedup[idx]
+                next_pt = dedup[(idx + 1) % n_pts]
+                same_x = abs(prev_pt[0] - curr_pt[0]) <= tol and abs(curr_pt[0] - next_pt[0]) <= tol
+                same_y = abs(prev_pt[1] - curr_pt[1]) <= tol and abs(curr_pt[1] - next_pt[1]) <= tol
+                if same_x or same_y:
+                    dedup = dedup[:idx] + dedup[idx + 1:]
+                    changed = True
+                    break
+
+        if len(dedup) != 4:
+            return None
+
+        xs = [p[0] for p in dedup]
+        ys = [p[1] for p in dedup]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        if (max_x - min_x) <= tol or (max_y - min_y) <= tol:
+            return None
+
+        # 3. Verify all 4 edges are axis-aligned and vertices match the 4 AABB corners
+        for idx in range(4):
+            p1 = dedup[idx]
+            p2 = dedup[(idx + 1) % 4]
+            if abs(p1[0] - p2[0]) > tol and abs(p1[1] - p2[1]) > tol:
+                return None
+
+        corners = ((min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y))
+        for cx_c, cy_c in corners:
+            if not any(abs(p[0] - cx_c) <= tol and abs(p[1] - cy_c) <= tol for p in dedup):
+                return None
+
+        return (round(min_x, 2), round(min_y, 2), round(max_x, 2), round(max_y, 2))
+
+    @staticmethod
+    def format_clip_payload(shape_str: str, tol: float = 1e-2) -> str:
+        """Convert an ASSDraw path into 'x1,y1,x2,y2' if it is an AABB rectangle, else keep vector payload."""
+        rect = ClipperEngine.extract_aabb_rect(shape_str, tol=tol)
+        if rect is not None:
+            fmt = ClipperEngine._fmt_clip_coord
+            return f"{fmt(rect[0])},{fmt(rect[1])},{fmt(rect[2])},{fmt(rect[3])}"
+        return str(shape_str or "").strip()
+
+    @staticmethod
+    def format_clip_tag(shape_str: str, is_iclip: bool = False, braces: bool = False, tol: float = 1e-2) -> str:
+        """Format an ASS \\clip or \\iclip tag, automatically using 2-point rectangular syntax when possible."""
+        tag_name = "iclip" if is_iclip else "clip"
+        payload = ClipperEngine.format_clip_payload(shape_str, tol=tol)
+        tag = f"\\{tag_name}({payload})"
+        return f"{{{tag}}}" if braces else tag
+
+    @staticmethod
     def offset_shape(shape_str: str, delta: float, join_type=None, scale: float = 10000.0) -> str:
         """Execute geometric morphological offset (dilation or erosion) on an ASSDraw shape.
 
@@ -822,7 +949,7 @@ class ClipperEngine:
             delta: Offset distance in pixels. Positive values inflate/dilate the contour
                 outward; negative values erode/deflate inward.
             join_type: Corner join style (`pyclipper.JT_ROUND`, `JT_MITER`, or `JT_SQUARE`).
-                Defaults to `JT_ROUND`.
+                Defaults to `JT_MITER`.
             scale: Integer coordinate scaling multiplier (default: 10000.0) for fixed-point
                 precision.
 
@@ -860,7 +987,7 @@ class ClipperEngine:
                 pass
 
             pco = pyclipper.PyclipperOffset(miter_limit=2.0, arc_tolerance=0.25 * scale)
-            jt = join_type if join_type is not None else pyclipper.JT_ROUND
+            jt = join_type if join_type is not None else pyclipper.JT_MITER
             pco.AddPaths(paths, jt, pyclipper.ET_CLOSEDPOLYGON)
 
             solution = pco.Execute(float(delta) * scale)
@@ -1026,7 +1153,7 @@ class ClipperEngine:
     @staticmethod
     def slice_grid(shape_str: str, cols: int = 2, rows: int = 2, size_x: float = 0.0, size_y: float = 0.0,
                    scale_x: float = 1.0, scale_y: float = 1.0, offset_x: float = 0.0, offset_y: float = 0.0,
-                   angle: float = 0.0, overlap: float = 0.0, accel: float = 1.0, order: int = 79,
+                   angle: float = 0.0, overlap: float = 0.0, accel: float = 1.0, order: str = "79",
                    text_scale: float = 1.0, pre_offset: float = 0.0, engine_mode: str = "grid",
                    accel_x: float = 1.0, accel_y: float = 1.0, pattern_shape: str = ""):
         """Execute universal 1D/2D spatial segmentation and procedural mesh tessellation.
@@ -1110,7 +1237,7 @@ class ClipperEngine:
             round(float(offset_x), 3), round(float(offset_y), 3),
             round(float(angle), 2), round(float(overlap), 2),
             round(float(accel_x), 3), round(float(accel_y), 3),
-            int(order),
+            str(order or "79").strip().lower(),
             round(float(text_scale), 3), round(float(pre_offset), 3),
             str(pattern_shape).strip()
         )
@@ -1659,7 +1786,7 @@ class ClipperEngine:
                     f"l {b3_end[0]:.3f} {b3_end[1]:.3f} "
                     f"b {b3_c2[0]:.3f} {b3_c2[1]:.3f} {b3_c1[0]:.3f} {b3_c1[1]:.3f} {b2_end[0]:.3f} {b2_end[1]:.3f} "
                     f"b {b2_c2[0]:.3f} {b2_c2[1]:.3f} {b2_c1[0]:.3f} {b2_c1[1]:.3f} {b1_end[0]:.3f} {b1_end[1]:.3f} "
-                    f"b {b1_c2[0]:.3f} {b1_c2[1]:.3f} {b1_c1[0]:.3f} {b1_c1[0]:.3f} {pt_neck_L[0]:.3f} {pt_neck_L[1]:.3f} "
+                    f"b {b1_c2[0]:.3f} {b1_c2[1]:.3f} {b1_c1[0]:.3f} {b1_c1[1]:.3f} {pt_neck_L[0]:.3f} {pt_neck_L[1]:.3f} "
                     f"l {x1:.3f} {y1:.3f}"
                 )
                 return {"fwd": fwd, "bwd": bwd}

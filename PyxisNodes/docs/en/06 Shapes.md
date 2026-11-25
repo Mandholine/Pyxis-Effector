@@ -1,4 +1,4 @@
-# Shapes
+﻿# Shapes
 
 The **Shape** category contains nodes for generating, ingesting, manipulating, and geometrically segmenting vector drawings in ASSdraw format (`m`, `l`, `b`, `s`, `p`, `c`) and clipping masks (`\clip`, `\iclip`).
 
@@ -96,10 +96,14 @@ These parameters and configuration buttons apply across all slicing modes:
      * **Position (`\pos`):** Re-anchored to the absolute screen centroid of the piece (`pos_x = parent_x + cx`, `pos_y = parent_y + cy`).
      * **Injected Origin (`\org`):** Injects `\org(pos_x, pos_y)` matching the centroid of the piece itself.
      * **Vector Path:** Re-centred at local origin `(0, 0)` via perimeter offset `(-cx, -cy)`. Allows each fragment to rotate and scale around its own centre of mass independently.
-   * **`Relative`:** 
+   * **`Relative` (`relative`):** 
      * **Position (`\pos`):** Retains parent element position (`parent_x`, `parent_y`).
      * **Injected Origin (`\org`):** Injects `\org(parent_x, parent_y)` at parent centroid.
      * **Vector Path:** Preserves original relative coordinates relative to parent origin without re-centring the piece.
+   * **`Relative 2 (No Org)` (`relative2`):** 
+     * **Position (`\pos`):** Retains parent element position (`parent_x`, `parent_y`), identical to `relative`.
+     * **Injected Origin (`\org`):** **Does not inject an `\org` tag** (`has_org = False`), unlike `relative`, avoiding locking the rotation/scale pivot to the parent centre and letting the renderer use the standard `\pos`/`\an` origin or a downstream manual `\org`.
+     * **Vector Path:** Preserves original relative coordinates without re-centring the piece.
    * **`Parent Org`:** 
      * **Position (`\pos`):** Positioned at piece centroid (`pos_x = parent_x + cx`, `pos_y = parent_y + cy`).
      * **Injected Origin (`\org`):** Injects `\org(parent_x, parent_y)` forced at parent origin.
@@ -114,8 +118,8 @@ These parameters and configuration buttons apply across all slicing modes:
      * **Vector Path:** Absolute screen coordinates are baked directly into the ASSdraw code via offset `(+parent_x, +parent_y)`.
 5. **`[2.5] Out:` (Vector Output Mode):** Format selector for data emitted on the `Piece` port:
    * **`Shape`:** Emits raw ASSdraw code of the cut fragment (`m ... l ... b ...`).
-   * **`\clip`:** Emits rectangular or polygonal ASS clipping tag `\clip(m ...)`.
-   * **`\iclip`:** Emits inverted ASS clipping tag `\iclip(m ...)`.
+   * **`\clip`:** Emits the 2-point rectangular ASS clipping tag `\clip(x1,y1,x2,y2)` whenever the fragment is a single axis-aligned rectangle ($0^\circ, 90^\circ, 180^\circ, 270^\circ$), or `\clip(m ...)` for general polygonal/curved shapes.
+   * **`\iclip`:** Emits the 2-point rectangular inverted ASS clipping tag `\iclip(x1,y1,x2,y2)` when axis-aligned rectangular, or `\iclip(m ...)` for polygonal/curved shapes.
 6. **`[2.6] Bleed`:** Perimeter overlap between adjacent fragments. Dilates each piece to eradicate visual hairline rendering seams between touching pieces.
 7. **`[2.7] Order:` (Spatial Piece Ordering):** 9-point numpad iteration order selector:
    * **`79 (TL->BR)`:** Top-Left to Bottom-Right.
@@ -753,93 +757,61 @@ The node delegates path dilation to Clipper2's bilateral offset engine:
 
 ---
 
-## 9. Node `Shape/Union & Divide` (Topological Decomposition, Union, and Tag Fusion)
+## 9. Node `Shape/Union & Divide` (Topological Decomposition and Boolean Union)
 
-* **Canonical Category:** `Shape` (UI: *Shape*)
-* **Purpose:** Multifunctional Clipper topology node. Decomposes compound paths into genuine vector islands via polygon hierarchy analysis (*PolyTree*), splits simple subpaths, merges silhouettes via boolean union, or packages multiple pieces into a single ASS drawing line by interleaving style tag blocks with keyframe interpolation.
+* **Canonical Category:** `Shape` (UI: *Shape / Union & Divide*)
+* **Purpose:** Multi-functional vector topology node powered by *Clipper2*, enabling the decomposition of complex drawings into true vector islands via polygon hierarchy analysis (*PolyTree*), separating simple sub-paths, or merging overlapping silhouetes via boolean union. To assemble vector shapes with style overrides and colour gradients in a monolithic stream, canonically use `Basics/Builder` (mode: shape).
 
 ![Shape/Union & Divide](img/union_&_divide.png)
 
 ---
 
-### 9.1. Header Mode Selector (`mode`)
-1. **`[DIVIDE]` (`PolyTree Divide`):** Exact topological decomposition into closed islands while distinguishing internal cut-out holes (e.g. letters "O", "B", "8", kanji).
-2. **`[UNION]` (`Boolean Union`):** Boolean geometric merger of two overlapping shapes, removing inner boundaries.
-3. **`[SUB-PATHS]` (`Naive Sub-Paths`):** Direct split by `m ...` start commands without hole hierarchy calculation.
-4. **`[FUSION]` (`Tag Fusion with Keyframes`):** Assembles multiple vector islands into a **single ASS dialogue line** (`{\tags1}m... {\tags2}m...`).
+### 9.2. Header and Title Bar
+1. **`[1.1] Union & Divide`:** Node identifier title.
+2. **[1.2] Mode Selector Pill (`mode`):** Switches between the 3 available modal operations:
+   * **[DIVIDE] (`Divide (PolyTree)`)s:** Exact topological dissection into closed, autonomous islands discriminating internal holes.
+   * **[UNION] (`Union (Boolean Union)`)s:** Geometric boolean union of two shapes or path lists.
+   * **[SUB-PATHS] (`Divide (Sub-paths)`):** Immediate direct separation by ASSdraw `m ...` sub-path move commands.
 
 ---
 
-### 9.2. Mode-Specific Inputs and Parameters
+### 9.3. Inputs, Controls, and Specific Modes
 
-#### 1. `[DIVIDE]` (PolyTree Divide) Mode
-* **`[2.1] Shape In`:** Input ASSdraw path or text. Supports leading ASS tag prefixes (such as `{\pos(...)\1c...}`), which are isolated for geometric computation and cleanly inherited by each resulting piece.
-* **`[2.2] Rule:` (`fill_type`):** Winding fill rule (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
-* **`[2.3] Clean:` (`clean_self_intersect`):** Auto-cleaning of self-intersecting edges (`Auto (1)`, `Off (0)`).
-* **`[2.4] Anchor` (`Pieces`):** Anchor selector (`Pieces` recentres each piece at its local centroid, `Relative` preserves original coordinates, `Center` globally centres shape at (0, 0), `Origin` aligns top-left bounding box to (0, 0), `Parent Org`, `Pos`, `Absolute`).
-* **`[2.5] Order:` (`order`):** Spatial piece ordering (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
+#### 1. `[DIVIDE]` (Divide PolyTree) Mode
+Analyses the nested structure of the data path via the Clipper polygon tree (*PolyTree*). Unlike a naive break by `m` tokens, this mode correctly discriminates between outer perimeters and islands with internal holes (such as in glyphs like "O", "B", "A", "8", or dense kanji), pairing each external boundary with its inner holes as a single, closed, self-contained piece.
+* **`[2.1] Shape In`:** ASSdraw string or text to decompose into islands. Supports pre-fixed ASS tag blocks (such as `\pos(X,Yi\1c...`), which are stripped for geometric computation and reinjected cleanly onto each resulting piece.
+* **`[2.2] Rule:� (`fill_type`)s:** Polygon winding rule (`EvenOdd`, `NonZero`, `Positive`, `Negative`)s.
+* **@[2.3] Clean:` (`clean_self_intersect`):** Automatic pre-cleaning of self-intersecting edges (`Auto (1)` enabled, `Off (0)` disabled).
+* **`[2.4] Anchor` (`Pieces`):** Spatial reference anchor selector (`Pieces` recentres each piece at its local centroid, `Relative` preserves original coordinates, `Center` centres the whole compound at (0, 0), `Origin` aligns the top-left corner at (0, 0), `Parent Org` / `Org Padre`, `Pos`, `Absolute`).
+* **@[2.5] Order:X (`order`):** Spatial iteration sorting criterion (`79 (TL->BR)`, `97 (TR->BL)`, `13 (BL->TR)`, `31 (BR->TL)`, `71 (TL->BL)`, `17 (BL->TL)`, `93 (TR->BR)`, `39 (BR->TR)`, `5 (Centre)`, `-5 (Inverse)`, `cw` clockwise, `ccw` counterclockwise, `rand` stochastic, `path` native drawing order, `path_inv` reversed).
 
-#### 2. `[UNION]` (Boolean Union) Mode
-* **`[2.1] Shape In (A)`:** First base vector shape (`shape`).
-* **`[2.1b] Shape In (B)`:** Second vector shape (`shape_b`) to merge.
-* **`[2.2] Rule:` / `[2.3] Clean:` / `[2.4] Anchor`:** Boolean parameters.
+#### 2. `[UNION]` (Union Boolean Union) Mode
+Combines overlapping vector silhouettes into a single, unified path, merging solid areas and eliminating internal boundary seams.
+* **`[2.1] Shape In (A)`:** Base subject shape (`shape`).
+* **`[2.1b] Shape In (B)`:** Second shape (`shape_b`) to unite with the first.
+* **@[2.2] Rule:�(qfill_type`)s;�* Boolean winding rule (`EvenOdd`, `NonZero`).
+* **@[2.3] Clean:` (`clean_self_intersect`):** Automatic pre-cleaning of self-intersections (`Auto (1)`).
+* **`[2.4] Anchor` (`Pieces`):** Reference anchor for the unified figure.
 
-#### 3. `[SUB-PATHS]` (Naive Sub-Paths) Mode
-* **`[2.1] Shape In`:** ASSdraw path with multiple `m` subpaths.
-* **`[2.2] Anchor` / `[2.3] Order:`:** Spatial parameters (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
-
-#### 4. `[FUSION]` (Tag Fusion with Keyframes) Mode
-Packages multiple islands into a single ASS line, reducing line count:
-* **`[2.1] Shape In`:** Multi-path shape, text, or list of shapes.
-* **`[2.2] Split:` (`split_mode`):** Input shape decomposition selector prior to applying tag blocks:
-  * **`[Islands]` (`islands`, default):** Decomposes the silhouette into genuine topological islands via Clipper2 PolyTree (`decompose_shape_islands`). Contiguous pieces sharing cut boundaries or touching edges are unified into an outer silhouette with their internal cut-out holes preserved.
-  * **`[Path]` (`path`):** Decomposes the silhouette directly by each move `m` command via `decompose_shape_subpaths` without boolean union. Preserves touching adjacent slices generated by `Shape/Slicer` (in `Shape` mode) or overlapping paths, enabling each segment to receive its independent tag block or colour styling. When input originates from `Basics/Concatenate` in `merge` mode, the engine automatically detects the contextual `_merge_manifest`, distinguishing compound figures with internal holes (grouping them as a single `m ... m ...` entity) from disjoint loose pieces, preventing internal cut-out holes from being severed and styled as solid shapes.
-* **`[2.3] Tag Mode:` (`tagmode`):**
-  * **`ipol` (Progressive Interpolated):** Treats tag list as *keyframes*, interpolating smoothly between start and end ($0.0 \to 1.0$) for colour gradients (`\1c`), rotations (`\frz`), alphas (`\alpha`), or blur (`\blur`).
-  * **`line` (Strict 1:1 Linear):** Maps tag blocks 1-to-1 to each piece in order. Extra pieces receive `{\p1}`; excess tags are discarded.
-* **`[2.4] Tags` (`tags`):** Comma-separated ASS tags or hexadecimal colour list (e.g. `\1c&H0000FF&, \1c&H00FF00&, \1c&HFF0000&`).
-* **`[2.5] Accel` (`accel`):** Non-linear acceleration exponent for progressive tag and colour keyframe interpolation (Type A, default: `1.0`). Dynamically exposed exclusively when `Tag Mode` is set to `ipol` (in `line` mode, the port and input field are automatically hidden). On the canvas UI, this control is presented as a clean inline text box without a side label, displaying the descriptive placeholder *"Accel"* when empty. It modulates the normalised progression curve ($t \in [0.0, 1.0]$) via the power function $t' = t^{\text{accel}}$:
-  * $\text{accel} = 1.0$: Traditional uniform linear interpolation (homogeneous distribution of tints and numerical tag values).
-  * $\text{accel} > 1.0$ (e.g. `2.0`, `3.0`): Ease-in acceleration curve (initial concentration). Starting keyframe attributes linger across earlier pieces, concentrating transition rate towards final pieces.
-  * $\text{accel} < 1.0$ (e.g. `0.5`, `0.3`): Ease-out deceleration curve (rapid onset). The transition unfolds swiftly across early pieces and plateaus gently towards the finish.
-  * Accepts dynamic mathematical expressions and context variables (e.g. `1.0 + 0.5 * fx.i`). When left empty, falls back cleanly to the canonical default `1.0`.
-* **`[2.6] Anchor` / `[2.7] Order:`:** Spatial parameters (`Pieces`, `Relative`, `Center`, `Origin`, `Parent Org`, `Pos`, `Absolute` / `79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`). In `Fusion (Tags)` mode, the engine applies canonical VSFilter/libass glyph compensation ($dx = -\text{sum\_w}$, $dy = -(\text{max\_h} - h_i)$) to counteract typesetting caret advance and baseline droop introduced by ASS formatting when interleaving style blocks, stripping redundant `\pos` tags from intermediate blocks to preserve single-line positioning, seamlessly merging upstream input tag prefixes (such as `\alpha` and `\t(...)` animations from `Functions/Animation`), and atomically isolating inline `{...}` blocks when chained into downstream transformation nodes (`Shape/Manipulator`, `Shape/Transform`, `Shape/Filter`).
+#### 3. `[SUB-PATHS]` (Divide Sub-paths) Mode
+Decomposes the path directly by Ynstances of move commands `m ...` without evaluating hole topology. Perfect for open strokes, calligraphic curves, or flat multi-contour drawings.
+* **`[2.1] Shape In`:** ASSdraw path with multiple `m` commands.
+* **`[2.2] Anchor` (`Pieces`):** Reference anchor for each sub-path.
+* **`[2.3] Order:� (`order`):** Spatial sorting order (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
 
 ---
 
-### 9.3. Output Ports (*Outputs*) and Node Footer
-1. **`[3.1] Shape Out`:** Emits active piece `d_i` in divide modes, or unified single drawing in union/fusion modes.
-2. **`[3.2] Out List`:** JSON list containing all generated vector pieces for batch downstream chaining.
-3. **`[3.3] BBox Data`:** Metric bounding box data string (`min_x,min_y,max_x,max_y,cx,cy,width,height`).
+### 9.4. Output Ports and Footer
+1. **[3.1] Shape Out`:** Emits the resulting ASSdraw path:
+   * In division modes (`DIVIDE`, `SUB-PATHS`): Emits the individual shape corresponding to the active iteration `d_i`.
+   * In union mode (`UNION`): Emits the single unified vector geometry.
+2. **[3.2] Out List`:** Emits a JSON list array containing all generated vector pieces for batch processing or chaining into downstream nodes.
+3. **[3.3] BBox Data`:** Emits a string with the global bounding box metrics (`min_x,min_y,max_x,max_y,cx,cy,width,height`).
 
-* **Node Footer (`d_i, d_n`):** Context variables granting access to the nested inner sub-loop generated by `Union & Divide` (`d_i` = active piece index $[1 \dots N]$, `d_n` / `d_max` = total count of pieces or islands generated in the partition).
-
----
-
----
-
-### 9.5. Synergy with `Concatenate (Zip)`
-Pairing `Union & Divide (FUSION)` with `Concatenate (Zip)` enables parallel multi-attribute matrix generation (e.g. combining gradient colours, oscillating `\blur`, and `\fscx` offsets) into a single compact ASS dialogue event, eliminating layer overlap artefacts.
+* **Node Footer (`d_i, d_n`):** Context variables accessible from the internal loop generated by `Union & Divide` (`d_i` = 1-based index of the active piece $[1 \dots N]$, `d_n` / `d_max` = total number of shapes or islands).
 
 ---
 
-### 9.6. Practical Production Example
-* **Topological Island Decomposition with Staggered Gravitational Drop:**
-  Decomposing a complex kanji or word into independent closed islands (`DIVIDE`) and animating the drop of each island with time offset governed by `d_i`:
-
-  ```
-  [System/Input: Syl Shape] ──► Shape In ──► [Shape/Union & Divide: DIVIDE, order=79, anchor=pieces]
-                                                   ├──► Shape Out ──► Return ──► [System/Output]
-                                                   └──► (d_i, d_n in context)
-  ```
-
-  In a tag node wired to `System/Output (Tags)`:
-  ```
-  {\p1\pos(syl.center, syl.middle)\t(d_i * 40, d_i * 40 + 300, \frz(d_i * 15)\fscx0\fscy0\alpha&HFF&)}
-  ```
-  Each vector island drops and rotates around its own local centroid with a 40 ms staggered offset per piece, preserving internal cut-out holes (PolyTree) without collapsing the overall silhouette.
-
----
 
 ## 10. Node `Shape/Clipper` (Advanced Vector Boolean Operations and Morphological Slicing)
 

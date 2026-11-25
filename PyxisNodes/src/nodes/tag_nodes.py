@@ -136,7 +136,8 @@ def tag_master(context, tag_type="pos", **kwargs):
     Returns:
         str: Formatted ASS tag string (e.g. '\\pos(100, 200)').
     """
-    tag = str(tag_type or "pos").strip().lower().lstrip("\\")
+    raw_tag_input = str(tag_type or "pos").strip().lstrip("\\")
+    tag = raw_tag_input.lower()
     
     def clean_n(v, d=0.0, dec=2):
         return _clean_num(v, default=d, decimals=dec, context=context)
@@ -206,16 +207,13 @@ def tag_master(context, tag_type="pos", **kwargs):
         t4 = get_val(["t4", "time4"], 300, pos_idx=6)
         return f"\\fade({int(clean_n(a1))},{int(clean_n(a2))},{int(clean_n(a3))},{int(clean_n(t1))},{int(clean_n(t2))},{int(clean_n(t3))},{int(clean_n(t4))})"
 
-    elif tag == "clip":
-        val = str(get_val(["value", "valor", "clip", "val", "shape", "drawing"], "", pos_idx=0)).strip()
+    elif tag in ("clip", "iclip"):
+        key_list = ["value", "valor", tag, "val", "shape", "drawing"]
+        val = str(get_val(key_list, "", pos_idx=0)).strip()
         from nodes.shape_nodes import resolve_shape_value
+        from clipper_engine import ClipperEngine
         val = resolve_shape_value(val, context)
-        return f"\\clip({val})"
-    elif tag == "iclip":
-        val = str(get_val(["value", "valor", "iclip", "val", "shape", "drawing"], "", pos_idx=0)).strip()
-        from nodes.shape_nodes import resolve_shape_value
-        val = resolve_shape_value(val, context)
-        return f"\\iclip({val})"
+        return ClipperEngine.format_clip_tag(val, is_iclip=(tag == "iclip"), braces=False)
 
     elif tag in ("c", "1c"):
         c = get_val(["value", "valor", "color", "1c", "c1", "val"], "&HFFFFFF&", pos_idx=0)
@@ -259,6 +257,51 @@ def tag_master(context, tag_type="pos", **kwargs):
         elif accel != "":
             return f"\\t({clean_n(accel)},{stags})"
         return f"\\t({stags})"
+
+    elif tag.endswith("~"):
+        raw_tag = f"\\{tag}"
+        from string_evaluator import expand_custom_dark_tags
+        return expand_custom_dark_tags(raw_tag, context)
+
+    elif tag.endswith("r") and tag[:-1] in ("fscxy", "fscx", "fscy", "fs"):
+        ratio = get_val(["ratio", "value", "valor", "val", "v"], 1.0, pos_idx=0)
+        raw_tag = f"\\{tag}{clean_n(ratio, d=1.0)}"
+        from string_evaluator import expand_custom_dark_tags
+        return expand_custom_dark_tags(raw_tag, context)
+
+    elif raw_tag_input.endswith("R"):
+        min_v = get_val(["min", "min_val", "v1", "start", "0"], "", pos_idx=0)
+        max_v = get_val(["max", "max_val", "v2", "end", "1"], "", pos_idx=1)
+        step_v = get_val(["step", "paso", "2"], "", pos_idx=2)
+        args = [str(x).strip() for x in [min_v, max_v, step_v] if str(x).strip() != ""]
+        args_str = ", ".join(args)
+        raw_tag = f"\\{raw_tag_input}({args_str})"
+        from string_evaluator import expand_custom_dark_tags
+        return expand_custom_dark_tags(raw_tag, context)
+
+    elif tag in ("fro", "frzo", "frxo", "fryo", "frxyo", "frxzo", "fryzo", "frxyzo"):
+        angle = get_val(["angle", "value", "valor", "val", "v"], 0.0, pos_idx=0)
+        raw_tag = f"\\{tag}{clean_n(angle)}"
+        from string_evaluator import expand_custom_dark_tags
+        return expand_custom_dark_tags(raw_tag, context)
+
+    elif tag in ("fscxy", "faxy", "xybord", "xyshad", "bs", "frxy", "frxz", "fryz", "frxyz"):
+        val = get_val(["value", "valor", "val", "v", "scale", "angle", "width", "dist"], "", pos_idx=0)
+        raw_tag = f"\\{tag}{clean_n(val)}"
+        from string_evaluator import expand_custom_dark_tags
+        return expand_custom_dark_tags(raw_tag, context)
+
+    elif re.match(r"^[1-4]{2,}c$", tag):
+        c = get_val(["value", "valor", "color", "c", "val"], "&HFFFFFF&", pos_idx=0)
+        raw_tag = f"\\{tag}{_clean_color(c)}"
+        from string_evaluator import expand_custom_dark_tags
+        return expand_custom_dark_tags(raw_tag, context)
+
+    elif re.match(r"^[1-4]{2,}a$", tag):
+        a = get_val(["value", "valor", "alpha", "a", "val"], 0, pos_idx=0)
+        raw_tag = f"\\{tag}{clean_a(a)}"
+        from string_evaluator import expand_custom_dark_tags
+        return expand_custom_dark_tags(raw_tag, context)
 
     else:
         val = get_val(["value", "valor", "val", "value", "v"], "", pos_idx=0)
@@ -1241,26 +1284,53 @@ def _resample_shape_arc_length(shape_str, step_px=7.5):
     return resampled
 
 
-def _parse_points_input(points_raw, step_px=7.5):
-    """Parses heterogeneous coordinate inputs into a normalised trajectory list.
+def _split_top_level_commas(text):
+    """Splits a string by commas outside nested parentheses or brackets."""
+    parts = []
+    buf = []
+    depth = 0
+    for ch in text:
+        if ch in "([{":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+            buf.append(ch)
+        elif ch == "," and depth == 0:
+            item = "".join(buf).strip()
+            if item:
+                parts.append(item)
+            buf = []
+        else:
+            buf.append(ch)
+    tail = "".join(buf).strip()
+    if tail:
+        parts.append(tail)
+    return parts
 
-    Supports diverse coordinate formats:
+
+def _parse_points_input(points_raw, step_px=7.5, context=None, resample=True):
+    """Parses coordinate inputs into a normalised trajectory list.
+
+    Supports:
     1. Vector drawing commands (ASSdraw 'm ...', 'b ...', 'l ...').
     2. Python iterables of 2D coordinates: [(x, y), ...] or [{'x': ..., 'y': ...}].
-    3. Delimited coordinate strings: 'x1,y1; x2,y2' or newline-separated values.
-    
+    3. Flat comma-separated coordinate/expression lists: 'x1, y1, x2, y2, x3, y3, ...'.
+       Each coordinate token is evaluated against the active DAG execution context.
+
     Line segments between consecutive discrete waypoints are resampled at
     equidistant intervals of `step_px` pixels with accumulated Euclidean distances.
 
     Args:
         points_raw (Union[str, list, tuple]): Input waypoint specification.
         step_px (float): Spatial distance between resampled points. Defaults to 7.5.
+        context (dict, optional): Active DAG execution context for expression evaluation.
 
     Returns:
         list[tuple[float, float, float]]: Uniform list of (x, y, cumulative_distance) tuples.
     """
     if isinstance(points_raw, str):
-        cleaned = points_raw.strip()
+        cleaned = re.sub(r"\{[^}]*\}", "", points_raw).strip()
         if cleaned.lower().startswith('m ') or re.search(r'\b[mlbc]\s+[-?\d]', cleaned, re.IGNORECASE):
             shp_pts = _resample_shape_arc_length(cleaned, step_px=step_px)
             if shp_pts:
@@ -1280,13 +1350,27 @@ def _parse_points_input(points_raw, step_px=7.5):
                 except (ValueError, TypeError):
                     pass
     elif isinstance(points_raw, str):
-        for chunk in re.split(r'[;\n]+', points_raw):
-            parts = [p.strip() for p in chunk.replace(',', ' ').split() if p.strip()]
-            if len(parts) >= 2:
+        tokens = _split_top_level_commas(points_raw)
+        values = []
+        prev_label = context.get("_active_callsite_label") if isinstance(context, dict) else None
+        for idx, tok in enumerate(tokens):
+            try:
+                values.append(float(tok))
+            except ValueError:
+                if isinstance(context, dict):
+                    context["_active_callsite_label"] = f"pts:{idx}"
                 try:
-                    pairs.append((float(parts[0]), float(parts[1])))
-                except ValueError:
-                    pass
+                    val = float(_clean_num(tok, default=float("nan"), decimals=3, context=context))
+                finally:
+                    if isinstance(context, dict):
+                        if prev_label is None:
+                            context.pop("_active_callsite_label", None)
+                        else:
+                            context["_active_callsite_label"] = prev_label
+                if not math.isnan(val):
+                    values.append(val)
+        for i in range(0, len(values) - 1, 2):
+            pairs.append((values[i], values[i + 1]))
 
     if not pairs and isinstance(points_raw, str) and points_raw.strip():
         shp_pts = _resample_shape_arc_length(points_raw.strip(), step_px=step_px)
@@ -1298,6 +1382,16 @@ def _parse_points_input(points_raw, step_px=7.5):
 
     if len(pairs) == 1:
         return [(pairs[0][0], pairs[0][1], 0.0)]
+
+    if not resample:
+        pts_out = [(pairs[0][0], pairs[0][1], 0.0)]
+        cum_dist = 0.0
+        for i in range(1, len(pairs)):
+            x0, y0 = pairs[i - 1]
+            x1, y1 = pairs[i]
+            cum_dist += math.hypot(x1 - x0, y1 - y0)
+            pts_out.append((x1, y1, cum_dist))
+        return pts_out
 
     step_px = max(0.5, float(step_px or 7.5))
     resampled = [(pairs[0][0], pairs[0][1], 0.0)]
@@ -1613,6 +1707,58 @@ def _format_single_line_scale_trajectory(pts, t1, t2, accel=1.0, tags="", contex
     return "".join(tag_list)
 
 
+def _fmt_shad_val(val):
+    """Formats a shadow offset float preserving up to 3 decimal places (e.g. 0.001)."""
+    formatted = f"{float(val):.3f}".rstrip("0").rstrip(".")
+    return "0" if formatted in ("", "-0") else formatted
+
+
+def _format_shadtrick_trajectory(pts, t1, t2, accel=1.0, tags=""):
+    """Generates a single-line ASS shadtrick sequence using \\xshad and \\yshad.
+
+    Hides fill and border channels (\\1a&HFF&\\3a&HFF&\\ko0) and animates relative
+    shadow offsets without emitting \\shad, \\pos, \\fscx/\\fscy, or \\p1...\\p0 spacers.
+
+    Args:
+        pts (list[tuple[float, float, float]]): List of (x, y, cumulative_distance) points.
+        t1 (float): Trajectory start time in milliseconds.
+        t2 (float): Trajectory end time in milliseconds.
+        accel (float): Exponential acceleration factor. Defaults to 1.0.
+        tags (str): Optional trailing ASS override tags.
+
+    Returns:
+        str: ASS override tag sequence for shadtrick motion.
+    """
+    if not pts:
+        return ""
+    add_str = str(tags).strip() if tags else ""
+    prefix = f"\\1a&HFF&\\3a&HFF&\\ko0\\xshad{_fmt_shad_val(pts[0][0])}\\yshad{_fmt_shad_val(pts[0][1])}"
+    n = len(pts)
+    if n == 1:
+        return f"{prefix}{add_str}"
+
+    tot_time = max(1.0, t2 - t1)
+    has_dist = len(pts[0]) >= 3 and pts[-1][2] > 0
+    total_dist = max(1e-6, pts[-1][2]) if has_dist else float(n - 1)
+    tag_list = [prefix]
+    for i in range(1, n):
+        if has_dist:
+            norm_d1 = (pts[i - 1][2] / total_dist) ** accel
+            norm_d2 = (pts[i][2] / total_dist) ** accel
+        else:
+            norm_d1 = ((i - 1) / (n - 1)) ** accel
+            norm_d2 = (i / (n - 1)) ** accel
+        st = int(round(t1 + tot_time * norm_d1))
+        et = int(round(t1 + tot_time * norm_d2))
+        px = _fmt_shad_val(pts[i][0])
+        py = _fmt_shad_val(pts[i][1])
+        acc_str = f"{accel:.2f}," if abs(accel - 1.0) > 0.05 else ""
+        tag_list.append(f"\\t({st},{et},{acc_str}\\xshad{px}\\yshad{py})")
+    if add_str:
+        tag_list.append(add_str)
+    return "".join(tag_list)
+
+
 def move_tag_node(context=None, mode="Trajectory", tags=None, **kwargs):
     """Generates continuous kinetic motion and trajectory ASS override tags.
 
@@ -1726,7 +1872,7 @@ def move_tag_node(context=None, mode="Trajectory", tags=None, **kwargs):
             pure_points = points_raw
 
         from_text_fallback = False
-        pts = _parse_points_input(pure_points, step_px=step_px)
+        pts = _parse_points_input(pure_points, step_px=step_px, context=context)
         if not pts:
             try:
                 from font_vector_engine import FontVectorEngine
@@ -1742,6 +1888,34 @@ def move_tag_node(context=None, mode="Trajectory", tags=None, **kwargs):
         pts = _relocate_points(pts, anchor=anchor, context=context, is_text_vector=from_text_fallback)
 
         return _format_single_line_scale_trajectory(pts, t1, t2, accel=accel, tags=raw_tags, context=context, is_shape=is_shape)
+
+    elif mode_str == "SHADTRICK":
+        points_raw = kwargs.get("points") or kwargs.get("shape") or kwargs.get("drawing") or ""
+        t1 = float(_clean_num(kwargs.get("t1") or kwargs.get("time_start"), default=0, context=context))
+        t2_val = kwargs.get("t2") or kwargs.get("time_end")
+        t2 = float(_clean_num(t2_val, default=def_dur, context=context)) if t2_val is not None else def_dur
+
+        try:
+            from nodes.shape_nodes import split_shape_and_tags
+        except (ImportError, ModuleNotFoundError):
+            try:
+                from shape_nodes import split_shape_and_tags
+            except Exception:
+                def split_shape_and_tags(s):
+                    return "", str(s or "")
+
+        if isinstance(points_raw, str):
+            _, pure_points = split_shape_and_tags(points_raw)
+            if not pure_points:
+                pure_points = points_raw
+        else:
+            pure_points = points_raw
+
+        pts = _parse_points_input(pure_points, step_px=step_px, context=context, resample=False) if pure_points else []
+        if not pts:
+            pts = [(0.001, 0.001, 0.0)]
+
+        return _format_shadtrick_trajectory(pts, t1, t2, accel=accel, tags=raw_tags)
 
     elif mode_str in ("JITTER", "RANDOM", "RMOVE"):
         dx = float(_clean_num(kwargs.get("dx") or kwargs.get("delta_x"), default=10.0, context=context))

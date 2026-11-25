@@ -13,9 +13,9 @@ La categoría **System** comprende los nodos de ensamblaje terminal, renderizado
 
 ### 1.1. Encabezado y Modos de Cabecera
 1. **`[2.1] Apply to` (`apply_to`):** Ámbito de aplicación del efecto sobre el documento de Aegisub:
-   * `Sel. Lines` (*Selected Lines*): Procesa exclusivamente las líneas seleccionadas en la grilla de Aegisub.
-   * `Style Lines`: Procesa las líneas cuyo estilo coincida con el de la selección activa.
-   * `All Lines`: Procesa la totalidad de las líneas de diálogo del archivo.
+   * `Sel. Lines` (*Selected Lines*): Procesa exclusivamente las líneas válidas seleccionadas en la grilla de Aegisub; si no hay selección activa (o si las seleccionadas están vetadas), toma únicamente la primera línea de diálogo válida (descartando líneas `Comment:`, efectos previos con `pyxis_fx` y líneas cuyo campo `Text` ASS esté vacío o carezca de contenido visible fuera de `{...}`, preservando los dibujos vectoriales `\p1`).
+   * `Style Lines`: Procesa todas las líneas de diálogo válidas cuyo estilo coincida únicamente con el primer estilo (en orden de aparición) presente en las líneas seleccionadas válidas, o con el estilo de la primera línea válida si no hay selección.
+   * `All Lines`: Procesa todas las líneas de diálogo válidas (no comentadas, sin `pyxis_fx` y con contenido visible o dibujo vectorial `\p1`) del archivo completo, independientemente de qué líneas estén seleccionadas en Aegisub.
 
 ### 1.2. Puertos de Entrada (*Inputs*)
 1. **`Loop / Domain`:** Entrada principal de señal de flujo proveniente del último nodo de la rama (`Main Loop`, `MaxLoop`, `Script Code`).
@@ -106,8 +106,8 @@ Durante la compilación:
    * Desacopla el visor del nodo y lo convierte en una ventana flotante para mantener la referencia visual al desplazarse por el lienzo.
 4. **`[1.4] Botón Refrescar (Refresh)`:**
    * Recompila las ramas conectadas a `Output`, actualiza la pista de subtítulos en JASSUB/libass y ejecuta la medición de telemetría sobre las líneas generadas.
-   * **Coexistencia en Escena:** En el visor se comentan exclusivamente las líneas reemplazadas por el ámbito de `Output` (`Sel. Lines`, `Style Lines`, `All Lines`), manteniendo visibles los diálogos y carteles coexistentes del archivo original.
-   * **Ventana de Reproducción:** El tramo reproducible se delimita a las líneas aplicadas con un margen de 2 segundos antes y después. Si existe una selección activa en Aegisub, la ventana se centra en las líneas seleccionadas aunque el ámbito de `Output` sea `Style Lines` o `All Lines`, evitando que la previsualización abarque el archivo completo.
+   * **Coexistencia en Escena:** En el visor se comentan exclusivamente las líneas reemplazadas por el ámbito de `Output` (`Sel. Lines`, `Style Lines`, `All Lines`), manteniendo visibles los diálogos y carteles coexistentes del archivo original (sin comentar líneas vetadas ni vacías).
+   * **Ventana de Reproducción:** El tramo reproducible se delimita siempre al rango temporal de las líneas elegibles del ámbito objetivo con un margen de 2 segundos antes y después (`Sel. Lines`, `Style Lines` o `All Lines`), excluyendo líneas `Comment:`, efectos `pyxis_fx` y diálogos cuyo `Text` ASS esté vacío, solo contenga espacios o únicamente incluya `{...}` / saltos sin contenido visible (preservando dibujos `\p1`); si no queda ninguna línea elegible, usa el tramo seguro `0.0 s .. 15.0 s`. Si existen varios nodos `Output` conectados a `Previewer`, la ventana adopta la unión del ámbito más amplio (`All Lines` > `Style Lines` > `Sel. Lines`); si no hay ningún `Output` conectado, conserva la ventana del primer `Output` del grafo sin generar efectos ni comentar líneas al presionar *Refresh*. Cambiar el modo `Apply to` o las conexiones actualiza de inmediato únicamente la ventana de reproducción sin lanzar un *Refresh* automático.
    * **Compatibilidad de Audio:** El audio se reproduce directamente cuando el motor del visor lo decodifica de forma nativa (AAC, MP3, Opus, Vorbis, FLAC y PCM estándar en MP4, MKV/MKA, WebM, Ogg, FLAC o WAV). Cuando el archivo de video contiene formatos no soportados por el navegador (AC-3, E-AC-3, DTS, TrueHD, MP2, WMA, ADPCM, entre otros), Pyxis genera un archivo unificado MP4 mediante copia directa de video sin recodificación (`-c:v copy`) y transcodificación ligera a AAC (`-c:a aac -movflags +faststart`), preservando la sincronización cuadro a cuadro nativa y evitando bloqueos de búfer.
 5. **`[1.5] Botón Renderizar Hardsub (Exportación FFmpeg)`:**
    * Abre el asistente de exportación para compilar el video con subtítulos incrustados (*hardsub*) mediante FFmpeg en un archivo MP4. La codificación FFmpeg se ejecuta exclusivamente al accionar este botón.

@@ -5625,6 +5625,7 @@ LGraphNode.prototype.executeAction = function(action)
         this.node_over = null;
         this.node_capturing_input = null;
         this.connecting_node = null;
+        this._clearSlotHighlights();
         this.highlighted_links = {};
 
 		this.dragging_canvas = false;
@@ -6770,7 +6771,7 @@ LGraphNode.prototype.executeAction = function(action)
 
                         //on top of input
                         if (this.isOverNodeBox(node, e.canvasX, e.canvasY)) {
-                            //mouse on top of the corner box, don't know what to do
+                            this._clearSlotHighlights();
                         } else {
                             //check if I have a slot below de mouse
                             var slot = this.isOverNodeInput( node, e.canvasX, e.canvasY, pos );
@@ -6778,11 +6779,12 @@ LGraphNode.prototype.executeAction = function(action)
                                 var slot_type = node.inputs[slot].type;
                                 if ( LiteGraph.isValidConnection( this.connecting_output.type, slot_type ) ) {
                                     this._highlight_input = pos;
-									this._highlight_input_slot = node.inputs[slot]; // XXX CHECK THIS
+									this._highlight_input_slot = node.inputs[slot];
+                                } else {
+                                    this._clearSlotHighlights();
                                 }
                             } else {
-                                this._highlight_input = null;
-								this._highlight_input_slot = null;  // XXX CHECK THIS
+                                this._clearSlotHighlights();
                             }
                         }
                         
@@ -6792,7 +6794,7 @@ LGraphNode.prototype.executeAction = function(action)
 
                         //on top of output
                         if (this.isOverNodeBox(node, e.canvasX, e.canvasY)) {
-                            //mouse on top of the corner box, don't know what to do
+                            this._clearSlotHighlights();
                         } else {
                             //check if I have a slot below de mouse
                             var slot = this.isOverNodeOutput( node, e.canvasX, e.canvasY, pos );
@@ -6800,9 +6802,12 @@ LGraphNode.prototype.executeAction = function(action)
                                 var slot_type = node.outputs[slot].type;
                                 if ( LiteGraph.isValidConnection( this.connecting_input.type, slot_type ) ) {
                                     this._highlight_output = pos;
+                                    this._highlight_output_slot = node.outputs[slot];
+                                } else {
+                                    this._clearSlotHighlights();
                                 }
                             } else {
-                                this._highlight_output = null;
+                                this._clearSlotHighlights();
                             }
                         }
                     }
@@ -6850,6 +6855,9 @@ LGraphNode.prototype.executeAction = function(action)
                     }
                 }
             } else { //not over a node
+                if (this.connecting_node) {
+                    this._clearSlotHighlights();
+                }
 
                 //search for link connector
 				var over_link = null;
@@ -7160,6 +7168,7 @@ LGraphNode.prototype.executeAction = function(action)
                 this.connecting_pos = null;
                 this.connecting_node = null;
                 this.connecting_slot = -1;
+                this._clearSlotHighlights();
             } //not dragging connection
             else if (this.resizing_node) {
                 this.dirty_canvas = true;
@@ -8136,6 +8145,17 @@ LGraphNode.prototype.executeAction = function(action)
 
         this.fps = this.render_time ? 1.0 / this.render_time : 0;
         this.frame += 1;
+    };
+
+    /**
+     * Clears cached input/output slot highlight coordinates used while dragging a link.
+     * @method _clearSlotHighlights
+     **/
+    LGraphCanvas.prototype._clearSlotHighlights = function() {
+        this._highlight_input = null;
+        this._highlight_input_slot = null;
+        this._highlight_output = null;
+        this._highlight_output_slot = null;
     };
 
     LGraphCanvas.prototype.drawConnectingLink = function(ctx) {

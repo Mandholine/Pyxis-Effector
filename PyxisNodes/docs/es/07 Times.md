@@ -471,9 +471,8 @@ $$T_{\text{out}} = T_{\text{base}} + \text{offset}$$
   [Loops/MaxLoop X: cols=4] ──► j
        └──► [Loops/MaxLoop Y: rows=3] ──► J
                  │
-  [Time/Loop 1: leadin, delay=30] ──► Data ──► In 1 ──► [Basics/Math: add]
-  [Time/Loop 2: leadin, delay=60] ──► Data ──► In 2 ─────────┘   │
-                                                                 └──► Offset In (ms) ──► [Time/Retime: syl]
+  [Time/Loop 1: leadin, delay=30] ──► Data ──► Start Time ──► [Time/Retime: syl]
+  [Time/Loop 2: leadin, delay=60] ──► Data ──► Offset In (ms) ──┘
   ```
 
   La suma de retardos produce un barrido diagonal ($30 \cdot (j-1) + 60 \cdot (J-1)$ ms), activando cada celda de la matriz secuencialmente en el espacio 2D.
@@ -502,16 +501,16 @@ $$T_{\text{ms}} = (3600 \cdot H + 60 \cdot M + S) \cdot 1000 + CS \cdot 10$$
 $$\text{"0:01:23.45"} \implies (0 + 60 + 23) \cdot 1000 + 45 \cdot 10 = 83000 + 450 = 83450\text{ ms}$$
 
 ### 9.4. Sinergias y Buenas Prácticas
-* **Aritmética Temporal sobre Marcas Directas:** Permite decodificar marcas de cabecera de diálogos y operar con nodos `Basics/Math` o `Time/Offset` para calcular retardos exactos antes de re-inyectar el resultado en `Time/Format ASS Time` o `System/Output`.
+* **Aritmética Temporal sobre Marcas Directas:** Permite decodificar marcas de cabecera de diálogos y aplicar desplazamientos con `Time/Offset` o expresiones numéricas antes de re-inyectar el resultado en `Time/Format ASS Time` o `System/Output`.
 
 ### 9.5. Ejemplo Práctico de Producción
 * **Decodificación y Desfase Aritmético de Tiempos Fijos:**
   Extrayendo una marca horaria literal para desplazarla algebraicamente 500 ms hacia adelante:
 
   ```
-  [Time/Parse ASS Time: ass_time="0:01:15.50"] ──► Time (ms) ──► In 1 ──► [Basics/Math: add, in2=500]
-                                                                                └──► In 1 ──► [Time/Format ASS Time]
-                                                                                                    └──► ASS Time ──► "0:01:16.00"
+  [Time/Parse ASS Time: ass_time="0:01:15.50"] ──► Time (ms) ──► Base Time ──► [Time/Offset: offset=500]
+                                                                                     └──► Time (ms) ──► [Time/Format ASS Time]
+                                                                                                             └──► ASS Time ──► "0:01:16.00"
   ```
   La marca decodificada (75500 ms) se incrementa a 76000 ms y se recompone en formato ASS estándar sin pérdidas de precisión.
 

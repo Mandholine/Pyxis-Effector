@@ -195,6 +195,8 @@ Representa la línea de diálogo activa y su estilo tipográfico asociado defini
 | `line.fax`, `line.fay` | `float` | Factores de deformación tipográfica por cizallamiento (*shear*) horizontal y vertical. |
 | `line.pos_x`, `line.pos_y` | `float` | Posición horizontal y vertical absoluta o sobreescrita de la línea (`\pos`). |
 | `line.org_x`, `line.org_y` | `float` | Coordenadas del punto de pivote o anclaje de rotación de la línea (`\org`). |
+| line.tags / l.tags | string | Cadena canónica resuelta de etiquetas de sobreescritura ASS preservadas de la línea con transformaciones dinámicas \t interpoladas en el instante medio de la unidad activa. |
+| `line.<prop>_org` / `l.<prop>_org` | `mixed` | Juego canónico de propiedades iniciales de la línea y sus tags ASS de cabecera (con respaldo a `styleref`, excluyendo `\k` y `\t`): `color1_org`..`color4_org`, `alpha_org`, `alpha1_org`..`alpha4_org`, `fontname_org`, `fontsize_org`, `scale_x_org`, `scale_y_org`, `spacing_org`, `bold_org`, `italic_org`, `underline_org`, `strikeout_org`, `encoding_org`, `q_org`, `align_org`, `frz_org`, `frx_org`, `fry_org`, `fax_org`, `fay_org`, `pos_org`, `org_org`, `outline_org`, `xbord_org`, `ybord_org`, `shadow_org`, `xshad_org`, `yshad_org`, `blur_org`, `be_org`, `fad_org`, `clip_org`, `iclip_org`. |
 
 #### 1.4.2. Dominio de Sílaba (`syl.`), Carácter (`char.`) y Palabra (`word.`)
 Representan las unidades atómicas silábicas, de caracteres individuales o palabras desglosadas por `Main Loop`. Cada unidad hereda automáticamente las propiedades tipográficas del estilo base de la línea contenedora o sus sobreescrituras activas:
@@ -230,6 +232,7 @@ Representan las unidades atómicas silábicas, de caracteres individuales o pala
 | `syl.pos_x`, `syl.pos_y` | `float` | Coordenada de renderizado o anclaje calculada para la sílaba (`\pos`). |
 | `syl.org_x`, `syl.org_y` | `float` | Origen o centro de rotación calculado para la sílaba (`\org`). |
 | `syl.actor`, `syl.style`, `syl.layer`, `syl.effect` | `str`/`int` | Metadatos heredados de la línea contenedora. |
+| syl.tags / word.tags / char.tags | string | Cadena canónica resuelta de etiquetas de sobreescritura ASS preservadas del elemento activo con remapeo temporal y transformaciones dinámicas \t interpoladas. |
 | `char.dur` / `char.duration` | `int` | Duración calculada del carácter ($ms$). |
 | `char.start_time`, `char.end_time` | `int` | Tiempos de inicio y fin relativos a su **sílaba contenedora** ($ms$). |
 | `char.mid_time` | `float` | Instante medio del carácter relativo a su sílaba: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. |
@@ -354,21 +357,20 @@ Permiten calcular retardos y fases de animación secuenciales directamente desde
 | `time.loop_2` | `int` | Temporización para bucles cíclicos continuos en la fase de salida. |
 
 #### 1.4.9. Presets de la Biblioteca de Formas Vectoriales (`shape.*`)
-El espacio de nombres `shape` contiene los trazados vectoriales estándar de Pyxis en formato ASSdraw (`m ... l ... b ...`), accesibles directamente para clips, transformaciones o expresiones en código:
+El espacio de nombres `shape` (`ShapePresetsNamespace`) expone los 80 trazados vectoriales canónicos de `Shape/Library` en formato ASSdraw (`m ... l ... b ...`). Todos los identificadores se escriben en **minúsculas y sin guiones bajos**, accesibles directamente en `Define Vars` y expresiones de cadena (`shape.<nombre>`), o mediante `fx.shape.<nombre>` y `resolve_shape("shape.<nombre>")` en `Script Code`:
 
-| Preset | Identificador Canónico | Geometría Emitida |
-| :--- | :--- | :--- |
-| **Círculo** | `shape.circle` | Círculo Bézier perfecto normalizado centrado en $(0, 0)$. |
-| **Cuadrado** | `shape.square` | Cuadrado equilátero centrado en $(0, 0)$. |
-| **Rectángulo** | `shape.rect` / `shape.rectangle` | Rectángulo paramétrico centrado en $(0, 0)$. |
-| **Triángulo** | `shape.triangle` | Triángulo equilátero con vértice superior en $(0, 0)$. |
-| **Rombo** | `shape.diamond` / `shape.rhombus` | Rombo geométrico en diamante centrado en $(0, 0)$. |
-| **Esquinas Redondeadas** | `shape.rounded_corners` | Rectángulo con fileteado y curvatura Bézier en las 4 esquinas. |
-| **Polígonos Regulares** | `shape.pentagon`, `shape.hexagon`, `shape.octagon` | Polígonos regulares equiláteros de 5, 6 y 8 lados. |
-| **Estrella** | `shape.star` | Estrella simétrica de 5 puntas. |
-| **Corazón** | `shape.heart` | Trazado vectorial de corazón bicúbico centrado. |
-| **Sakura** | `shape.sakura` | Pétalo estilizado de flor de cerezo japonés. |
-| **Símbolos y Clima** | `shape.cross`, `shape.cloud`, `shape.sun`, `shape.moon`, `shape.flower` | Iconografía vectorial clásica para efectos de partículas. |
+| Familia | Identificadores Canónicos (`shape.<nombre>`) | Cantidad |
+| :--- | :--- | :---: |
+| **Formas Básicas (`Shapes`)** | `shape.circle`, `shape.triangle`, `shape.rectangle`, `shape.circangle`, `shape.pixel`, `shape.pentagon`, `shape.hexagon`, `shape.octagon`, `shape.diamond` | 9 |
+| **Corazones (`Hearts`)** | `shape.heart`, `shape.heart2t`, `shape.heartb` | 3 |
+| **Destellos (`Shines`)** | `shape.shine1t`, `shape.shine2t`, `shape.shine3t`, `shape.shine4t` | 4 |
+| **Especiales (`Specials`)** | `shape.clover`, `shape.feather`, `shape.feather2`, `shape.gear`, `shape.bubble` | 5 |
+| **Notas Musicales (`Music`)** | `shape.note1t`, `shape.note2t`, `shape.note3t`, `shape.note4t` | 4 |
+| **Estrellas (`Stars`)** | `shape.star`, `shape.star1t` a `shape.star10t` | 11 |
+| **Sakura (`Sakura`)** | `shape.sakura`, `shape.sakura1t` a `shape.sakura7t` | 8 |
+| **Nieve (`Snow`)** | `shape.snowflake1t`, `shape.snowflake2t`, `shape.snowflake3t` | 3 |
+| **Flores (`Flowers`)** | `shape.flower1t` a `shape.flower29t` | 29 |
+| **Geometría (`Geometry`)** | `shape.crystal17`, `shape.geometric10`, `shape.diagonal13r`, `shape.diagonal13l` | 4 |
 
 #### 1.4.10. Metadatos del Proyecto (`meta.`) y Formas del Contexto
 | Variable | Tipo | Descripción |
@@ -485,15 +487,18 @@ Extracción de coordenadas métricas del glifo y duración nativa para posiciona
 
 ### 2.2. Puertos de Entrada y Propiedades del Cuerpo (*Inputs & Properties*)
 1. **`In` (`in_val`):** Entrada de paso (*pass-through*). Puede recibir cualquier tipo de dato (cadenas de tags ASS, geometrías vectoriales, números o cadenas de texto). Si no está conectado, emite el contenido declarado o una cadena vacía.
-2. **`Vars` (`variables`):** Bloque de texto multilínea con declaraciones de variables en formato `clave = expresión`.
-   * **Tipificación Canónica:** **Tipo A (Fórmula Matemática / Expresión Evaluada)**. Evaluado secuencialmente línea a línea en el entorno del evaluador de expresiones matemáticas.
-   * **Sintaxis de Declaración:**
+2. **`Vars` (`variables`):** Bloque de texto multilínea con declaraciones de variables en formato `clave = expresión` (separadas por salto de línea o `;` fuera de comillas).
+   * **Tipificación Canónica:** **Tipo A Extendida (Expresión Evaluada Unificada / Ternarias ASS)**. Evaluado secuencialmente mediante el evaluador unificado `eval_pyxis_expr`, compartiendo exactamente la misma sintaxis que `Basics/String`.
+   * **Sintaxis de Declaración (Fórmulas, Cadenas y Ternarias ASS con o sin comillas):**
+     Las barras invertidas de los tags ASS dentro de comillas (`"\t(0, 500, \fry360)"`, `"\4a255"`) se preservan automáticamente de forma literal (sin necesidad de escribir `r"..."` ni doble barra `\\t`), y las expresiones ternarias aceptan ramas tanto con comillas como sin ellas:
      ```python
      radio = 50 + (syl.i * 10)
      angulo = (j / maxj) * 360
      pos_x = syl.x + math.cos(math.radians(angulo)) * radio
      pos_y = syl.y + math.sin(math.radians(angulo)) * radio
      color_actual = "&H00FFFF&"
+     anim = (\t(0, 500, \fry360) if l.i == 2 else "")
+     anim_comillas = ("\t(0, 500, \fry360)" if l.i == 2 else "")
      ```
 
 ---
@@ -764,7 +769,7 @@ Toda propiedad de tipo cadena en Pyxis se clasifica estrictamente en una de tres
 * **Comportamiento en Linter:** Analizadas estáticamente mediante `ast.parse(mode="eval")`. El validador comprueba que los identificadores utilizados pertenezcan al conjunto de variables globales conocidas o hayan sido definidos previamente en el grafo, advirtiendo sobre variables no declaradas o sintaxis rota.
 * **Propiedades Representativas:**
   * `Variables/Define Vars`: propiedad `variables` (`Vars`).
-  * `Basics/Math`: entradas y campos numéricos `A`, `B`.
+  * `Basics/Math`: entradas y campos numéricos dinámicos (`decimal`, `min_val`, `max_val`, `step`, `angle`, `radius`, `accel`, etc.).
   * `Functions/Conditioner`: campo `condition`.
   * `Basics/Only`: campo `condition`.
   * `Shape/Filter`: campos `expr_x`, `expr_y`.

@@ -34,7 +34,7 @@ import uuid
 import wsgiref.simple_server
 from datetime import datetime, timezone
 
-from paths import get_bin_path, get_user_data_dir
+from paths import TEMPLATES_DIR, get_bin_path, get_user_data_dir
 
 socketserver.TCPServer.request_queue_size = 256
 wsgiref.simple_server.WSGIServer.request_queue_size = 256
@@ -404,7 +404,7 @@ class PyxisAPI:
         self.lock_file = lock_file
         self._initial_lock_file = lock_file
         self._daemon_server = None
-        self.system_templates_dir = os.path.join(os.path.dirname(__file__), "templates")
+        self.system_templates_dir = TEMPLATES_DIR
         self.user_templates_dir = os.path.join(get_user_data_dir(), "templates")
         os.makedirs(self.user_templates_dir, exist_ok=True)
         self.templates_dir = self.user_templates_dir
@@ -417,6 +417,10 @@ class PyxisAPI:
 
         import threading
         self._clip_lock = threading.RLock()
+        self._aegisub_source_lock = threading.RLock()
+        self._preview_base_lock = threading.RLock()
+        self._aegisub_prewarm_lock = threading.Lock()
+        self._aegisub_prewarm_key = None
 
         try:
             threading.Thread(target=self.cleanup_temp_files, kwargs={"max_age_hours": 72}, daemon=True).start()
@@ -539,7 +543,7 @@ class PyxisAPI:
         gpu_info = "Unknown"
         try:
             import gpu_engine
-            gpu_info = getattr(gpu_engine, "ACTIVE_BACKEND", None) or "OpenCL / CPU"
+            gpu_info = gpu_engine.get_gpu_manager().backend
         except Exception:
             pass
 
@@ -700,12 +704,11 @@ class PyxisAPI:
         png_path = os.path.join(pyxis_config_dir, "bg_image.png")
         active_image = webp_path if os.path.exists(webp_path) else (png_path if os.path.exists(png_path) else None)
 
-        import urllib.parse
         if active_video:
             mtime = int(os.path.getmtime(active_video) * 1000) if os.path.exists(active_video) else 0
-            v_url = f"http://127.0.0.1:28723/media_file?path={urllib.parse.quote(active_video)}&t={mtime}"
+            v_url = self._build_media_file_url(active_video, timestamp=mtime)
             p_mtime = int(os.path.getmtime(poster_path) * 1000) if os.path.exists(poster_path) else 0
-            p_url = f"http://127.0.0.1:28723/media_file?path={urllib.parse.quote(poster_path)}&t={p_mtime}" if os.path.exists(poster_path) else ""
+            p_url = self._build_media_file_url(poster_path, timestamp=p_mtime) if os.path.exists(poster_path) else ""
             return {
                 "has_bg": True,
                 "media_type": "video",
@@ -1607,14 +1610,12 @@ class PyxisAPI:
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 0
 
+        enc_name, v_codec = self._get_h264_encode_args(ffmpeg_exe, profile="bg")
         cmd = [
             ffmpeg_exe, "-y",
             "-i", input_path,
             "-an",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "24",
-            "-pix_fmt", "yuv420p",
+            *v_codec,
             "-movflags", "+faststart",
             "-vf", "scale=w='min(1920,trunc(iw/2)*2)':h='min(1080,trunc(ih/2)*2)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2",
             output_path
@@ -1750,11 +1751,10 @@ class PyxisAPI:
                     try: os.remove(temp_poster)
                     except OSError: pass
 
-                import urllib.parse
                 import time
                 ts = int(time.time() * 1000)
-                v_url = f"http://127.0.0.1:28723/media_file?path={urllib.parse.quote(dest_video)}&t={ts}"
-                p_url = f"http://127.0.0.1:28723/media_file?path={urllib.parse.quote(poster_p)}&t={ts}" if os.path.exists(poster_p) else ""
+                v_url = self._build_media_file_url(dest_video, timestamp=ts)
+                p_url = self._build_media_file_url(poster_p, timestamp=ts) if os.path.exists(poster_p) else ""
                 return {
                     "success": True,
                     "media_type": "video",
@@ -2160,6 +2160,12 @@ class PyxisAPI:
                         summary = last_tel["summary"]
                         est["last_telemetry_peak_ms"] = summary.get("peak_ms", 0.0)
                         est["last_telemetry_budget_pct"] = summary.get("budget_usage_pct", 0.0)
+                        tel_peak_objs = summary.get("peak_objects")
+                        if tel_peak_objs is not None:
+                            try:
+                                est["last_telemetry_peak_objects"] = int(tel_peak_objs)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
                 return est
@@ -2855,16 +2861,34 @@ class PyxisAPI:
             return sys_ffmpeg
         return "ffmpeg"
 
+    def _get_daemon_port(self) -> int:
+        """Return the active local HTTP daemon port (defaults to 28723)."""
+        daemon = getattr(self, "_daemon_server", None)
+        port = getattr(daemon, "actual_port", None)
+        try:
+            if port and int(port) > 0:
+                return int(port)
+        except (TypeError, ValueError):
+            pass
+        return 28723
+
+    def _build_media_file_url(self, file_path: str, timestamp=None) -> str:
+        """Construct the local daemon /media_file streaming URL for a filesystem path."""
+        import urllib.parse
+        quoted_path = urllib.parse.quote(os.path.abspath(file_path))
+        url = f"http://127.0.0.1:{self._get_daemon_port()}/media_file?path={quoted_path}"
+        if timestamp is not None:
+            url += f"&t={timestamp}"
+        return url
+
     _CACHED_H264_ENCODER = None
 
     @classmethod
     def _detect_best_h264_encoder(cls, ffmpeg_exe: str = None) -> tuple[str, list[str]]:
         """Probes and selects the optimal H.264 video encoder available on the system.
 
-        Tests hardware-accelerated encoders in order of priority (`h264_nvenc`,
-        `h264_amf`, `h264_qsv`) using a null-device command probe. Caches the
-        first functioning hardware encoder, or falls back to software `libx264`
-        with multi-threaded presets.
+        On macOS (`darwin`), probes `h264_videotoolbox` first to leverage Apple Silicon Media Engine.
+        On Windows/Linux, probes `h264_nvenc`, `h264_amf`, and `h264_qsv`, falling back to `libx264`.
 
         Args:
             ffmpeg_exe (str, optional): Custom path to the FFmpeg binary. Defaults to None.
@@ -2876,11 +2900,16 @@ class PyxisAPI:
             return cls._CACHED_H264_ENCODER
 
         exe = ffmpeg_exe or cls._find_ffmpeg()
-        candidates = [
-            ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "16", "-tune", "hq", "-pix_fmt", "yuv420p"]),
-            ("h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "16", "-qp_p", "16", "-pix_fmt", "yuv420p"]),
-            ("h264_qsv", ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "16", "-pix_fmt", "nv12"]),
-        ]
+        if sys.platform == "darwin":
+            candidates = [
+                ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-q:v", "72", "-allow_sw", "1", "-pix_fmt", "yuv420p"]),
+            ]
+        else:
+            candidates = [
+                ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "16", "-tune", "hq", "-pix_fmt", "yuv420p"]),
+                ("h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "16", "-qp_p", "16", "-pix_fmt", "yuv420p"]),
+                ("h264_qsv", ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "16", "-pix_fmt", "nv12"]),
+            ]
         import subprocess
         creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if os.name == 'nt' else 0
 
@@ -2894,15 +2923,32 @@ class PyxisAPI:
                 ]
                 res = subprocess.run(probe_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags, timeout=2.0)
                 if res.returncode == 0:
-                    print(f"[Pyxis FFmpeg] Hardware encoder GPU detectado y activo: {enc_name}", flush=True)
+                    print(f"[Pyxis FFmpeg] Active hardware GPU encoder: {enc_name}", flush=True)
                     cls._CACHED_H264_ENCODER = (enc_name, enc_args)
                     return cls._CACHED_H264_ENCODER
             except Exception:
                 pass
 
-        print("[Pyxis FFmpeg] Utilizando codificador x264 por software (multi-hilo optimizado)", flush=True)
+        print("[Pyxis FFmpeg] Using software x264 encoder (multi-threaded)", flush=True)
         cls._CACHED_H264_ENCODER = ("libx264", ["-c:v", "libx264", "-preset", "medium", "-crf", "15", "-tune", "animation", "-pix_fmt", "yuv420p", "-threads", "0"])
         return cls._CACHED_H264_ENCODER
+
+    @classmethod
+    def _get_h264_encode_args(cls, ffmpeg_exe: str = None, profile: str = "export") -> tuple[str, list[str]]:
+        """Returns encoder name and safe profile-specific FFmpeg video arguments."""
+        enc_name, enc_args = cls._detect_best_h264_encoder(ffmpeg_exe)
+        if enc_name == "h264_videotoolbox":
+            q_val = "75" if profile == "export" else "65"
+            return enc_name, ["-c:v", "h264_videotoolbox", "-q:v", q_val, "-allow_sw", "1", "-pix_fmt", "yuv420p"]
+        if enc_name == "libx264":
+            if profile == "preview":
+                return enc_name, ["-c:v", "libx264", "-preset", "fast", "-crf", "21", "-deblock", "-1:-1", "-pix_fmt", "yuv420p"]
+            if profile == "bg":
+                return enc_name, ["-c:v", "libx264", "-preset", "fast", "-crf", "24", "-pix_fmt", "yuv420p"]
+            if profile == "compat":
+                return enc_name, ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "22", "-pix_fmt", "yuv420p"]
+            return enc_name, list(enc_args)
+        return enc_name, list(enc_args)
 
     @staticmethod
     def _shift_ass_timestamp(time_str: str, shift_ms: int) -> str:
@@ -3244,71 +3290,66 @@ class PyxisAPI:
                 import time
                 temp_clip = f"{clip_path}.tmp_{os.getpid()}_{threading.get_ident()}_{int(time.time()*1000)}.mp4"
 
-                v_codec = ["-c:v", "libx264", "-preset", v_preset, "-crf", v_crf]
-                if deblock_args:
-                    v_codec.extend(deblock_args)
+                enc_name, v_codec = self._get_h264_encode_args(ffmpeg_exe, profile="export" if is_export else "preview")
 
-                if real_video and os.path.isfile(real_video) and (not real_audio or real_audio == real_video):
-                    cmd = [
-                        ffmpeg_exe, "-y",
-                        "-ss", f"{clip_start_sec:.3f}",
-                        "-t", f"{clip_dur_sec:.3f}",
-                        "-i", real_video,
-                        "-avoid_negative_ts", "make_zero",
-                        *v_codec,
-                        "-pix_fmt", "yuv420p",
-                        "-c:a", "aac",
-                        "-b:a", "192k",
-                        "-movflags", "+faststart",
-                        temp_clip
-                    ]
-                elif real_video and os.path.isfile(real_video) and real_audio and os.path.isfile(real_audio):
-                    cmd = [
-                        ffmpeg_exe, "-y",
-                        "-ss", f"{clip_start_sec:.3f}",
-                        "-t", f"{clip_dur_sec:.3f}",
-                        "-i", real_video,
-                        "-ss", f"{clip_start_sec:.3f}",
-                        "-t", f"{clip_dur_sec:.3f}",
-                        "-i", real_audio,
-                        "-map", "0:v:0",
-                        "-map", "1:a:0",
-                        "-avoid_negative_ts", "make_zero",
-                        *v_codec,
-                        "-pix_fmt", "yuv420p",
-                        "-c:a", "aac",
-                        "-b:a", "192k",
-                        "-shortest",
-                        "-movflags", "+faststart",
-                        temp_clip
-                    ]
-                elif real_audio and os.path.isfile(real_audio):
-                    cmd = [
-                        ffmpeg_exe, "-y",
-                        "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={clip_dur_sec:.3f}",
-                        "-ss", f"{clip_start_sec:.3f}",
-                        "-t", f"{clip_dur_sec:.3f}",
-                        "-i", real_audio,
-                        "-map", "0:v:0",
-                        "-map", "1:a:0",
-                        "-avoid_negative_ts", "make_zero",
-                        *v_codec,
-                        "-tune", "stillimage",
-                        "-pix_fmt", "yuv420p",
-                        "-c:a", "aac",
-                        "-b:a", "192k",
-                        "-shortest",
-                        "-movflags", "+faststart",
-                        temp_clip
-                    ]
-                else:
-                    cmd = [
+                def _build_clip_cmd(v_args, use_enc_name):
+                    still_tune = ["-tune", "stillimage"] if use_enc_name == "libx264" else []
+                    if real_video and os.path.isfile(real_video) and (not real_audio or real_audio == real_video):
+                        return [
+                            ffmpeg_exe, "-y",
+                            "-ss", f"{clip_start_sec:.3f}",
+                            "-t", f"{clip_dur_sec:.3f}",
+                            "-i", real_video,
+                            "-avoid_negative_ts", "make_zero",
+                            *v_args,
+                            "-c:a", "aac",
+                            "-b:a", "192k",
+                            "-movflags", "+faststart",
+                            temp_clip
+                        ]
+                    if real_video and os.path.isfile(real_video) and real_audio and os.path.isfile(real_audio):
+                        return [
+                            ffmpeg_exe, "-y",
+                            "-ss", f"{clip_start_sec:.3f}",
+                            "-t", f"{clip_dur_sec:.3f}",
+                            "-i", real_video,
+                            "-ss", f"{clip_start_sec:.3f}",
+                            "-t", f"{clip_dur_sec:.3f}",
+                            "-i", real_audio,
+                            "-map", "0:v:0",
+                            "-map", "1:a:0",
+                            "-avoid_negative_ts", "make_zero",
+                            *v_args,
+                            "-c:a", "aac",
+                            "-b:a", "192k",
+                            "-shortest",
+                            "-movflags", "+faststart",
+                            temp_clip
+                        ]
+                    if real_audio and os.path.isfile(real_audio):
+                        return [
+                            ffmpeg_exe, "-y",
+                            "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={clip_dur_sec:.3f}",
+                            "-ss", f"{clip_start_sec:.3f}",
+                            "-t", f"{clip_dur_sec:.3f}",
+                            "-i", real_audio,
+                            "-map", "0:v:0",
+                            "-map", "1:a:0",
+                            "-avoid_negative_ts", "make_zero",
+                            *v_args,
+                            *still_tune,
+                            "-c:a", "aac",
+                            "-b:a", "192k",
+                            "-shortest",
+                            "-movflags", "+faststart",
+                            temp_clip
+                        ]
+                    return [
                         ffmpeg_exe, "-y",
                         "-f", "lavfi", "-i", f"color=c=0x{color_hex}:s={res_x}x{res_y}:r={fps:.3f}:d={dummy_target_dur:.3f}",
                         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                        *v_codec,
-                        "-tune", "stillimage",
-                        "-pix_fmt", "yuv420p",
+                        *v_args,
+                        *still_tune,
                         "-c:a", "aac",
                         "-b:a", "64k",
                         "-shortest",
@@ -3316,7 +3357,11 @@ class PyxisAPI:
                         temp_clip
                     ]
 
+                cmd = _build_clip_cmd(v_codec, enc_name)
                 proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=creationflags)
+                if proc.returncode != 0 and enc_name != "libx264":
+                    cpu_v_codec = ["-c:v", "libx264", "-preset", v_preset, "-crf", v_crf, *deblock_args, "-pix_fmt", "yuv420p"]
+                    proc = subprocess.run(_build_clip_cmd(cpu_v_codec, "libx264"), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=creationflags)
                 if proc.returncode == 0 and os.path.exists(temp_clip) and self._is_valid_mp4(temp_clip):
                     try:
                         os.replace(temp_clip, clip_path)
@@ -3429,12 +3474,70 @@ class PyxisAPI:
 
         return False
 
+    def _resolve_window_outputs(self, payload=None, target_output_id=None):
+        """Resolve the Output nodes that govern playback window bounds.
+
+        Returns matched targeted Output nodes when available. When a Previewer
+        has no connected/targeted Outputs, falls back to the first Output node
+        in graph order so the preview window mirrors Output 1 while applying no
+        effects on Refresh.
+        """
+        target_ids = []
+        if isinstance(target_output_id, (list, tuple, set)):
+            for x in target_output_id:
+                if x is not None:
+                    for part in str(x).split(','):
+                        s_clean = part.strip()
+                        if s_clean:
+                            target_ids.append(s_clean)
+        elif target_output_id is not None:
+            for part in str(target_output_id).split(','):
+                s_clean = part.strip()
+                if s_clean:
+                    target_ids.append(s_clean)
+
+        if not payload:
+            try:
+                s_json = self.get_session_graph()
+                if s_json:
+                    import json
+                    payload = json.loads(s_json)
+            except Exception:
+                payload = None
+
+        graph_data = self._normalize_graph(payload) if payload else {}
+        nodes_dict = graph_data.get("nodes", {}) if isinstance(graph_data, dict) else {}
+        if isinstance(nodes_dict, list):
+            nodes_dict = {n.get("id"): n for n in nodes_dict if isinstance(n, dict)}
+
+        all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower()]
+        matching_outputs = [n for n in all_output_nodes if self._matches_output_node(n, target_ids, all_output_nodes)]
+        if not matching_outputs and all_output_nodes:
+            matching_outputs = [all_output_nodes[0]]
+        return matching_outputs, target_ids, all_output_nodes, graph_data
+
+    def _compute_output_scope_signature(self, payload=None, target_output_id=None):
+        """Return a stable signature capturing targeted Output apply_to modes for cache validation."""
+        from node_engine import normalize_apply_to
+        window_outputs, target_ids, _all_out, _gdata = self._resolve_window_outputs(
+            payload=payload, target_output_id=target_output_id
+        )
+        out_sig = tuple(
+            (
+                str(n.get("id", "")),
+                normalize_apply_to((n.get("properties") or {}).get("apply_to", "Selected Lines")),
+                str((n.get("properties") or {}).get("style", "")).strip(),
+            )
+            for n in window_outputs
+        )
+        return (tuple(target_ids), out_sig)
+
     def _calculate_effective_dialogue_range(self, dialogues, payload=None, target_output_id=None):
         """Computes the effective millisecond start/end window for subtitle preview and rendering.
 
-        Inspects dialogue lines against targeted Output nodes, respecting selection scopes
-        (`All Lines`, `Style Lines`, or `Selected Lines`), and adds a 2.0-second safety margin
-        around the boundaries to accommodate kinematic and particle lead-in / lead-out effects.
+        Resolves non-comment target lines across active Output nodes (taking the union across
+        connected Outputs so wider scopes such as `All Lines` or `Style Lines` expand the
+        playback window) and adds a 2.0-second margin before and after.
 
         Args:
             dialogues (list): List of parsed ASS dialogue objects or dictionaries.
@@ -3448,170 +3551,49 @@ class PyxisAPI:
         if not dialogues:
             return 0, 15000, 0.0, 15.0, 15.0, 0
 
-        target_ids = []
-        if isinstance(target_output_id, list):
-            for x in target_output_id:
-                if x is not None:
-                    s_clean = str(x).strip()
-                    if s_clean: target_ids.append(s_clean)
-        elif target_output_id is not None:
-            s_clean = str(target_output_id).strip()
-            if s_clean: target_ids.append(s_clean)
+        from node_engine import normalize_apply_to, resolve_target_dialogue_indices
 
-        if not payload:
-            try:
-                s_json = self.get_session_graph()
-                if s_json:
-                    import json
-                    payload = json.loads(s_json)
-            except Exception:
-                payload = None
+        window_outputs, _tids, _all_out, _gdata = self._resolve_window_outputs(
+            payload=payload, target_output_id=target_output_id
+        )
+        modes = [
+            normalize_apply_to((n.get('properties') or {}).get('apply_to', 'Selected Lines'))
+            for n in window_outputs
+        ] or ['selected']
 
-        min_d_start = None
-        max_d_end = None
-
-        graph_data = self._normalize_graph(payload) if payload else {}
-        nodes_dict = graph_data.get("nodes", {}) if isinstance(graph_data, dict) else {}
-        if isinstance(nodes_dict, list):
-            nodes_dict = {n.get("id"): n for n in nodes_dict if isinstance(n, dict)}
-
-        all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower()]
-        matching_outputs = [n for n in all_output_nodes if self._matches_output_node(n, target_ids, all_output_nodes)]
-
-        use_all_lines = False
-        use_style_lines = False
-        target_styles = set()
-
-        if matching_outputs:
-            for s_node in matching_outputs:
-                props = s_node.get('properties', {}) or {}
-                apply_to = str(props.get('apply_to', 'Selected Lines')).strip().lower()
-                if apply_to in ['all lines', 'all']:
-                    use_all_lines = True
-                    break
-                elif apply_to in ['style lines', 'style']:
-                    use_style_lines = True
-                    st_name = str(props.get('style', '')).strip()
-                    if st_name:
-                        target_styles.add(st_name)
-
-        if use_style_lines:
-            for d in dialogues:
-                is_sel = False
-                st_name = ""
-                if isinstance(d, dict):
-                    is_sel = bool(d.get('is_selected', False) or (d.get('metrics') and d['metrics'].get('sel')))
-                    st_name = str(d.get('style_name', ''))
-                    if not st_name and 'raw' in d:
-                        raw = str(d.get('raw', ''))
-                        fields = raw.split(',', 9)
-                        if len(fields) >= 4:
-                            st_name = fields[3].strip()
-                elif hasattr(d, 'is_selected') and hasattr(d, 'style_name'):
-                    is_sel = getattr(d, 'is_selected', False)
-                    st_name = getattr(d, 'style_name', '')
-                if is_sel and st_name:
-                    target_styles.add(st_name)
-
-            if not target_styles:
-                for d in dialogues:
-                    st_name = ""
-                    if isinstance(d, dict):
-                        st_name = str(d.get('style_name', ''))
-                        if not st_name and 'raw' in d:
-                            raw = str(d.get('raw', ''))
-                            fields = raw.split(',', 9)
-                            if len(fields) >= 4:
-                                st_name = fields[3].strip()
-                    elif hasattr(d, 'style_name'):
-                        st_name = getattr(d, 'style_name', '')
-                    if st_name:
-                        target_styles.add(st_name)
+        matched_indices, _style_set = resolve_target_dialogue_indices(dialogues, modes, allow_fallback=True)
 
         starts = []
         ends = []
-        # Selected lines inside the active scope. When the user has an active selection,
-        # the interactive preview window is focused on it even if the Output scope is
-        # 'All Lines' or 'Style Lines', preventing the window from spanning the whole file.
-        sel_starts = []
-        sel_ends = []
-        for d in dialogues:
+        for idx in matched_indices:
+            d = dialogues[idx]
             st = None
             et = None
-            is_sel = False
-            style_name = ""
             if isinstance(d, dict):
-                raw_str = str(d.get('raw', '')).strip()
-                if raw_str.startswith('Comment:') or raw_str.startswith('Comment :') or d.get('is_comment'):
-                    continue
                 st = d.get('start_time')
                 et = d.get('end_time')
-                is_sel = bool(d.get('is_selected', False) or (d.get('metrics') and d['metrics'].get('sel')))
-                style_name = str(d.get('style_name', ''))
-                if (st is None or et is None or not style_name) and raw_str:
+                if (st is None or et is None) and 'raw' in d:
+                    raw_str = str(d.get('raw', '')).strip()
                     if raw_str.startswith('Dialogue:') or raw_str.startswith('Dialogue :'):
                         fields = raw_str.split(',', 9)
-                        if len(fields) >= 4:
+                        if len(fields) >= 3:
                             if st is None:
                                 st = self._parse_ass_time(fields[1])
                             if et is None:
                                 et = self._parse_ass_time(fields[2])
-                            if not style_name:
-                                style_name = fields[3].strip()
             elif hasattr(d, 'start_time') and hasattr(d, 'end_time'):
-                if getattr(d, 'is_comment', False):
-                    continue
                 st = d.start_time
                 et = d.end_time
-                is_sel = getattr(d, 'is_selected', False)
-                style_name = getattr(d, 'style_name', '')
 
-            if st is None or et is None:
-                continue
-
-            if use_all_lines:
+            if st is not None and et is not None:
                 starts.append(st)
                 ends.append(et)
-                if is_sel:
-                    sel_starts.append(st)
-                    sel_ends.append(et)
-            elif use_style_lines and target_styles and style_name in target_styles:
-                starts.append(st)
-                ends.append(et)
-                if is_sel:
-                    sel_starts.append(st)
-                    sel_ends.append(et)
-            elif is_sel:
-                starts.append(st)
-                ends.append(et)
-
-        if sel_starts and sel_ends:
-            starts = sel_starts
-            ends = sel_ends
 
         if not starts or not ends:
-            for d in dialogues:
-                st = None
-                et = None
-                if isinstance(d, dict):
-                    st = d.get('start_time')
-                    et = d.get('end_time')
-                    if (st is None or et is None) and 'raw' in d:
-                        raw = str(d.get('raw', ''))
-                        if raw.startswith('Dialogue:') or raw.startswith('Dialogue :') or raw.startswith('Comment:') or raw.startswith('Comment :'):
-                            fields = raw.split(',', 9)
-                            if len(fields) >= 3:
-                                st = self._parse_ass_time(fields[1])
-                                et = self._parse_ass_time(fields[2])
-                elif hasattr(d, 'start_time') and hasattr(d, 'end_time'):
-                    st = d.start_time
-                    et = d.end_time
-                if st is not None and et is not None:
-                    starts.append(st)
-                    ends.append(et)
+            return 0, 15000, 0.0, 15.0, 15.0, 0
 
-        min_start_ms = min(starts) if starts else 0
-        max_end_ms = max(ends) if ends else 15000
+        min_start_ms = min(starts)
+        max_end_ms = max(ends)
 
         clip_start_sec = max(0.0, (min_start_ms - 2000) / 1000.0)
         clip_end_sec = (max_end_ms + 2000) / 1000.0
@@ -3620,30 +3602,83 @@ class PyxisAPI:
 
         return min_start_ms, max_end_ms, clip_start_sec, clip_end_sec, clip_duration_sec, clip_start_ms
 
+    def _get_aegisub_source_lock(self):
+        lock = getattr(self, "_aegisub_source_lock", None)
+        if lock is None:
+            import threading
+            lock = threading.RLock()
+            self._aegisub_source_lock = lock
+        return lock
+
+    def _get_aegisub_prewarm_lock(self):
+        lock = getattr(self, "_aegisub_prewarm_lock", None)
+        if lock is None:
+            import threading
+            lock = threading.Lock()
+            self._aegisub_prewarm_lock = lock
+        return lock
+
     def invalidate_aegisub_cache(self):
         """Invalidates all cached Aegisub project state, parsed dialogues, and telemetry results.
 
         Clears file hashes, cached parsed models, temporary file paths, last generated preview
         ASS content, and resets the in-memory `GLOBAL_TELEMETRY_MANAGER` state.
         """
-        self._cached_aegisub_info = None
-        self._cached_aegisub_parsed = None
-        self._aegisub_temp_hash = None
-        self._aegisub_temp_mtime = None
-        self._aegisub_temp_path = None
-        self._aegisub_target_output_id = None
-        if hasattr(self, "_cached_fonts_map"):
-            self._cached_fonts_map.clear()
-        self._last_preview_ass_content = None
-        self._last_preview_ass_info = None
+        with self._get_aegisub_source_lock():
+            self._cached_aegisub_info = None
+            self._cached_aegisub_parsed = None
+            self._aegisub_temp_hash = None
+            self._aegisub_temp_stat = None
+            self._aegisub_temp_mtime = None
+            self._aegisub_temp_path = None
+            self._aegisub_target_output_id = None
+            self._aegisub_prewarm_key = None
+            if hasattr(self, "_cached_fonts_map"):
+                self._cached_fonts_map.clear()
+            self._last_preview_ass_content = None
+            self._last_preview_ass_info = None
+            try:
+                from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
+                GLOBAL_TELEMETRY_MANAGER.clear_last_result()
+            except Exception:
+                pass
+
+    def prewarm_aegisub_preview(self):
+        """Asynchronously pre-parses and probes Aegisub media metadata in a daemon thread.
+
+        Avoids cold-start FFprobe and ASS parsing latency on the first switch from `base`
+        to `aegisub`, without triggering heavy remux/transcode operations eagerly.
+
+        Returns:
+            bool: True if a background prewarm thread was started, False if skipped.
+        """
+        if not self.temp_ass or not os.path.isfile(self.temp_ass):
+            return False
         try:
-            from ass_telemetry_engine import GLOBAL_TELEMETRY_MANAGER
-            GLOBAL_TELEMETRY_MANAGER.clear_last_result()
-        except Exception:
-            pass
+            abs_path = os.path.abspath(self.temp_ass)
+            st = os.stat(abs_path)
+            prewarm_key = (abs_path, st.st_mtime_ns, st.st_size)
+        except OSError:
+            return False
+
+        with self._get_aegisub_prewarm_lock():
+            if getattr(self, "_aegisub_prewarm_key", None) == prewarm_key:
+                return False
+            self._aegisub_prewarm_key = prewarm_key
+
+        def _worker():
+            try:
+                self._load_and_cache_aegisub_source()
+            except Exception as err:
+                print(f"[Pyxis Prewarm Warning] {err}", flush=True)
+
+        import threading
+        t = threading.Thread(target=_worker, name="pyxis-aegisub-prewarm", daemon=True)
+        t.start()
+        return True
 
     def _load_and_cache_aegisub_source(self, payload=None, target_output_id=None, force_reload=False):
-        """Parses and caches the active Aegisub ASS subtitle project with SHA-256 fingerprinting.
+        """Parses and caches the active Aegisub ASS subtitle project with stat and SHA-256 fingerprinting.
 
         Reads `self.temp_ass` via `ASSParser`, resolving script video/audio files, effective
         dialogue ranges, primary font family and sizes, and probes detailed media metadata
@@ -3652,7 +3687,7 @@ class PyxisAPI:
         Args:
             payload (dict | None, optional): Graph topology for Output node resolution. Defaults to None.
             target_output_id (list | str | int | None, optional): Targeted Output node IDs. Defaults to None.
-            force_reload (bool, optional): Force re-parsing even if SHA-256 hash matches. Defaults to False.
+            force_reload (bool, optional): Force re-parsing even if stat/SHA-256 hash matches. Defaults to False.
 
         Returns:
             dict[str, Any]: Project information dictionary containing styles, dialogues, resolution,
@@ -3661,182 +3696,191 @@ class PyxisAPI:
         if not self.temp_ass or not os.path.isfile(self.temp_ass):
             return {"has_aegisub": False, "source": "aegisub"}
 
-        try:
-            current_mtime = os.path.getmtime(self.temp_ass)
-            current_path = os.path.abspath(self.temp_ass)
-            import hashlib
-            with open(self.temp_ass, "rb") as fp:
-                current_hash = hashlib.sha256(fp.read()).hexdigest()
+        with self._get_aegisub_source_lock():
+            try:
+                current_path = os.path.abspath(self.temp_ass)
+                st = os.stat(current_path)
+                current_mtime = st.st_mtime
+                current_stat = (current_path, st.st_mtime_ns, st.st_size)
+                scope_sig = self._compute_output_scope_signature(payload=payload, target_output_id=target_output_id)
 
-            cached_info = getattr(self, '_cached_aegisub_info', None)
-            cached_hash = getattr(self, '_aegisub_temp_hash', None)
-            cached_path = getattr(self, '_aegisub_temp_path', None)
-            cached_target = getattr(self, '_aegisub_target_output_id', None)
+                cached_info = getattr(self, '_cached_aegisub_info', None)
+                cached_scope = getattr(self, '_aegisub_scope_sig', None)
+                if (
+                    not force_reload
+                    and cached_info
+                    and getattr(self, '_aegisub_temp_stat', None) == current_stat
+                    and cached_scope == scope_sig
+                ):
+                    return cached_info
 
-            # Instant fast-path return when project content, file path, and target output match
-            if not force_reload and cached_info and cached_hash == current_hash and cached_path == current_path and cached_target == str(target_output_id):
-                return cached_info
+                import hashlib
+                with open(current_path, "rb") as fp:
+                    current_hash = hashlib.sha256(fp.read()).hexdigest()
 
-            parsed_cached = getattr(self, '_cached_aegisub_parsed', None)
-            cached_hash = getattr(self, '_aegisub_temp_hash', None)
-            cached_path = getattr(self, '_aegisub_temp_path', None)
+                cached_hash = getattr(self, '_aegisub_temp_hash', None)
+                cached_path = getattr(self, '_aegisub_temp_path', None)
 
-            if force_reload or not parsed_cached or cached_hash != current_hash or cached_path != current_path:
-                from ass_parser import ASSParser
-                parsed = ASSParser.read_file(self.temp_ass)
-                if not parsed or not parsed.dialogues:
-                    return {"has_aegisub": False, "source": "aegisub"}
-                self._cached_aegisub_parsed = parsed
-                self._aegisub_temp_hash = current_hash
-                self._aegisub_temp_mtime = current_mtime
-                self._aegisub_temp_path = current_path
-            else:
-                parsed = self._cached_aegisub_parsed
+                # Instant fast-path return when project content, file path, and Output scope match
+                if not force_reload and cached_info and cached_hash == current_hash and cached_path == current_path and cached_scope == scope_sig:
+                    self._aegisub_temp_stat = current_stat
+                    return cached_info
 
-            styles, dialogues, res_x, res_y, frame_dur = parsed.styles, parsed.dialogues, parsed.res_x, parsed.res_y, parsed.frame_dur
-            scaled_border_and_shadow = getattr(parsed, 'scaled_border_and_shadow', True)
+                parsed_cached = getattr(self, '_cached_aegisub_parsed', None)
+                if force_reload or not parsed_cached or cached_hash != current_hash or cached_path != current_path:
+                    from ass_parser import ASSParser
+                    parsed = ASSParser.read_file(current_path)
+                    if not parsed or not parsed.dialogues:
+                        return {"has_aegisub": False, "source": "aegisub"}
+                    self._cached_aegisub_parsed = parsed
+                    self._aegisub_temp_hash = current_hash
+                    self._aegisub_temp_stat = current_stat
+                    self._aegisub_temp_mtime = current_mtime
+                    self._aegisub_temp_path = current_path
+                else:
+                    parsed = self._cached_aegisub_parsed
+                    self._aegisub_temp_stat = current_stat
 
-            video_file = getattr(parsed, 'video_file', '')
-            audio_file = getattr(parsed, 'audio_file', '')
-            is_dummy_video = getattr(parsed, 'is_dummy_video', False)
-            is_dummy_audio = getattr(parsed, 'is_dummy_audio', False)
-            dummy_info = getattr(parsed, 'dummy_info', {}) or {}
-            fps = dummy_info.get("fps") or (1000.0 / frame_dur if frame_dur > 0 else 23.976)
+                styles, dialogues, res_x, res_y, frame_dur = parsed.styles, parsed.dialogues, parsed.res_x, parsed.res_y, parsed.frame_dur
+                scaled_border_and_shadow = getattr(parsed, 'scaled_border_and_shadow', True)
 
-            script_file = getattr(parsed, 'script_file', None)
-            real_video = None
-            if not is_dummy_video:
-                real_video = self._clean_and_resolve_media_path(video_file, self.temp_ass, script_file=script_file)
-                if not real_video:
-                    real_video = self._get_aegisub_mru_media()
+                video_file = getattr(parsed, 'video_file', '')
+                audio_file = getattr(parsed, 'audio_file', '')
+                is_dummy_video = getattr(parsed, 'is_dummy_video', False)
+                is_dummy_audio = getattr(parsed, 'is_dummy_audio', False)
+                dummy_info = getattr(parsed, 'dummy_info', {}) or {}
+                fps = dummy_info.get("fps") or (1000.0 / frame_dur if frame_dur > 0 else 23.976)
 
-            real_audio = None
-            if not is_dummy_audio:
-                real_audio = self._clean_and_resolve_media_path(audio_file, self.temp_ass, script_file=script_file)
+                script_file = getattr(parsed, 'script_file', None)
+                real_video = None
+                if not is_dummy_video:
+                    real_video = self._clean_and_resolve_media_path(video_file, self.temp_ass, script_file=script_file)
+                    if not real_video:
+                        real_video = self._get_aegisub_mru_media()
+
+                real_audio = None
+                if not is_dummy_audio:
+                    real_audio = self._clean_and_resolve_media_path(audio_file, self.temp_ass, script_file=script_file)
+                    if not real_audio and real_video:
+                        real_audio = real_video
+
                 if not real_audio and real_video:
                     real_audio = real_video
 
-            if not real_audio and real_video:
-                real_audio = real_video
+                min_start_ms, max_end_ms, clip_start_sec, clip_end_sec, clip_duration_sec, clip_start_ms = self._calculate_effective_dialogue_range(
+                    dialogues, payload=payload, target_output_id=target_output_id
+                )
 
-            min_start_ms, max_end_ms, clip_start_sec, clip_end_sec, clip_duration_sec, clip_start_ms = self._calculate_effective_dialogue_range(
-                dialogues, payload=payload, target_output_id=target_output_id
-            )
+                primary_font_name = "Arial"
+                primary_font_size = 65
+                target_style_name = None
+                if dialogues:
+                    from node_engine import resolve_first_style_in_order
+                    resolved_styles = resolve_first_style_in_order(dialogues, allow_fallback=True)
+                    if resolved_styles:
+                        target_style_name = next(iter(resolved_styles))
 
-            primary_font_name = "Arial"
-            primary_font_size = 65
-            target_style_name = None
-            if dialogues:
-                for d in dialogues:
-                    is_sel = False
-                    st_name = ""
-                    if isinstance(d, dict):
-                        is_sel = bool(d.get('is_selected', False) or (d.get('metrics') and d['metrics'].get('sel')))
-                        st_name = str(d.get('style_name', ''))
-                        if not st_name and 'raw' in d:
-                            fields = str(d['raw']).split(',', 9)
-                            if len(fields) >= 4:
-                                st_name = fields[3].strip()
-                    elif hasattr(d, 'is_selected') and hasattr(d, 'style_name'):
-                        is_sel = getattr(d, 'is_selected', False)
-                        st_name = getattr(d, 'style_name', '')
-                    if is_sel and st_name:
-                        target_style_name = st_name
-                        break
-                if not target_style_name and dialogues:
-                    first_d = dialogues[0]
-                    if isinstance(first_d, dict):
-                        target_style_name = str(first_d.get('style_name', ''))
-                        if not target_style_name and 'raw' in first_d:
-                            fields = str(first_d['raw']).split(',', 9)
-                            if len(fields) >= 4:
-                                target_style_name = fields[3].strip()
-                    elif hasattr(first_d, 'style_name'):
-                        target_style_name = getattr(first_d, 'style_name', '')
+                if styles:
+                    matched_style = styles.get(target_style_name) if target_style_name else None
+                    if not matched_style and target_style_name:
+                        for s_k, s_v in styles.items():
+                            if str(s_k).strip().lower() == target_style_name.strip().lower():
+                                matched_style = s_v
+                                break
+                    if not matched_style:
+                        matched_style = next(iter(styles.values()))
 
-            if styles:
-                matched_style = styles.get(target_style_name) if target_style_name else None
-                if not matched_style and target_style_name:
-                    for s_k, s_v in styles.items():
-                        if str(s_k).strip().lower() == target_style_name.strip().lower():
-                            matched_style = s_v
-                            break
-                if not matched_style:
-                    matched_style = next(iter(styles.values()))
+                    if isinstance(matched_style, dict):
+                        primary_font_name = matched_style.get("Fontname") or matched_style.get("fontname") or "Arial"
+                        try:
+                            primary_font_size = int(matched_style.get("Fontsize", 65))
+                        except Exception:
+                            pass
 
-                if isinstance(matched_style, dict):
-                    primary_font_name = matched_style.get("Fontname") or matched_style.get("fontname") or "Arial"
-                    try:
-                        primary_font_size = int(matched_style.get("Fontsize", 65))
-                    except Exception:
-                        pass
+                info_dict = {
+                    "source": "aegisub",
+                    "has_aegisub": True,
+                    "path": self.temp_ass,
+                    "res_x": res_x,
+                    "res_y": res_y,
+                    "scaled_border_and_shadow": scaled_border_and_shadow,
+                    "ycbcr_matrix": getattr(parsed, 'ycbcr_matrix', 'None'),
+                    "aspect_ratio": (res_x / res_y) if res_y > 0 else (16 / 9),
+                    "fps": fps,
+                    "frame_dur": frame_dur,
+                    "styles": styles,
+                    "dialogues": dialogues,
+                    "min_start_ms": min_start_ms,
+                    "max_end_ms": max_end_ms,
+                    "clip_start_sec": clip_start_sec,
+                    "clip_end_sec": clip_end_sec,
+                    "clip_duration_sec": clip_duration_sec,
+                    "clip_start_ms": clip_start_ms,
+                    "render_start_sec": clip_start_sec,
+                    "render_duration_sec": clip_duration_sec,
+                    "audio_file": real_audio,
+                    "video_file": real_video,
+                    "real_video_file": real_video,
+                    "real_audio_file": real_audio,
+                    "has_real_video": bool(real_video and os.path.isfile(real_video)),
+                    "has_real_audio": bool(real_audio and os.path.isfile(real_audio)),
+                    "dummy_info": dummy_info,
+                    "font_name": primary_font_name,
+                    "font_size": primary_font_size,
+                    "video_x_correct_factor": getattr(parsed, 'video_x_correct_factor', 1.0),
+                }
 
-            info_dict = {
-                "source": "aegisub",
-                "has_aegisub": True,
-                "path": self.temp_ass,
-                "res_x": res_x,
-                "res_y": res_y,
-                "scaled_border_and_shadow": scaled_border_and_shadow,
-                "ycbcr_matrix": getattr(parsed, 'ycbcr_matrix', 'None'),
-                "aspect_ratio": (res_x / res_y) if res_y > 0 else (16 / 9),
-                "fps": fps,
-                "frame_dur": frame_dur,
-                "styles": styles,
-                "dialogues": dialogues,
-                "min_start_ms": min_start_ms,
-                "max_end_ms": max_end_ms,
-                "clip_start_sec": clip_start_sec,
-                "clip_end_sec": clip_end_sec,
-                "clip_duration_sec": clip_duration_sec,
-                "clip_start_ms": clip_start_ms,
-                "render_start_sec": clip_start_sec,
-                "render_duration_sec": clip_duration_sec,
-                "audio_file": real_audio,
-                "video_file": real_video,
-                "real_video_file": real_video,
-                "real_audio_file": real_audio,
-                "has_real_video": bool(real_video and os.path.isfile(real_video)),
-                "has_real_audio": bool(real_audio and os.path.isfile(real_audio)),
-                "dummy_info": dummy_info,
-                "font_name": primary_font_name,
-                "font_size": primary_font_size,
-                "video_x_correct_factor": getattr(parsed, 'video_x_correct_factor', 1.0),
-            }
+                info_dict["clip_path"] = real_video or real_audio or None
 
-            info_dict["clip_path"] = real_video or real_audio or None
+                dummy_sig = tuple((str(k), repr(v)) for k, v in sorted(dummy_info.items())) if (is_dummy_video and dummy_info) else None
+                media_sig = (real_video, real_audio, dummy_sig, round(float(fps), 3), res_x, res_y)
+                if (
+                    not force_reload
+                    and cached_info
+                    and getattr(self, '_aegisub_media_sig', None) == media_sig
+                    and cached_info.get("media_meta")
+                ):
+                    info_dict["media_meta"] = dict(cached_info["media_meta"])
+                else:
+                    info_dict["media_meta"] = self._probe_media_metadata(
+                        video_file=real_video,
+                        audio_file=real_audio,
+                        dummy_info=dummy_info if is_dummy_video else None,
+                        default_fps=fps,
+                        res_x=res_x,
+                        res_y=res_y
+                    )
+                dur_sec = (info_dict.get("media_meta") or {}).get("duration_sec")
+                if dur_sec and float(dur_sec) > info_dict["clip_start_sec"]:
+                    info_dict["clip_end_sec"] = min(info_dict["clip_end_sec"], float(dur_sec))
+                    info_dict["clip_duration_sec"] = max(0.5, info_dict["clip_end_sec"] - info_dict["clip_start_sec"])
+                    info_dict["render_duration_sec"] = info_dict["clip_duration_sec"]
 
-            info_dict["media_meta"] = self._probe_media_metadata(
-                video_file=real_video,
-                audio_file=real_audio,
-                dummy_info=dummy_info if is_dummy_video else None,
-                default_fps=fps,
-                res_x=res_x,
-                res_y=res_y
-            )
-            dur_sec = (info_dict.get("media_meta") or {}).get("duration_sec")
-            if dur_sec and float(dur_sec) > info_dict["clip_start_sec"]:
-                info_dict["clip_end_sec"] = min(info_dict["clip_end_sec"], float(dur_sec))
-                info_dict["clip_duration_sec"] = max(0.5, info_dict["clip_end_sec"] - info_dict["clip_start_sec"])
-                info_dict["render_duration_sec"] = info_dict["clip_duration_sec"]
+                meta = info_dict.get("media_meta") or {}
+                if real_video and isinstance(meta, dict) and meta.get("video_codec") not in (None, "NO VIDEO", "DUMMY"):
+                    probed_dar = meta.get("display_aspect_ratio")
+                    if probed_dar and float(probed_dar) > 0:
+                        info_dict["aspect_ratio"] = float(probed_dar)
+                elif is_dummy_video and isinstance(meta, dict):
+                    probed_dar = meta.get("display_aspect_ratio")
+                    if probed_dar and float(probed_dar) > 0:
+                        info_dict["aspect_ratio"] = float(probed_dar)
+                info_dict["is_synthetic_dummy"] = False
+                info_dict["storage_x"] = meta.get("storage_x") or meta.get("res_x") or res_x
+                info_dict["storage_y"] = meta.get("storage_y") or meta.get("res_y") or res_y
+                info_dict["par"] = meta.get("par", 1.0)
+                # Unified media containers: video and audio remain integrated in a single MP4 stream
+                # via _ensure_browser_compatible_media when audio requires transcoding, preventing demuxer stalls.
+                info_dict["is_audio_decoupled"] = False
 
-            meta = info_dict.get("media_meta") or {}
-            info_dict["storage_x"] = meta.get("storage_x") or meta.get("res_x") or res_x
-            info_dict["storage_y"] = meta.get("storage_y") or meta.get("res_y") or res_y
-            info_dict["par"] = meta.get("par", 1.0)
-            audio_codec = meta.get("audio_codec", "")
-            is_vid_compat = self._is_browser_compatible_video_track(real_video, meta)
-            is_audio_compat = self._is_browser_compatible_audio_codec(audio_codec)
-            # Unified media containers: video and audio remain integrated in a single MP4 stream
-            # via _ensure_browser_compatible_media when audio requires transcoding, preventing demuxer stalls.
-            info_dict["is_audio_decoupled"] = False
-
-            self._cached_aegisub_info = info_dict
-            self._aegisub_target_output_id = str(target_output_id)
-            return info_dict
-        except Exception as e:
-            print(f"[Pyxis Error in _load_and_cache_aegisub_source] {e}", flush=True)
-            return {"has_aegisub": False, "source": "aegisub"}
+                self._cached_aegisub_info = info_dict
+                self._aegisub_target_output_id = str(target_output_id)
+                self._aegisub_scope_sig = scope_sig
+                self._aegisub_media_sig = media_sig
+                return info_dict
+            except Exception as e:
+                print(f"[Pyxis Error in _load_and_cache_aegisub_source] {e}", flush=True)
+                return {"has_aegisub": False, "source": "aegisub"}
 
     def _ensure_fallback_dummy_url(self):
         """Generates a default dark grey dummy video URL as fallback when no media is available.
@@ -3857,9 +3901,7 @@ class PyxisAPI:
             }
             clip_path = self._ensure_preview_media_clip(fallback_info)
             if clip_path and os.path.exists(clip_path) and self._is_valid_mp4(clip_path):
-                import urllib.parse
-                quoted_path = urllib.parse.quote(clip_path)
-                return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
+                return self._build_media_file_url(clip_path)
         except Exception as e:
             print(f"[Pyxis Fallback Dummy Error] {e}", flush=True)
         return ""
@@ -4355,15 +4397,26 @@ class PyxisAPI:
                 else:
                     cmd_fallback.extend(["-map", "0:v:0", "-map", "0:a:0?"])
 
+                enc_name, compat_v_codec = self._get_h264_encode_args(ffmpeg_exe, profile="compat")
                 cmd_fallback.extend([
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
-                    "-pix_fmt", "yuv420p",
+                    *compat_v_codec,
                     "-c:a", "aac", "-b:a", "192k",
                     "-movflags", "+faststart",
                     "-progress", "pipe:1",
                     temp_output
                 ])
                 retcode2, err_out2 = self._execute_ffmpeg_with_progress(cmd_fallback, total_dur_sec, temp_output)
+                if retcode2 != 0 and enc_name != "libx264" and not getattr(self, '_preview_cancelled', False):
+                    cmd_cpu_fallback = cmd_fallback[:cmd_fallback.index("-c:v")]
+                    cmd_cpu_fallback.extend([
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", "192k",
+                        "-movflags", "+faststart",
+                        "-progress", "pipe:1",
+                        temp_output
+                    ])
+                    retcode2, err_out2 = self._execute_ffmpeg_with_progress(cmd_cpu_fallback, total_dur_sec, temp_output)
                 if retcode2 == 0 and os.path.isfile(temp_output) and self._is_valid_mp4(temp_output):
                     os.replace(temp_output, cached_path)
                     self._report_audio_conversion_progress(100, "")
@@ -4488,16 +4541,58 @@ class PyxisAPI:
                 print(f"[Pyxis Audio Compat Exception] {e}", flush=True)
                 return audio_file
 
+    def _resolve_preview_video_url_from_info(self, info):
+        """Resolves the HTTP streaming video URL directly from a pre-resolved preview info dict."""
+        if not isinstance(info, dict):
+            return self._ensure_fallback_dummy_url()
+        user_video = info.get("real_video_file")
+        if user_video and os.path.exists(user_video):
+            meta = info.get("media_meta") or {}
+            target_video = self._ensure_browser_compatible_media(
+                video_file=user_video,
+                audio_file=info.get("real_audio_file"),
+                media_meta=meta
+            )
+            if not target_video:
+                return ""
+            return self._build_media_file_url(target_video)
+
+        user_audio = info.get("real_audio_file")
+        if user_audio and os.path.exists(user_audio):
+            target_audio = self._ensure_browser_compatible_audio(
+                audio_file=user_audio,
+                media_meta=info.get("media_meta")
+            ) or user_audio
+            return self._build_media_file_url(target_audio)
+
+        clip_path = info.get("clip_path") or self._ensure_preview_media_clip(info)
+        if clip_path and os.path.exists(clip_path) and self._is_valid_mp4(clip_path):
+            return self._build_media_file_url(clip_path)
+        return self._ensure_fallback_dummy_url()
+
+    def _resolve_preview_audio_url_from_info(self, info):
+        """Resolves a decoupled audio URL from `info` only when audio is not unified in the video stream."""
+        if not isinstance(info, dict):
+            return ""
+        user_video = info.get("real_video_file")
+        user_audio = info.get("real_audio_file")
+        if user_video and os.path.exists(user_video):
+            if not user_audio or os.path.normcase(os.path.abspath(user_audio)) == os.path.normcase(os.path.abspath(user_video)):
+                return ""
+        if user_audio and os.path.exists(user_audio):
+            target_audio = self._ensure_browser_compatible_audio(
+                audio_file=user_audio,
+                media_meta=info.get("media_meta")
+            ) or user_audio
+            return self._build_media_file_url(target_audio)
+        return ""
+
     def get_preview_video_data_url(self, source="base", target_output_id=None, payload=None):
         """Resolves the streaming HTTP URL for the preview video.
 
-        Attempts direct byte streaming via HTTP 206 Partial Content for local video files.
-        If the video stream is natively browser-compatible (e.g. H.264/AVC in MKV) but uses
-        an incompatible audio codec (e.g. AC3/EAC3/DTS), extracts ONLY the audio track to
-        MP3 320k in ~2-4s and streams the original untouched MKV container directly.
-        If the video itself uses an incompatible codec, performs a full remux/transcode.
-        If only audio is present, streams original or compatible audio. If media is missing
-        or dummy, generates or serves the cached synthetic MP4 preview clip.
+        Attempts direct byte streaming via HTTP 206 Partial Content for local video files,
+        remuxes incompatible audio into an integrated MP4 when required, or serves the cached
+        synthetic MP4 preview clip.
 
         Args:
             source (str, optional): Media source ("aegisub" or "base"). Defaults to "base".
@@ -4510,38 +4605,7 @@ class PyxisAPI:
         self._preview_cancelled = False
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
-            # 1. Unified media container stream (native bypass if compatible, or AAC remux)
-            user_video = info.get("real_video_file")
-            if user_video and os.path.exists(user_video):
-                meta = info.get("media_meta") or {}
-                target_video = self._ensure_browser_compatible_media(
-                    video_file=user_video,
-                    audio_file=info.get("real_audio_file"),
-                    media_meta=meta
-                )
-                if not target_video:
-                    return ""
-                import urllib.parse
-                quoted_path = urllib.parse.quote(target_video)
-                return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
-
-            # 2. If no video but user audio exists, stream compatible audio
-            user_audio = info.get("real_audio_file")
-            if user_audio and os.path.exists(user_audio):
-                target_audio = self._ensure_browser_compatible_audio(
-                    audio_file=user_audio,
-                    media_meta=info.get("media_meta")
-                ) or user_audio
-                import urllib.parse
-                quoted_path = urllib.parse.quote(target_audio)
-                return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
-
-            # 3. Fallback: Dummy video clip (e.g. preview_base template with ?dummy Aegisub media)
-            clip_path = info.get("clip_path") or self._ensure_preview_media_clip(info)
-            if clip_path and os.path.exists(clip_path) and self._is_valid_mp4(clip_path):
-                import urllib.parse
-                quoted_path = urllib.parse.quote(clip_path)
-                return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
+            return self._resolve_preview_video_url_from_info(info)
         except Exception as e:
             print(f"[Pyxis Error getting preview video URL] {e}", flush=True)
         return self._ensure_fallback_dummy_url()
@@ -4559,30 +4623,67 @@ class PyxisAPI:
         """
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
-            user_video = info.get("real_video_file")
-            user_audio = info.get("real_audio_file")
-            meta = info.get("media_meta") or {}
-            audio_codec = meta.get("audio_codec", "")
-
-            # If video container is active, audio is integrated directly into the unified
-            # video stream (either natively or via _ensure_browser_compatible_media remux).
-            # No secondary decoupled audio stream is required when audio comes from the video.
-            if user_video and os.path.exists(user_video):
-                if not user_audio or os.path.normcase(os.path.abspath(user_audio)) == os.path.normcase(os.path.abspath(user_video)):
-                    return ""
-
-            # Standalone audio track (when separate audio file or no video)
-            if user_audio and os.path.exists(user_audio):
-                target_audio = self._ensure_browser_compatible_audio(
-                    audio_file=user_audio,
-                    media_meta=meta
-                ) or user_audio
-                import urllib.parse
-                quoted_path = urllib.parse.quote(target_audio)
-                return f"http://127.0.0.1:28723/media_file?path={quoted_path}"
+            return self._resolve_preview_audio_url_from_info(info)
         except Exception as e:
             print(f"[Pyxis Error getting preview audio URL] {e}", flush=True)
         return ""
+
+    def get_preview_source_bundle(self, source="base", target_output_id=None, payload=None, last_fonts_hash=None):
+        """Atomically resolves preview metadata, media URLs, font map, and initial ASS script.
+
+        Eliminates redundant IPC round-trips and repeated `get_preview_info` evaluations during
+        source switching. Omits `fonts_map` when the client's `last_fonts_hash` already matches.
+
+        Args:
+            source (str, optional): Target source ('base' or 'aegisub'). Defaults to 'base'.
+            target_output_id (list | str | int | None, optional): Filter criteria for Output nodes.
+            payload (dict | None, optional): Serialised graph topology payload.
+            last_fonts_hash (str | None, optional): Previously injected font cache signature.
+
+        Returns:
+            dict[str, Any]: Bundled source descriptors containing `info`, `video_url`, `audio_url`,
+                `fonts_map`, `fonts_hash`, `base_ass`, and `cancelled`.
+        """
+        self._preview_cancelled = False
+        try:
+            info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
+            effective_source = str((info or {}).get("source") or source or "base")
+            video_url = self._resolve_preview_video_url_from_info(info)
+            if self._preview_cancelled or not video_url:
+                return {
+                    "info": info,
+                    "video_url": "",
+                    "audio_url": "",
+                    "fonts_map": None,
+                    "fonts_hash": None,
+                    "base_ass": "",
+                    "cancelled": bool(self._preview_cancelled),
+                }
+            audio_url = self._resolve_preview_audio_url_from_info(info)
+            fonts_map, fonts_hash = self._resolve_preview_fonts_from_info(info, source=effective_source)
+            if last_fonts_hash and fonts_hash and last_fonts_hash == fonts_hash:
+                fonts_map = None
+            base_ass = self._resolve_initial_ass_from_info(info, source=effective_source)
+            return {
+                "info": info,
+                "video_url": video_url,
+                "audio_url": audio_url,
+                "fonts_map": fonts_map,
+                "fonts_hash": fonts_hash,
+                "base_ass": base_ass,
+                "cancelled": bool(self._preview_cancelled),
+            }
+        except Exception as e:
+            print(f"[Pyxis Error getting preview source bundle] {e}", flush=True)
+            return {
+                "info": None,
+                "video_url": "",
+                "audio_url": "",
+                "fonts_map": None,
+                "fonts_hash": None,
+                "base_ass": "",
+                "cancelled": bool(getattr(self, "_preview_cancelled", False)),
+            }
 
     def _probe_media_metadata(self, video_file=None, audio_file=None, dummy_info=None, default_fps=23.976, res_x=1280, res_y=720):
         """Extracts technical stream metadata from video and audio containers using FFmpeg.
@@ -4885,17 +4986,28 @@ class PyxisAPI:
             res_x=res_x,
             res_y=res_y
         )
-        if info.get("real_video_file") and isinstance(meta, dict) and meta.get("video_codec") not in (None, "NO VIDEO", "DUMMY"):
+        has_real_base_video = bool(
+            info.get("real_video_file")
+            and isinstance(meta, dict)
+            and meta.get("video_codec") not in (None, "NO VIDEO", "DUMMY")
+        )
+        if has_real_base_video:
             probed_dar = meta.get("display_aspect_ratio")
             if probed_dar and float(probed_dar) > 0:
                 aspect = float(probed_dar)
+        is_synthetic_dummy = bool(info.get("is_synthetic_dummy", not has_real_base_video))
         dialogues = info.get("dialogues", [])
-        min_start_ms = info.get("min_start_ms", 0)
-        max_end_ms = info.get("max_end_ms", 15000)
-        clip_start_sec = info.get("clip_start_sec", 0.0)
-        clip_end_sec = info.get("clip_end_sec", 15.0)
-        clip_duration_sec = info.get("clip_duration_sec", 15.0)
-        clip_start_ms = info.get("clip_start_ms", 0)
+        if dialogues:
+            min_start_ms, max_end_ms, clip_start_sec, clip_end_sec, clip_duration_sec, clip_start_ms = self._calculate_effective_dialogue_range(
+                dialogues, payload=payload, target_output_id=target_output_id
+            )
+        else:
+            min_start_ms = info.get("min_start_ms", 0)
+            max_end_ms = info.get("max_end_ms", 15000)
+            clip_start_sec = info.get("clip_start_sec", 0.0)
+            clip_end_sec = info.get("clip_end_sec", 15.0)
+            clip_duration_sec = info.get("clip_duration_sec", 15.0)
+            clip_start_ms = info.get("clip_start_ms", 0)
 
         dur_sec = (meta or {}).get("duration_sec")
         if dur_sec and float(dur_sec) > clip_start_sec:
@@ -4921,6 +5033,7 @@ class PyxisAPI:
             "has_custom_audio": bool(info.get("real_audio_file")),
             "has_real_video": bool(info.get("real_video_file")),
             "has_real_audio": bool(info.get("real_audio_file")),
+            "is_synthetic_dummy": is_synthetic_dummy,
             "audio_file": info.get("real_audio_file"),
             "video_file": info.get("real_video_file"),
             "real_video_file": info.get("real_video_file"),
@@ -5058,13 +5171,11 @@ class PyxisAPI:
 
     def _resolve_font_file_uncached(self, font_name: str, font_name_clean: str):
         """Internal uncached resolution routine for host machine font discovery."""
-        print(f"[Pyxis Font] Searching system for font file: '{font_name}' (limpio: '{font_name_clean}')", flush=True)
-
         candidates_from_reg = []
         if sys.platform == "win32":
             gdi_res = self._extract_font_data_from_gdi(font_name)
             if gdi_res:
-                raw_bytes, actual_face = gdi_res
+                raw_bytes, _ = gdi_res
                 ext = ".otf" if raw_bytes[:4] == b"OTTO" else ".ttf"
                 cache_dir = os.path.join(get_user_data_dir(), "fonts")
                 os.makedirs(cache_dir, exist_ok=True)
@@ -5072,14 +5183,13 @@ class PyxisAPI:
                 try:
                     with open(cached_file, "wb") as f:
                         f.write(raw_bytes)
-                    print(f"[Pyxis Font] GDI font cached: '{cached_file}'", flush=True)
                     return cached_file
                 except Exception as e:
                     print(f"[Pyxis Font Cache Error] {e}", flush=True)
 
             try:
                 import winreg
-                for root_name, root in [("HKCU", winreg.HKEY_CURRENT_USER), ("HKLM", winreg.HKEY_LOCAL_MACHINE)]:
+                for _, root in [("HKCU", winreg.HKEY_CURRENT_USER), ("HKLM", winreg.HKEY_LOCAL_MACHINE)]:
                     try:
                         key = winreg.OpenKey(root, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts")
                         for i in range(winreg.QueryInfoKey(key)[1]):
@@ -5087,141 +5197,84 @@ class PyxisAPI:
                             clean_reg = reg_name.split('(')[0].strip().lower()
                             if clean_reg == font_name_clean:
                                 candidates_from_reg.insert(0, reg_val)
-                                print(f"[Pyxis Font] EXACT match in {root_name} Fonts: '{reg_name}' -> '{reg_val}'", flush=True)
                             elif font_name_clean in clean_reg:
                                 candidates_from_reg.append(reg_val)
-                                print(f"[Pyxis Font] Partial match in {root_name} Fonts: '{reg_name}' -> '{reg_val}'", flush=True)
                         winreg.CloseKey(key)
-                    except Exception as e:
-                        print(f"[Pyxis Font] Error reading registry {root_name}: {e}", flush=True)
-            except Exception as e:
-                print(f"[Pyxis Font] General exception scanning registry: {e}", flush=True)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            win_font_dirs = [
+                os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\Windows\Fonts"),
+                os.path.join(get_user_data_dir(), "fonts"),
+            ]
+            for val in candidates_from_reg:
+                if os.path.isabs(val) and os.path.exists(val):
+                    return val
+                for s_dir in win_font_dirs:
+                    if s_dir and os.path.isdir(s_dir):
+                        p = os.path.join(s_dir, val)
+                        if os.path.exists(p):
+                            return p
 
         try:
             from font_resolver import resolve_font_file
             resolved = resolve_font_file(font_name)
             if resolved and os.path.isfile(resolved):
-                print(f"[Pyxis Font] Resolved via font_resolver: '{font_name}' -> '{resolved}'", flush=True)
                 return resolved
+            for fallback_family in ("Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"):
+                if fallback_family.lower() != font_name_clean:
+                    fb_res = resolve_font_file(fallback_family)
+                    if fb_res and os.path.isfile(fb_res):
+                        return fb_res
         except Exception as e:
             print(f"[Pyxis Font] font_resolver exception: {e}", flush=True)
 
-        search_dirs = [
-            os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\Windows\Fonts"),
-            os.path.join(get_user_data_dir(), "fonts"),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts"),
-            r"E:\Fuentes\FontBase",
-            r"E:\Fuentes",
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "FontBase"),
-            os.path.join(os.environ.get("APPDATA", ""), "FontBase"),
-        ]
-        print(f"[Pyxis Font] Font search directories: {search_dirs}", flush=True)
-
-        for val in candidates_from_reg:
-            if os.path.isabs(val) and os.path.exists(val):
-                print(f"[Pyxis Font] FOUND via registry (absolute path)! '{font_name}' -> '{val}'", flush=True)
-                return val
-            for s_dir in search_dirs:
-                if s_dir and os.path.isdir(s_dir):
-                    p = os.path.join(s_dir, val)
-                    if os.path.exists(p):
-                        print(f"[Pyxis Font] FOUND via registry in folder! '{font_name}' -> '{p}'", flush=True)
-                        return p
-
-        clean_nosp = font_name_clean.replace(" ", "")
-        direct_names = [
-            f"{font_name}.ttf", f"{font_name}.otf", f"{font_name}.ttc",
-            f"{font_name_clean}.ttf", f"{font_name_clean}.otf", f"{font_name_clean}.ttc",
-            f"{clean_nosp}.ttf", f"{clean_nosp}.otf"
-        ]
-        for s_dir in search_dirs:
-            if s_dir and os.path.isdir(s_dir):
-                for dn in direct_names:
-                    p = os.path.join(s_dir, dn)
-                    if os.path.exists(p):
-                        print(f"[Pyxis Font] ¡FOUND by direct name! '{font_name}' -> '{p}'", flush=True)
-                        return p
-                try:
-                    for fn in os.listdir(s_dir):
-                        fn_lower = fn.lower()
-                        if clean_nosp in fn_lower and any(fn_lower.endswith(ext) for ext in ['.ttf', '.otf', '.ttc']):
-                            p = os.path.join(s_dir, fn)
-                            print(f"[Pyxis Font] ¡FOUND by fuzzy file search! '{font_name}' -> '{p}'", flush=True)
-                            return p
-                except Exception as e:
-                    print(f"[Pyxis Font] Error listing directory {s_dir}: {e}", flush=True)
-
-        print(f"[Pyxis Font] WARNING: No specific file found for '{font_name}'. Falling back to Arial...", flush=True)
-        for s_dir in search_dirs:
-            if s_dir and os.path.isdir(s_dir):
-                for af in ["arial.ttf", "Arial.ttf", "ARIAL.TTF"]:
-                    p = os.path.join(s_dir, af)
-                    if os.path.exists(p):
-                        print(f"[Pyxis Font] Fallback a Arial resuelto en: '{p}'", flush=True)
-                        return p
-        print(f"[Pyxis Font] ERROR: Arial not found in {search_dirs}", flush=True)
         return None
 
-    def get_preview_fonts_map(self, source="base"):
-        """Compiles a comprehensive dictionary of all font assets required by preview subtitles.
-
-        Inspects the ASS style definitions and active lines for the chosen source, locates the
-        corresponding binary font files, and packages them with base64 Data URLs, local HTTP URLs,
-        and absolute file paths for consumption by the WebAssembly (JASSUB/ArtPlayer) canvas.
-
-        Args:
-            source (str): Source context identifier ('base' for preview_base.ass or 'aegisub').
-
-        Returns:
-            dict[str, dict[str, str]]: Dictionary mapping font family names (including lowercase
-            and whitespace-stripped keys) to metadata dictionaries containing 'data' (Data URL),
-            'http_url', 'path', and 'mime'.
-        """
+    def _resolve_preview_fonts_from_info(self, info, source="base"):
+        """Builds and caches the font URL map and its cache key from a resolved info dict."""
         if not hasattr(self, "_cached_fonts_map"):
             self._cached_fonts_map = {}
 
         sub_hash = getattr(self, '_aegisub_temp_hash', None) if source == "aegisub" else getattr(self, '_preview_base_hash', None)
         cache_key = f"{source}:{sub_hash}"
         if sub_hash and cache_key in self._cached_fonts_map:
-            return self._cached_fonts_map[cache_key]
+            return self._cached_fonts_map[cache_key], cache_key
 
         font_map = {}
         try:
-            info = self.get_preview_info(source=source)
-            styles = info.get("styles", {}) or {}
-            print(f"[Pyxis Font] get_preview_fonts_map invoked for source '{source}'. Available ASS styles: {list(styles.keys())}", flush=True)
+            styles = (info or {}).get("styles", {}) or {}
             requested_fonts = set()
-            for s_name, s in styles.items():
+            for s in styles.values():
                 if isinstance(s, dict):
                     fn = s.get("Fontname") or s.get("fontname")
-                    print(f"[Pyxis Font] Style '{s_name}' uses font: '{fn}'", flush=True)
                     if fn:
                         requested_fonts.add(str(fn).strip())
-            
-            primary_fn = str(info.get("font_name") or "Arial").strip()
-            print(f"[Pyxis Font] Primary font detected from active line: '{primary_fn}'", flush=True)
+
+            primary_fn = str((info or {}).get("font_name") or "Arial").strip()
             if primary_fn:
                 requested_fonts.add(primary_fn)
             if not requested_fonts:
                 requested_fonts.add("Arial")
 
-            print(f"[Pyxis Font] Total requested fonts to resolve: {requested_fonts}", flush=True)
-            import base64
-            from urllib.parse import quote
+            ext_mimes = {
+                ".otf": "font/otf",
+                ".ttc": "font/collection",
+                ".woff": "font/woff",
+                ".woff2": "font/woff2",
+            }
             for fn in requested_fonts:
                 f_path = self._find_font_file(fn)
                 if f_path and os.path.exists(f_path):
-                    mime = "font/otf" if f_path.lower().endswith(".otf") else "font/ttf"
+                    ext = os.path.splitext(f_path)[1].lower()
+                    mime = ext_mimes.get(ext, "font/ttf")
                     try:
-                        file_size = os.path.getsize(f_path)
-                        with open(f_path, "rb") as f:
-                            encoded = base64.b64encode(f.read()).decode("utf-8")
-                        d_url = f"data:{mime};base64,{encoded}"
-                        quoted_path = quote(os.path.abspath(f_path))
-                        http_url = f"http://127.0.0.1:28723/media_file?path={quoted_path}"
+                        mtime_ms = int(os.path.getmtime(f_path) * 1000)
+                        http_url = self._build_media_file_url(f_path, timestamp=mtime_ms)
                         entry = {
-                            "data": d_url,
                             "http_url": http_url,
                             "path": f_path,
                             "mime": mime
@@ -5229,43 +5282,40 @@ class PyxisAPI:
                         font_map[fn.lower()] = entry
                         font_map[fn] = entry
                         font_map[fn.lower().replace(" ", "")] = entry
-                        print(f"[Pyxis Font] Fuente '{fn}' empaquetada exitosamente: {file_size} bytes, ruta='{f_path}'", flush=True)
                     except Exception as e:
-                        print(f"[Pyxis Error reading font file {f_path}] {e}", flush=True)
-                else:
-                    print(f"[Pyxis Font] ERROR: Could not resolve physical file for '{fn}'", flush=True)
+                        print(f"[Pyxis Error indexing font file {f_path}] {e}", flush=True)
         except Exception as e:
             print(f"[Pyxis Error getting preview fonts map] {e}", flush=True)
-        print(f"[Pyxis Font] Final font map generated with {len(font_map)} keys.", flush=True)
         if sub_hash and font_map:
             self._cached_fonts_map[cache_key] = font_map
-        return font_map
+        return font_map, (cache_key if sub_hash else None)
 
-    def get_preview_font_data_url(self, source="base"):
-        """Generates a base64 Data URL for the primary font family of the current preview session.
+    def get_preview_fonts_map(self, source="base"):
+        """Compiles lightweight HTTP font asset descriptors for preview subtitles.
 
-        Resolves the physical font file for the active dialogue style and encodes its binary
-        payload into a data URI scheme suitable for inline CSS `@font-face` injection.
+        Inspects ASS style definitions and active lines for the chosen source, locates the
+        corresponding binary font files, and returns local daemon HTTP streaming URLs for
+        asynchronous consumption by the JASSUB WebWorker without Base64 IPC overhead.
 
         Args:
-            source (str): Media source mode ('base' or 'aegisub').
+            source (str): Source context identifier ('base' for preview_base.ass or 'aegisub').
 
         Returns:
-            str: Base64-encoded Data URL ('data:font/ttf;base64,...'), or an empty string on error.
+            dict[str, dict[str, str]]: Dictionary mapping font family names (including lowercase
+            and whitespace-stripped keys) to metadata dictionaries containing 'http_url',
+            'path', and 'mime'.
         """
+        sub_hash = getattr(self, '_aegisub_temp_hash', None) if source == "aegisub" else getattr(self, '_preview_base_hash', None)
+        cache_key = f"{source}:{sub_hash}"
+        if hasattr(self, "_cached_fonts_map") and sub_hash and cache_key in self._cached_fonts_map:
+            return self._cached_fonts_map[cache_key]
         try:
             info = self.get_preview_info(source=source)
-            requested_font = str(info.get("font_name") or "Arial").strip()
-            target_font_path = self._find_font_file(requested_font)
-            if target_font_path and os.path.exists(target_font_path):
-                import base64
-                mime = "font/otf" if target_font_path.lower().endswith(".otf") else "font/ttf"
-                with open(target_font_path, "rb") as f:
-                    encoded = base64.b64encode(f.read()).decode("utf-8")
-                return f"data:{mime};base64,{encoded}"
+            font_map, _ = self._resolve_preview_fonts_from_info(info, source=source)
+            return font_map
         except Exception as e:
-            print(f"[Pyxis Error getting font data URL] {e}", flush=True)
-        return ""
+            print(f"[Pyxis Error getting preview fonts map] {e}", flush=True)
+        return {}
 
     def invalidate_preview_base_cache(self):
         """Invalidates in-memory caches and telemetry buffers for the base preview subtitle file.
@@ -5275,6 +5325,7 @@ class PyxisAPI:
         """
         self._cached_preview_base_info = None
         self._preview_base_hash = None
+        self._preview_base_stat = None
         if hasattr(self, "_cached_fonts_map"):
             self._cached_fonts_map.clear()
         self._last_preview_ass_content = None
@@ -5347,11 +5398,11 @@ class PyxisAPI:
         return 0
 
     def _load_and_cache_preview_base(self, force_reload=False):
-        """Parses preview_base.ass and caches structural metadata with SHA-256 validation.
+        """Parses preview_base.ass and caches structural metadata with stat and SHA-256 validation.
 
-        Computes a SHA-256 digest of the physical file to avoid redundant parsing. Extracts ASS
-        header resolutions (PlayResX, PlayResY), styles, dialogues, timing spans, referenced
-        media paths, dummy clip specifications, and media stream metadata via FFprobe.
+        Uses `(abspath, mtime_ns, size)` as a fast-path before reading and hashing the file.
+        Extracts ASS header resolutions (PlayResX, PlayResY), styles, dialogues, timing spans,
+        referenced media paths, dummy clip specifications, and media stream metadata via FFprobe.
 
         Args:
             force_reload (bool): If True, bypasses cache comparisons and forces full re-parsing.
@@ -5365,19 +5416,26 @@ class PyxisAPI:
             if not user_base_path or not os.path.exists(user_base_path):
                 return {"source": "base", "path": None, "res_x": 1280, "res_y": 720, "has_aegisub": False}
 
+            abs_base_path = os.path.abspath(user_base_path)
+            st = os.stat(abs_base_path)
+            current_stat = (abs_base_path, st.st_mtime_ns, st.st_size)
+            cached = getattr(self, '_cached_preview_base_info', None)
+            if (not force_reload) and cached and getattr(self, '_preview_base_stat', None) == current_stat:
+                return cached
+
             import hashlib
-            with open(user_base_path, "rb") as fp:
+            with open(abs_base_path, "rb") as fp:
                 current_hash = hashlib.sha256(fp.read()).hexdigest()
 
-            cached = getattr(self, '_cached_preview_base_info', None)
             cached_hash = getattr(self, '_preview_base_hash', None)
-
             if (not force_reload) and cached and cached_hash == current_hash:
+                self._preview_base_stat = current_stat
                 return cached
 
             self._preview_base_hash = current_hash
+            self._preview_base_stat = current_stat
             from ass_parser import ASSParser
-            parsed = ASSParser.read_file(user_base_path)
+            parsed = ASSParser.read_file(abs_base_path)
             if not parsed:
                 return {"source": "base", "path": user_base_path, "res_x": 1280, "res_y": 720, "has_aegisub": False}
 
@@ -5404,16 +5462,23 @@ class PyxisAPI:
 
             min_start_ms = 0
             max_end_ms = 15000
+            clip_start_sec = 0.0
+            clip_end_sec = 15.0
+            clip_duration_sec = 15.0
+            clip_start_ms = 0
             if dialogues:
+                from node_engine import is_vetoed_dialogue_item
                 starts = []
                 ends = []
                 for d in dialogues:
+                    if is_vetoed_dialogue_item(d):
+                        continue
                     if isinstance(d, dict):
                         if 'start_time' in d and 'end_time' in d:
                             starts.append(d['start_time'])
                             ends.append(d['end_time'])
                         elif 'raw' in d:
-                            raw = str(d['raw'])
+                            raw = str(d['raw']).strip()
                             if raw.startswith('Dialogue:') or raw.startswith('Dialogue :'):
                                 fields = raw.split(',', 9)
                                 if len(fields) >= 3:
@@ -5425,11 +5490,10 @@ class PyxisAPI:
                 if starts and ends:
                     min_start_ms = min(starts)
                     max_end_ms = max(ends)
-
-            clip_start_sec = max(0.0, (min_start_ms - 2000) / 1000.0)
-            clip_end_sec = (max_end_ms + 2000) / 1000.0
-            clip_duration_sec = max(2.0, clip_end_sec - clip_start_sec)
-            clip_start_ms = int(clip_start_sec * 1000)
+                    clip_start_sec = max(0.0, (min_start_ms - 2000) / 1000.0)
+                    clip_end_sec = (max_end_ms + 2000) / 1000.0
+                    clip_duration_sec = max(2.0, clip_end_sec - clip_start_sec)
+                    clip_start_ms = int(clip_start_sec * 1000)
 
             primary_font_name = "Arial"
             primary_font_size = 65
@@ -5491,6 +5555,18 @@ class PyxisAPI:
                 info_dict["render_duration_sec"] = info_dict["clip_duration_sec"]
 
             meta = info_dict.get("media_meta") or {}
+            if real_video and isinstance(meta, dict) and meta.get("video_codec") not in (None, "NO VIDEO", "DUMMY"):
+                probed_dar = meta.get("display_aspect_ratio")
+                if probed_dar and float(probed_dar) > 0:
+                    info_dict["aspect_ratio"] = float(probed_dar)
+                info_dict["is_synthetic_dummy"] = False
+            elif is_dummy_video and isinstance(meta, dict):
+                probed_dar = meta.get("display_aspect_ratio")
+                if probed_dar and float(probed_dar) > 0:
+                    info_dict["aspect_ratio"] = float(probed_dar)
+                info_dict["is_synthetic_dummy"] = True
+            else:
+                info_dict["is_synthetic_dummy"] = not bool(real_video and os.path.isfile(real_video))
             info_dict["storage_x"] = meta.get("storage_x") or meta.get("res_x") or res_x
             info_dict["storage_y"] = meta.get("storage_y") or meta.get("res_y") or res_y
             info_dict["par"] = meta.get("par", 1.0)
@@ -5530,6 +5606,31 @@ class PyxisAPI:
         }
         return self._cached_preview_base_info
 
+    def _resolve_initial_ass_from_info(self, info, source="base"):
+        """Reads and normalises PlayResX/PlayResY in the initial ASS script from `info`."""
+        ass_path = (info or {}).get("path") or (self.ensure_preview_base_ass() if source == "base" else None)
+        if ass_path and os.path.exists(ass_path):
+            rx, ry = (info or {}).get("res_x", 1280), (info or {}).get("res_y", 720)
+            with open(ass_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+                lines = f.readlines()
+            output = []
+            in_events = False
+            for line in lines:
+                line_clean = line.lstrip('\ufeff')
+                if line_clean.startswith("PlayResX:"):
+                    output.append(f"PlayResX: {rx}\n")
+                elif line_clean.startswith("PlayResY:"):
+                    output.append(f"PlayResY: {ry}\n")
+                elif line_clean.strip().startswith("[Events]"):
+                    in_events = True
+                    output.append(line)
+                elif in_events and (line_clean.startswith("Dialogue:") or line_clean.startswith("Comment:")):
+                    output.append(line)
+                else:
+                    output.append(line)
+            return "".join(output)
+        return ""
+
     def get_initial_base_ass(self, source="base", target_output_id=None, payload=None):
         """Retrieves and prepares the raw initial ASS script text for player initialisation.
 
@@ -5547,28 +5648,7 @@ class PyxisAPI:
         """
         try:
             info = self.get_preview_info(source=source, target_output_id=target_output_id, payload=payload)
-            ass_path = info.get("path") or (self.ensure_preview_base_ass() if source == "base" else None)
-            clip_start_ms = info.get("clip_start_ms", 0)
-            if ass_path and os.path.exists(ass_path):
-                rx, ry = info.get("res_x", 1280), info.get("res_y", 720)
-                with open(ass_path, "r", encoding="utf-8-sig", errors="ignore") as f:
-                    lines = f.readlines()
-                output = []
-                in_events = False
-                for line in lines:
-                    line_clean = line.lstrip('\ufeff')
-                    if line_clean.startswith("PlayResX:"):
-                        output.append(f"PlayResX: {rx}\n")
-                    elif line_clean.startswith("PlayResY:"):
-                        output.append(f"PlayResY: {ry}\n")
-                    elif line_clean.strip().startswith("[Events]"):
-                        in_events = True
-                        output.append(line)
-                    elif in_events and (line_clean.startswith("Dialogue:") or line_clean.startswith("Comment:")):
-                        output.append(line)
-                    else:
-                        output.append(line)
-                return "".join(output)
+            return self._resolve_initial_ass_from_info(info, source=source)
         except Exception as e:
             print(f"[Pyxis Error reading initial ASS source={source}] {e}", flush=True)
         return ""
@@ -5681,6 +5761,17 @@ class PyxisAPI:
 
             self._preview_cancelled = False
             if len(base_lines) > 0:
+                from node_engine import is_comment_dialogue_item, normalize_apply_to, resolve_target_dialogue_indices
+                nodes_dict = graph_data.get("nodes", {}) or {}
+                if isinstance(nodes_dict, list):
+                    nodes_dict = {n.get("id"): n for n in nodes_dict if isinstance(n, dict)}
+                all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower()]
+                matching_outputs = [n for n in all_output_nodes if self._matches_output_node(n, output_id_list, all_output_nodes)]
+                matching_modes = {
+                    normalize_apply_to((n.get('properties') or {}).get('apply_to', 'Selected Lines'))
+                    for n in matching_outputs
+                }
+
                 generated_lines = []
                 if len(output_id_list) > 0:
                     video_x_correct = info.get("video_x_correct_factor", getattr(getattr(self, '_cached_aegisub_parsed', None), 'video_x_correct_factor', 1.0))
@@ -5705,8 +5796,10 @@ class PyxisAPI:
                         except Exception:
                             pass
 
+                    # Only apply OPT-05 temporal culling when every targeted Output is scoped to 'Sel. Lines';
+                    # 'All Lines' and 'Style Lines' must process all scoped lines across the file.
                     preview_time_window = None
-                    if not for_hardsub and clip_end_sec > clip_start_sec:
+                    if not for_hardsub and clip_end_sec > clip_start_sec and matching_modes == {"selected"}:
                         preview_time_window = (float(clip_start_ms), float(clip_end_sec * 1000.0))
 
                     generated_lines = engine.process(
@@ -5723,114 +5816,19 @@ class PyxisAPI:
                         self._active_preview_engine = None
                         return {"success": False, "cancelled": True}
 
-                    # Refine the playback window from the lines actually produced by the engine,
-                    # keeping only those overlapping the pre-computed source window so that an
-                    # 'All Lines' scope does not expand the interactive preview to the whole file.
-                    # Hardsub keeps the original window because its video cut and time shift rely on it.
-                    if not for_hardsub and generated_lines:
-                        win_lo_ms = int(round(clip_start_sec * 1000))
-                        win_hi_ms = int(round(clip_end_sec * 1000))
-                        g_starts = []
-                        g_ends = []
-                        for g_line in generated_lines:
-                            g_clean = str(g_line).lstrip('\ufeff').strip()
-                            if not g_clean.startswith("Dialogue:"):
-                                continue
-                            g_fields = g_clean.split(',', 9)
-                            if len(g_fields) < 3:
-                                continue
-                            try:
-                                g_st = self._parse_ass_time(g_fields[1])
-                                g_et = self._parse_ass_time(g_fields[2])
-                            except Exception:
-                                continue
-                            if g_st is None or g_et is None:
-                                continue
-                            if g_et >= win_lo_ms and g_st <= win_hi_ms:
-                                g_starts.append(g_st)
-                                g_ends.append(g_et)
-                        if g_starts and g_ends:
-                            clip_start_sec = max(0.0, (min(g_starts) - 2000) / 1000.0)
-                            clip_end_sec = (max(g_ends) + 2000) / 1000.0
-                            total_dur = (info.get("media_meta") or {}).get("duration_sec")
-                            try:
-                                if total_dur and float(total_dur) > clip_start_sec:
-                                    clip_end_sec = min(clip_end_sec, float(total_dur))
-                            except (TypeError, ValueError):
-                                pass
-                            clip_duration_sec = max(0.5, clip_end_sec - clip_start_sec)
-                            clip_start_ms = int(clip_start_sec * 1000)
-
                 output_ass_lines = []
                 in_events = False
-                last_was_selected_metric = False
-                has_any_selection = any(
-                    bool((isinstance(d, dict) and (d.get('is_selected') or (isinstance(d.get('metrics'), dict) and d['metrics'].get('sel')))))
-                    for d in dialogues
-                )
-                nodes_dict = graph_data.get("nodes", {}) or {}
-                if isinstance(nodes_dict, list):
-                    nodes_dict = {n.get("id"): n for n in nodes_dict if isinstance(n, dict)}
-                
-                all_output_nodes = [n for n in nodes_dict.values() if 'output' in str(n.get('type', '')).lower()]
-                matching_outputs = [n for n in all_output_nodes if self._matches_output_node(n, output_id_list, all_output_nodes)]
-                
-                use_all_lines = False
-                use_style_lines = False
-                target_styles = set()
-                for s_node in matching_outputs:
-                    props = s_node.get('properties', {}) or {}
-                    app = str(props.get('apply_to', 'Selected Lines')).strip().lower()
-                    if app in ['all lines', 'all']:
-                        use_all_lines = True
-                        break
-                    elif app in ['style lines', 'style']:
-                        use_style_lines = True
-                        st_name = str(props.get('style', '')).strip()
-                        if st_name:
-                            target_styles.add(st_name)
+                matched_pos_set = set()
+                if len(output_id_list) > 0 and len(generated_lines) > 0 and matching_modes:
+                    non_comment_dialogues = [d for d in dialogues if not is_comment_dialogue_item(d)]
+                    matched_positions, _ = resolve_target_dialogue_indices(
+                        non_comment_dialogues,
+                        list(matching_modes),
+                        allow_fallback=True,
+                    )
+                    matched_pos_set = set(matched_positions)
 
-                if use_style_lines:
-                    for d in dialogues:
-                        is_sel = False
-                        st_name = ""
-                        if isinstance(d, dict):
-                            raw = str(d.get('raw', ''))
-                            if raw.strip().startswith('Comment:') or raw.strip().startswith('Comment :'):
-                                continue
-                            is_sel = bool(d.get('is_selected', False) or (d.get('metrics') and d['metrics'].get('sel')))
-                            st_name = str(d.get('style_name', ''))
-                            if not st_name and raw:
-                                fields = raw.split(',', 9)
-                                if len(fields) >= 4:
-                                    st_name = fields[3].strip()
-                        elif hasattr(d, 'is_selected') and hasattr(d, 'style_name'):
-                            if getattr(d, 'is_comment', False):
-                                continue
-                            is_sel = getattr(d, 'is_selected', False)
-                            st_name = getattr(d, 'style_name', '')
-                        if is_sel and st_name:
-                            target_styles.add(st_name)
-
-                    if not target_styles:
-                        for d in dialogues:
-                            st_name = ""
-                            if isinstance(d, dict):
-                                raw = str(d.get('raw', ''))
-                                if raw.strip().startswith('Comment:') or raw.strip().startswith('Comment :'):
-                                    continue
-                                st_name = str(d.get('style_name', ''))
-                                if not st_name and raw:
-                                    fields = raw.split(',', 9)
-                                    if len(fields) >= 4:
-                                        st_name = fields[3].strip()
-                            elif hasattr(d, 'style_name'):
-                                if getattr(d, 'is_comment', False):
-                                    continue
-                                st_name = getattr(d, 'style_name', '')
-                            if st_name:
-                                target_styles.add(st_name)
-
+                diag_ord = 0
                 has_scaled_bas_line = any(line.strip().lower().startswith("scaledborderandshadow:") for line in base_lines)
                 has_ycbcr_line = any(line.strip().lower().startswith("ycbcr matrix:") for line in base_lines)
                 ycbcr_matrix = info.get("ycbcr_matrix", "None")
@@ -5856,27 +5854,23 @@ class PyxisAPI:
                     if not in_events:
                         output_ass_lines.append(line)
                     else:
-                        is_comm = line_clean.strip().startswith("Comment:")
-                        is_diag = line_clean.strip().startswith("Dialogue:")
-                        if is_comm and "PyxisMetrics" in line_clean:
-                            last_was_selected_metric = ("sel=1" in line_clean)
-                            output_ass_lines.append(self._shift_ass_line(line, shift_amount))
-                        elif is_diag:
+                        stripped_line = line_clean.strip()
+                        is_comm = stripped_line.startswith("Comment:") or stripped_line.startswith("Comment :")
+                        is_diag = stripped_line.startswith("Dialogue:") or stripped_line.startswith("Dialogue :")
+                        if is_diag:
                             fields = line_clean.split(',', 9)
-                            style_name = fields[3].strip() if len(fields) >= 4 else ""
-                            should_comment = (
-                                (source == "base") or 
-                                use_all_lines or 
-                                (use_style_lines and style_name in target_styles) or
-                                (last_was_selected_metric and not use_style_lines) or 
-                                (not has_any_selection)
-                            )
-                            if should_comment and len(output_id_list) > 0 and len(generated_lines) > 0:
-                                comment_line = "Comment: " + line_clean[9:]
-                                output_ass_lines.append(self._shift_ass_line(comment_line, shift_amount))
-                            else:
+                            eff_val = fields[8].strip().lower() if len(fields) >= 9 else ""
+                            if eff_val == "pyxis_fx":
                                 output_ass_lines.append(self._shift_ass_line(line, shift_amount))
-                            last_was_selected_metric = False
+                            else:
+                                should_comment = diag_ord in matched_pos_set
+                                diag_ord += 1
+                                if should_comment and len(output_id_list) > 0 and len(generated_lines) > 0:
+                                    colon_idx = line_clean.find(":")
+                                    comment_line = "Comment:" + line_clean[colon_idx + 1:]
+                                    output_ass_lines.append(self._shift_ass_line(comment_line, shift_amount))
+                                else:
+                                    output_ass_lines.append(self._shift_ass_line(line, shift_amount))
                         elif is_comm:
                             output_ass_lines.append(self._shift_ass_line(line, shift_amount))
                         else:

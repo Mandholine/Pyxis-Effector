@@ -47,7 +47,6 @@ import math
 import numpy as np
 from font_vector_engine import FontVectorEngine
 from clipper_engine import ClipperEngine
-from gpu_engine import get_gpu_manager
 try:
     from nodes.shape_nodes import resolve_shape_value
 except (ImportError, ModuleNotFoundError):
@@ -676,10 +675,6 @@ def particle_image_node(context, image_path="", particle_shape="", frame="1", st
                 else:
                     sampled_rgba = arr[sy, sx]
                     coords_colors = np.column_stack((sx.astype(np.float64), sy.astype(np.float64), sampled_rgba))
-
-                    gpu_mgr = get_gpu_manager()
-                    if gpu_mgr.backend.startswith("OpenCL") or gpu_mgr.backend.startswith("CUDA"):
-                        coords_colors = gpu_mgr.transform_particles_gpu(coords_colors, scale_x=1.0, scale_y=1.0, angle_deg=0.0)
 
                     sorted_arr = sort_particles(coords_colors, order_code=order, get_xy=lambda item: (item[0], item[1]))
                     items = [(float(row[0]), float(row[1]), int(row[2]), int(row[3]), int(row[4]), int(row[5])) for row in sorted_arr]

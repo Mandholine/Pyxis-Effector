@@ -17,7 +17,7 @@
 script_name        = "Pyxis Node Engine"
 script_description = "Visual Node-Based Karaoke Automation"
 script_author      = "Pyxis Dev Team"
-script_version     = "1.1.7"
+script_version     = "1.1.8"
 script_namespace   = "pyxis.NodeEngine"
 
 -- [SELF SCRIPT PATH]
@@ -116,11 +116,28 @@ local function has_bin(name)
 end
 
 -- [PLATFORM TAG & RELEASE URLS]
+local cached_platform_tag = nil
 local function platform_tag()
-    if IS_WINDOWS then return "win64" end
+    if cached_platform_tag then return cached_platform_tag end
+    if IS_WINDOWS then
+        cached_platform_tag = "win64"
+        return cached_platform_tag
+    end
     local arm = ffi.arch == "arm64"
-    if IS_MACOS then return arm and "macos-arm64" or "macos-x64" end
-    return arm and "linux-arm64" or "linux64"
+    if IS_MACOS then
+        if not arm then
+            local p = io.popen("sysctl -n hw.optional.arm64 2>/dev/null")
+            if p then
+                local val = (p:read("*l") or ""):match("%d+")
+                p:close()
+                if val == "1" then arm = true end
+            end
+        end
+        cached_platform_tag = arm and "macos-arm64" or "macos-x64"
+        return cached_platform_tag
+    end
+    cached_platform_tag = arm and "linux-arm64" or "linux64"
+    return cached_platform_tag
 end
 
 local RELEASE_REPO = "Mandholine/Pyxis-Effector"
@@ -782,14 +799,14 @@ function launch_Pyxis(subs, sel, act)
                 return
             end
 
-            local cmd_parts = { shell_quote(python_cmd), "-B", shell_quote(main_script) }
+            local cmd_parts = { shell_quote(python_cmd), shell_quote(main_script) }
             for _, arg in ipairs({ temp_ass, result_file, lock_file, session_file, aegisub_version, tostring(aegisub_pid) }) do
                 cmd_parts[#cmd_parts + 1] = shell_quote(arg)
             end
             local launch_cmd = "PATH=\"" .. POSIX_PATH_PREFIX .. "$PATH\" " .. table.concat(cmd_parts, " ") .. " >/dev/null 2>&1 &"
             os.execute(launch_cmd)
         else
-            local params = '-B "' .. main_script .. '" "' .. temp_ass .. '" "' .. result_file .. '" "' .. lock_file .. '" "' .. session_file .. '" "' .. aegisub_version .. '" "' .. tostring(aegisub_pid) .. '"'
+            local params = '"' .. main_script .. '" "' .. temp_ass .. '" "' .. result_file .. '" "' .. lock_file .. '" "' .. session_file .. '" "' .. aegisub_version .. '" "' .. tostring(aegisub_pid) .. '"'
 
             local portable_pythonw = join_path(Pyxis_dir, "python\\pythonw.exe")
             local portable_python = join_path(Pyxis_dir, "python\\python.exe")

@@ -54,9 +54,9 @@ El procesamiento de un efecto en Pyxis sigue un flujo jerárquico de descomposic
 
 ### Fase 1: Selección y Análisis de Entrada
 El motor lee las líneas del archivo ASS cargadas en Aegisub según el ámbito configurado en `Output` (`apply_to`):
-* `Sel. Lines`: Exclusivamente las líneas seleccionadas en la grilla de Aegisub.
-* `Style Lines`: Todas las líneas que coincidan con el estilo de la selección.
-* `All Lines`: La totalidad de las líneas de diálogo del archivo.
+* `Sel. Lines`: Exclusivamente las líneas válidas seleccionadas en la grilla de Aegisub (o únicamente la primera línea de diálogo válida si no hay selección, excluyendo `Comment:`, `pyxis_fx` y líneas con `Text` ASS vacío o sin contenido visible fuera de `{...}`, preservando dibujos `\p1`).
+* `Style Lines`: Todas las líneas de diálogo válidas que coincidan únicamente con el primer estilo (en orden de aparición) presente en la selección válida.
+* `All Lines`: La totalidad de las líneas de diálogo válidas (no comentadas, sin `pyxis_fx` y con contenido visible o dibujo `\p1`) del archivo, ignorando la selección activa.
 
 Cada línea es analizada por el motor sintáctico y descompuesta en sus métricas espaciales tipográficas y marcas de tiempo de karaoke (`\k`, `\kf`, `\ko`).
 

@@ -190,8 +190,12 @@ Simultaneous modulation of vertical scale `\fscy` driven by bass (`bass`) and gl
    * **Canonical Categorisation:** **Type A (Evaluated Expression)**.
 8. **`Min Hz` / `Max Hz` (`min_hz`, `max_hz`):** Frequency range for FFT analysis in `fftbars` and `radial` modes ($20\text{ Hz} \dots 16000\text{ Hz}$).
    * **Canonical Categorisation:** **Type A (Evaluated Expression)**.
-9. **`Start Time` / `End Time` (`start_time`, `end_time`):** Sample extraction time window in milliseconds.
+9. **`Smoothing` (`smoothing`):** Exponential smoothing factor across adjacent samples ($0.0 \dots 0.95$, Default: `0.2`), attenuating abrupt amplitude or spectral jumps.
    * **Canonical Categorisation:** **Type A (Evaluated Expression)**.
+10. **`Start Time` / `End Time` (`start_time`, `end_time`):** Sample extraction time window in milliseconds.
+   * **Canonical Categorisation:** **Type A (Evaluated Expression)**.
+11. **`Anchor` (`anchor`):** Spatial anchor reference applied to `Shape Out`, `X Array`, and `Y Array` relative to the $(W, H)$ bounding box: `"center"` (centred at $(0, 0)$, default), `"origin"` (top-left corner at $(0, 0)$), `"relative"` (keeps local coordinates), and `"absolute"` (offset to the active line or syllable screen position).
+   * **Canonical Categorisation:** **Type C (Anchor Enum)**.
 
 ---
 

@@ -28,6 +28,7 @@
             if (!node.properties) node.properties = {};
             if (!node.properties.iterator) node.properties.iterator = "syl";
             if (!node.properties.blank_mode) node.properties.blank_mode = "No Blank (Ignorar Espacios)";
+            if (node.properties.preserve_tags === undefined) node.properties.preserve_tags = true;
             if (node.properties.iterador !== undefined) delete node.properties.iterador;
             if (node.properties.noblank !== undefined) delete node.properties.noblank;
 
@@ -103,6 +104,51 @@
                 ctx.textAlign = "center";
                 ctx.fillText(blankText, blankBadgeX + blankBadgeW / 2, badgeY + 14);
 
+                // Interactive checkbox-pill for Preserve Tags
+                const isPreserve = this.properties.preserve_tags !== false;
+                const pillX = 12;
+                const pillY = 18;
+                const pillW = 128;
+                const pillH = 24;
+                this._preserve_pill_bounds = { x: pillX, y: pillY, w: pillW, h: pillH };
+
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(pillX, pillY, pillW, pillH, 6);
+                else ctx.rect(pillX, pillY, pillW, pillH);
+                ctx.fillStyle = isPreserve ? "rgba(16, 185, 129, 0.16)" : "rgba(30, 41, 59, 0.65)";
+                ctx.fill();
+                ctx.strokeStyle = isPreserve ? "#10b981" : "#475569";
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+
+                const checkX = pillX + 6;
+                const checkY = pillY + 4;
+                const checkSize = 16;
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(checkX, checkY, checkSize, checkSize, 4);
+                else ctx.rect(checkX, checkY, checkSize, checkSize);
+                ctx.fillStyle = isPreserve ? "#10b981" : "rgba(15, 23, 42, 0.7)";
+                ctx.fill();
+                ctx.strokeStyle = isPreserve ? "#34d399" : "#64748b";
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+
+                if (isPreserve) {
+                    ctx.strokeStyle = "#ffffff";
+                    ctx.lineWidth = 2.0;
+                    ctx.beginPath();
+                    ctx.moveTo(checkX + 3.5, checkY + 8);
+                    ctx.lineTo(checkX + 6.5, checkY + 11.5);
+                    ctx.lineTo(checkX + 12.5, checkY + 4.5);
+                    ctx.stroke();
+                }
+
+                ctx.font = "bold 9.5px sans-serif";
+                ctx.fillStyle = isPreserve ? "#ecfdf5" : "#94a3b8";
+                ctx.textAlign = "left";
+                const pillText = window.PyxisI18n ? window.PyxisI18n.t("nodes.badges.keep_tags") : "KEEP TAGS";
+                ctx.fillText(pillText, checkX + checkSize + 7, pillY + 16);
+
                 ctx.font = "italic 11px monospace";
                 ctx.fillStyle = "#94a3b8";
                 ctx.textAlign = "center";
@@ -146,6 +192,18 @@
                         this.properties.blank_mode = nextBlank;
                         this.properties.noblank = nextBlank;
 
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+                        if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        return true;
+                    }
+                }
+
+                if (this._preserve_pill_bounds) {
+                    const b = this._preserve_pill_bounds;
+                    if (pos[0] >= b.x && pos[0] <= b.x + b.w &&
+                        pos[1] >= b.y && pos[1] <= b.y + b.h) {
+
+                        this.properties.preserve_tags = !(this.properties.preserve_tags !== false);
                         if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                         if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                         return true;

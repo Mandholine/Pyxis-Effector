@@ -24,6 +24,23 @@
  * @license GPL-3.0-or-later
  */
 
+        /**
+         * Resolves the canonical aspect ratio for a System/Previewer node following the
+         * strict 3-tier Aspect Ratio Precedence Hierarchy:
+         *
+         * 1. Restored / Persisted Node Property (`node.properties.preview_aspect_ratio` or
+         *    `node.preview_aspect_ratio` when `node._hasRestoredAspectRatio === true`):
+         *    Prevails over synthetic dummy video streams (`is_synthetic_dummy: true` or no
+         *    `real_video_file`) and whenever custom viewport framing (`viewport_custom`) is active.
+         * 2. Active Real Media Stream (`p.art.template.$video` with a physical `real_video_file`
+         *    and `is_synthetic_dummy === false` when `!viewport_custom`):
+         *    Adopts the probed Display Aspect Ratio (`display_aspect_ratio`) or native video frame ratio.
+         * 3. Source Configuration & Default Fallback (`PyxisPreviewConfigBase`, `PyxisPreviewConfigAegi`,
+         *    or `16 / 9`).
+         *
+         * @param {Object|null} node - The LiteGraph System/Previewer node instance.
+         * @returns {number} Positive aspect ratio (width / height).
+         */
         function getNodePreviewAspectRatio(node) {
             if (node) {
                 const nodeIdStr = String(node.id !== undefined ? node.id : "");
@@ -31,14 +48,25 @@
                     ? window.PyxisNodePlayerManager.activePlayers[nodeIdStr] 
                     : null;
 
+                const isCustomViewport = Boolean(
+                    (p && p.transformState && p.transformState.isCustom) ||
+                    (node.properties && node.properties.viewport_custom)
+                );
+                const savedPropAspect = (node.properties && Number(node.properties.preview_aspect_ratio) > 0.1)
+                    ? Number(node.properties.preview_aspect_ratio)
+                    : ((node._hasRestoredAspectRatio && Number(node.preview_aspect_ratio) > 0.1)
+                        ? Number(node.preview_aspect_ratio)
+                        : 0);
+
                 if (p && p.art && p.art.template && p.art.template.$video) {
                     const vid = p.art.template.$video;
                     const curSrc = (node.properties && node.properties.preview_source) || "base";
-                    const pInfo = (curSrc === "aegisub" && window.PyxisPreviewConfigAegi) 
+                    const pInfo = (p.previewInfo) || ((curSrc === "aegisub" && window.PyxisPreviewConfigAegi) 
                         ? window.PyxisPreviewConfigAegi 
-                        : ((curSrc === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig) || {};
-                    const hasRealVideo = Boolean(pInfo && pInfo.real_video_file && vid.videoWidth > 0 && vid.videoHeight > 0);
-                    if (hasRealVideo) {
+                        : ((curSrc === "base" && window.PyxisPreviewConfigBase) ? window.PyxisPreviewConfigBase : window.PyxisPreviewConfig)) || {};
+                    const isSyntheticDummy = Boolean(pInfo.is_synthetic_dummy || !pInfo.real_video_file);
+                    const hasRealVideo = Boolean(!isSyntheticDummy && pInfo.real_video_file && vid.videoWidth > 0 && vid.videoHeight > 0);
+                    if (hasRealVideo && !isCustomViewport) {
                         const probedDar = (pInfo.media_meta && Number(pInfo.media_meta.display_aspect_ratio) > 0)
                             ? Number(pInfo.media_meta.display_aspect_ratio)
                             : 0;
@@ -49,12 +77,12 @@
                     }
                 }
 
-                if (node.preview_aspect_ratio && !isNaN(node.preview_aspect_ratio) && node.preview_aspect_ratio > 0) {
-                    return node.preview_aspect_ratio;
+                if (savedPropAspect > 0.1) {
+                    node.preview_aspect_ratio = savedPropAspect;
+                    return savedPropAspect;
                 }
-                if (node.properties && node.properties.preview_aspect_ratio && !isNaN(node.properties.preview_aspect_ratio) && node.properties.preview_aspect_ratio > 0) {
-                    node.preview_aspect_ratio = node.properties.preview_aspect_ratio;
-                    return node.properties.preview_aspect_ratio;
+                if (node.preview_aspect_ratio && !isNaN(node.preview_aspect_ratio) && node.preview_aspect_ratio > 0.1) {
+                    return Number(node.preview_aspect_ratio);
                 }
 
                 const curSrc = (node.properties && node.properties.preview_source) || "base";
@@ -92,6 +120,13 @@
             }
         }
 
+        function normalizeOutputApplyTo(rawVal) {
+            const val = String(rawVal || "Sel. Lines").trim().toLowerCase();
+            if (val === "all" || val === "all lines" || val === "all_lines" || val === "todas") return "All Lines";
+            if (val === "style" || val === "style lines" || val === "style_lines" || val === "estilo") return "Style Lines";
+            return "Sel. Lines";
+        }
+
         function calculatePrevisualizadorNodeHeight(w, customAspect) {
             const sideMargin = 10;
             const topOffset = 46;
@@ -109,12 +144,39 @@
             return wrapperH + topOffset + bottomMargin;
         }
 
+        /**
+         * Initialises a System/Previewer node instance in LiteGraph.
+         *
+         * Canonical Previewer Lifecycle & Initialisation Order:
+         * - Phase 1 (Synchronous Instantiation): `setupPreviewerNode(node)` runs inside
+         *   `LiteGraph.createNode("System/Previewer")` before `node.onConfigure(info)`.
+         *   It establishes default properties and initial dimensions without overwriting
+         *   any existing property values.
+         * - Phase 2 (Synchronous Deserialisation): `node.onConfigure(info)` hydrates
+         *   `node.properties` from the saved template or session JSON (`is_pinned`,
+         *   `pinned_width`, `preview_aspect_ratio`, `previewer_width`, `previewer_height`,
+         *   `floating_x`, `floating_y`, `floating_width`, `floating_height`, `viewport_custom`)
+         *   and sets `node._hasRestoredAspectRatio = true` when a saved aspect ratio exists.
+         * - Phase 3 (Pre-Initialisation Window): While `activePlayers[id]` is null or
+         *   `!activePlayers[id].isInitialized`, `node.properties` is the Single Source of Truth (SSOT).
+         * - Phase 4 (Asynchronous Player Creation): `createInNodePlayer` hydrates `isPinned`
+         *   synchronously on `activePlayers[id]` before its first `await`, preserves the restored
+         *   aspect ratio when backed by the synthetic dummy clip, and transfers SSOT ownership
+         *   to `activePlayers[id]` only after setting `isInitialized = true`.
+         *
+         * @param {Object} node - The LiteGraph System/Previewer node instance.
+         */
         function setupPreviewerNode(node) {
             if (!node.properties) node.properties = {};
             if (node.properties.output_ids === undefined) node.properties.output_ids = "";
             if (node.properties.preview_source === undefined) node.properties.preview_source = "base";
             if (node.properties.render_mode !== "mpv" && node.properties.render_mode !== "typesetting") {
                 node.properties.render_mode = "typesetting";
+            }
+            if (node._hasRestoredAspectRatio === undefined) {
+                node._hasRestoredAspectRatio = Boolean(
+                    node.properties && Number(node.properties.preview_aspect_ratio) > 0.1
+                );
             }
 
             node.widgets_up = true;
@@ -139,6 +201,9 @@
                 node.properties.output_ids = cleanVal;
                 if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                 if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange === "function" && node.id !== undefined) {
+                    window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange(null, node.id);
+                }
             });
             w.property = "output_ids";
             w.last_y = 14;
@@ -167,7 +232,10 @@
                 }
                 const pMgr = window.PyxisNodePlayerManager;
                 const p = (pMgr && pMgr.activePlayers && this.id !== undefined) ? pMgr.activePlayers[String(this.id)] : null;
-                const isPinned = Boolean((p && p.isPinned) || (props && props.is_pinned));
+                const isPinned = Boolean(
+                    (p && p.isPinned) ||
+                    ((!p || !p.isInitialized) && props && props.is_pinned)
+                );
                 if (isPinned) {
                     const compactPinnedW = Math.max(270, 22 + boxW + 8 + 164 + 10);
                     return [compactPinnedW, 54];
@@ -234,7 +302,10 @@
                 if (p && typeof p.cancelResetAnimation === 'function') {
                     p.cancelResetAnimation();
                 }
-                const isPinned = Boolean((p && p.isPinned) || (this.properties && this.properties.is_pinned));
+                const isPinned = Boolean(
+                    (p && p.isPinned) ||
+                    ((!p || !p.isInitialized) && this.properties && this.properties.is_pinned)
+                );
                 if (isPinned) {
                     const minSz = (typeof this.computeSize === 'function') ? this.computeSize() : [270, 54];
                     const minW = minSz ? minSz[0] : 270;
@@ -246,6 +317,9 @@
                     this.lastH = 54;
                     if (!this.properties) this.properties = {};
                     this.properties.pinned_width = size[0];
+                    if (typeof window.updateTemplateUIState === "function") {
+                        window.updateTemplateUIState();
+                    }
                     if (window.__pyxis_schedule_save) {
                         window.__pyxis_schedule_save(50);
                     }
@@ -260,6 +334,15 @@
                 if (isZoomed) {
                     w = Math.max(reqMinW, Math.round(size[0]));
                     h = Math.max(140, Math.round(size[1]));
+                    const customPlayerW = Math.max(100, w - 20);
+                    const customVideoH = Math.max(40, h - 124);
+                    const customAspect = customPlayerW / customVideoH;
+                    if (customAspect > 0.1 && isFinite(customAspect)) {
+                        this.preview_aspect_ratio = customAspect;
+                        this._hasRestoredAspectRatio = true;
+                        if (!this.properties) this.properties = {};
+                        this.properties.preview_aspect_ratio = customAspect;
+                    }
                 } else {
                     // Retracted zoom (locked aspect ratio):
                     // Direct 2D orthogonal projection of the mouse vector (size[0], size[1])
@@ -283,6 +366,9 @@
                 if (!this.properties) this.properties = {};
                 this.properties.previewer_width = w;
                 this.properties.previewer_height = h;
+                if (this.preview_aspect_ratio && Number(this.preview_aspect_ratio) > 0.1) {
+                    this.properties.preview_aspect_ratio = Number(this.preview_aspect_ratio);
+                }
 
                 if (p) {
                     p.isResizing = true;
@@ -291,12 +377,30 @@
                         p.wrapper.style.height = Math.max(100, h - 56) + 'px';
                     }
                 }
+                if (typeof window.updateTemplateUIState === "function") {
+                    window.updateTemplateUIState();
+                }
                 if (window.__pyxis_schedule_save) {
                     window.__pyxis_schedule_save(50);
                 }
             };
 
             const oldConfigure = node.onConfigure;
+            /**
+             * Deserialises and restores the System/Previewer state from a saved template or session JSON.
+             *
+             * Canonical Execution Contract (Phase 2):
+             * 1. Hydrates `this.preview_aspect_ratio` and `this._hasRestoredAspectRatio = true` from
+             *    `info.properties.preview_aspect_ratio` (or infers it from saved `previewer_width` /
+             *    `previewer_height` when loading legacy templates that omitted `preview_aspect_ratio`).
+             * 2. If `is_pinned === true`, collapses the canvas node to `[pinned_width, 54]` whilst
+             *    strictly preserving the unpinned `previewer_width`, `previewer_height`, and floating
+             *    window coordinates (`floating_x`, `floating_y`, `floating_width`, `floating_height`).
+             * 3. If `is_pinned === false`, restores `[previewer_width, previewer_height]` respecting
+             *    the restored aspect ratio and `viewport_custom` state.
+             *
+             * @param {Object} info - Serialised LiteGraph node representation.
+             */
             node.onConfigure = function(info) {
                 if (oldConfigure) oldConfigure.call(this, info);
                 if (!this.properties) this.properties = {};
@@ -304,17 +408,47 @@
                 if (this.id !== undefined && window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.updateRenderModeButtonUI === "function") {
                     window.PyxisNodePlayerManager.updateRenderModeButtonUI(String(this.id), this.properties.render_mode);
                 }
-                if (this.properties && this.properties.preview_aspect_ratio) {
-                    this.preview_aspect_ratio = this.properties.preview_aspect_ratio;
+
+                const savedAspect = Number(this.properties.preview_aspect_ratio);
+                if (savedAspect > 0.1 && isFinite(savedAspect)) {
+                    this.preview_aspect_ratio = savedAspect;
+                    this._hasRestoredAspectRatio = true;
+                } else {
+                    const candidateW = Number(this.properties.previewer_width) || ((info && Array.isArray(info.size)) ? Number(info.size[0]) : 0);
+                    const candidateH = Number(this.properties.previewer_height) || ((info && Array.isArray(info.size)) ? Number(info.size[1]) : 0);
+                    if (candidateW >= 200 && candidateH >= 140) {
+                        const inferredAspect = Math.max(100, candidateW - 20) / Math.max(40, candidateH - 124);
+                        if (inferredAspect > 0.1 && isFinite(inferredAspect)) {
+                            this.preview_aspect_ratio = inferredAspect;
+                            this.properties.preview_aspect_ratio = inferredAspect;
+                            this._hasRestoredAspectRatio = true;
+                        }
+                    }
                 }
+
                 const isPinned = Boolean((this.properties && this.properties.is_pinned) || (info && info.flags && info.flags.pinned));
                 if (isPinned) {
+                    this.properties.is_pinned = true;
                     const minSz = (typeof this.computeSize === 'function') ? this.computeSize() : [270, 54];
                     const minW = minSz ? minSz[0] : 270;
                     const savedPinnedW = (this.properties && this.properties.pinned_width)
                         ? Number(this.properties.pinned_width)
                         : ((info && Array.isArray(info.size) && info.size[0] > 0 && info.size[1] <= 60) ? Number(info.size[0]) : minW);
                     const w = (savedPinnedW >= minW) ? savedPinnedW : minW;
+                    this.properties.pinned_width = w;
+
+                    // Ensure unpinned dimensions remain valid (>= 140px height) for future unpinning.
+                    const curAspect = getNodePreviewAspectRatio(this);
+                    const dynMinW = getDynamicMinPreviewWidth(curAspect);
+                    const unpinnedW = (Number(this.properties.previewer_width) >= dynMinW)
+                        ? Number(this.properties.previewer_width)
+                        : Math.max(dynMinW, 520);
+                    const unpinnedH = (Number(this.properties.previewer_height) >= 140)
+                        ? Number(this.properties.previewer_height)
+                        : calculatePrevisualizadorNodeHeight(unpinnedW, curAspect);
+                    this.properties.previewer_width = unpinnedW;
+                    this.properties.previewer_height = unpinnedH;
+
                     this.size = [w, 54];
                     this.lastW = w;
                     this.lastH = 54;
@@ -356,12 +490,28 @@
                     this.inputs[0].pos = [10, 23];
                 }
             };
+
+            const oldPreviewConnChange = node.onConnectionsChange;
+            node.onConnectionsChange = function() {
+                if (oldPreviewConnChange) oldPreviewConnChange.apply(this, arguments);
+                if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange === "function" && this.id !== undefined) {
+                    window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange(null, this.id);
+                }
+            };
+
+            const oldPreviewPropChanged = node.onPropertyChanged;
+            node.onPropertyChanged = function(name) {
+                if (oldPreviewPropChanged) oldPreviewPropChanged.apply(this, arguments);
+                if (name === "output_ids" && window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange === "function" && this.id !== undefined) {
+                    window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange(null, this.id);
+                }
+            };
         }
 
 
         function setupOutputNode(node) {
             if (!node.properties) node.properties = {};
-            if (!node.properties.apply_to) node.properties.apply_to = "Sel. Lines";
+            node.properties.apply_to = normalizeOutputApplyTo(node.properties.apply_to);
             if (node.properties.queue_id === undefined) node.properties.queue_id = "";
             if (node.properties.queue_order === undefined) node.properties.queue_order = "";
             if (node.properties.origin_align === undefined) node.properties.origin_align = 5;
@@ -444,6 +594,9 @@
                     }
                     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                    if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange === "function") {
+                        window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange(node);
+                    }
                 });
                 w1.property = "queue_id";
                 w1.last_y = 145;
@@ -669,13 +822,21 @@
                         pos[1] >= b.y && pos[1] <= b.y + b.h) {
 
                         const modes = ["Sel. Lines", "Style Lines", "All Lines"];
-                        let idx = modes.indexOf(this.properties.apply_to);
+                        const curMode = normalizeOutputApplyTo(this.properties.apply_to);
+                        let idx = modes.indexOf(curMode);
                         if (idx === -1) idx = 0;
                         const nextIdx = (idx + 1) % modes.length;
                         this.properties.apply_to = modes[nextIdx];
 
+                        if (window.PyxisUndoManager && typeof window.PyxisUndoManager.recordState === "function") {
+                            window.PyxisUndoManager.recordState("change_output_apply_to");
+                        }
+                        if (this.graph) this.graph.change();
                         if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                         if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange === "function") {
+                            window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange(this);
+                        }
                         return true;
                     }
                 }
@@ -708,7 +869,38 @@
             const oldConfigure = node.onConfigure;
             node.onConfigure = function(info) {
                 if (oldConfigure) oldConfigure.call(this, info);
+                if (!this.properties) this.properties = {};
+                this.properties.apply_to = normalizeOutputApplyTo(this.properties.apply_to);
                 updateSalidaInputs();
+            };
+
+            const oldPropChanged = node.onPropertyChanged;
+            node.onPropertyChanged = function(name, value) {
+                if (oldPropChanged) oldPropChanged.apply(this, arguments);
+                if (name === "apply_to") {
+                    this.properties.apply_to = normalizeOutputApplyTo(value);
+                }
+                if (name === "apply_to" || name === "queue_id" || name === "output_id") {
+                    if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange === "function") {
+                        window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange(this);
+                    }
+                }
+            };
+
+            const oldConnChange = node.onConnectionsChange;
+            node.onConnectionsChange = function() {
+                if (oldConnChange) oldConnChange.apply(this, arguments);
+                if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange === "function") {
+                    window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange(this);
+                }
+            };
+
+            const oldRemoved = node.onRemoved;
+            node.onRemoved = function() {
+                if (oldRemoved) oldRemoved.apply(this, arguments);
+                if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange === "function") {
+                    window.PyxisNodePlayerManager.syncPreviewWindowsForGraphChange(null);
+                }
             };
 
             updateSalidaInputs();

@@ -1193,3 +1193,392 @@ NODE_REGISTRY["Move Text"] = MoveTextNode
 NODE_REGISTRY["Text/Move Text"] = MoveTextNode
 
 
+def builder_extract_items(
+    context=None,
+    items_in=None,
+    mode="text",
+    sub_mode="splitter",
+    split_by="syl",
+    source="active_unit",
+    repeat="2",
+    custom_text="",
+    delim=",",
+    shape_layout="auto",
+    shape_split_mode="subpaths",
+):
+    """
+    Extract and prepare the list of items (text segments or vector shape pieces)
+    for the Basics/Builder monoline stream assembler.
+
+    Args:
+        context (dict | None): Active execution context.
+        items_in (Any): Optional wired input from Port 0 (Items).
+        mode (str): Primary operating mode ('text' or 'shape').
+        sub_mode (str): Secondary operating mode ('splitter', 'multi', 'custom').
+        split_by (str): Partition granularity in text splitter mode ('syl', 'char', 'word').
+        source (str): Text source when unwired ('active_unit', 'line', 'text_field').
+        repeat (str | int): Repetition count expression for multi mode (Tipo A).
+        custom_text (str): Template or raw list string for custom mode (Tipo B).
+        delim (str): Token separator string for custom mode (Tipo C).
+        shape_layout (str): Spatial compensation mode for shapes ('auto', 'embedded_pos', 'advance', 'stack').
+        shape_split_mode (str): Topological decomposition mode ('subpaths', 'islands', 'raw_subpaths').
+
+    Returns:
+        tuple[list[str], list[dict], str]:
+            - List of processed item strings.
+            - List of manifest metadata dictionaries per piece.
+            - Extracted leading prefix tags from the first shape item (if any).
+    """
+    ctx = context if isinstance(context, dict) else {}
+    from string_evaluator import eval_string_template
+    from node_engine import _eval_num_expr
+    mode_clean = str(mode or "text").strip().lower()
+    sub_mode_clean = str(sub_mode or "splitter").strip().lower()
+    split_by_clean = str(split_by or "syl").strip().lower()
+    source_clean = str(source or "active_unit").strip().lower()
+    layout_clean = str(shape_layout or "auto").strip().lower()
+    split_mode_clean = str(shape_split_mode or "subpaths").strip().lower()
+
+    try:
+        rep_val = int(round(float(_eval_num_expr(repeat, ctx, 2))))
+    except Exception:
+        rep_val = 2
+    rep_val = max(1, min(rep_val, 2000))
+
+    def _resolve_delim(d_raw):
+        d_s = str(d_raw if d_raw is not None else ",")
+        if d_s in ("\\n", "newline", "\n"):
+            return "\n"
+        if d_s == "space":
+            return " "
+        if d_s in ("", "nil"):
+            return ","
+        return d_s
+
+    def _split_text_by_granularity(txt_val, gran):
+        s_val = str(txt_val or "")
+        if not s_val:
+            return []
+        if gran == "char":
+            return [ch for ch in s_val]
+        if gran == "word":
+            return [w for w in s_val.split(" ") if w != ""]
+        # 'syl' fallback on plain string
+        if r"\k" in s_val.lower():
+            parts = re.split(r"\{[^}]*\\k[fo]?\d+[^}]*\}", s_val, flags=re.IGNORECASE)
+            return [p for p in parts if p != ""]
+        return [w for w in s_val.split(" ") if w != ""] if " " in s_val else [s_val]
+
+    # =========================================================================
+    # MODE 1: TEXT
+    # =========================================================================
+    if mode_clean != "shape":
+        raw_items = []
+        has_wired = items_in is not None and (
+            (isinstance(items_in, (list, tuple)) and len(items_in) > 0)
+            or (not isinstance(items_in, (list, tuple)) and str(items_in) != "")
+        )
+
+        if has_wired:
+            if isinstance(items_in, (list, tuple)):
+                base_list = [str(x) for x in items_in if x is not None and str(x) != ""]
+            elif isinstance(items_in, str) and items_in.strip().startswith("[") and items_in.strip().endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(items_in)
+                    base_list = [str(x) for x in parsed if x is not None and str(x) != ""] if isinstance(parsed, list) else [items_in]
+                except Exception:
+                    base_list = [items_in]
+            else:
+                s_in = str(items_in)
+                if sub_mode_clean == "custom":
+                    sep = _resolve_delim(delim)
+                    base_list = [tok.strip() for tok in s_in.split(sep) if tok.strip() != ""]
+                elif sub_mode_clean == "splitter":
+                    base_list = _split_text_by_granularity(s_in, split_by_clean)
+                else:
+                    base_list = [s_in]
+
+            if sub_mode_clean == "multi":
+                for item in base_list:
+                    raw_items.extend([item] * rep_val)
+            else:
+                raw_items = base_list
+        else:
+            unit = ctx.get("active_unit") or ctx.get("syl") or ctx.get("word") or ctx.get("char") or ctx.get("line")
+            line_obj = ctx.get("line") or unit
+
+            if sub_mode_clean == "splitter":
+                if source_clean == "line" and line_obj is not None:
+                    if split_by_clean == "syl" and hasattr(line_obj, "syls") and line_obj.syls:
+                        raw_items = [
+                            str(getattr(s, "text_stripped", getattr(s, "text", "")))
+                            for s in line_obj.syls
+                            if str(getattr(s, "text_stripped", getattr(s, "text", ""))) != ""
+                        ]
+                    elif split_by_clean == "word" and hasattr(line_obj, "words") and line_obj.words:
+                        raw_items = [
+                            str(getattr(w, "text_stripped", getattr(w, "text", "")))
+                            for w in line_obj.words
+                            if str(getattr(w, "text_stripped", getattr(w, "text", ""))) != ""
+                        ]
+                    elif split_by_clean == "char" and hasattr(line_obj, "chars") and line_obj.chars:
+                        raw_items = [
+                            str(getattr(c, "text_stripped", getattr(c, "text", "")))
+                            for c in line_obj.chars
+                            if str(getattr(c, "text_stripped", getattr(c, "text", ""))) != ""
+                        ]
+                    else:
+                        l_txt = str(getattr(line_obj, "text_stripped", getattr(line_obj, "text", "")))
+                        raw_items = _split_text_by_granularity(l_txt, split_by_clean)
+                elif source_clean == "text_field":
+                    eval_txt = eval_string_template(str(custom_text or ""), ctx) if custom_text else ""
+                    raw_items = _split_text_by_granularity(eval_txt, split_by_clean)
+                else:
+                    # 'active_unit'
+                    if unit is not None:
+                        if split_by_clean == "char" and hasattr(unit, "chars") and unit.chars:
+                            raw_items = [
+                                str(getattr(c, "text_stripped", getattr(c, "text", "")))
+                                for c in unit.chars
+                                if str(getattr(c, "text_stripped", getattr(c, "text", ""))) != ""
+                            ]
+                        elif split_by_clean == "syl" and hasattr(unit, "syls") and unit.syls:
+                            raw_items = [
+                                str(getattr(s, "text_stripped", getattr(s, "text", "")))
+                                for s in unit.syls
+                                if str(getattr(s, "text_stripped", getattr(s, "text", ""))) != ""
+                            ]
+                        elif split_by_clean == "word" and hasattr(unit, "words") and unit.words:
+                            raw_items = [
+                                str(getattr(w, "text_stripped", getattr(w, "text", "")))
+                                for w in unit.words
+                                if str(getattr(w, "text_stripped", getattr(w, "text", ""))) != ""
+                            ]
+                        else:
+                            u_txt = str(getattr(unit, "text_stripped", getattr(unit, "text", unit if isinstance(unit, str) else "")))
+                            if split_by_clean == "syl":
+                                raw_items = [u_txt] if u_txt != "" else []
+                            else:
+                                raw_items = _split_text_by_granularity(u_txt, split_by_clean)
+            elif sub_mode_clean == "multi":
+                if custom_text and str(custom_text).strip() != "":
+                    base_txt = eval_string_template(str(custom_text), ctx)
+                elif unit is not None:
+                    base_txt = str(getattr(unit, "text_stripped", getattr(unit, "text", unit if isinstance(unit, str) else "")))
+                else:
+                    base_txt = ""
+                raw_items = [base_txt] * rep_val if base_txt != "" else []
+            else:
+                # 'custom'
+                eval_txt = eval_string_template(str(custom_text or ""), ctx) if custom_text else ""
+                sep = _resolve_delim(delim)
+                raw_items = [tok.strip() for tok in eval_txt.split(sep) if tok.strip() != ""]
+
+        manifest = [
+            {"index": idx + 1, "is_hole": False, "parent_island": idx + 1, "bbox": (0.0, 0.0, 0.0, 0.0), "pos": None}
+            for idx in range(len(raw_items))
+        ]
+        return raw_items, manifest, ""
+
+    # =========================================================================
+    # MODE 2: SHAPE
+    # =========================================================================
+    from nodes.shape_nodes import split_shape_and_tags
+    from clipper_engine import ClipperEngine
+
+    source_shapes = []
+    if items_in is not None and (
+        (isinstance(items_in, (list, tuple)) and len(items_in) > 0)
+        or (not isinstance(items_in, (list, tuple)) and str(items_in).strip() != "")
+    ):
+        if isinstance(items_in, (list, tuple)):
+            for x in items_in:
+                if isinstance(x, (list, tuple)):
+                    source_shapes.extend([str(sub).strip() for sub in x if sub and str(sub).strip()])
+                elif x and str(x).strip():
+                    source_shapes.append(str(x).strip())
+        elif isinstance(items_in, str) and items_in.strip().startswith("[") and items_in.strip().endswith("]"):
+            try:
+                import json
+                parsed = json.loads(items_in)
+                if isinstance(parsed, list):
+                    source_shapes = [str(x).strip() for x in parsed if x and str(x).strip()]
+                else:
+                    source_shapes = [items_in.strip()]
+            except Exception:
+                source_shapes = [items_in.strip()]
+        else:
+            if sub_mode_clean == "custom" and custom_text and str(items_in).strip() == "":
+                sep = _resolve_delim(delim)
+                source_shapes = [tok.strip() for tok in str(custom_text).split(sep) if tok.strip()]
+            else:
+                source_shapes = [str(items_in).strip()]
+    elif custom_text and str(custom_text).strip():
+        eval_custom = eval_string_template(str(custom_text), ctx)
+        if sub_mode_clean == "custom":
+            sep = _resolve_delim(delim)
+            source_shapes = [tok.strip() for tok in eval_custom.split(sep) if tok.strip()]
+        else:
+            source_shapes = [eval_custom.strip()]
+
+    if not source_shapes:
+        return [], [], ""
+
+    first_prefix = ""
+    base_pos = None
+    decomposed_pieces = []
+
+    merge_manifest = ctx.get("_merge_manifest") if isinstance(ctx.get("_merge_manifest"), list) else None
+
+    for s_idx, raw_item in enumerate(source_shapes):
+        raw_segments = [
+            seg.strip()
+            for seg in re.split(r"(?=(?:\{[^}]*\}\s*)+m\s+-?\d)", str(raw_item or "").strip())
+            if seg and seg.strip()
+        ]
+        if not raw_segments:
+            continue
+
+        inherited_pfx = ""
+        for seg_str in raw_segments:
+            t_pfx, clean_shp = split_shape_and_tags(seg_str)
+            clean_shp = str(clean_shp or "").strip()
+            if not clean_shp:
+                continue
+            t_pfx_clean = re.sub(r"[{}]+", "", str(t_pfx or "")).strip()
+            if t_pfx_clean:
+                inherited_pfx = t_pfx_clean
+            else:
+                t_pfx_clean = inherited_pfx
+            if not first_prefix and t_pfx_clean:
+                first_prefix = t_pfx_clean
+
+            cur_pos = None
+            m_pos = re.search(r"\\pos\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)", t_pfx_clean)
+            if m_pos:
+                cur_pos = (float(m_pos.group(1)), float(m_pos.group(2)))
+                if base_pos is None:
+                    base_pos = cur_pos
+
+            # Decompose according to shape_split_mode
+            if split_mode_clean == "islands":
+                sub_list = ClipperEngine.decompose_shape_islands(clean_shp, bbox_mode="marco", order="raw")
+            elif split_mode_clean in ("raw_subpaths", "raw", "naive"):
+                sub_list = ClipperEngine.decompose_shape_subpaths(clean_shp, bbox_mode="marco", order="raw")
+            else:
+                # 'subpaths' (balanced mode with hole retention)
+                if len(source_shapes) == 1 and len(raw_segments) == 1 and merge_manifest:
+                    sub_list = []
+                    for m_entry in merge_manifest:
+                        sub_list.extend(ClipperEngine.group_subpaths_by_holes(m_entry, bbox_mode="marco", order="raw"))
+                else:
+                    sub_list = ClipperEngine.group_subpaths_by_holes(clean_shp, bbox_mode="marco", order="raw")
+
+            if not sub_list:
+                sub_list = [clean_shp]
+
+            for piece_str in sub_list:
+                p_clean = str(piece_str or "").strip()
+                if not p_clean:
+                    continue
+                decomposed_pieces.append({"shape": p_clean, "pos": cur_pos, "tags": t_pfx_clean, "origin_input": s_idx + 1})
+
+    if not decomposed_pieces:
+        return [], [], first_prefix
+
+    if sub_mode_clean == "multi" and rep_val > 1:
+        multiplied = []
+        for entry in decomposed_pieces:
+            for _ in range(rep_val):
+                multiplied.append({"shape": entry["shape"], "pos": entry["pos"], "tags": entry.get("tags", ""), "origin_input": entry.get("origin_input", 1)})
+        decomposed_pieces = multiplied
+
+    # Compute bounding boxes and apply spatial layout before libass cursor compensation
+    prepared_shapes = []
+    manifest = []
+    for idx, entry in enumerate(decomposed_pieces):
+        shp = entry["shape"]
+        p_pos = entry["pos"]
+        p_tags = entry.get("tags", "")
+
+        if layout_clean in ("auto", "embedded_pos") and p_pos is not None and base_pos is not None:
+            dx_pos = p_pos[0] - base_pos[0]
+            dy_pos = p_pos[1] - base_pos[1]
+            if abs(dx_pos) > 1e-4 or abs(dy_pos) > 1e-4:
+                shp = ClipperEngine.transform_shape(shp, mode="Offset", offset_x=dx_pos, offset_y=dy_pos)
+
+        cnt = ClipperEngine.parse_assdraw(shp)
+        if cnt:
+            min_x, min_y, max_x, max_y, cx, cy, w, h = ClipperEngine.get_bbox(cnt)
+        else:
+            min_x = min_y = max_x = max_y = cx = cy = w = h = 0.0
+
+        if layout_clean == "stack":
+            # Centre each piece around (0, 0)
+            if abs(cx) > 1e-4 or abs(cy) > 1e-4:
+                shp = ClipperEngine.transform_shape(shp, mode="Offset", offset_x=-cx, offset_y=-cy)
+                cnt = ClipperEngine.parse_assdraw(shp)
+                if cnt:
+                    min_x, min_y, max_x, max_y, cx, cy, w, h = ClipperEngine.get_bbox(cnt)
+        elif layout_clean == "advance":
+            # Align left boundary to 0 so natural libass advance spaces pieces sequentially
+            if abs(min_x) > 1e-4:
+                shp = ClipperEngine.transform_shape(shp, mode="Offset", offset_x=-min_x, offset_y=0.0)
+                cnt = ClipperEngine.parse_assdraw(shp)
+                if cnt:
+                    min_x, min_y, max_x, max_y, cx, cy, w, h = ClipperEngine.get_bbox(cnt)
+
+        has_holes = len(re.findall(r"(?:^|\s)m\s+-?\d", shp)) > 1
+        prepared_shapes.append({"shape": shp, "bbox": (min_x, min_y, max_x, max_y, cx, cy, w, h), "pos": p_pos, "tags": p_tags})
+        manifest.append({
+            "index": idx + 1,
+            "is_hole": False,
+            "has_holes": has_holes,
+            "parent_island": idx + 1,
+            "bbox": (min_x, min_y, max_x, max_y),
+            "width": w,
+            "height": h,
+            "pos": p_pos,
+            "tags": p_tags,
+        })
+
+    # Apply canonical libass/VSFilter inline cursor neutralization (except in 'advance' mode)
+    final_shapes = []
+    if layout_clean == "advance":
+        final_shapes = [item["shape"] for item in prepared_shapes]
+    else:
+        max_h = max((item["bbox"][7] for item in prepared_shapes), default=0.0)
+        sum_w = 0.0
+        for item in prepared_shapes:
+            shp = item["shape"]
+            w_i = item["bbox"][6]
+            h_i = item["bbox"][7]
+            dx = -sum_w
+            dy = -(max_h - h_i)
+            if abs(dx) > 1e-4 or abs(dy) > 1e-4:
+                shp = ClipperEngine.transform_shape(shp, mode="Offset", offset_x=dx, offset_y=dy)
+            final_shapes.append(shp)
+            sum_w += w_i
+
+    return final_shapes, manifest, first_prefix
+
+
+@pyxis_node("Basics", "Builder", ["Tags", "In1", "In2"])
+def BuilderNode(context=None, *args, **kwargs):
+    """
+    Pyxis node entrypoint for Basics/Builder.
+
+    Evaluates item lists for monoline stream assembly. Full per-block sub-loop tag
+    evaluation is orchestrated by `node_engine.py` during DAG traversal.
+    """
+    items, manifest, _ = builder_extract_items(context=context, **kwargs)
+    if isinstance(context, dict):
+        context["_builder_manifest"] = {"total_pieces": len(items), "pieces": manifest}
+    return items
+
+NODE_REGISTRY["Basics/Builder"] = BuilderNode
+NODE_REGISTRY["Builder"] = BuilderNode
+
+
+

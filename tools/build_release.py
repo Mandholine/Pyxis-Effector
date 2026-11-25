@@ -265,7 +265,7 @@ def install_ffmpeg(stage_bin: Path, plat: str, args, work: Path) -> Optional[dic
 
 
 def precompile(py: Path, stage_python: Path, stage_nodes: Path) -> None:
-    """Precompile Python bytecode (.pyc) so startup with ``-B`` is instantaneous."""
+    """Precompile Python bytecode (.pyc) so startup and spawned workers are instantaneous."""
     log("Precompiling Python bytecode")
     result = subprocess.run(
         [str(py), "-m", "compileall", "-q", "-j", "0", str(stage_python), str(stage_nodes / "src")],

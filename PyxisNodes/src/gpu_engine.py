@@ -117,7 +117,7 @@ class GpuEngineManager:
         return False
 
     def _probe_opencl_health(self) -> bool:
-        """Live probe for Universal OpenCL (NVIDIA, AMD, Intel)."""
+        """Live probe for Universal OpenCL (NVIDIA, AMD, Intel, Apple GPU via PyOpenCL)."""
         try:
             try:
                 import importlib
@@ -125,13 +125,13 @@ class GpuEngineManager:
                 platforms = cl.get_platforms()
                 for platform in platforms:
                     devices = platform.get_devices(device_type=cl.device_type.GPU)
-                    if not devices:
+                    if not devices and sys.platform != "darwin":
                         devices = platform.get_devices(device_type=cl.device_type.ALL)
                     if devices:
                         dev = devices[0]
                         ctx = cl.Context([dev])
                         queue = cl.CommandQueue(ctx)
-                        
+
                         kernel_code = """
                         __kernel void test_k(__global float* a) {
                             int gid = get_global_id(0);
@@ -139,11 +139,11 @@ class GpuEngineManager:
                         }
                         """
                         prg = cl.Program(ctx, kernel_code).build()
-                        
+
                         h_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
                         mf = cl.mem_flags
                         d_data = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=h_data)
-                        
+
                         prg.test_k(queue, (4,), None, d_data)
                         res = np.empty_like(h_data)
                         cl.enqueue_copy(queue, res, d_data)
@@ -160,28 +160,6 @@ class GpuEngineManager:
                             return True
             except Exception:
                 pass
-
-            if sys.platform == "win32":
-                candidates = [os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "OpenCL.dll")]
-            elif sys.platform == "darwin":
-                candidates = ["/System/Library/Frameworks/OpenCL.framework/OpenCL"]
-            else:
-                candidates = ["libOpenCL.so.1", "libOpenCL.so"]
-
-            for lib_name in candidates:
-                try:
-                    opencl_lib = ctypes.cdll.LoadLibrary(lib_name)
-                    num_platforms = ctypes.c_uint32()
-                    res_code = opencl_lib.clGetPlatformIDs(0, None, ctypes.byref(num_platforms))
-                    if res_code == 0 and num_platforms.value > 0:
-                        self.backend = "OpenCL (Ctypes Native Runtime)"
-                        self.device_name = f"OpenCL Compatible Device ({num_platforms.value} Platform(s))"
-                        self.is_healthy = True
-                        print(f"[Pyxis GPU Engine] OpenCL Live Probe OK! Active backend: {self.backend} - {self.device_name}", flush=True)
-                        return True
-                except Exception as cl_err:
-                    pass
-
         except Exception as e:
             print(f"[Pyxis GPU Engine] OpenCL Live Probe failed ({e}). Using CPU Fallback...", flush=True)
 
@@ -194,7 +172,14 @@ class GpuEngineManager:
         if not isinstance(coords_array, np.ndarray) or coords_array.shape[0] == 0:
             return coords_array
 
-        if self.backend.startswith("OpenCL (PyOpenCL)") and self.cl_context and self.cl_queue:
+        if scale_x == 1.0 and scale_y == 1.0 and angle_deg == 0.0 and offset_x == 0.0 and offset_y == 0.0:
+            return coords_array
+
+        use_cl = self.backend.startswith("OpenCL (PyOpenCL)") and self.cl_context and self.cl_queue
+        if use_cl and sys.platform == "darwin" and coords_array.shape[0] < 16384:
+            use_cl = False
+
+        if use_cl:
             try:
                 import importlib
                 cl = importlib.import_module("pyopencl")

@@ -54,7 +54,7 @@ Widget Types and UI Contracts:
 Canonical Port Configurations and Enum Conventions (Part 2):
     - Spatial Anchors (`anchor`):
       Discrete origin modes ('center', 'origin', 'relative', 'absolute', 'pieces',
-      'parent_org', 'pos', 'first_point', 'topleft', 'topright', 'bottomleft', 'bottomright')
+      'parent_org', 'pos', 'relative2', 'first_point', 'topleft', 'topright', 'bottomleft', 'bottomright')
       governing local versus screen-space vector translations and ASS `\\org`/`\\pos` alignment.
     - 1D vs 2D Iteration Ordering (`order`):
       * 1D Linear (Sequential): 'normal', 'invert', '5' (centre outwards), '-5' (edges inwards),
@@ -96,10 +96,11 @@ import nodes
 
 system_node(
     "Loops", "Main Loop", node_kind="main_loop", outputs=["Loop", "Iterator (i)", "Total (N)"], color="#1E5F3A",
-    properties={"iterator": "syl", "blank_mode": "no_blank"},
+    properties={"iterator": "syl", "blank_mode": "no_blank", "preserve_tags": True},
     widgets=[
         {"type": "combo", "name": "Iterator:", "property": "iterator", "values": ["syl", "char", "word", "line"]},
-        {"type": "combo", "name": "Blank Mode:", "property": "blank_mode", "values": ["no_blank", "with_blanks"]}
+        {"type": "combo", "name": "Blank Mode:", "property": "blank_mode", "values": ["no_blank", "with_blanks"]},
+        {"type": "toggle", "name": "Preserve Tags", "property": "preserve_tags", "default": True}
     ]
 )
 
@@ -232,6 +233,25 @@ system_node(
     "Basics", "Concatenate", node_kind="data", 
     inputs=["In1", "In2"], outputs=["String"], color="#4B4B4B",
     properties={"expandable": True, "mode": "basic", "separator": "nil"},
+    widgets=[]
+)
+
+system_node(
+    "Basics", "Builder", node_kind="data",
+    inputs=["Tags", "In1", "In2"], outputs=["Return", "Items Out"], color="#4B4B4B",
+    properties={
+        "expandable": True,
+        "inject_r": True,
+        "mode": "text",
+        "sub_mode": "splitter",
+        "split_by": "syl",
+        "source": "active_unit",
+        "repeat": "2",
+        "custom_text": "",
+        "delim": ",",
+        "shape_layout": "auto",
+        "shape_split_mode": "subpaths"
+    },
     widgets=[]
 )
 
@@ -435,8 +455,8 @@ system_node(
 
 system_node(
     "Basics", "Math", node_kind="math", color="#0D9488",
-    inputs=["A", "B"], outputs=["Out"],
-    properties={"category": "basic", "operation": "add"},
+    inputs=["In1", "In2"], outputs=["Out"],
+    properties={"category": "basic", "operation": "add", "expandable": True, "in1": "0", "in2": "0"},
     widgets=[]
 )
 
@@ -494,7 +514,7 @@ system_node(
         {"type": "text", "name": "RedrawDist:", "property": "redraw_dist"},
         {"type": "text", "name": "Seed:", "property": "seed"},
         {"type": "text", "name": "Scale:", "property": "scale"},
-        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["pieces", "relative", "parent_org", "pos", "absolute"]},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["pieces", "relative", "relative2", "parent_org", "pos", "absolute"]},
         {"type": "combo", "name": "Order:", "property": "order", "values": ["79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand", "path", "path_inv"]},
         {"type": "toggle", "name": "Close Path", "property": "close_path", "default": False}
     ]
@@ -583,7 +603,7 @@ system_node(
         "accel": "1.0"
     },
     widgets=[
-        {"type": "combo", "name": "Mode:", "property": "mode", "values": ["trajectory", "waypoints", "jitter"]},
+        {"type": "combo", "name": "Mode:", "property": "mode", "values": ["trajectory", "waypoints", "jitter", "shadtrick"]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["center", "origin", "first_point"]},
         {"type": "text", "name": "Tags:", "property": "tags"},
         {"type": "text", "name": "Shape (d):", "property": "shape"},
@@ -838,21 +858,17 @@ system_node(
         "anchor": "pieces",
         "order": "79",
         "shape": "",
-        "shape_b": "",
-        "tagmode": "ipol",
-        "tags": "",
-        "split_mode": "islands",
-        "accel": "1.0"
+        "shape_b": ""
     },
     widgets=[
         {"type": "combo", "name": "Mode:", "property": "mode", "values": [
-            "divide", "union", "subpaths", "fusion"
+            "divide", "union", "subpaths"
         ]},
         {"type": "combo", "name": "Fill Rule:", "property": "fill_type", "values": [
             "evenodd", "nonzero", "positive", "negative"
         ]},
         {"type": "combo", "name": "Anchor:", "property": "anchor", "values": [
-            "pieces", "relative", "origin", "center", "parent_org", "pos", "absolute"
+            "pieces", "relative", "relative2", "origin", "center", "parent_org", "pos", "absolute"
         ]},
         {"type": "combo", "name": "Order:", "property": "order", "values": [
             "79", "97", "13", "31", "71", "17", "93", "39", "5", "-5", "cw", "ccw", "rand", "path", "path_inv"
@@ -900,7 +916,7 @@ system_node(
     widgets=[
         {"type": "combo", "name": "Base Mode:", "property": "mode", "values": ["hollow", "solid"]},
         {"type": "combo", "name": "Output Mode:", "property": "out_mode", "values": ["shape", "clip", "iclip"]},
-        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["relative", "pieces", "parent_org", "pos", "absolute"]},
+        {"type": "combo", "name": "Anchor:", "property": "anchor", "values": ["relative", "relative2", "pieces", "parent_org", "pos", "absolute"]},
         {"type": "text", "name": "Max Rings:", "property": "loop_count", "default": "5"},
         {"type": "text", "name": "Separation:", "property": "separation", "default": "5"},
         {"type": "text", "name": "Overlap:", "property": "overlap", "default": "0.5"}
@@ -1043,7 +1059,7 @@ system_node(
 
 system_node(
     "Audio", "Waveform", node_kind="data", color="#0284C7",
-    inputs=["Audio Path", "Width", "Height", "Samples", "Gain", "Thickness", "Scale", "Start Time", "End Time"],
+    inputs=["Audio Path", "Width", "Height", "Samples", "Gain", "Thickness", "Scale", "Smoothing", "Start Time", "End Time", "Anchor"],
     outputs=["Shape Out", "\\pos Tag", "X Array", "Y Array", "Bands Array"],
     properties={
         "audio_path": "",
@@ -1056,8 +1072,10 @@ system_node(
         "scale": "1.0",
         "min_hz": "20",
         "max_hz": "16000",
+        "smoothing": "0.2",
         "start_time": "",
-        "end_time": ""
+        "end_time": "",
+        "anchor": "center"
     },
     widgets=[]
 )

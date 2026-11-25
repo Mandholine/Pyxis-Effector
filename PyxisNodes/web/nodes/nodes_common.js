@@ -200,7 +200,11 @@
                 return Math.max(80, calcW);
             }
             const isImgNode = !!(node && (node.type === "IMG to Shape" || node.type === "Shape/IMG to Shape" || node.type === "IMG to pixels" || node.type === "Functions/IMG to pixels" || node.type === "Animation" || node.type === "Functions/Animation" || (node.title && (node.title.includes("IMG to") || node.title.includes("Animation")))));
-            const cardReserve = isImgNode ? (rightReserve + 150 + 35) : rightReserve;
+            const numOutputs = (node && node.outputs) ? node.outputs.length : 0;
+            const widgetRow = (widget && widget._visualRow !== undefined) ? widget._visualRow : 0;
+            const rowHasOutput = (numOutputs > 0 && widgetRow < numOutputs);
+            const effectiveRightReserve = rowHasOutput ? rightReserve : 18;
+            const cardReserve = isImgNode ? (rightReserve + 150 + 35) : effectiveRightReserve;
             const maxW = Math.max(minBoxW, nodeW - margin - cardReserve);
             return Math.min(maxW, calcW);
         }
@@ -619,7 +623,55 @@
             { full: "rand", short: "Rand", i18nKey: "nodes.modes.order.rand" }
         ];
 
+        const ORDER_MODES_2D = [
+            { full: "79", short: "79 (TL->BR)" },
+            { full: "97", short: "97 (TR->BL)" },
+            { full: "13", short: "13 (BL->TR)" },
+            { full: "31", short: "31 (BR->TL)" },
+            { full: "71", short: "71 (TL->BL)" },
+            { full: "17", short: "17 (BL->TL)" },
+            { full: "93", short: "93 (TR->BR)" },
+            { full: "39", short: "39 (BR->TR)" },
+            { full: "5", short: "5 (Radial)" },
+            { full: "-5", short: "-5 (Implos)" },
+            { full: "cw", short: "cw (CW)" },
+            { full: "ccw", short: "ccw (CCW)" },
+            { full: "rand", short: "Rand" }
+        ];
+
+        const ORDER_MODES_2D_PATH = [
+            ...ORDER_MODES_2D,
+            { full: "path", short: "Path" },
+            { full: "path_inv", short: "PathInv" }
+        ];
+
         const DYNAMIC_NODE_MODES = {
+            "Builder": {
+                propKey: "mode",
+                modes: [
+                    { full: "text", short: "TEXT" },
+                    { full: "shape", short: "SHAPE" }
+                ],
+                secondaryPropKey: "sub_mode",
+                secondaryModes: [
+                    { full: "splitter", short: "SPLIT" },
+                    { full: "multi", short: "MULTI" },
+                    { full: "custom", short: "CUSTOM" }
+                ]
+            },
+            "Basics/Builder": {
+                propKey: "mode",
+                modes: [
+                    { full: "text", short: "TEXT" },
+                    { full: "shape", short: "SHAPE" }
+                ],
+                secondaryPropKey: "sub_mode",
+                secondaryModes: [
+                    { full: "splitter", short: "SPLIT" },
+                    { full: "multi", short: "MULTI" },
+                    { full: "custom", short: "CUSTOM" }
+                ]
+            },
             "Time to Frame": {
                 propKey: "mode",
                 modes: [
@@ -781,8 +833,7 @@
                 propKey: "mode",
                 modes: [
                     { full: "basic", short: "BASIC" },
-                    { full: "zip", short: "ZIP" },
-                    { full: "merge", short: "MERGE" }
+                    { full: "zip", short: "ZIP" }
                 ],
                 secondaryPropKey: "separator",
                 secondaryModes: [
@@ -797,8 +848,7 @@
                 propKey: "mode",
                 modes: [
                     { full: "basic", short: "BASIC" },
-                    { full: "zip", short: "ZIP" },
-                    { full: "merge", short: "MERGE" }
+                    { full: "zip", short: "ZIP" }
                 ],
                 secondaryPropKey: "separator",
                 secondaryModes: [
@@ -839,127 +889,65 @@
                     { full: "Animated", short: "Animated" }
                 ]
             },
-            "Math": {
-                propKey: "category",
-                modes: [
-                    { full: "Basic", short: "BASIC" },
-                    { full: "Trig", short: "TRIG" },
-                    { full: "Easing", short: "EASING" },
-                    { full: "Waves", short: "WAVES" },
-                    { full: "Utilities", short: "UTILITIES" }
-                ],
-                secondaryPropKey: "operation",
-                secondaryModesMap: {
-                    "Basic": [
-                        { full: "Add", short: "Add" },
-                        { full: "Subtract", short: "Sub" },
-                        { full: "Multiply", short: "Mul" },
-                        { full: "Divide", short: "Div" },
-                        { full: "Modulo", short: "Mod" },
-                        { full: "Power", short: "Pow" },
-                        { full: "Absolute", short: "Abs" },
-                        { full: "Negative", short: "Neg" },
-                        { full: "Round", short: "Round" },
-                        { full: "Floor", short: "Floor" },
-                        { full: "Ceil", short: "Ceil" }
-                    ],
-                    "Trig": [
-                        { full: "Sin", short: "Sin" },
-                        { full: "Cos", short: "Cos" },
-                        { full: "Tan", short: "Tan" },
-                        { full: "ArcSin", short: "ArcSin" },
-                        { full: "ArcCos", short: "ArcCos" },
-                        { full: "ArcTan", short: "ArcTan" },
-                        { full: "ArcTan2", short: "ArcTan2" },
-                        { full: "Radians", short: "Rad" },
-                        { full: "Degrees", short: "Deg" }
-                    ],
-                    "Easing": [
-                        { full: "EaseIn", short: "EaseIn" },
-                        { full: "EaseOut", short: "EaseOut" },
-                        { full: "EaseInOut", short: "EaseInOut" },
-                        { full: "CubicIn", short: "CubicIn" },
-                        { full: "CubicOut", short: "CubicOut" },
-                        { full: "Exponential", short: "Expo" },
-                        { full: "Elastic", short: "Elastic" },
-                        { full: "Bounce", short: "Bounce" },
-                        { full: "Back", short: "Back" }
-                    ],
-                    "Waves": [
-                        { full: "Sine", short: "Sine" },
-                        { full: "Square", short: "Square" },
-                        { full: "Triangle", short: "Triangle" },
-                        { full: "Sawtooth", short: "Sawtooth" }
-                    ],
-                    "Utilities": [
-                        { full: "Clamp", short: "Clamp" },
-                        { full: "Lerp", short: "Lerp" },
-                        { full: "Min", short: "Min" },
-                        { full: "Max", short: "Max" },
-                        { full: "Random", short: "Random" },
-                        { full: "MapRange", short: "MapRange" }
-                    ]
-                }
-            },
             "Basics/Math": {
                 propKey: "category",
                 modes: [
-                    { full: "Basic", short: "BASIC" },
-                    { full: "Trig", short: "TRIG" },
-                    { full: "Easing", short: "EASING" },
-                    { full: "Waves", short: "WAVES" },
-                    { full: "Utilities", short: "UTILITIES" }
+                    { full: "basic", short: "BASIC" },
+                    { full: "numeric", short: "NUMERIC" },
+                    { full: "sequence", short: "SEQUENCE" },
+                    { full: "geometry", short: "GEOMETRY" },
+                    { full: "algebra", short: "ALGEBRA" },
+                    { full: "data", short: "DATA" }
                 ],
                 secondaryPropKey: "operation",
                 secondaryModesMap: {
-                    "Basic": [
-                        { full: "Add", short: "Add" },
-                        { full: "Subtract", short: "Sub" },
-                        { full: "Multiply", short: "Mul" },
-                        { full: "Divide", short: "Div" },
-                        { full: "Modulo", short: "Mod" },
-                        { full: "Power", short: "Pow" },
-                        { full: "Absolute", short: "Abs" },
-                        { full: "Negative", short: "Neg" },
-                        { full: "Round", short: "Round" },
-                        { full: "Floor", short: "Floor" },
-                        { full: "Ceil", short: "Ceil" }
+                    "basic": [
+                        { full: "add", short: "Add" },
+                        { full: "sub", short: "Sub" },
+                        { full: "mul", short: "Mul" },
+                        { full: "div", short: "Div" },
+                        { full: "mod", short: "Mod" },
+                        { full: "pow", short: "Pow" },
+                        { full: "min", short: "Min" },
+                        { full: "max", short: "Max" },
+                        { full: "avg", short: "Avg" }
                     ],
-                    "Trig": [
-                        { full: "Sin", short: "Sin" },
-                        { full: "Cos", short: "Cos" },
-                        { full: "Tan", short: "Tan" },
-                        { full: "ArcSin", short: "ArcSin" },
-                        { full: "ArcCos", short: "ArcCos" },
-                        { full: "ArcTan", short: "ArcTan" },
-                        { full: "ArcTan2", short: "ArcTan2" },
-                        { full: "Radians", short: "Rad" },
-                        { full: "Degrees", short: "Deg" }
+                    "numeric": [
+                        { full: "round", short: "Round" },
+                        { full: "clamp", short: "Clamp" },
+                        { full: "rand", short: "Rand" },
+                        { full: "factk", short: "FactK" },
+                        { full: "to16", short: "To16" },
+                        { full: "equality", short: "Equality" },
+                        { full: "between", short: "Between" }
                     ],
-                    "Easing": [
-                        { full: "EaseIn", short: "EaseIn" },
-                        { full: "EaseOut", short: "EaseOut" },
-                        { full: "EaseInOut", short: "EaseInOut" },
-                        { full: "CubicIn", short: "CubicIn" },
-                        { full: "CubicOut", short: "CubicOut" },
-                        { full: "Exponential", short: "Expo" },
-                        { full: "Elastic", short: "Elastic" },
-                        { full: "Bounce", short: "Bounce" },
-                        { full: "Back", short: "Back" }
+                    "sequence": [
+                        { full: "i", short: "Seq i" },
+                        { full: "count", short: "Count" },
+                        { full: "normalize", short: "Normalize" },
+                        { full: "ipol", short: "Ipol" }
                     ],
-                    "Waves": [
-                        { full: "Sine", short: "Sine" },
-                        { full: "Square", short: "Square" },
-                        { full: "Triangle", short: "Triangle" },
-                        { full: "Sawtooth", short: "Sawtooth" }
+                    "geometry": [
+                        { full: "angle", short: "Angle" },
+                        { full: "polar", short: "Polar" },
+                        { full: "distance", short: "Distance" },
+                        { full: "intersect", short: "Intersect" },
+                        { full: "circle", short: "Circle" },
+                        { full: "rotate", short: "Rotate" }
                     ],
-                    "Utilities": [
-                        { full: "Clamp", short: "Clamp" },
-                        { full: "Lerp", short: "Lerp" },
-                        { full: "Min", short: "Min" },
-                        { full: "Max", short: "Max" },
-                        { full: "Random", short: "Random" },
-                        { full: "MapRange", short: "MapRange" }
+                    "algebra": [
+                        { full: "quadratic", short: "Quadratic" },
+                        { full: "cubic", short: "Cubic" },
+                        { full: "resolve", short: "Resolve" },
+                        { full: "equation", short: "Equation" },
+                        { full: "evaluate", short: "Evaluate" },
+                        { full: "gauss", short: "Gauss" },
+                        { full: "matrix", short: "Matrix" }
+                    ],
+                    "data": [
+                        { full: "getpair", short: "GetPair" },
+                        { full: "getnumbers", short: "GetNums" },
+                        { full: "format", short: "Format" }
                     ]
                 }
             },
@@ -1225,7 +1213,8 @@
                 modes: [
                     { full: "trajectory", short: "Trajectory" },
                     { full: "waypoints", short: "Waypoints" },
-                    { full: "jitter", short: "Jitter" }
+                    { full: "jitter", short: "Jitter" },
+                    { full: "shadtrick", short: "Shadtrick" }
                 ]
             },
             "Functions/Move Tag": {
@@ -1233,7 +1222,8 @@
                 modes: [
                     { full: "trajectory", short: "Trajectory" },
                     { full: "waypoints", short: "Waypoints" },
-                    { full: "jitter", short: "Jitter" }
+                    { full: "jitter", short: "Jitter" },
+                    { full: "shadtrick", short: "Shadtrick" }
                 ]
             },
             "Modulator": {
@@ -1292,8 +1282,7 @@
                 modes: [
                     { full: "Divide (PolyTree)", short: "DIVIDE" },
                     { full: "Union (Merge/Union)", short: "UNION" },
-                    { full: "Divide (Sub-paths)", short: "SUB-PATHS" },
-                    { full: "Fusion (Tags)", short: "FUSION" }
+                    { full: "Divide (Sub-paths)", short: "SUB-PATHS" }
                 ]
             },
             "Multi": {
@@ -1822,7 +1811,7 @@
             if (title.includes("IMG to pixels") || typeStr.includes("IMG to pixels")) return null;
 
             function nodeMatchesKey(key, title, typeStr) {
-                if (key === "Math") return title === "Math" || typeStr === "Math" || typeStr.endsWith("/Math");
+                if (key === "Basics/Math") return typeStr === "Basics/Math" || title === "Math" || title === "Mates";
                 if (key === "Text") return title === "Text" || typeStr === "Text" || typeStr.endsWith("/Text");
                 if (key === "Text on Path") return title === "Text on Path" || typeStr === "Text on Path" || typeStr.endsWith("/Text on Path");
                 if (key === "Bezier Curve") return title.includes("Bezier") || title.includes("Curva") || typeStr.includes("Bezier");
@@ -2033,87 +2022,175 @@
                     { name: "Frame Dur (ms)", default: "", property: "frame_dur" }
                 ]
             },
-            "Math": {
-                "Add": [{ name: "A", default: "0" }, { name: "B", default: "0" }],
-                "Subtract": [{ name: "A", default: "0" }, { name: "B", default: "0" }],
-                "Multiply": [{ name: "A", default: "1" }, { name: "B", default: "1" }],
-                "Divide": [{ name: "A", default: "0" }, { name: "B", default: "1" }],
-                "Modulo": [{ name: "A", default: "0" }, { name: "B", default: "1" }],
-                "Power": [{ name: "A", default: "0" }, { name: "B", default: "1" }],
-                "Absolute": [{ name: "A", default: "0" }],
-                "Negative": [{ name: "A", default: "0" }],
-                "Round": [{ name: "A", default: "0" }],
-                "Floor": [{ name: "A", default: "0" }],
-                "Ceil": [{ name: "A", default: "0" }],
-                "Sin": [{ name: "A", default: "0" }],
-                "Cos": [{ name: "A", default: "0" }],
-                "Tan": [{ name: "A", default: "0" }],
-                "ArcSin": [{ name: "A", default: "0" }],
-                "ArcCos": [{ name: "A", default: "0" }],
-                "ArcTan": [{ name: "A", default: "0" }],
-                "ArcTan2": [{ name: "Y", default: "0" }, { name: "X", default: "1" }],
-                "Radians": [{ name: "Degrees", default: "0" }],
-                "Degrees": [{ name: "Radians", default: "0" }],
-                "EaseIn": [{ name: "t", default: "0" }],
-                "EaseOut": [{ name: "t", default: "0" }],
-                "EaseInOut": [{ name: "t", default: "0" }],
-                "CubicIn": [{ name: "t", default: "0" }],
-                "CubicOut": [{ name: "t", default: "0" }],
-                "Exponential": [{ name: "t", default: "0" }],
-                "Elastic": [{ name: "t", default: "0" }],
-                "Bounce": [{ name: "t", default: "0" }],
-                "Back": [{ name: "t", default: "0" }],
-                "Sine": [{ name: "t", default: "0" }, { name: "Frequency", default: "1.0" }, { name: "Amplitude", default: "1.0" }, { name: "Offset", default: "0" }],
-                "Square": [{ name: "t", default: "0" }, { name: "Frequency", default: "1.0" }, { name: "Amplitude", default: "1.0" }, { name: "Offset", default: "0" }],
-                "Triangle": [{ name: "t", default: "0" }, { name: "Frequency", default: "1.0" }, { name: "Amplitude", default: "1.0" }, { name: "Offset", default: "0" }],
-                "Sawtooth": [{ name: "t", default: "0" }, { name: "Frequency", default: "1.0" }, { name: "Amplitude", default: "1.0" }, { name: "Offset", default: "0" }],
-                "Clamp": [{ name: "Value", default: "0" }, { name: "Min", default: "0" }, { name: "Max", default: "1" }],
-                "Lerp": [{ name: "A", default: "0" }, { name: "B", default: "1" }, { name: "t", default: "0.5" }],
-                "Min": [{ name: "A", default: "0" }, { name: "B", default: "0" }],
-                "Max": [{ name: "A", default: "0" }, { name: "B", default: "0" }],
-                "Random": [{ name: "Min", default: "0" }, { name: "Max", default: "1" }, { name: "Seed", default: "" }],
-                "MapRange": [{ name: "Value", default: "0" }, { name: "MinIn", default: "0" }, { name: "MaxIn", default: "1" }, { name: "MinOut", default: "0" }, { name: "MaxOut", default: "100" }]
-            },
             "Basics/Math": {
-                "Add": [{ name: "A", default: "0" }, { name: "B", default: "0" }],
-                "Subtract": [{ name: "A", default: "0" }, { name: "B", default: "0" }],
-                "Multiply": [{ name: "A", default: "1" }, { name: "B", default: "1" }],
-                "Divide": [{ name: "A", default: "0" }, { name: "B", default: "1" }],
-                "Modulo": [{ name: "A", default: "0" }, { name: "B", default: "1" }],
-                "Power": [{ name: "A", default: "0" }, { name: "B", default: "1" }],
-                "Absolute": [{ name: "A", default: "0" }],
-                "Negative": [{ name: "A", default: "0" }],
-                "Round": [{ name: "A", default: "0" }],
-                "Floor": [{ name: "A", default: "0" }],
-                "Ceil": [{ name: "A", default: "0" }],
-                "Sin": [{ name: "A", default: "0" }],
-                "Cos": [{ name: "A", default: "0" }],
-                "Tan": [{ name: "A", default: "0" }],
-                "ArcSin": [{ name: "A", default: "0" }],
-                "ArcCos": [{ name: "A", default: "0" }],
-                "ArcTan": [{ name: "A", default: "0" }],
-                "ArcTan2": [{ name: "Y", default: "0" }, { name: "X", default: "1" }],
-                "Radians": [{ name: "Degrees", default: "0" }],
-                "Degrees": [{ name: "Radians", default: "0" }],
-                "EaseIn": [{ name: "t", default: "0" }],
-                "EaseOut": [{ name: "t", default: "0" }],
-                "EaseInOut": [{ name: "t", default: "0" }],
-                "CubicIn": [{ name: "t", default: "0" }],
-                "CubicOut": [{ name: "t", default: "0" }],
-                "Exponential": [{ name: "t", default: "0" }],
-                "Elastic": [{ name: "t", default: "0" }],
-                "Bounce": [{ name: "t", default: "0" }],
-                "Back": [{ name: "t", default: "0" }],
-                "Sine": [{ name: "t", default: "0" }, { name: "Frequency", default: "1.0" }, { name: "Amplitude", default: "1.0" }, { name: "Offset", default: "0" }],
-                "Square": [{ name: "t", default: "0" }, { name: "Frequency", default: "1.0" }, { name: "Amplitude", default: "1.0" }, { name: "Offset", default: "0" }],
-                "Triangle": [{ name: "t", default: "0" }, { name: "Frequency", default: "1.0" }, { name: "Amplitude", default: "1.0" }, { name: "Offset", default: "0" }],
-                "Sawtooth": [{ name: "t", default: "0" }, { name: "Frequency", default: "1.0" }, { name: "Amplitude", default: "1.0" }, { name: "Offset", default: "0" }],
-                "Clamp": [{ name: "Value", default: "0" }, { name: "Min", default: "0" }, { name: "Max", default: "1" }],
-                "Lerp": [{ name: "A", default: "0" }, { name: "B", default: "1" }, { name: "t", default: "0.5" }],
-                "Min": [{ name: "A", default: "0" }, { name: "B", default: "0" }],
-                "Max": [{ name: "A", default: "0" }, { name: "B", default: "0" }],
-                "Random": [{ name: "Min", default: "0" }, { name: "Max", default: "1" }, { name: "Seed", default: "" }],
-                "MapRange": [{ name: "Value", default: "0" }, { name: "MinIn", default: "0" }, { name: "MaxIn", default: "1" }, { name: "MinOut", default: "0" }, { name: "MaxOut", default: "100" }]
+                "add": [
+                    { name: "In1", default: "0", property: "in1" },
+                    { name: "In2", default: "0", property: "in2" }
+                ],
+                "sub": [
+                    { name: "In1", default: "0", property: "in1" },
+                    { name: "In2", default: "0", property: "in2" }
+                ],
+                "mul": [
+                    { name: "In1", default: "1", property: "in1" },
+                    { name: "In2", default: "1", property: "in2" }
+                ],
+                "div": [
+                    { name: "In1", default: "1", property: "in1" },
+                    { name: "In2", default: "1", property: "in2" }
+                ],
+                "mod": [
+                    { name: "In1", default: "1", property: "in1" },
+                    { name: "In2", default: "1", property: "in2" }
+                ],
+                "pow": [
+                    { name: "In1", default: "1", property: "in1" },
+                    { name: "In2", default: "2", property: "in2" }
+                ],
+                "min": [
+                    { name: "In1", default: "0", property: "in1" },
+                    { name: "In2", default: "0", property: "in2" }
+                ],
+                "max": [
+                    { name: "In1", default: "0", property: "in1" },
+                    { name: "In2", default: "0", property: "in2" }
+                ],
+                "avg": [
+                    { name: "In1", default: "0", property: "in1" },
+                    { name: "In2", default: "0", property: "in2" }
+                ],
+                "round": [
+                    { name: "Value", default: "0", property: "value" },
+                    { name: "Decimals", default: "0", property: "decimal" }
+                ],
+                "clamp": [
+                    { name: "Value", default: "0.5", property: "num" },
+                    { name: "Min", default: "0", property: "min_val" },
+                    { name: "Max", default: "1", property: "max_val" },
+                    { name: "Cycle", default: false, property: "cycle", type: "button", no_socket: true }
+                ],
+                "rand": [
+                    { name: "Min", default: "0", property: "num1" },
+                    { name: "Max", default: "100", property: "num2" },
+                    { name: "Step", default: "1", property: "step" },
+                    { name: "Range", default: "", property: "range" },
+                    { name: "Random Sign", default: false, property: "sign", type: "button", no_socket: true }
+                ],
+                "factk": [
+                    { name: "N", default: "5", property: "n" }
+                ],
+                "to16": [
+                    { name: "Number", default: "255", property: "num" }
+                ],
+                "equality": [
+                    { name: "A", default: "0", property: "n1" },
+                    { name: "B", default: "0", property: "n2" },
+                    { name: "Tolerance", default: "5", property: "tolerance" }
+                ],
+                "between": [
+                    { name: "Value", default: "5", property: "num" },
+                    { name: "Min", default: "0", property: "n1" },
+                    { name: "Max", default: "10", property: "n2" }
+                ],
+                "i": [
+                    { name: "Counter (i)", default: "syl.i", property: "counter" },
+                    { name: "Algorithm", default: "+,-", property: "seq_mode", type: "button", no_socket: true },
+                    { name: "A", default: "1", property: "a" },
+                    { name: "B", default: "2", property: "b" },
+                    { name: "C", default: "1", property: "c" }
+                ],
+                "count": [
+                    { name: "Init", default: "1", property: "init" },
+                    { name: "Step", default: "1", property: "step" },
+                    { name: "Seq Mode", default: "none", property: "seq_mode", type: "button", no_socket: true },
+                    { name: "A", default: "1", property: "a" },
+                    { name: "B", default: "1", property: "b" },
+                    { name: "C", default: "1", property: "c" }
+                ],
+                "normalize": [
+                    { name: "t", default: "0.5", property: "t" },
+                    { name: "Accel", default: "1", property: "accel" },
+                    { name: "Shape", default: "", property: "shape" }
+                ],
+                "ipol": [
+                    { name: "Values", default: "0, 100", property: "values" },
+                    { name: "t", default: "0.5", property: "t" },
+                    { name: "Accel", default: "1", property: "accel" },
+                    { name: "Shape", default: "", property: "shape" },
+                    { name: "Size", default: "", property: "size" }
+                ],
+                "angle": [
+                    { name: "P1", default: "0, 0", property: "p1" },
+                    { name: "P2", default: "10, 0", property: "p2" },
+                    { name: "P3", default: "", property: "p3" }
+                ],
+                "polar": [
+                    { name: "Angle", default: "45", property: "angle" },
+                    { name: "Radius", default: "10", property: "radius" },
+                    { name: "Get", default: "xy", property: "get", type: "button", no_socket: true }
+                ],
+                "distance": [
+                    { name: "P1", default: "0, 0", property: "p1" },
+                    { name: "P2", default: "3, 4", property: "p2" }
+                ],
+                "intersect": [
+                    { name: "Segment 1", default: "2 7 11 3", property: "s1" },
+                    { name: "Segment 2", default: "4 3 6 8", property: "s2" }
+                ],
+                "circle": [
+                    { name: "P1", default: "0, 0", property: "p1" },
+                    { name: "P2", default: "10, 0", property: "p2" },
+                    { name: "P3", default: "5, 7", property: "p3" }
+                ],
+                "rotate": [
+                    { name: "Point / Shape", default: "10, 0, 0", property: "p" },
+                    { name: "Angle", default: "45", property: "angle" },
+                    { name: "Axis", default: "z", property: "axis", type: "button", no_socket: true }
+                ],
+                "quadratic": [
+                    { name: "c1 (x^2)", default: "1", property: "c1" },
+                    { name: "c2 (x)", default: "-3", property: "c2" },
+                    { name: "c3 (1)", default: "2", property: "c3" }
+                ],
+                "cubic": [
+                    { name: "c1 (x^3)", default: "1", property: "c1" },
+                    { name: "c2 (x^2)", default: "-3", property: "c2" },
+                    { name: "c3 (x)", default: "-9", property: "c3" },
+                    { name: "c4 (1)", default: "-5", property: "c4" }
+                ],
+                "resolve": [
+                    { name: "Coefficients", default: "1, -3, -9, -5", property: "coefficients" }
+                ],
+                "equation": [
+                    { name: "Coefficients", default: "-5, -9, -3, 1", property: "coefficients" },
+                    { name: "Reals Only", default: true, property: "reals", type: "button", no_socket: true }
+                ],
+                "evaluate": [
+                    { name: "Coefficients", default: "5, -7", property: "coefficients" },
+                    { name: "t", default: "2", property: "t" }
+                ],
+                "gauss": [
+                    { name: "Matrix", default: "5, -3, -1; 2, 1, 4", property: "matrix" }
+                ],
+                "matrix": [
+                    { name: "Matrix Op", default: "mul", property: "matrix_op", type: "button", no_socket: true },
+                    { name: "Matrix A", default: "1, 0, 0, 1", property: "matrix_a" },
+                    { name: "Matrix B", default: "1, 0, 0, 1", property: "matrix_b" },
+                    { name: "Angles (x,y,z)", default: "0, 0, 45", property: "angles" },
+                    { name: "Is Row", default: false, property: "is_row", type: "button", no_socket: true }
+                ],
+                "getpair": [
+                    { name: "Values", default: "", property: "val" },
+                    { name: "Default X", default: "0", property: "defx" },
+                    { name: "Default Y", default: "0", property: "defy" }
+                ],
+                "getnumbers": [
+                    { name: "Input", default: "", property: "val" }
+                ],
+                "format": [
+                    { name: "Format", default: "%s", property: "fmt" },
+                    { name: "Values", default: "1", property: "values" }
+                ]
             },
             "Text": {
                 "Strip Tags": [{ name: "Text", default: "" }],
@@ -2175,8 +2252,10 @@
                     { name: "Gain", default: "1.0", property: "gain" },
                     { name: "Thickness (px)", default: "2", property: "thickness" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "oscilloscope": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2186,8 +2265,10 @@
                     { name: "Gain", default: "1.0", property: "gain" },
                     { name: "Thickness (px)", default: "2", property: "thickness" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "Oscilloscope": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2197,8 +2278,10 @@
                     { name: "Gain", default: "1.0", property: "gain" },
                     { name: "Thickness (px)", default: "2", property: "thickness" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "fftbars": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2209,8 +2292,10 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Min Hz", default: "20", property: "min_hz" },
                     { name: "Max Hz", default: "16000", property: "max_hz" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "FFT Bars": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2221,8 +2306,10 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Min Hz", default: "20", property: "min_hz" },
                     { name: "Max Hz", default: "16000", property: "max_hz" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "filledwave": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2231,8 +2318,10 @@
                     { name: "Samples", default: "32", property: "samples" },
                     { name: "Gain", default: "1.0", property: "gain" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "Filled Wave": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2241,8 +2330,10 @@
                     { name: "Samples", default: "32", property: "samples" },
                     { name: "Gain", default: "1.0", property: "gain" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "radial": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2253,8 +2344,10 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Min Hz", default: "20", property: "min_hz" },
                     { name: "Max Hz", default: "16000", property: "max_hz" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "Circular Radial": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2265,8 +2358,10 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Min Hz", default: "20", property: "min_hz" },
                     { name: "Max Hz", default: "16000", property: "max_hz" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "points": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2276,8 +2371,10 @@
                     { name: "Gain", default: "1.0", property: "gain" },
                     { name: "Thickness (px)", default: "2", property: "thickness" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ],
                 "Points": [
                     { name: "Audio Path", default: "", property: "audio_path" },
@@ -2287,8 +2384,10 @@
                     { name: "Gain", default: "1.0", property: "gain" },
                     { name: "Thickness (px)", default: "2", property: "thickness" },
                     { name: "Scale", default: "1.0", property: "scale" },
+                    { name: "Smoothing", default: "0.2", property: "smoothing" },
                     { name: "Start Time", default: "", property: "start_time" },
-                    { name: "End Time", default: "", property: "end_time" }
+                    { name: "End Time", default: "", property: "end_time" },
+                    { name: "Anchor", default: "center", property: "anchor", type: "button" }
                 ]
             },
             "Modulator": {
@@ -3039,7 +3138,7 @@
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Order", default: "Normal", property: "order", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" },
                     { name: "Tags", default: "", property: "tags" }
                 ],
                 "Multi-Shape Mosaic": [
@@ -3051,7 +3150,7 @@
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Order", default: "Normal", property: "order", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button" },
                     { name: "Tags", default: "", property: "tags" }
                 ],
                 "Segmented Border": [
@@ -3521,7 +3620,7 @@
                     { name: "Seed", default: "0", property: "seed" },
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH },
                     { name: "Close Path", default: false, property: "close_path", type: "button", no_socket: true }
                 ],
                 "Outline v2": [
@@ -3532,7 +3631,7 @@
                     { name: "Seed", default: "0", property: "seed" },
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH },
                     { name: "Close Path", default: false, property: "close_path", type: "button", no_socket: true }
                 ],
                 "Border (Outline)": [
@@ -3543,7 +3642,7 @@
                     { name: "Seed", default: "0", property: "seed" },
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH },
                     { name: "Close Path", default: false, property: "close_path", type: "button", no_socket: true }
                 ],
                 "Inner Fill": [
@@ -3567,7 +3666,7 @@
                     { name: "Seed", default: "0", property: "seed" },
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH },
                     { name: "Close Path", default: false, property: "close_path", type: "button", no_socket: true }
                 ],
                 "Outline v2": [
@@ -3578,7 +3677,7 @@
                     { name: "Seed", default: "0", property: "seed" },
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH },
                     { name: "Close Path", default: false, property: "close_path", type: "button", no_socket: true }
                 ],
                 "Border (Outline)": [
@@ -3589,7 +3688,7 @@
                     { name: "Seed", default: "0", property: "seed" },
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order", type: "button" },
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH },
                     { name: "Close Path", default: false, property: "close_path", type: "button", no_socket: true }
                 ],
                 "Inner Fill": [
@@ -3635,89 +3734,89 @@
                     { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "hex": [
                     { name: "Shape", default: "" },
                     { name: "Radius", default: "15" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "tri": [
                     { name: "Shape", default: "" },
                     { name: "Radius", default: "20" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "dia": [
                     { name: "Shape", default: "" },
                     { name: "Radius", default: "20" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "ring": [
                     { name: "Shape", default: "" },
                     { name: "Ring Width", default: "10" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "ray": [
                     { name: "Shape", default: "" },
                     { name: "Step Angle", default: "15" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "quad": [
                     { name: "Shape", default: "" },
                     { name: "Min Size", default: "10" },
                     { name: "Stop Prob", default: "0.45" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "bez": [
                     { name: "Shape", default: "" },
                     { name: "Grid Size", default: "20" },
                     { name: "Amplitude", default: "1.5" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "voronoi": [
                     { name: "Shape", default: "" },
                     { name: "Cell Size", default: "20" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "ashlar": [
                     { name: "Shape", default: "" },
@@ -3725,65 +3824,65 @@
                     { name: "Max Width", default: "40" },
                     { name: "Row Height", default: "15" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "brick": [
                     { name: "Shape", default: "" },
                     { name: "Width", default: "30" },
                     { name: "Height", default: "15" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "mondrian": [
                     { name: "Shape", default: "" },
                     { name: "Min Size", default: "12" },
                     { name: "Stop Prob", default: "0.45" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "herringbone": [
                     { name: "Shape", default: "" },
                     { name: "Length", default: "30" },
                     { name: "Thickness", default: "10" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "delaunay": [
                     { name: "Shape", default: "" },
                     { name: "Cell Size", default: "15" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "scallop": [
                     { name: "Shape", default: "" },
                     { name: "Radius", default: "12" },
                     { name: "Angle", default: "0" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "web": [
                     { name: "Shape", default: "" },
@@ -3793,61 +3892,61 @@
                     { name: "Center X", default: "0" },
                     { name: "Center Y", default: "0" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "rhombille": [
                     { name: "Shape", default: "" },
                     { name: "Radius", default: "20" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "octagon": [
                     { name: "Shape", default: "" },
                     { name: "Radius", default: "20" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "kagome": [
                     { name: "Shape", default: "" },
                     { name: "Radius", default: "15" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "jigsaw": [
                     { name: "Shape", default: "" },
                     { name: "Piece Size", default: "20" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "truchet": [
                     { name: "Shape", default: "" },
                     { name: "Cell Size", default: "20" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "circuit": [
                     { name: "Shape", default: "" },
@@ -3855,11 +3954,11 @@
                     { name: "Trace Width", default: "5" },
                     { name: "Via Prob", default: "0.2" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ],
                 "pattern": [
                     { name: "Shape", default: "" },
@@ -3869,11 +3968,11 @@
                     { name: "Stagger", default: "false" },
                     { name: "Positive Mode", default: "false" },
                     { name: "Text Scale", default: "1.0" },
-                    { name: "Pre-Offset", default: "0" },
+                    { name: "Pre-Offset", default: "0", property: "pre_offset" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" },
-                    { name: "Bleed", default: "0" },
-                    { name: "Order", default: "79" }
+                    { name: "Bleed", default: "0", property: "overlap" },
+                    { name: "Order", default: "79", property: "order", type: "button" }
                 ]
             },
             "Array": {
@@ -3886,7 +3985,7 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" },
+                    { name: "Order", default: "79", property: "order", type: "button" },
                     { name: "Tags", default: "", property: "tags" }
                 ],
                 "Formation": [
@@ -3896,7 +3995,7 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" },
+                    { name: "Order", default: "79", property: "order", type: "button" },
                     { name: "Tags", default: "", property: "tags" }
                 ],
                 "Rings": [
@@ -3909,7 +4008,7 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" },
+                    { name: "Order", default: "79", property: "order", type: "button" },
                     { name: "Tags", default: "", property: "tags" }
                 ],
                 "Spiral": [
@@ -3921,7 +4020,7 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" },
+                    { name: "Order", default: "79", property: "order", type: "button" },
                     { name: "Tags", default: "", property: "tags" }
                 ],
                 "Scatter": [
@@ -3933,7 +4032,7 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" },
+                    { name: "Order", default: "79", property: "order", type: "button" },
                     { name: "Tags", default: "", property: "tags" }
                 ],
                 "Hex": [
@@ -3944,7 +4043,7 @@
                     { name: "Scale", default: "1.0", property: "scale" },
                     { name: "Factor (t)", default: "1.0", property: "t" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" },
+                    { name: "Order", default: "79", property: "order", type: "button" },
                     { name: "Tags", default: "", property: "tags" }
                 ]
             },
@@ -3954,21 +4053,21 @@
                     { name: "Fill Rule", default: "EvenOdd", property: "fill_type", type: "button" },
                     { name: "Auto-Intersect", default: "1", property: "clean_self_intersect", type: "button" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH }
                 ],
                 "DIVIDE": [
                     { name: "Shape In", default: "", property: "shape" },
                     { name: "Fill Rule", default: "EvenOdd", property: "fill_type", type: "button" },
                     { name: "Auto-Intersect", default: "1", property: "clean_self_intersect", type: "button" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH }
                 ],
                 "Dividir (PolyTree)": [
                     { name: "Shape In", default: "", property: "shape" },
                     { name: "Fill Rule", default: "EvenOdd", property: "fill_type", type: "button" },
                     { name: "Auto-Intersect", default: "1", property: "clean_self_intersect", type: "button" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH }
                 ],
                 "Union (Merge/Union)": [
                     { name: "Shape In (A)", default: "", property: "shape" },
@@ -3994,68 +4093,24 @@
                 "Divide (Sub-paths)": [
                     { name: "Shape In", default: "", property: "shape" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH }
                 ],
                 "SUB-PATHS": [
                     { name: "Shape In", default: "", property: "shape" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH }
                 ],
                 "Dividir (Sub-rutas)": [
                     { name: "Shape In", default: "", property: "shape" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
-                ],
-                "Fusion (Tags)": [
-                    { name: "Shape In", default: "", property: "shape" },
-                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
-                    { name: "Tag Mode", default: "ipol", property: "tagmode", type: "button" },
-                    { name: "Tags", default: "", property: "tags" },
-                    { name: "Accel", default: "1.0", property: "accel" },
-                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
-                ],
-                "Fusion (Tags) (ipol)": [
-                    { name: "Shape In", default: "", property: "shape" },
-                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
-                    { name: "Tag Mode", default: "ipol", property: "tagmode", type: "button" },
-                    { name: "Tags", default: "", property: "tags" },
-                    { name: "Accel", default: "1.0", property: "accel" },
-                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
-                ],
-                "Fusion (Tags) (line)": [
-                    { name: "Shape In", default: "", property: "shape" },
-                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
-                    { name: "Tag Mode", default: "line", property: "tagmode", type: "button" },
-                    { name: "Tags", default: "", property: "tags" },
-                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
-                ],
-                "FUSION": [
-                    { name: "Shape In", default: "", property: "shape" },
-                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
-                    { name: "Tag Mode", default: "ipol", property: "tagmode", type: "button" },
-                    { name: "Tags", default: "", property: "tags" },
-                    { name: "Accel", default: "1.0", property: "accel" },
-                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
-                ],
-                "Fusión (Tags)": [
-                    { name: "Shape In", default: "", property: "shape" },
-                    { name: "Split", default: "islands", property: "split_mode", type: "button", no_socket: true },
-                    { name: "Tag Mode", default: "ipol", property: "tagmode", type: "button" },
-                    { name: "Tags", default: "", property: "tags" },
-                    { name: "Accel", default: "1.0", property: "accel" },
-                    { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH }
                 ],
                 "DEFAULT": [
                     { name: "Shape In", default: "", property: "shape" },
                     { name: "Fill Rule", default: "EvenOdd", property: "fill_type", type: "button" },
                     { name: "Auto-Intersect", default: "1", property: "clean_self_intersect", type: "button" },
                     { name: "Anchor", default: "pieces", property: "anchor", type: "button" },
-                    { name: "Order", default: "79", property: "order" }
+                    { name: "Order", default: "79", property: "order", type: "button", order_modes: ORDER_MODES_2D_PATH }
                 ]
             },
             "Move Tag": {
@@ -4070,9 +4125,16 @@
                 ],
                 "waypoints": [
                     { name: "Tags", default: "", property: "tags" },
-                    { name: "Points (x1,y1; x2,y2)", default: "", property: "points" },
+                    { name: "Points (x1,y1,x2,y2...)", default: "", property: "points" },
                     { name: "Step (px)", default: "7.5", property: "step_px" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" },
+                    { name: "Start Time (t1)", default: "0", property: "t1" },
+                    { name: "End Time (t2)", default: "fx.dur", property: "t2" },
+                    { name: "Acceleration", default: "1.0", property: "accel" }
+                ],
+                "shadtrick": [
+                    { name: "Tags", default: "", property: "tags" },
+                    { name: "Points (x1,y1,x2,y2...)", default: "", property: "points" },
                     { name: "Start Time (t1)", default: "0", property: "t1" },
                     { name: "End Time (t2)", default: "fx.dur", property: "t2" },
                     { name: "Acceleration", default: "1.0", property: "accel" }
@@ -4099,9 +4161,16 @@
                 ],
                 "Waypoints": [
                     { name: "Tags", default: "", property: "tags" },
-                    { name: "Points (x1,y1; x2,y2)", default: "", property: "points" },
+                    { name: "Points (x1,y1,x2,y2...)", default: "", property: "points" },
                     { name: "Step (px)", default: "7.5", property: "step_px" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" },
+                    { name: "Start Time (t1)", default: "0", property: "t1" },
+                    { name: "End Time (t2)", default: "fx.dur", property: "t2" },
+                    { name: "Acceleration", default: "1.0", property: "accel" }
+                ],
+                "Shadtrick": [
+                    { name: "Tags", default: "", property: "tags" },
+                    { name: "Points (x1,y1,x2,y2...)", default: "", property: "points" },
                     { name: "Start Time (t1)", default: "0", property: "t1" },
                     { name: "End Time (t2)", default: "fx.dur", property: "t2" },
                     { name: "Acceleration", default: "1.0", property: "accel" }
@@ -4130,9 +4199,16 @@
                 ],
                 "waypoints": [
                     { name: "Tags", default: "", property: "tags" },
-                    { name: "Points (x1,y1; x2,y2)", default: "", property: "points" },
+                    { name: "Points (x1,y1,x2,y2...)", default: "", property: "points" },
                     { name: "Step (px)", default: "7.5", property: "step_px" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" },
+                    { name: "Start Time (t1)", default: "0", property: "t1" },
+                    { name: "End Time (t2)", default: "fx.dur", property: "t2" },
+                    { name: "Acceleration", default: "1.0", property: "accel" }
+                ],
+                "shadtrick": [
+                    { name: "Tags", default: "", property: "tags" },
+                    { name: "Points (x1,y1,x2,y2...)", default: "", property: "points" },
                     { name: "Start Time (t1)", default: "0", property: "t1" },
                     { name: "End Time (t2)", default: "fx.dur", property: "t2" },
                     { name: "Acceleration", default: "1.0", property: "accel" }
@@ -4159,9 +4235,16 @@
                 ],
                 "Waypoints": [
                     { name: "Tags", default: "", property: "tags" },
-                    { name: "Points (x1,y1; x2,y2)", default: "", property: "points" },
+                    { name: "Points (x1,y1,x2,y2...)", default: "", property: "points" },
                     { name: "Step (px)", default: "7.5", property: "step_px" },
                     { name: "Anchor", default: "center", property: "anchor", type: "button" },
+                    { name: "Start Time (t1)", default: "0", property: "t1" },
+                    { name: "End Time (t2)", default: "fx.dur", property: "t2" },
+                    { name: "Acceleration", default: "1.0", property: "accel" }
+                ],
+                "Shadtrick": [
+                    { name: "Tags", default: "", property: "tags" },
+                    { name: "Points (x1,y1,x2,y2...)", default: "", property: "points" },
                     { name: "Start Time (t1)", default: "0", property: "t1" },
                     { name: "End Time (t2)", default: "fx.dur", property: "t2" },
                     { name: "Acceleration", default: "1.0", property: "accel" }
@@ -4384,6 +4467,154 @@
                     { name: "Anchor", default: "center", property: "anchor", type: "button" },
                     { name: "Output Type", default: "Shape", property: "out_mode", type: "button" }
                 ]
+            },
+            "Builder": {
+                "DEFAULT": [
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_splitter": [
+                    { name: "Split By", default: "syl", property: "split_by", type: "button", no_socket: true },
+                    { name: "Source", default: "active_unit", property: "source", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_splitter_field": [
+                    { name: "Split By", default: "syl", property: "split_by", type: "button", no_socket: true },
+                    { name: "Source", default: "text_field", property: "source", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Text", default: "", property: "custom_text", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_multi": [
+                    { name: "Source", default: "active_unit", property: "source", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Repeat", default: "2", property: "repeat", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_multi_field": [
+                    { name: "Source", default: "text_field", property: "source", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Repeat", default: "2", property: "repeat", no_socket: true },
+                    { name: "Text", default: "", property: "custom_text", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_custom": [
+                    { name: "Delim", default: ",", property: "delim", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Text", default: "", property: "custom_text", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "shape_splitter": [
+                    { name: "Split Mode", default: "subpaths", property: "shape_split_mode", type: "button", no_socket: true },
+                    { name: "Layout", default: "auto", property: "shape_layout", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "shape_multi": [
+                    { name: "Layout", default: "auto", property: "shape_layout", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Repeat", default: "2", property: "repeat", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "shape_custom": [
+                    { name: "Delim", default: ",", property: "delim", type: "button", no_socket: true },
+                    { name: "Layout", default: "auto", property: "shape_layout", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ]
+            },
+            "Basics/Builder": {
+                "DEFAULT": [
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_splitter": [
+                    { name: "Split By", default: "syl", property: "split_by", type: "button", no_socket: true },
+                    { name: "Source", default: "active_unit", property: "source", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_splitter_field": [
+                    { name: "Split By", default: "syl", property: "split_by", type: "button", no_socket: true },
+                    { name: "Source", default: "text_field", property: "source", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Text", default: "", property: "custom_text", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_multi": [
+                    { name: "Source", default: "active_unit", property: "source", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Repeat", default: "2", property: "repeat", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_multi_field": [
+                    { name: "Source", default: "text_field", property: "source", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Repeat", default: "2", property: "repeat", no_socket: true },
+                    { name: "Text", default: "", property: "custom_text", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "text_custom": [
+                    { name: "Delim", default: ",", property: "delim", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Text", default: "", property: "custom_text", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "shape_splitter": [
+                    { name: "Split Mode", default: "subpaths", property: "shape_split_mode", type: "button", no_socket: true },
+                    { name: "Layout", default: "auto", property: "shape_layout", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "shape_multi": [
+                    { name: "Layout", default: "auto", property: "shape_layout", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Repeat", default: "2", property: "repeat", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ],
+                "shape_custom": [
+                    { name: "Delim", default: ",", property: "delim", type: "button", no_socket: true },
+                    { name: "Layout", default: "auto", property: "shape_layout", type: "button", no_socket: true },
+                    { name: "Reset \\r", default: "true", property: "inject_r", type: "button", no_socket: true },
+                    { name: "Tags", default: "", property: "Tags" },
+                    { name: "In1", default: "", property: "In1" },
+                    { name: "In2", default: "", property: "In2" }
+                ]
             }
         };
 
@@ -4397,6 +4628,7 @@
             piece: [
                 { full: "pieces", short: "Pieces" },
                 { full: "relative", short: "Relative" },
+                { full: "relative2", short: "Relative2" },
                 { full: "origin", short: "Origin" },
                 { full: "center", short: "Center" },
                 { full: "parent_org", short: "Parent Org" },
@@ -4449,6 +4681,39 @@
             return null;
         }
 
+        function isAssDrawText(raw) {
+            const cleaned = String(raw || "").replace(/\{[^}]*\}/g, "").trim();
+            return /^(?:m\s+-?\d)|(?:\b[mlbc]\s+-?\d)/i.test(cleaned);
+        }
+
+        function isMoveTagShadtrickAssDraw(node) {
+            if (!node) return false;
+            const inputs = node.inputs || [];
+            const ptsInput = inputs.find(inp => inp && (inp.property === "points" || String(inp.name || "").toLowerCase().includes("points")));
+            if (ptsInput && ptsInput.link != null && node.graph && node.graph.links) {
+                const link = node.graph.links[ptsInput.link];
+                const originNode = link ? node.graph.getNodeById(link.origin_id) : null;
+                if (originNode) {
+                    const oType = String(originNode.type || "");
+                    const oOut = (originNode.outputs && originNode.outputs[link.origin_slot]) ? String(originNode.outputs[link.origin_slot].name || "") : "";
+                    if (oType.startsWith("Shape/") || oType === "Functions/Text to Shape" || oType === "Functions/Particles") {
+                        return true;
+                    }
+                    if (oType === "Functions/Bezier Curve" && oOut.toLowerCase().includes("spline")) {
+                        return true;
+                    }
+                    if (oType === "Audio/Waveform" && oOut.toLowerCase() === "shape") {
+                        return true;
+                    }
+                    if (oType === "Basics/String" && originNode.properties) {
+                        return isAssDrawText(originNode.properties.value);
+                    }
+                    return false;
+                }
+            }
+            return isAssDrawText(node.properties ? node.properties.points : "");
+        }
+
         function updateNodeModeInputs(node) {
             if (!node) return;
             const modeInfo = getTitleModeInfo(node);
@@ -4471,9 +4736,36 @@
                 }
             } else if (modeInfo) {
                 const curMode = modeInfo.currentFull;
-                if (nodeKey === "Math") {
-                    const secMode = node.properties ? (node.properties["operation"] || "Add") : "Add";
-                    specList = MODE_INPUT_SPECS["Math"][secMode] || MODE_INPUT_SPECS["Math"]["Add"];
+                if (nodeKey === "Basics/Math") {
+                    const catMode = String(node.properties ? (node.properties["category"] || "basic") : "basic").toLowerCase();
+                    if (!node.properties) node.properties = {};
+                    node.properties.expandable = (catMode === "basic");
+                    const secMode = String(node.properties ? (node.properties["operation"] || (catMode === "basic" ? "add" : "round")) : "add").toLowerCase();
+                    specList = (MODE_INPUT_SPECS["Basics/Math"] && MODE_INPUT_SPECS["Basics/Math"][secMode]) || MODE_INPUT_SPECS["Basics/Math"]["add"];
+                    const MATH_OUTPUT_SPECS = {
+                        "polar": [{ name: "X", type: "data" }, { name: "Y", type: "data" }],
+                        "intersect": [{ name: "X", type: "data" }, { name: "Y", type: "data" }, { name: "t", type: "data" }],
+                        "circle": [{ name: "Center X", type: "data" }, { name: "Center Y", type: "data" }, { name: "Radius", type: "data" }],
+                        "rotate": [{ name: "Out", type: "data" }, { name: "X", type: "data" }, { name: "Y", type: "data" }, { name: "Z", type: "data" }],
+                        "quadratic": [{ name: "Roots", type: "data" }],
+                        "cubic": [{ name: "Roots", type: "data" }],
+                        "resolve": [{ name: "Roots", type: "data" }],
+                        "equation": [{ name: "Roots", type: "data" }],
+                        "gauss": [{ name: "Solutions", type: "data" }],
+                        "matrix": [{ name: "Out", type: "data" }, { name: "Det", type: "data" }],
+                        "getpair": [{ name: "X", type: "data" }, { name: "Y", type: "data" }]
+                    };
+                    const reqOut = MATH_OUTPUT_SPECS[secMode] || [{ name: "Out", type: "data" }];
+                    const curOutNames = (node.outputs || []).map(o => o.name).join("|");
+                    const reqOutNames = reqOut.map(o => o.name).join("|");
+                    if (curOutNames !== reqOutNames) {
+                        const oldLinks = (node.outputs || []).map(o => o.links);
+                        node.outputs = reqOut.map((o, idx) => ({
+                            name: o.name,
+                            type: o.type,
+                            links: oldLinks[idx] || null
+                        }));
+                    }
                 } else if (nodeKey === "Array") {
                     const secMode = node.properties ? (node.properties["mode"] || "Grid") : "Grid";
                     specList = (MODE_INPUT_SPECS["Array"] && MODE_INPUT_SPECS["Array"][secMode]) || MODE_INPUT_SPECS["Array"]["Grid"];
@@ -4483,17 +4775,29 @@
                 } else if (nodeKey === "Frame to Time" || nodeKey === "Time/Frame to Time" || nodeKey === "Frame a Tiempo") {
                     const secMode = node.properties ? (node.properties["source"] || "Custom") : "Custom";
                     specList = (MODE_INPUT_SPECS[nodeKey] && MODE_INPUT_SPECS[nodeKey][secMode]) || (MODE_INPUT_SPECS["Frame to Time"] && MODE_INPUT_SPECS["Frame to Time"][secMode]) || MODE_INPUT_SPECS["Frame to Time"]["DEFAULT"];
-                } else if (nodeKey === "Union & Divide" || nodeKey === "Shape/Union & Divide" || nodeKey === "Unión y División" || title.includes("Union & Divide") || title.includes("Unión y División")) {
-                    const isFusion = (curMode === "Fusion (Tags)" || curMode === "FUSION" || curMode === "Fusión (Tags)");
-                    if (isFusion) {
-                        const tagMode = String((node.properties && node.properties.tagmode) ? node.properties.tagmode : "ipol").toLowerCase();
-                        const fusionKey = (tagMode === "line") ? "Fusion (Tags) (line)" : "Fusion (Tags) (ipol)";
-                        specList = (MODE_INPUT_SPECS[nodeKey] && MODE_INPUT_SPECS[nodeKey][fusionKey]) || (MODE_INPUT_SPECS["Union & Divide"] && MODE_INPUT_SPECS["Union & Divide"][fusionKey]) || getSpecFromSpecsTable(nodeKey, curMode);
+                } else if (nodeKey === "Builder" || nodeKey === "Basics/Builder" || title.includes("Builder") || title.includes("Constructor")) {
+                    const secMode = String(node.properties ? (node.properties["sub_mode"] || "splitter") : "splitter").toLowerCase();
+                    const curM = String((modeInfo ? modeInfo.currentFull : (node.properties ? node.properties.mode : "text")) || "text").toLowerCase();
+                    const combinedKey = `${curM}_${secMode}`;
+                    const srcVal = String(node.properties ? (node.properties.source || "active_unit") : "active_unit").toLowerCase();
+                    if ((combinedKey === "text_splitter" || combinedKey === "text_multi") && srcVal === "text_field") {
+                        const fieldKey = `${combinedKey}_field`;
+                        specList = (MODE_INPUT_SPECS["Builder"] && MODE_INPUT_SPECS["Builder"][fieldKey]) || (MODE_INPUT_SPECS["Builder"] && MODE_INPUT_SPECS["Builder"][combinedKey]);
                     } else {
-                        specList = getSpecFromSpecsTable(nodeKey, curMode);
+                        specList = (MODE_INPUT_SPECS["Builder"] && (MODE_INPUT_SPECS["Builder"][combinedKey] || MODE_INPUT_SPECS["Builder"][secMode])) || (MODE_INPUT_SPECS["Builder"] && MODE_INPUT_SPECS["Builder"]["DEFAULT"]);
                     }
                 } else {
                     specList = getSpecFromSpecsTable(nodeKey, curMode);
+                    if ((nodeKey === "Move Tag" || nodeKey === "Functions/Move Tag") && String(curMode).toLowerCase() === "shadtrick" && Array.isArray(specList) && isMoveTagShadtrickAssDraw(node)) {
+                        const withStep = [];
+                        for (const item of specList) {
+                            withStep.push(item);
+                            if (item && item.property === "points") {
+                                withStep.push({ name: "Step (px)", default: "7.5", property: "step_px" });
+                            }
+                        }
+                        specList = withStep;
+                    }
                 }
 
                 if (nodeKey === "MultiRandom") {
@@ -4668,7 +4972,7 @@
             if (node.properties && node.properties.expandable) {
                 const existingNames = new Set(fullSpecList.map(s => s.name));
                 oldInputs.forEach(oldInp => {
-                    if (oldInp && oldInp.name && !existingNames.has(oldInp.name)) {
+                    if (oldInp && oldInp.name && !existingNames.has(oldInp.name) && (oldInp.name.startsWith("In") || oldInp.name.startsWith("in"))) {
                         existingNames.add(oldInp.name);
                         const pKey = oldInp.property || oldInp.name;
                         const defVal = (node.properties && node.properties[pKey] !== undefined) ? String(node.properties[pKey]) : "";
@@ -4682,6 +4986,10 @@
 
             const isTagManip = (nodeKey === "Tag Manipulator" || nodeKey === "Functions/Tag Manipulator" || nodeKey === "Tags/Tag Manipulator" || title.includes("Tag Manipulator") || title.includes("Manipulador de Tags"));
             const startY = isTagManip ? 15 : 11;
+            const isExpandable = Boolean(node.properties && node.properties.expandable);
+            const headerSpecs = isExpandable ? fullSpecList.filter(s => !(s.name && (s.name.startsWith("In") || s.name.startsWith("in")))) : fullSpecList;
+            const inSpecs = isExpandable ? fullSpecList.filter(s => s.name && (s.name.startsWith("In") || s.name.startsWith("in"))) : [];
+
             fullSpecList.forEach((spec, idx) => {
                 const portName = spec.name;
                 const propKey = spec.property || portName;
@@ -4698,7 +5006,17 @@
                     remainingOldInputs.splice(oldInpIdx, 1);
                 }
 
-                const rowIdx = (spec.visualRow !== undefined) ? spec.visualRow : idx;
+                let rowIdx = (spec.visualRow !== undefined) ? spec.visualRow : idx;
+                if (isExpandable) {
+                    const isInputSlot = Boolean(spec.name && (spec.name.startsWith("In") || spec.name.startsWith("in")));
+                    if (isInputSlot) {
+                        const inIdx = inSpecs.indexOf(spec);
+                        rowIdx = headerSpecs.length + 1 + inIdx;
+                    } else {
+                        const hIdx = headerSpecs.indexOf(spec);
+                        rowIdx = (hIdx !== -1) ? hIdx : idx;
+                    }
+                }
                 const yPos = startY + rowIdx * 23;
                 const isNoSocket = !!spec.no_socket;
 
@@ -4754,12 +5072,8 @@
                             if (node._manual_width !== undefined) node._manual_width = node.size[0];
                             if (node._manual_height !== undefined) node._manual_height = node.size[1];
                         } else {
-                            const isFixedWNode = Boolean(title && (title.includes("Concentric") || title.includes("Bordes")));
-                            if (isFixedWNode) {
-                                node.size[0] = sz[0];
-                            } else {
-                                node.size[0] = Math.max(node.size[0], sz[0]);
-                            }
+                            const manualW = (node._manual_width !== undefined) ? node._manual_width : 0;
+                            node.size[0] = manualW > 0 ? Math.max(manualW, sz[0]) : sz[0];
                             node.size[1] = sz[1];
                         }
                     }
@@ -5181,23 +5495,6 @@
                             { full: "edges_to_center", short: "Edges", i18nKey: "nodes.modes.order_1d.edges_to_center" },
                             { full: "random", short: "Rand", i18nKey: "nodes.modes.order_1d.random" }
                         ];
-                        const ORDER_MODES_2D = [
-                            { full: "79", short: "79 (TL->BR)" },
-                            { full: "97", short: "97 (TR->BL)" },
-                            { full: "13", short: "13 (BL->TR)" },
-                            { full: "31", short: "31 (BR->TL)" },
-                            { full: "71", short: "71 (TL->BL)" },
-                            { full: "17", short: "17 (BL->TL)" },
-                            { full: "93", short: "93 (TR->BR)" },
-                            { full: "39", short: "39 (BR->TR)" },
-                            { full: "5", short: "5 (Radial)" },
-                            { full: "-5", short: "-5 (Implos)" },
-                            { full: "cw", short: "cw (CW)" },
-                            { full: "ccw", short: "ccw (CCW)" },
-                            { full: "rand", short: "Rand" },
-                            { full: "path", short: "Path" },
-                            { full: "path_inv", short: "PathInv" }
-                        ];
 
                         function get1DOrderObj(val) {
                             const s = String(val || "normal").trim().toLowerCase();
@@ -5556,6 +5853,141 @@
                             if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                             if (canvas && canvas.draw) canvas.draw(true, true);
                             if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("cap_mode-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (node.type === "Basics/Math" && (propKey === "cycle" || propKey === "sign" || propKey === "reals" || propKey === "is_row")) {
+                        const defaultBool = (propKey === "reals");
+                        const labelText = portName + ":";
+                        const computeBoolBtnMetrics = function() {
+                            const trLabel = (window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot(labelText) : labelText;
+                            const labelW = getExactTextWidth(trLabel, "bold 11px monospace");
+                            const btnX = Math.round(22 + labelW + 8);
+                            w._btnX = btnX;
+                            w._btnW = 32;
+                            return { trLabel, btnX };
+                        };
+                        computeBoolBtnMetrics();
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curVal = (n.properties && n.properties[propKey] !== undefined) ? n.properties[propKey] : (w.value !== undefined ? w.value : defaultBool);
+                            const isChecked = (curVal === true || curVal === "true" || curVal === "1" || curVal === 1);
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#94a3b8";
+                            ctx.textAlign = "left";
+                            const trLabel = (window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot(labelText) : labelText;
+                            ctx.fillText(trLabel, 22, drawY + 13);
+
+                            const labelW = ctx.measureText(trLabel).width;
+                            const btnX = Math.round(22 + labelW + 8);
+                            const boxSize = 16;
+                            w._btnX = btnX; w._btnW = 32;
+
+                            ctx.fillStyle = isChecked ? "#0f766e" : "#12161f";
+                            ctx.strokeStyle = isChecked ? "#2dd4bf" : "#475569";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY + 1, boxSize, boxSize, 4);
+                            else ctx.rect(btnX, drawY + 1, boxSize, boxSize);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            if (isChecked) {
+                                ctx.fillStyle = "#ffffff";
+                                ctx.textAlign = "center";
+                                ctx.font = "bold 11px sans-serif";
+                                ctx.fillText("✓", btnX + boxSize / 2, drawY + 13);
+                            }
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curVal = (node.properties && node.properties[propKey] !== undefined) ? node.properties[propKey] : defaultBool;
+                            const isChecked = (curVal === true || curVal === "true" || curVal === "1" || curVal === 1);
+                            const nextVal = !isChecked;
+                            if (!node.properties) node.properties = {};
+                            node.properties[propKey] = nextVal;
+                            w.value = nextVal;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("math_" + propKey + "-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (node.type === "Basics/Math" && (propKey === "seq_mode" || propKey === "get" || propKey === "axis" || propKey === "matrix_op")) {
+                        const getCycleList = function(n) {
+                            if (propKey === "seq_mode") {
+                                const op = String((n.properties && n.properties.operation) || "i").toLowerCase();
+                                return op === "count"
+                                    ? ["none", "+,-", "A,B", "mxA", "A>B", "ABA", "ABB", "ABC", "ACB", "N,n"]
+                                    : ["+,-", "A,B", "mxA", "A>B", "ABA", "ABB", "ABC", "ACB", "N,n"];
+                            }
+                            if (propKey === "get") return ["xy", "x", "y"];
+                            if (propKey === "axis") return ["z", "x", "y"];
+                            return ["mul", "add", "sub", "neg", "det", "inverse", "identity", "rotate", "eq", "toarray"];
+                        };
+                        const labelText = portName + ":";
+                        const computeCycleBtnMetrics = function(n) {
+                            const list = getCycleList(n);
+                            const curRaw = String((n.properties && n.properties[propKey] !== undefined) ? n.properties[propKey] : (w.value || list[0]));
+                            const curVal = list.find(v => v.toLowerCase() === curRaw.toLowerCase()) || list[0];
+                            const trLabel = (window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot(labelText) : labelText;
+                            const labelW = getExactTextWidth(trLabel, "bold 11px monospace");
+                            const valW = getExactTextWidth(curVal, "bold 11px monospace");
+                            w._btnX = Math.round(22 + labelW + 6);
+                            w._btnW = Math.max(48, Math.round(valW + 18));
+                        };
+                        computeCycleBtnMetrics(node);
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const list = getCycleList(n);
+                            const curRaw = String((n.properties && n.properties[propKey] !== undefined) ? n.properties[propKey] : (w.value || list[0]));
+                            const curVal = list.find(v => v.toLowerCase() === curRaw.toLowerCase()) || list[0];
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#94a3b8";
+                            ctx.textAlign = "left";
+                            const trLabel = (window.PyxisI18n && window.PyxisI18n.translateSlot) ? window.PyxisI18n.translateSlot(labelText) : labelText;
+                            ctx.fillText(trLabel, 22, drawY + 13);
+
+                            const labelW = ctx.measureText(trLabel).width;
+                            const btnX = Math.round(22 + labelW + 6);
+                            const valW = ctx.measureText(curVal).width;
+                            const btnW = Math.max(48, Math.round(valW + 18));
+                            const btnH = 18;
+                            w._btnX = btnX; w._btnW = btnW;
+
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#14b8a6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#99f6e4";
+                            ctx.textAlign = "center";
+                            ctx.fillText(curVal, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const list = getCycleList(node);
+                            const curRaw = String((node.properties && node.properties[propKey] !== undefined) ? node.properties[propKey] : list[0]);
+                            const curIdx = list.findIndex(v => v.toLowerCase() === curRaw.toLowerCase());
+                            const nextVal = list[(curIdx === -1 ? 0 : (curIdx + 1) % list.length)];
+                            if (!node.properties) node.properties = {};
+                            node.properties[propKey] = nextVal;
+                            w.value = nextVal;
+                            computeCycleBtnMetrics(node);
+                            if (node.computeSize) {
+                                const sz = node.computeSize();
+                                const manualW = (node._manual_width !== undefined) ? node._manual_width : 0;
+                                node.size = [manualW > 0 ? Math.max(manualW, sz[0]) : sz[0], sz[1]];
+                            }
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("math_" + propKey + "-change");
                             if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                         };
                     } else if (portName === "Close Path" || portName === "Cerrar Trazo" || propKey === "close_path") {
@@ -6182,6 +6614,286 @@
                             if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("split_mode-change");
                             if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
                         };
+                    } else if (portName === "Split By" || propKey === "split_by") {
+                        const SPLIT_BY_MODES = [
+                            { full: "syl", short: "Syl" },
+                            { full: "char", short: "Char" },
+                            { full: "word", short: "Word" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curVal = String((n.properties && n.properties.split_by) ? n.properties.split_by : (w.value || "syl")).toLowerCase();
+                            const mObj = SPLIT_BY_MODES.find(m => m.full.toLowerCase() === curVal || m.short.toLowerCase() === curVal) || SPLIT_BY_MODES[0];
+
+                            const btnX = 22;
+                            const btnW = 75;
+                            const btnH = 18;
+                            w._btnX = btnX; w._btnW = btnW;
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#8b5cf6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#38bdf8";
+                            ctx.textAlign = "center";
+                            ctx.fillText(mObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curVal = String((node.properties && node.properties.split_by) ? node.properties.split_by : "syl").toLowerCase();
+                            const curIdx = SPLIT_BY_MODES.findIndex(m => m.full.toLowerCase() === curVal || m.short.toLowerCase() === curVal);
+                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % SPLIT_BY_MODES.length);
+                            const nextObj = SPLIT_BY_MODES[nextIdx];
+                            if (!node.properties) node.properties = {};
+                            node.properties.split_by = nextObj.full;
+                            w.value = nextObj.full;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("split_by-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (portName === "Source" || propKey === "source") {
+                        const SOURCE_MODES = [
+                            { full: "active_unit", short: "Unit" },
+                            { full: "line", short: "Line" },
+                            { full: "text_field", short: "Field" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curVal = String((n.properties && n.properties.source) ? n.properties.source : (w.value || "active_unit")).toLowerCase();
+                            const mObj = SOURCE_MODES.find(m => m.full.toLowerCase() === curVal || m.short.toLowerCase() === curVal) || SOURCE_MODES[0];
+
+                            const btnX = 22;
+                            const btnW = 75;
+                            const btnH = 18;
+                            w._btnX = btnX; w._btnW = btnW;
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#8b5cf6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#38bdf8";
+                            ctx.textAlign = "center";
+                            ctx.fillText(mObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curVal = String((node.properties && node.properties.source) ? node.properties.source : "active_unit").toLowerCase();
+                            const curIdx = SOURCE_MODES.findIndex(m => m.full.toLowerCase() === curVal || m.short.toLowerCase() === curVal);
+                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % SOURCE_MODES.length);
+                            const nextObj = SOURCE_MODES[nextIdx];
+                            if (!node.properties) node.properties = {};
+                            node.properties.source = nextObj.full;
+                            w.value = nextObj.full;
+                            updateNodeModeInputs(node);
+                            if (node.computeSize) node.size = node.computeSize();
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("source-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (portName === "Split Mode" || propKey === "shape_split_mode") {
+                        const SHAPE_SPLIT_MODES = [
+                            { full: "subpaths", short: "Subpaths" },
+                            { full: "islands", short: "Islands" },
+                            { full: "raw_subpaths", short: "Raw" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curVal = String((n.properties && n.properties.shape_split_mode) ? n.properties.shape_split_mode : (w.value || "subpaths")).toLowerCase();
+                            const mObj = SHAPE_SPLIT_MODES.find(m => m.full.toLowerCase() === curVal || m.short.toLowerCase() === curVal) || SHAPE_SPLIT_MODES[0];
+
+                            const btnX = 22;
+                            const btnW = 75;
+                            const btnH = 18;
+                            w._btnX = btnX; w._btnW = btnW;
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#8b5cf6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#38bdf8";
+                            ctx.textAlign = "center";
+                            ctx.fillText(mObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curVal = String((node.properties && node.properties.shape_split_mode) ? node.properties.shape_split_mode : "subpaths").toLowerCase();
+                            const curIdx = SHAPE_SPLIT_MODES.findIndex(m => m.full.toLowerCase() === curVal || m.short.toLowerCase() === curVal);
+                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % SHAPE_SPLIT_MODES.length);
+                            const nextObj = SHAPE_SPLIT_MODES[nextIdx];
+                            if (!node.properties) node.properties = {};
+                            node.properties.shape_split_mode = nextObj.full;
+                            w.value = nextObj.full;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("shape_split_mode-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (portName === "Layout" || propKey === "shape_layout") {
+                        const SHAPE_LAYOUT_MODES = [
+                            { full: "auto", short: "Auto" },
+                            { full: "embedded_pos", short: "EmbedPos" },
+                            { full: "advance", short: "Advance" },
+                            { full: "stack", short: "Stack" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curVal = String((n.properties && n.properties.shape_layout) ? n.properties.shape_layout : (w.value || "auto")).toLowerCase();
+                            const mObj = SHAPE_LAYOUT_MODES.find(m => m.full.toLowerCase() === curVal || m.short.toLowerCase() === curVal) || SHAPE_LAYOUT_MODES[0];
+
+                            const btnX = 22;
+                            const btnW = 75;
+                            const btnH = 18;
+                            w._btnX = btnX; w._btnW = btnW;
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#8b5cf6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#38bdf8";
+                            ctx.textAlign = "center";
+                            ctx.fillText(mObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curVal = String((node.properties && node.properties.shape_layout) ? node.properties.shape_layout : "auto").toLowerCase();
+                            const curIdx = SHAPE_LAYOUT_MODES.findIndex(m => m.full.toLowerCase() === curVal || m.short.toLowerCase() === curVal);
+                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % SHAPE_LAYOUT_MODES.length);
+                            const nextObj = SHAPE_LAYOUT_MODES[nextIdx];
+                            if (!node.properties) node.properties = {};
+                            node.properties.shape_layout = nextObj.full;
+                            w.value = nextObj.full;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("shape_layout-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (portName === "Delim" || propKey === "delim") {
+                        const DELIM_MODES = [
+                            { full: ",", short: "Comma" },
+                            { full: ";", short: "Semicolon" },
+                            { full: "|", short: "Pipe" },
+                            { full: "newline", short: "Newline" },
+                            { full: "space", short: "Space" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const curVal = String((n.properties && n.properties.delim !== undefined) ? n.properties.delim : (w.value || ","));
+                            const mObj = DELIM_MODES.find(m => m.full === curVal || m.short.toLowerCase() === curVal.toLowerCase()) || DELIM_MODES[0];
+
+                            const btnX = 22;
+                            const btnW = 75;
+                            const btnH = 18;
+                            w._btnX = btnX; w._btnW = btnW;
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#12161f";
+                            ctx.strokeStyle = "#8b5cf6";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#38bdf8";
+                            ctx.textAlign = "center";
+                            ctx.fillText(mObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const curVal = String((node.properties && node.properties.delim !== undefined) ? node.properties.delim : ",");
+                            const curIdx = DELIM_MODES.findIndex(m => m.full === curVal || m.short.toLowerCase() === curVal.toLowerCase());
+                            const nextIdx = (curIdx === -1) ? 0 : ((curIdx + 1) % DELIM_MODES.length);
+                            const nextObj = DELIM_MODES[nextIdx];
+                            if (!node.properties) node.properties = {};
+                            node.properties.delim = nextObj.full;
+                            w.value = nextObj.full;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("delim-change");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
+                    } else if (portName === "Reset \\r" || portName === "Reset \\r:" || propKey === "inject_r") {
+                        const INJECT_R_MODES = [
+                            { full: "true", short: "ON" },
+                            { full: "false", short: "OFF" }
+                        ];
+                        w.draw = function(ctx, n, width, y, height) {
+                            const drawY = (w.last_y !== undefined) ? w.last_y : y;
+                            const rawProp = (n.properties && n.properties.inject_r !== undefined) ? n.properties.inject_r : (w.value !== undefined ? w.value : true);
+                            const isTrue = (rawProp === true || String(rawProp).toLowerCase() === "true" || String(rawProp) === "1" || String(rawProp).toLowerCase() === "on");
+                            const mObj = isTrue ? INJECT_R_MODES[0] : INJECT_R_MODES[1];
+
+                            ctx.save();
+                            ctx.font = "bold 11px monospace";
+                            ctx.fillStyle = "#94a3b8";
+                            ctx.textAlign = "left";
+                            const lText = "\\r:";
+                            ctx.fillText(lText, 22, drawY + 13);
+
+                            const labelW = ctx.measureText(lText).width;
+                            const btnX = Math.round(22 + labelW + 6);
+                            const btnW = Math.max(45, 97 - btnX);
+                            const btnH = 18;
+                            w._btnX = 22; w._btnW = (btnX + btnW) - 22;
+
+                            ctx.fillStyle = isTrue ? "#12161f" : "#181a20";
+                            ctx.strokeStyle = isTrue ? "#10b981" : "#64748b";
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(btnX, drawY, btnW, btnH, 5);
+                            else ctx.rect(btnX, drawY, btnW, btnH);
+                            ctx.fill();
+                            ctx.stroke();
+
+                            ctx.fillStyle = isTrue ? "#34d399" : "#94a3b8";
+                            ctx.textAlign = "center";
+                            ctx.fillText(mObj.short, btnX + btnW / 2, drawY + 13);
+                            ctx.restore();
+                        };
+                        w.onClick = function(canvas) {
+                            const rawProp = (node.properties && node.properties.inject_r !== undefined) ? node.properties.inject_r : true;
+                            const isTrue = (rawProp === true || String(rawProp).toLowerCase() === "true" || String(rawProp) === "1" || String(rawProp).toLowerCase() === "on");
+                            const nextVal = !isTrue;
+                            if (!node.properties) node.properties = {};
+                            node.properties.inject_r = nextVal;
+                            w.value = nextVal;
+                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            if (canvas && canvas.draw) canvas.draw(true, true);
+                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("builder-inject-r-toggle");
+                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                        };
                     }
                 } else {
                     setupSingleLineTextWidget(node, w, portName, propKey);
@@ -6190,64 +6902,67 @@
 
             if (node.properties && node.properties.expandable) {
                 if (node.widgets) {
-                    node.widgets = node.widgets.filter(w => w.name !== "add_sub_buttons");
+                    node.widgets = node.widgets.filter(w => w.name !== "add_sub_buttons" && w.name !== "+ / -");
                 }
+                const addSubRow = headerSpecs.length;
+                const addSubY = startY + addSubRow * 23;
                 const addSubWidget = {
                     name: "add_sub_buttons",
                     type: "custom",
                     width: 100,
+                    _visualRow: addSubRow,
+                    y: addSubY,
+                    last_y: addSubY,
                     draw: function(ctx, n, width, y, H) {
-                        const drawY = y + 4;
-                        this.last_y = drawY;
-                        const btnW = 34;
-                        const btnH = 22;
-                        const gap = 8;
-                        const totalW = btnW * 2 + gap;
-                        const x1 = Math.max(10, Math.floor((width - totalW) / 2));
-                        const x2 = x1 + btnW + gap;
+                        const drawY = (this.last_y !== undefined) ? this.last_y : y;
+                        const plusBtnX = 22;
+                        const plusBtnW = 26;
+                        const minusBtnX = 54;
+                        const minusBtnW = 26;
+                        const btnH = 18;
+                        const borderRadius = 5;
 
                         ctx.save();
-                        ctx.font = "bold 14px sans-serif";
-                        ctx.textAlign = "center";
-                        ctx.textBaseline = "middle";
-
-                        ctx.fillStyle = "#1e242d";
-                        ctx.strokeStyle = "#8b5cf6";
                         ctx.lineWidth = 1.5;
+
+                        // "+" Button (styled identically to Concatenate)
+                        ctx.fillStyle = "#12161f";
+                        ctx.strokeStyle = "#10b981";
                         ctx.beginPath();
-                        if (ctx.roundRect) ctx.roundRect(x1, drawY, btnW, btnH, 4);
-                        else ctx.rect(x1, drawY, btnW, btnH);
+                        if (ctx.roundRect) ctx.roundRect(plusBtnX, drawY, plusBtnW, btnH, borderRadius);
+                        else ctx.rect(plusBtnX, drawY, plusBtnW, btnH);
                         ctx.fill();
                         ctx.stroke();
 
-                        ctx.fillStyle = "#ffffff";
-                        ctx.fillText("+", x1 + btnW / 2, drawY + btnH / 2 + 1);
+                        ctx.fillStyle = "#a7f3d0";
+                        ctx.font = "bold 12px monospace";
+                        ctx.textAlign = "center";
+                        ctx.fillText("+", plusBtnX + plusBtnW / 2, drawY + 13);
 
-                        const minInputs = 2;
-                        const canRemove = n.inputs && (n.inputs.length > minInputs);
+                        // "-" Button (styled identically to Concatenate)
+                        const inCount = (n.inputs || []).filter(inp => inp && inp.name && (inp.name.startsWith("In") || inp.name.startsWith("in"))).length;
+                        const canRemove = inCount > 2;
 
-                        ctx.fillStyle = canRemove ? "#1e242d" : "#12151b";
-                        ctx.strokeStyle = canRemove ? "#ef4444" : "#4b5563";
+                        ctx.fillStyle = "#12161f";
+                        ctx.strokeStyle = canRemove ? "#ef4444" : "#475569";
                         ctx.beginPath();
-                        if (ctx.roundRect) ctx.roundRect(x2, drawY, btnW, btnH, 4);
-                        else ctx.rect(x2, drawY, btnW, btnH);
+                        if (ctx.roundRect) ctx.roundRect(minusBtnX, drawY, minusBtnW, btnH, borderRadius);
+                        else ctx.rect(minusBtnX, drawY, minusBtnW, btnH);
                         ctx.fill();
                         ctx.stroke();
 
-                        ctx.fillStyle = canRemove ? "#ffffff" : "#6b7280";
-                        ctx.fillText("-", x2 + btnW / 2, drawY + btnH / 2 + 1);
+                        ctx.fillStyle = canRemove ? "#fca5a5" : "#64748b";
+                        ctx.fillText("-", minusBtnX + minusBtnW / 2, drawY + 13);
 
                         ctx.restore();
                     },
                     callback: (w, canvas, n, pos, event) => {
                         const targetNode = n || (canvas && canvas.title ? canvas : node);
                         const localX = pos ? pos[0] : 0;
-                        const width = targetNode.size ? targetNode.size[0] : 140;
-                        const btnW = 34, gap = 8, totalW = btnW * 2 + gap;
-                        const x1 = Math.max(10, Math.floor((width - totalW) / 2));
-                        const x2 = x1 + btnW + gap;
+                        const plusBtnX = 22, plusBtnW = 26;
+                        const minusBtnX = 54, minusBtnW = 26;
 
-                        if (localX >= x1 - 4 && localX <= x1 + btnW + 4) {
+                        if (localX >= plusBtnX - 2 && localX <= plusBtnX + plusBtnW + 2) {
                             const inputs = targetNode.inputs || [];
                             let inCount = 0;
                             for (let inp of inputs) {
@@ -6256,8 +6971,8 @@
                                     if (!isNaN(num) && num > inCount) inCount = num;
                                 }
                             }
-                            const nextName = "In" + (inCount > 0 ? (inCount + 1) : (inputs.length + 1));
-                            targetNode.addInput(nextName, "data");
+                            const nextName = "In" + (inCount > 0 ? (inCount + 1) : 1);
+                            targetNode.addInput(nextName, 0);
                             if (!targetNode.properties) targetNode.properties = {};
                             targetNode.properties[nextName] = "";
                             updateNodeModeInputs(targetNode);
@@ -6266,30 +6981,54 @@
                             if (activeCanvas) activeCanvas.setDirty(true, true);
                             if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("add-input");
                             if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
-                        } else if (localX >= x2 - 4 && localX <= x2 + btnW + 4) {
-                            if (targetNode.inputs && targetNode.inputs.length > 2) {
-                                const lastInp = targetNode.inputs[targetNode.inputs.length - 1];
-                                const lastProp = lastInp ? (lastInp.property || lastInp.name) : null;
-                                targetNode.removeInput(targetNode.inputs.length - 1);
-                                if (lastProp && targetNode.properties && targetNode.properties[lastProp] !== undefined) {
-                                    delete targetNode.properties[lastProp];
+                            return true;
+                        } else if (localX >= minusBtnX - 2 && localX <= minusBtnX + minusBtnW + 2) {
+                            const inputs = targetNode.inputs || [];
+                            const inInputs = inputs.filter(inp => inp && inp.name && (inp.name.startsWith("In") || inp.name.startsWith("in")));
+                            if (inInputs.length > 2) {
+                                let lastInIdx = -1;
+                                for (let i = inputs.length - 1; i >= 0; i--) {
+                                    if (inputs[i] && inputs[i].name && (inputs[i].name.startsWith("In") || inputs[i].name.startsWith("in"))) {
+                                        lastInIdx = i;
+                                        break;
+                                    }
                                 }
-                                updateNodeModeInputs(targetNode);
-                                if (targetNode.computeSize) targetNode.size = targetNode.computeSize();
-                                const activeCanvas = LGraphCanvas.active_canvas || canvas;
-                                if (activeCanvas) activeCanvas.setDirty(true, true);
-                                if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("remove-input");
-                                if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                                if (lastInIdx !== -1) {
+                                    const lastInp = inputs[lastInIdx];
+                                    const lastProp = lastInp ? (lastInp.property || lastInp.name) : null;
+                                    targetNode.removeInput(lastInIdx);
+                                    if (lastProp && targetNode.properties && targetNode.properties[lastProp] !== undefined) {
+                                        delete targetNode.properties[lastProp];
+                                    }
+                                    updateNodeModeInputs(targetNode);
+                                    if (targetNode.computeSize) targetNode.size = targetNode.computeSize();
+                                    const activeCanvas = LGraphCanvas.active_canvas || canvas;
+                                    if (activeCanvas) activeCanvas.setDirty(true, true);
+                                    if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("remove-input");
+                                    if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                                    return true;
+                                }
                             }
                         }
+                        return false;
                     }
                 };
-                node.addWidget("custom", "+ / -", null, addSubWidget.callback, addSubWidget);
+                node.addWidget("custom", "add_sub_buttons", null, null, addSubWidget);
                 const addedW = node.widgets[node.widgets.length - 1];
                 addedW.draw = addSubWidget.draw;
+                addedW.callback = addSubWidget.callback;
+                addedW._visualRow = addSubRow;
+                addedW.y = addSubY;
+                addedW.last_y = addSubY;
+
+                const curIdx = node.widgets.indexOf(addedW);
+                if (curIdx !== -1 && curIdx !== headerSpecs.length) {
+                    node.widgets.splice(curIdx, 1);
+                    node.widgets.splice(headerSpecs.length, 0, addedW);
+                }
             }
 
-remainingOldInputs.forEach(unmatchedInp => {
+            remainingOldInputs.forEach(unmatchedInp => {
                 if (unmatchedInp && unmatchedInp.link !== null && unmatchedInp.link !== undefined) {
                     const oldLinkId = unmatchedInp.link;
                     if (graph && graph.links && graph.links[oldLinkId]) {
@@ -6324,15 +7063,15 @@ remainingOldInputs.forEach(unmatchedInp => {
                     node.size = [finalW, finalH];
                     node._customSize = [finalW, finalH];
                 } else {
-                    node.size = [Math.max(curW, sz[0]), sz[1]];
+                    const manualW = (node._manual_width !== undefined) ? node._manual_width : 0;
+                    node.size = [manualW > 0 ? Math.max(manualW, sz[0]) : sz[0], sz[1]];
                 }
             }
         }
 
         const CONCATENATE_MODES = [
             { full: "basic", short: "BASIC" },
-            { full: "zip", short: "ZIP" },
-            { full: "merge", short: "MERGE" }
+            { full: "zip", short: "ZIP" }
         ];
         window.CONCATENATE_MODES = CONCATENATE_MODES;
 
@@ -6589,7 +7328,7 @@ remainingOldInputs.forEach(unmatchedInp => {
 
                 if (node_name === "Color Picker") {
                     setupColorPickerNode(this);
-                } else if (node_name === "MultiTag" || definition.node_kind === "tag_master") {
+                } else if (definition.node_kind === "tag_master") {
                     (definition.widgets || []).forEach(widget => {
                         const property = widget.property;
                         const initialValue = this.properties[property] !== undefined ? this.properties[property] : (widget.default || "");
@@ -6649,6 +7388,8 @@ remainingOldInputs.forEach(unmatchedInp => {
                     setupScriptCodeNode(this);
                 } else if (node_name === "Concatenate") {
                     setupConcatenateNode(this);
+                } else if (node_name === "Builder" || node_name.includes("Builder")) {
+                    setupBuilderNode(this);
                 } else if (node_name === "Glitter" || node_name.includes("Glitter")) {
                     setupGlitterNode(this);
                 } else if (node_name === "Once" || node_name.includes("Once")) {
@@ -6792,8 +7533,8 @@ remainingOldInputs.forEach(unmatchedInp => {
                     "widgets": []
                 },
                 "Math": {
-                    "node_kind": "math", "inputs": ["A", "B"], "outputs": ["Out"], "color": "#0D9488",
-                    "properties": { "category": "basic", "operation": "add" },
+                    "node_kind": "math", "inputs": ["In1", "In2"], "outputs": ["Out"], "color": "#0D9488",
+                    "properties": { "category": "basic", "operation": "add", "expandable": true, "in1": "0", "in2": "0" },
                     "widgets": []
                 },
                 "Once": {
@@ -6870,9 +7611,9 @@ remainingOldInputs.forEach(unmatchedInp => {
                     "inputs": ["Loop In", "Tags", "Layer", "Start Time", "End Time", "Origin Align", "Queue ID", "Queue Order"],
                     "outputs": ["Preview"],
                     "color": "#8B0000",
-                    "properties": { "apply_to": "all", "queue_id": "", "queue_order": "", "origin_align": 5 },
+                    "properties": { "apply_to": "Sel. Lines", "queue_id": "", "queue_order": "", "origin_align": 5 },
                     "widgets": [
-                        { "type": "combo", "name": "Apply to:", "property": "apply_to", "values": ["all", "selected", "style"] }
+                        { "type": "combo", "name": "Apply to:", "property": "apply_to", "values": ["Sel. Lines", "Style Lines", "All Lines"] }
                     ]
                 },
                 "Previewer": {
@@ -7177,6 +7918,8 @@ remainingOldInputs.forEach(unmatchedInp => {
             let manifest = {}; let sessionData = ""; let userConfig = null;
             
             let attempts = 0;
+            let manifestLoaded = false;
+            let lastManifestError = null;
             while (attempts < 20) {
                 if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.get_manifest === "function") {
                     try {
@@ -7184,14 +7927,20 @@ remainingOldInputs.forEach(unmatchedInp => {
                         const rawManifest = await window.pywebview.api.get_manifest();
                         if (rawManifest && rawManifest.trim().length > 0) {
                             manifest = JSON.parse(rawManifest);
+                            manifestLoaded = true;
                             break;
                         }
                     } catch (e) {
-                        console.warn("Pyxis: retrying IPC manifest read...", attempts);
+                        lastManifestError = e;
                     }
                 }
                 attempts++;
                 await new Promise(r => setTimeout(r, 50));
+            }
+            if (manifestLoaded) {
+                console.info(`Pyxis: IPC manifest loaded (attempts: ${attempts + 1}).`);
+            } else {
+                console.error("Pyxis: failed to read IPC manifest after 20 attempts.", lastManifestError || "");
             }
 
             if (window.pywebview && window.pywebview.api) {
@@ -7279,10 +8028,30 @@ remainingOldInputs.forEach(unmatchedInp => {
                                     if (liveNode) p.node = liveNode;
                                 }
                                 const curSrc = (p.node && p.node.properties && p.node.properties.preview_source) || "base";
-                                const connectedOutputs = (p.node && typeof resolveConnectedOutputsForPreview === "function")
-                                    ? resolveConnectedOutputsForPreview(p.node)
-                                    : [];
-                                const hasAegi = Boolean(window.PyxisPreviewConfigAegi ? window.PyxisPreviewConfigAegi.has_aegisub : (window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub));
+                                const resolveFn = (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.resolveConnectedOutputsForPreview === "function")
+                                    ? window.PyxisNodePlayerManager.resolveConnectedOutputsForPreview
+                                    : (typeof resolveConnectedOutputsForPreview === "function" ? resolveConnectedOutputsForPreview : null);
+                                const connectedOutputs = (p.node && resolveFn) ? resolveFn(p.node) : [];
+                                let perNodeInfo = null;
+                                if (typeof window.pywebview.api.get_preview_info === "function") {
+                                    try {
+                                        perNodeInfo = await window.pywebview.api.get_preview_info(curSrc, connectedOutputs, serialized);
+                                        if (perNodeInfo) {
+                                            if (!p.previewInfoBySource) p.previewInfoBySource = {};
+                                            p.previewInfoBySource[curSrc] = perNodeInfo;
+                                            p.previewInfo = perNodeInfo;
+                                            window.PyxisPreviewConfig = perNodeInfo;
+                                            if (curSrc === "base") window.PyxisPreviewConfigBase = perNodeInfo;
+                                            if (curSrc === "aegisub") window.PyxisPreviewConfigAegi = perNodeInfo;
+                                        }
+                                    } catch (infoErr) {
+                                        console.warn("[Pyxis Daemon per-player get_preview_info warning]", infoErr);
+                                    }
+                                }
+                                const hasAegi = Boolean(
+                                    (perNodeInfo && perNodeInfo.has_aegisub) ||
+                                    (window.PyxisPreviewConfigAegi ? window.PyxisPreviewConfigAegi.has_aegisub : (window.PyxisPreviewConfig && window.PyxisPreviewConfig.has_aegisub))
+                                );
                                 p.hasAegisub = hasAegi;
                                 if (typeof window.PyxisNodePlayerManager.updateSourceButtonUI === "function") {
                                     window.PyxisNodePlayerManager.updateSourceButtonUI(nId, curSrc, hasAegi);
@@ -7325,7 +8094,7 @@ remainingOldInputs.forEach(unmatchedInp => {
                                             }
                                         } catch(e) {}
                                     }
-                                    const activeInfo = updatedInfoBase || window.PyxisPreviewConfigBase;
+                                    const activeInfo = perNodeInfo || updatedInfoBase || window.PyxisPreviewConfigBase;
                                     if (p.node && activeInfo && activeInfo.aspect_ratio) {
                                         p.node.preview_aspect_ratio = activeInfo.aspect_ratio;
                                         if (p.node.properties) p.node.properties.preview_aspect_ratio = activeInfo.aspect_ratio;
@@ -7397,7 +8166,7 @@ remainingOldInputs.forEach(unmatchedInp => {
                                             }
                                         } catch(e) {}
                                     }
-                                    const activeInfo = updatedInfoAegi || window.PyxisPreviewConfigAegi;
+                                    const activeInfo = perNodeInfo || updatedInfoAegi || window.PyxisPreviewConfigAegi;
                                     if (p.node && activeInfo && activeInfo.aspect_ratio) {
                                         p.node.preview_aspect_ratio = activeInfo.aspect_ratio;
                                         if (p.node.properties) p.node.properties.preview_aspect_ratio = activeInfo.aspect_ratio;
@@ -7430,6 +8199,17 @@ remainingOldInputs.forEach(unmatchedInp => {
                                             if (window.canvas) { window.canvas.setDirty(true, true); window.canvas.draw(true, true); }
                                         }
                                     }
+                                }
+                                if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.getPreviewBounds === "function" && p.art) {
+                                    const b = window.PyxisNodePlayerManager.getPreviewBounds(nId);
+                                    const curT = Number(p.art.currentTime);
+                                    if (!isFinite(curT) || curT < (b.winStart - 0.05) || curT > (b.winEnd + 0.05)) {
+                                        try { p.art.seek = b.winStart; } catch(e) {}
+                                        try { p.art.currentTime = b.winStart; } catch(e) {}
+                                    }
+                                }
+                                if (typeof p.updateTimeUI === "function") {
+                                    try { p.updateTimeUI(); } catch(e) {}
                                 }
                                 if (window.PyxisNodePlayerManager && typeof window.PyxisNodePlayerManager.setPlayerLoading === "function") {
                                     window.PyxisNodePlayerManager.setPlayerLoading(nId, false);
@@ -7531,33 +8311,38 @@ remainingOldInputs.forEach(unmatchedInp => {
 
                 let loadedSuccessfully = false;
                 let sessionGraphExtra = null;
-                if (sessionData) {
-                    try {
-                        const saved_graph = JSON.parse(sessionData);
-                        if (saved_graph && Array.isArray(saved_graph.nodes) && saved_graph.nodes.length > 0) {
-                            graph.clear();
-                            graph.configure(saved_graph);
-                            sessionGraphExtra = saved_graph.extra || null;
-                            const valid_nodes = graph._nodes ? graph._nodes.filter(n => n && !n.has_errors && n.type) : [];
-                            if (valid_nodes.length > 0) {
-                                loadedSuccessfully = true;
-                                const activeTplId = (saved_graph.extra && saved_graph.extra.active_template_id) ? saved_graph.extra.active_template_id : (localStorage.getItem("pyxis_active_template_id") || null);
-                                const activeTplName = (saved_graph.extra && saved_graph.extra.active_template_name) ? saved_graph.extra.active_template_name : (localStorage.getItem("pyxis_active_template_name") || null);
-                                window.__pyxis_active_template_id = activeTplId;
-                                window.__pyxis_active_template_name = activeTplName;
-                                if (!activeTplId) {
-                                    localStorage.removeItem("pyxis_active_template_id");
-                                    localStorage.removeItem("pyxis_active_template_name");
+                window.__pyxis_is_restoring_session = true;
+                try {
+                    if (sessionData) {
+                        try {
+                            const saved_graph = JSON.parse(sessionData);
+                            if (saved_graph && Array.isArray(saved_graph.nodes) && saved_graph.nodes.length > 0) {
+                                graph.clear();
+                                graph.configure(saved_graph);
+                                sessionGraphExtra = saved_graph.extra || null;
+                                const valid_nodes = graph._nodes ? graph._nodes.filter(n => n && !n.has_errors && n.type) : [];
+                                if (valid_nodes.length > 0) {
+                                    loadedSuccessfully = true;
+                                    const activeTplId = (saved_graph.extra && saved_graph.extra.active_template_id) ? saved_graph.extra.active_template_id : (localStorage.getItem("pyxis_active_template_id") || null);
+                                    const activeTplName = (saved_graph.extra && saved_graph.extra.active_template_name) ? saved_graph.extra.active_template_name : (localStorage.getItem("pyxis_active_template_name") || null);
+                                    window.__pyxis_active_template_id = activeTplId;
+                                    window.__pyxis_active_template_name = activeTplName;
+                                    if (!activeTplId) {
+                                        localStorage.removeItem("pyxis_active_template_id");
+                                        localStorage.removeItem("pyxis_active_template_name");
+                                    }
                                 }
                             }
+                        } catch (error) {
+                            console.error("Pyxis: sesión inválida, recurriendo a preset por defecto", error);
                         }
-                    } catch (error) {
-                        console.error("Pyxis: sesión inválida, recurriendo a preset por defecto", error);
                     }
-                }
-                if (!loadedSuccessfully) {
-                    console.warn("Pyxis: no se detectaron nodos válidos en la sesión, cargando preset predeterminado.");
-                    loadDefaultGraph();
+                    if (!loadedSuccessfully) {
+                        console.warn("Pyxis: no se detectaron nodos válidos en la sesión, cargando preset predeterminado.");
+                        loadDefaultGraph();
+                    }
+                } finally {
+                    window.__pyxis_is_restoring_session = false;
                 }
 
                 if (typeof syncWidgetsToProperties === "function") {

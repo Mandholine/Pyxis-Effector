@@ -45,9 +45,20 @@
             }
             migrateTagProperties(node.properties);
 
+            function resolveTagDefKey(rawType) {
+                const raw = String(rawType || "pos").trim();
+                if (typeof TAG_DEFINITIONS !== "undefined") {
+                    if (TAG_DEFINITIONS[raw]) return raw;
+                    const low = raw.toLowerCase();
+                    const found = Object.keys(TAG_DEFINITIONS).find(k => k.toLowerCase() === low);
+                    if (found) return found;
+                }
+                return raw.toLowerCase();
+            }
+
             node.computeSize = function() {
                 const props = this.properties || node.properties || {};
-                const tagKey = (props.tag_type || "pos").toLowerCase();
+                const tagKey = resolveTagDefKey(props.tag_type);
                 const tagDef = TAG_DEFINITIONS[tagKey] || { params: ["Value"] };
                 const reqParams = tagDef.params || ["Value"];
                 
@@ -69,7 +80,7 @@
             node.updateTagInputs = updateTagInputs;
 
             function updateTagInputs() {
-                const tagKey = (node.properties.tag_type || "pos").toLowerCase();
+                const tagKey = resolveTagDefKey(node.properties.tag_type);
                 const tagDef = TAG_DEFINITIONS[tagKey] || { params: ["Value"], defaults: { Valor: "" } };
                 const reqParams = tagDef.params || ["Value"];
                 
@@ -190,13 +201,7 @@
                         const btnX = this.size[0] - btnW - 8;
 
                         if (local_pos[0] >= btnX - 4 && local_pos[0] <= btnX + btnW + 6) {
-                            const nextIdx = (modeInfo.currentIdx + 1) % modeInfo.modeList.length;
-                            const nextMode = modeInfo.modeList[nextIdx];
-                            this.properties.tag_type = nextMode.full;
-                            updateTagInputs();
-                            if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
-                            if (window.PyxisUndoManager) window.PyxisUndoManager.recordState("mode-cycle");
-                            if (window.__pyxis_schedule_save) window.__pyxis_schedule_save(50);
+                            openTagGridPicker(this, null, e);
                             return true;
                         }
                     }
@@ -252,7 +257,7 @@
                     });
                 }
 
-                const tagKey = (this.properties.tag_type || "pos").toLowerCase();
+                const tagKey = resolveTagDefKey(this.properties.tag_type);
                 let previewStr = "\\" + tagKey;
                 
                 const tagDef = TAG_DEFINITIONS[tagKey] || { params: ["Value"] };
@@ -263,8 +268,10 @@
                     return formatPreviewVal(tagKey, raw);
                 }).filter(v => v !== "");
                 
-                if (["pos", "move", "org", "fad", "fade", "clip", "iclip", "t"].includes(tagKey)) {
+                if (["pos", "move", "org", "fad", "fade", "clip", "iclip", "t"].includes(tagKey) || tagKey.endsWith("R")) {
                     previewStr += "(" + vals.join(",") + ")";
+                } else if (tagKey.endsWith("~")) {
+                    previewStr = "\\" + tagKey;
                 } else if (vals.length > 0) {
                     previewStr += vals.join("");
                 }

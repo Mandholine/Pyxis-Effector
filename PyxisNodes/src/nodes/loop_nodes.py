@@ -38,7 +38,7 @@ from decorators import pyxis_node, system_node
 
 
 @pyxis_node("Loops", "Main Loop", [])
-def main_loop_node(context, iterator="syl", blank_mode="no_blank"):
+def main_loop_node(context, iterator="syl", blank_mode="no_blank", preserve_tags=True):
     """
     Evaluates the primary unit iteration index or serves as the root entry point.
 
@@ -48,6 +48,7 @@ def main_loop_node(context, iterator="syl", blank_mode="no_blank"):
         context (dict or FxContext): Active execution context containing 'active_unit'.
         iterator (str): Unit iteration level ('syl', 'char', 'word', 'line').
         blank_mode (str): Blank unit filtering mode ('no_blank', 'with_blanks').
+        preserve_tags (bool): Whether to preserve and remap original ASS override tags.
 
     Returns:
         str: 1-based unit index as a string (e.g. '1', '2'), defaulting to '1'.

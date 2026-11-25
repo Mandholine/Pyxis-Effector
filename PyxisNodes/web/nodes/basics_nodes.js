@@ -449,8 +449,7 @@
 
             const CONCATENATE_MODES = window.CONCATENATE_MODES || [
                 { full: "basic", short: "BASIC" },
-                { full: "zip", short: "ZIP" },
-                { full: "merge", short: "MERGE" }
+                { full: "zip", short: "ZIP" }
             ];
 
             const CONCATENATE_SEPARATORS = window.CONCATENATE_SEPARATORS || [
@@ -648,7 +647,7 @@
 
                 ctx.save();
 
-                // 1. Header mode pill button (BASIC / ZIP / MERGE)
+                // 1. Header mode pill button (BASIC / ZIP)
                 const curMode = String(this.properties ? (this.properties.mode || "basic") : "basic");
                 let curIdx = CONCATENATE_MODES.findIndex(m => m.full.toLowerCase() === curMode.toLowerCase() || m.short.toLowerCase() === curMode.toLowerCase());
                 if (curIdx < 0) curIdx = 0;
@@ -812,6 +811,19 @@ function setupDynamicInlineNode(node) {
                         links: oldLinks[idx] || null
                     }));
                 }
+            } else if (node.title === "Builder" || node.title === "Constructor" || (node.type && String(node.type).endsWith("/Builder"))) {
+                const reqOutputs = [
+                    { name: "Return", type: "data" },
+                    { name: "Items Out", type: "data" }
+                ];
+                if (!node.outputs || node.outputs.length !== reqOutputs.length) {
+                    const oldLinks = (node.outputs || []).map(o => o.links);
+                    node.outputs = reqOutputs.map((o, idx) => ({
+                        name: o.name,
+                        type: o.type,
+                        links: oldLinks[idx] || null
+                    }));
+                }
             }
 
             node.updateTagInputs = function() {
@@ -911,7 +923,8 @@ function setupDynamicInlineNode(node) {
                                             this.size = [finalW, finalH];
                                             this._customSize = [finalW, finalH];
                                         } else {
-                                            this.size = this.computeSize();
+                                            const manualW = (this._manual_width !== undefined) ? this._manual_width : 0;
+                                            this.size = [manualW > 0 ? Math.max(manualW, sz[0]) : sz[0], sz[1]];
                                         }
                                     }
                                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
@@ -928,12 +941,13 @@ function setupDynamicInlineNode(node) {
                                     const nextIdx = (modeInfo.currentIdx + 1) % modeInfo.modeList.length;
                                     const nextMode = modeInfo.modeList[nextIdx];
                                     this.properties[modeInfo.propKey] = nextMode.full;
-                                    if (modeInfo.key === "Math") {
-                                        const entry = DYNAMIC_NODE_MODES["Math"];
-                                        const map = entry.secondaryModesMap[nextMode.full] || entry.secondaryModesMap["Basico"];
+                                    if (modeInfo.key === "Basics/Math") {
+                                        const entry = DYNAMIC_NODE_MODES["Basics/Math"];
+                                        const map = entry.secondaryModesMap[nextMode.full] || entry.secondaryModesMap["numeric"];
                                         if (map && map.length > 0) {
                                             this.properties[entry.secondaryPropKey] = map[0].full;
                                         }
+                                        this.properties.expandable = (nextMode.full === "basic");
                                     }
                                     const titleStr = String(this.title || this.type || "");
                                     const isAnimNodeMode = (modeInfo.key === "Animation" || modeInfo.key === "Functions/Animation" || titleStr.includes("Animation") || (this.type && String(this.type).includes("Animation")));
@@ -948,7 +962,8 @@ function setupDynamicInlineNode(node) {
                                             this.size = [finalW, finalH];
                                             this._customSize = [finalW, finalH];
                                         } else {
-                                            this.size = this.computeSize();
+                                            const manualW = (this._manual_width !== undefined) ? this._manual_width : 0;
+                                            this.size = [manualW > 0 ? Math.max(manualW, sz[0]) : sz[0], sz[1]];
                                         }
                                     }
                                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
@@ -1002,9 +1017,9 @@ function setupDynamicInlineNode(node) {
                             for (let i = 0; i < this.widgets.length; i++) {
                                 const w = this.widgets[i];
                                 if (w) {
-                                    if (w.name === "add_sub_buttons" && w.callback) {
+                                    if ((w.name === "add_sub_buttons" || w.name === "+ / -") && w.callback) {
                                         const yMin = (w.last_y !== undefined) ? w.last_y : w.y;
-                                        if (local_pos[1] >= yMin - 4 && local_pos[1] <= yMin + 28) {
+                                        if (local_pos[1] >= yMin - 2 && local_pos[1] <= yMin + 20) {
                                             w.callback(w, canvas, this, local_pos, e);
                                             return true;
                                         }
@@ -1116,22 +1131,39 @@ function setupDynamicInlineNode(node) {
                 updateNodeModeInputs(this);
                 if (this.computeSize) {
                     const sz = this.computeSize();
-                    const isFixedWNode = Boolean(this.title && (String(this.title).includes("Concentric") || String(this.title).includes("Bordes")));
-                    if (isFixedWNode) {
-                        this.size = [sz[0], sz[1]];
-                    } else if (this.size && Array.isArray(this.size)) {
-                        this.size[0] = Math.max(this.size[0], sz[0]);
-                        this.size[1] = sz[1];
-                    } else {
-                        this.size = [sz[0], sz[1]];
-                    }
+                    const manualW = (this._manual_width !== undefined) ? this._manual_width : 0;
+                    this.size = [manualW > 0 ? Math.max(manualW, sz[0]) : sz[0], sz[1]];
                 }
             };
 
+            if (node.type === "Functions/Move Tag" || node.title === "Move Tag") {
+                const refreshMoveTagUi = (target) => {
+                    updateNodeModeInputs(target);
+                    if (target.computeSize) {
+                        const sz = target.computeSize();
+                        const manualW = (target._manual_width !== undefined) ? target._manual_width : 0;
+                        target.size = [manualW > 0 ? Math.max(manualW, sz[0]) : sz[0], sz[1]];
+                    }
+                    if (target.setDirtyCanvas) target.setDirtyCanvas(true, true);
+                };
+                const oldConnChange = node.onConnectionsChange;
+                node.onConnectionsChange = function(type, slot, connected, link_info, input_info) {
+                    if (oldConnChange) oldConnChange.call(this, type, slot, connected, link_info, input_info);
+                    if (type === LiteGraph.INPUT) refreshMoveTagUi(this);
+                };
+                const oldPropChanged = node.onPropertyChanged;
+                node.onPropertyChanged = function(name, value) {
+                    if (oldPropChanged) oldPropChanged.call(this, name, value);
+                    if (name === "points" || name === "mode") refreshMoveTagUi(this);
+                };
+            }
+
             node.computeSize = function() {
-                let max_input_w = 0;
+                const numOutputs = (this.outputs && this.outputs.length) ? this.outputs.length : 0;
+                let max_input_w_top = 0;
+                let max_input_w_bot = 0;
                 const nodeInputs = this.inputs || [];
-                nodeInputs.forEach(inp => {
+                nodeInputs.forEach((inp, idx) => {
                     const inpName = inp.name || "";
                     const specProp = inp.property || inpName;
                     let v = "";
@@ -1139,7 +1171,12 @@ function setupDynamicInlineNode(node) {
                         if (this.properties[specProp] !== undefined) v = String(this.properties[specProp]);
                         else if (this.properties[inpName] !== undefined) v = String(this.properties[inpName]);
                     }
-                    let vToMeasure = v || inpName;
+                    let placeholder = inpName;
+                    if (window.PyxisI18n && window.PyxisI18n.translateSlot) {
+                        placeholder = window.PyxisI18n.translateSlot(inpName);
+                    }
+                    let vToMeasure = v || placeholder;
+                    let tw = 0;
                     if (v && (isFilePathPropOrVal(specProp, v) || isCompactTextPropOrVal(specProp, v))) {
                         if (isFilePathPropOrVal(specProp, v)) {
                             const parts = v.replace(/\\/g, "/").split("/");
@@ -1147,20 +1184,38 @@ function setupDynamicInlineNode(node) {
                         } else {
                             vToMeasure = v.length > 10 ? (v.substring(0, 10) + "...") : v;
                         }
-                        const tw = Math.min(65, getExactTextWidth(vToMeasure, "bold 11px Consolas, monospace"));
-                        if (tw > max_input_w) max_input_w = tw;
+                        tw = Math.min(65, getExactTextWidth(vToMeasure, "bold 11px Consolas, monospace"));
                     } else {
-                        const tw = getExactTextWidth(vToMeasure, "bold 11px Consolas, monospace");
-                        if (tw > max_input_w) max_input_w = tw;
+                        tw = getExactTextWidth(vToMeasure, "bold 11px Consolas, monospace");
+                    }
+                    let row = idx;
+                    if (inp.pos && inp.pos[1] !== undefined) {
+                        row = Math.round((inp.pos[1] - 20) / 23);
+                    }
+                    if (row < numOutputs) {
+                        if (tw > max_input_w_top) max_input_w_top = tw;
+                    } else {
+                        if (tw > max_input_w_bot) max_input_w_bot = tw;
                     }
                 });
 
                 if (this.widgets) {
-                    this.widgets.forEach(w => {
+                    this.widgets.forEach((w, idx) => {
                         if (!w) return;
+                        if (w.name === "add_sub_buttons" || w.name === "+ / -") return;
                         if (w._boxW !== undefined) return;
+                        const row = (w._visualRow !== undefined) ? w._visualRow : idx;
                         const isBtnWidget = (w.type === "button" || w._isButton || (w.spec && w.spec.type === "button") || typeof w.onClick === "function");
-                        if (isBtnWidget) return;
+                        if (isBtnWidget) {
+                            const btnRight = (w._btnX !== undefined && w._btnW !== undefined) ? (w._btnX + w._btnW) : 97;
+                            const effInputW = Math.max(0, btnRight - 22 - 28);
+                            if (row < numOutputs) {
+                                if (effInputW > max_input_w_top) max_input_w_top = effInputW;
+                            } else {
+                                if (effInputW > max_input_w_bot) max_input_w_bot = effInputW;
+                            }
+                            return;
+                        }
                         const p = w.property;
                         let v = "";
                         if (this.properties && p && this.properties[p] !== undefined) {
@@ -1168,7 +1223,12 @@ function setupDynamicInlineNode(node) {
                         } else if (w.value !== undefined) {
                             v = String(w.value);
                         }
-                        let vToMeasure = v || w.name || "";
+                        let placeholder = w.name || "";
+                        if (window.PyxisI18n && window.PyxisI18n.translateSlot) {
+                            placeholder = window.PyxisI18n.translateSlot(placeholder);
+                        }
+                        let vToMeasure = v || placeholder;
+                        let tw = 0;
                         if (v && (isFilePathPropOrVal(p, v) || isCompactTextPropOrVal(p, v))) {
                             if (isFilePathPropOrVal(p, v)) {
                                 const parts = v.replace(/\\/g, "/").split("/");
@@ -1176,11 +1236,14 @@ function setupDynamicInlineNode(node) {
                             } else {
                                 vToMeasure = v.length > 10 ? (v.substring(0, 10) + "...") : v;
                             }
-                            const tw = Math.min(65, getExactTextWidth(vToMeasure, "bold 11px Consolas, monospace"));
-                            if (tw > max_input_w) max_input_w = tw;
+                            tw = Math.min(65, getExactTextWidth(vToMeasure, "bold 11px Consolas, monospace"));
                         } else {
-                            const tw = getExactTextWidth(vToMeasure, "bold 11px Consolas, monospace");
-                            if (tw > max_input_w) max_input_w = tw;
+                            tw = getExactTextWidth(vToMeasure, "bold 11px Consolas, monospace");
+                        }
+                        if (row < numOutputs) {
+                            if (tw > max_input_w_top) max_input_w_top = tw;
+                        } else {
+                            if (tw > max_input_w_bot) max_input_w_bot = tw;
                         }
                     });
                 }
@@ -1200,21 +1263,23 @@ function setupDynamicInlineNode(node) {
                 const modeInfo = getTitleModeInfo(this);
                 let modeW = 0;
                 if (modeInfo) {
-                    modeW = Math.max(35, getExactTextWidth(modeInfo.currentShort, "bold 10px monospace") + 12);
+                    modeW = Math.max(38, getExactTextWidth(modeInfo.currentShort, "bold 10px monospace") + 10);
                     if (modeInfo.secondaryModes) {
-                        modeW += Math.max(35, getExactTextWidth(modeInfo.secondaryShort, "bold 10px monospace") + 12);
+                        modeW += Math.max(35, getExactTextWidth(modeInfo.secondaryShort, "bold 10px monospace") + 10) + 5;
                     }
                     if (modeInfo.tertiaryModes) {
                         modeW += 26;
                     }
                     if (modeInfo.isSlicer || modeInfo.isShapesLib) {
-                                        modeW += 26;
+                        modeW += 26;
                     }
                 }
 
                 const titleText = String(this.title || this.type || "");
-                const titleW = getExactTextWidth(titleText, "bold 12px sans-serif");
-                const boxW = Math.max(65, Math.ceil(max_input_w + 28));
+                const translatedTitle = (window.PyxisI18n && window.PyxisI18n.translateNodeTitle) ? window.PyxisI18n.translateNodeTitle(titleText) : titleText;
+                const titleW = Math.max(getExactTextWidth(titleText, "bold 12px sans-serif"), getExactTextWidth(translatedTitle, "bold 12px sans-serif"));
+                const boxWTop = Math.max(65, Math.ceil(max_input_w_top + 28));
+                const boxWBot = Math.max(65, Math.ceil(max_input_w_bot + 28));
                 const right_space = getNodeRightReserve(this);
                 const isTextNode = (titleText === "Text" || titleText === "Texto" || (this.type && (String(this.type).endsWith("/Text") || String(this.type).endsWith("Text") || String(this.type).endsWith("Texto"))));
                 const minBaseW = (titleText === "Math" || (this.type && this.type.includes("Math"))) ? 165 : (isTextNode ? 155 : 175);
@@ -1224,6 +1289,7 @@ function setupDynamicInlineNode(node) {
                     titleText === "Multi" ||
                     titleText === "Array" ||
                     titleText === "Union & Divide" || titleText === "Unir y Dividir" ||
+                    titleText === "Builder" || titleText === "Constructor" || (this.type && String(this.type).endsWith("/Builder")) ||
                     titleText.includes("Text to Particle") || titleText.includes("From Text") ||
                     titleText.includes("Particles") || titleText.includes("Particle") ||
                     titleText.includes("IMG to pixels") || titleText.includes("IMG to Pixels") ||
@@ -1243,7 +1309,9 @@ function setupDynamicInlineNode(node) {
                     });
                 }
                 const maxRows = Math.max(nodeInputs.length, widgetRows, (this.outputs ? this.outputs.length : 0));
-                let req_w = Math.max(minBaseW, 22 + boxW + right_space, titleW + modeW + 54);
+                const rowTopW = (numOutputs > 0) ? (22 + boxWTop + right_space) : (22 + boxWTop + 18);
+                const rowBotW = 22 + boxWBot + 18;
+                let req_w = Math.max(minBaseW, rowTopW, rowBotW, titleW + modeW + 54);
                 let req_h = 11 + maxRows * 23 + (hasLoopFooter ? 24 : 22);
 
                 if (titleText === "Animation" || titleText === "Animación" || (this.type && String(this.type).includes("Animation"))) {
@@ -1253,7 +1321,7 @@ function setupDynamicInlineNode(node) {
                 if (titleText === "Tag Manipulator" || titleText === "Manipulador de Tags" || (this.type && String(this.type).includes("Tag Manipulator"))) {
                     const titleMeasure = Math.max(getExactTextWidth(titleText, "bold 12px sans-serif"), getExactTextWidth("Manipulador de Tags", "bold 12px sans-serif"));
                     const headerMinW = Math.max(240, Math.ceil(titleMeasure + modeW + 68));
-                    req_w = Math.max(headerMinW, 22 + boxW + right_space);
+                    req_w = Math.max(headerMinW, rowTopW, rowBotW);
                 }
 
                 if (titleText === "Slicer" || titleText === "Multi" || titleText === "Array" || titleText === "Arreglo") {
@@ -1280,6 +1348,9 @@ function setupDynamicInlineNode(node) {
                     req_w = Math.max(req_w, 195);
                 } else if (titleText.includes("Time to Frame") || titleText.includes("Tiempo a Frame") || titleText.includes("Frame to Time") || titleText.includes("Frame a Tiempo") || (this.type && (String(this.type).includes("Time to Frame") || String(this.type).includes("Frame to Time")))) {
                     req_w = Math.max(req_w, Math.ceil((titleW + modeW + 54) * 1.10), 220);
+                } else if (titleText === "Builder" || titleText === "Constructor" || (this.type && String(this.type).endsWith("/Builder"))) {
+                    req_w = Math.max(req_w, 200);
+                    req_h = 11 + maxRows * 23 + 22;
                 }
 
                 const isShapesLib = titleText === "Library" || titleText === "Biblioteca" || (this.type && String(this.type).endsWith("/Library"));
@@ -1298,7 +1369,7 @@ function setupDynamicInlineNode(node) {
                 }
                 if (this.properties && this.properties.expandable) {
                     req_w = Math.max(req_w, 160);
-                    req_h = 11 + nodeInputs.length * 23 + 28;
+                    req_h = Math.max(req_h, 11 + maxRows * 23 + 22);
                 }
                 return [req_w, req_h];
             };
@@ -1529,6 +1600,8 @@ function setupDynamicInlineNode(node) {
                     footerCounterText = "b_i, b_n";
                 } else if (titleText.includes("Clip Gradient")) {
                     footerCounterText = "c_i, c_n";
+                } else if (titleText === "Builder" || titleText === "Constructor" || (this.type && String(this.type).endsWith("/Builder"))) {
+                    footerCounterText = "bu_i, bu_n";
                 } else if (titleText === "Animation" || titleText === "Animación" || titleText.includes("Animation") || (this.type && String(this.type).includes("Animation"))) {
                     const varName = (this.properties && this.properties.var_name) ? String(this.properties.var_name).trim() : "an";
                     footerCounterText = `${varName}_i, ${varName}_n`;
@@ -3753,6 +3826,15 @@ function setupDynamicInlineNode(node) {
         }
 
         
+        function setupBuilderNode(node) {
+            if (!node) return;
+            if (!node.properties) node.properties = {};
+            if (node.properties.expandable === undefined) node.properties.expandable = true;
+            if (node.properties.inject_r === undefined) node.properties.inject_r = true;
+            setupDynamicInlineNode(node);
+        }
+
+        window.setupBuilderNode = setupBuilderNode;
         window.setupConcatenarNode = setupConcatenateNode;
         window.setupConcatenateNode = setupConcatenateNode;
         window.setupFormatDinamicoNode = setupDynamicFormatNode;

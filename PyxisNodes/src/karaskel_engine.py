@@ -1258,6 +1258,59 @@ class KaraskelEngine:
                             max_h = syl.height
                     return
 
+            if platform.system() != "Windows":
+                total_seg_chars = sum(
+                    len(s.prespace) + len(s.text_spacestripped) + len(s.postspace)
+                    for s in line.kara
+                )
+                if total_seg_chars == len(line.text_stripped):
+                    char_widths = FontEngine.get_char_widths(eff_line_style, line.text_stripped)
+                    if len(char_widths) == len(line.text_stripped):
+                        corr = meta.video_x_correct_factor
+                        cum_x = [0.0]
+                        acc_w = 0.0
+                        for idx_w, w_c in enumerate(char_widths):
+                            acc_w += w_c
+                            cum_x.append(acc_w * corr + idx_w * eff_sp)
+
+                        c_idx = 0
+                        max_h = line.height
+                        for syl in line.kara:
+                            pre_len = len(syl.prespace)
+                            pre_start = cum_x[c_idx]
+                            syl.prespace_left = pre_start
+                            if pre_len > 0:
+                                pre_end = cum_x[c_idx + pre_len]
+                                syl.prespacewidth = pre_end - pre_start
+                                c_idx += pre_len
+
+                            txt_len = len(syl.text_spacestripped)
+                            txt_start = cum_x[c_idx]
+                            if txt_len > 0:
+                                txt_end = cum_x[c_idx + txt_len]
+                                syl.left = txt_start
+                                syl.right = txt_end
+                                syl.width = txt_end - txt_start
+                                syl.center = syl.left + syl.width / 2.0
+                                c_idx += txt_len
+                            else:
+                                syl.left = txt_start
+                                syl.right = txt_start
+                                syl.center = txt_start
+                                syl.width = 0.0
+
+                            post_len = len(syl.postspace)
+                            post_start = cum_x[c_idx]
+                            syl.postspace_left = post_start
+                            if post_len > 0:
+                                post_end = cum_x[c_idx + post_len]
+                                syl.postspacewidth = post_end - post_start
+                                c_idx += post_len
+
+                            if syl.height > max_h:
+                                max_h = syl.height
+                        return
+
             prefix = ""
             max_h = line.height
 

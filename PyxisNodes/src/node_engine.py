@@ -15,16 +15,18 @@
 # For any question you can visit: https://discord.gg/fsxRESeQZN
 
 
-import math 
-import os 
-import re 
-import time 
-import threading 
-import multiprocessing 
-import concurrent .futures 
+import atexit
+import math
+import os
+import re
+import sys
+import time
+import threading
+import multiprocessing
+import concurrent .futures
 from collections import OrderedDict
 from typing import Any, Dict, Optional, List, Tuple 
-from utils import format_time 
+from utils import format_time, quantize_ass_ms 
 from decorators import NODE_REGISTRY ,PYXIS_DB 
 import nodes_library 
 from models import PyxisLine ,PyxisUnit 
@@ -82,6 +84,177 @@ def _to_int_or_default (value ,default ,context =None ):
         return int (round (float (default )))
     except (TypeError ,ValueError ):
         return 0 
+
+
+def normalize_apply_to (value :Any )->str :
+    """Normalize an Output node's ``apply_to`` mode into canonical form.
+
+    Returns one of ``'all'``, ``'style'``, or ``'selected'``. Empty or
+    unrecognized values safely default to ``'selected'``.
+    """
+    raw =str (value if value is not None else "").strip ().lower ()
+    if raw in ("all","all lines"):
+        return "all"
+    if raw in ("style","style lines"):
+        return "style"
+    return "selected"
+
+
+def is_comment_dialogue_item (item :Any )->bool :
+    """Return True if a raw dialogue dict or PyxisLine represents an ASS Comment."""
+    if getattr (item ,"is_comment",False ):
+        return True 
+    raw_line =item .get ("raw","")if isinstance (item ,dict )else getattr (item ,"raw","")
+    raw_str =str (raw_line or "").lstrip ()
+    return raw_str .startswith ("Comment:")or raw_str .startswith ("Comment :")
+
+
+def extract_dialogue_ass_text(item: Any) -> Optional[str]:
+    """Extract raw ASS Text content from a dialogue dict or PyxisLine, or None if absent."""
+    if isinstance(item, dict):
+        if "raw_text" in item and item["raw_text"] is not None:
+            return str(item["raw_text"])
+        if "raw" in item and item["raw"] is not None:
+            raw_str = str(item["raw"])
+            if "," in raw_str:
+                parts = raw_str.split(",", 9)
+                if len(parts) >= 10:
+                    return parts[9]
+        if "text" in item and item["text"] is not None:
+            return str(item["text"])
+        if "text_stripped" in item and item["text_stripped"] is not None:
+            return str(item["text_stripped"])
+        return None
+
+    raw_text = getattr(item, "raw_text", None)
+    if raw_text is not None:
+        return str(raw_text)
+    raw_line = getattr(item, "raw", None)
+    if raw_line is not None:
+        raw_str = str(raw_line)
+        if "," in raw_str:
+            parts = raw_str.split(",", 9)
+            if len(parts) >= 10:
+                return parts[9]
+    text_stripped = getattr(item, "text_stripped", None)
+    if text_stripped is not None:
+        return str(text_stripped)
+    text_val = getattr(item, "text", None)
+    if text_val is not None:
+        return str(text_val)
+    return None
+
+
+def has_empty_ass_text(item: Any) -> bool:
+    """Return True if a dialogue item has a Text field with no visible content."""
+    ass_text = extract_dialogue_ass_text(item)
+    if ass_text is None:
+        return False
+    return ass_text.strip() == "" or not _final_text_has_content(ass_text)
+
+
+def is_vetoed_dialogue_item(item: Any) -> bool:
+    """Return True if a dialogue item is excluded (ASS Comment or empty/invisible Text)."""
+    return is_comment_dialogue_item(item) or has_empty_ass_text(item)
+
+
+def is_dialogue_item_selected (item :Any )->bool :
+    """Extract the boolean selection state from a raw dialogue dict or PyxisLine."""
+    if isinstance (item ,dict ):
+        if item .get ("is_selected"):
+            return True 
+        metrics =item .get ("metrics")
+        if isinstance (metrics ,dict )and metrics .get ("sel"):
+            return True 
+        return False 
+    return bool (getattr (item ,"is_selected",False ))
+
+
+def get_dialogue_item_style (item :Any )->str :
+    """Extract the trimmed ASS style name from a raw dialogue dict or PyxisLine."""
+    if isinstance (item ,dict ):
+        st_dict =item .get ("style_name")
+        if st_dict is not None :
+            return str (st_dict ).strip ()
+    else :
+        style =getattr (item ,"style_name",None )
+        if style is not None :
+            return str (style ).strip ()
+    raw_line =item .get ("raw","")if isinstance (item ,dict )else getattr (item ,"raw","")
+    raw_str =str (raw_line or "")
+    if ","in raw_str :
+        parts =raw_str .split (",")
+        if len (parts )>3 :
+            return parts [3 ].strip ()
+    return ""
+
+
+def resolve_first_style_in_order(items: List[Any], allow_fallback: bool = True) -> set:
+    """Return a single-element set with the first active style in appearance order.
+
+    Scans non-vetoed items in file order and picks the style of the first
+    selected item. When no non-vetoed items are selected and ``allow_fallback``
+    is True, falls back to the style of the first non-vetoed item.
+    """
+    first_valid_style = ""
+    for item in items:
+        if is_vetoed_dialogue_item(item):
+            continue
+        style_name = get_dialogue_item_style(item)
+        if not first_valid_style and style_name:
+            first_valid_style = style_name
+        if is_dialogue_item_selected(item) and style_name:
+            return {style_name}
+    if allow_fallback and first_valid_style:
+        return {first_valid_style}
+    return set()
+
+
+def resolve_target_dialogue_indices (
+items :List [Any ],
+apply_to_modes :List [str ],
+allow_fallback :bool =True ,
+)->Tuple [List [int ],set ]:
+    """Compute the union of 0-based indices targeted by Output ``apply_to`` modes.
+
+    Returns ``(ordered_matching_indices, resolved_style_set)`` over non-vetoed
+    items in appearance order. When ``allow_fallback`` is True and no non-vetoed
+    item is selected, ``'selected'`` targets only the first non-vetoed item and
+    ``'style'`` targets all non-vetoed items matching that first item's style.
+    """
+    modes ={normalize_apply_to (m )for m in (apply_to_modes or ["selected"])}
+    if not modes :
+        modes ={"selected"}
+
+    valid_entries =[]
+    has_selected =False 
+    for idx ,item in enumerate (items ):
+        if is_vetoed_dialogue_item(item):
+            continue
+        is_sel =is_dialogue_item_selected (item )
+        if is_sel :
+            has_selected =True 
+        valid_entries .append ((idx ,item ,is_sel ,get_dialogue_item_style (item )))
+
+    if not valid_entries :
+        return [],set ()
+
+    style_set =resolve_first_style_in_order (items ,allow_fallback =allow_fallback )if "style"in modes else set ()
+
+    matched_indices =[]
+    for pos ,(orig_idx ,_item ,is_sel ,st_name )in enumerate (valid_entries ):
+        include =False 
+        if "all"in modes :
+            include =True 
+        elif "style"in modes and st_name and st_name in style_set :
+            include =True 
+        if not include and "selected"in modes :
+            if is_sel or (not has_selected and allow_fallback and pos ==0 ):
+                include =True 
+        if include :
+            matched_indices .append (orig_idx )
+
+    return matched_indices ,style_set 
 
 
 def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional [Dict [str ,Any ]]=None )->str :
@@ -154,9 +327,8 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional 
         t_cnt =0 
         for m_str in matches :
             if not m_str :continue 
-            if m_str .startswith ('\\pos'):k ='pos'
+            if m_str .startswith ('\\pos') or m_str .startswith ('\\move'):k ='pos_move'
             elif m_str .startswith ('\\org'):k ='org'
-            elif m_str .startswith ('\\move'):k ='move'
             elif m_str .startswith ('\\iclip'):k ='iclip'
             elif m_str .startswith ('\\clip'):k ='clip'
             elif m_str .startswith ('\\fad')or m_str .startswith ('\\fade'):k ='fad'
@@ -221,7 +393,7 @@ def merge_ass_tags (return_tags_str :str ,port_tags_str :str ,context :Optional 
 
     sorted_keys =sorted (ret_dict .keys (),key =lambda k :(
     0 if k =='an'else 
-    1 if k in ('pos','move')else 
+    1 if k in ('pos','move','pos_move')else 
     2 if k =='org'else 
     3 if k in ('1c','2c','3c','4c','alpha','1a','2a','3a','4a')else 
     8 if k .startswith (('t_','ret_t_','port_t_'))else 
@@ -479,6 +651,16 @@ def _apply_fx_setting(name, value, context):
         context["val_start"] = val
         context["st_overridden"] = True
         context["defvars_st"] = val
+        if "fx_end_time" in context and context["fx_end_time"] is not None:
+            try:
+                dyn_dur = round(max(0.0, float(context["fx_end_time"]) - val), 3)
+                context["fx_dur"] = dyn_dur
+                context["effect_dur"] = dyn_dur
+                context["dur"] = dyn_dur
+                context["duration"] = dyn_dur
+                context["val_dur"] = dyn_dur
+            except Exception:
+                pass
         # Do not mutate active unit ground-truth timing attributes (start_time, st).
         # Subtitle units (syl, char, word, line) must preserve their original karaoke metrics.
     elif name in ("end_time", "et", "time_end", "time_fin", "fx_end_time", "fx_et"):
@@ -491,13 +673,37 @@ def _apply_fx_setting(name, value, context):
         context["val_end"] = val
         context["et_overridden"] = True
         context["defvars_et"] = val
+        if "fx_start_time" in context and context["fx_start_time"] is not None:
+            try:
+                dyn_dur = round(max(0.0, val - float(context["fx_start_time"])), 3)
+                context["fx_dur"] = dyn_dur
+                context["effect_dur"] = dyn_dur
+                context["dur"] = dyn_dur
+                context["duration"] = dyn_dur
+                context["val_dur"] = dyn_dur
+            except Exception:
+                pass
         # Do not mutate active unit ground-truth timing attributes (end_time, et).
     elif name in ("dur", "duration", "time_dur", "fx_dur"):
         val = float(value)
         context["fx_dur"] = val
+        context["effect_dur"] = val
         context["dur"] = val
         context["duration"] = val
         context["val_dur"] = val
+        if "fx_start_time" in context and context["fx_start_time"] is not None:
+            try:
+                et_val = round(float(context["fx_start_time"]) + val, 3)
+                context["fx_end_time"] = et_val
+                context["fx_et"] = et_val
+                context["effect_et"] = et_val
+                context["end_time"] = et_val
+                context["et"] = et_val
+                context["val_end"] = et_val
+                context["et_overridden"] = True
+                context["defvars_et"] = et_val
+            except Exception:
+                pass
         # Do not mutate active unit ground-truth duration metrics (dur, duration).
     elif name in ("org_x", "fx_org_x"):
         val = float(value)
@@ -636,31 +842,48 @@ def _apply_set_vars_to_context_helper(vars_str, context, active_unit=None):
             _apply_fx_setting(target_key, val_typed, context)
             _propagate_alias_changes(context, [target_key], active_unit, line_obj)
 
-    for part in str(vars_str).replace(';', '\n').split('\n'):
+    from string_evaluator import (
+        split_statements_outside_quotes,
+        strip_inline_comments_outside_quotes,
+        eval_pyxis_expr,
+        protect_ass_backslashes_in_quotes,
+    )
+
+    _EVAL_SENTINEL = object()
+    for part in split_statements_outside_quotes(str(vars_str)):
         part_clean = part.strip()
         if not part_clean or part_clean.startswith('#') or part_clean.startswith('--'):
             continue
         if '=' in part_clean:
             key, val_expr = part_clean.split('=', 1)
             key = key.strip()
-            val_expr = val_expr.strip()
+            val_expr = strip_inline_comments_outside_quotes(val_expr)
             if key and val_expr:
                 targets = [t.strip() for t in key.split(',') if t.strip()]
                 if not targets or all(_is_reserved_defvars_target(t) for t in targets):
                     continue
 
-                _EVAL_SENTINEL = object()
                 eval_res = _EVAL_SENTINEL
+                prev_label = context.get("_active_callsite_label") if isinstance(context, dict) else None
+                if isinstance(context, dict):
+                    context["_active_callsite_label"] = f"defvar:{key}"
                 try:
-                    from string_evaluator import eval_python_expr
-                    eval_res = eval_python_expr(val_expr, context, default=_EVAL_SENTINEL)
-                except Exception:
-                    eval_res = _EVAL_SENTINEL
+                    try:
+                        eval_res = eval_pyxis_expr(val_expr, context, default=_EVAL_SENTINEL)
+                    except Exception:
+                        eval_res = _EVAL_SENTINEL
 
-                if eval_res is _EVAL_SENTINEL:
-                    eval_res = execute_python_script(context, val_expr, {})
+                    if eval_res is _EVAL_SENTINEL:
+                        val_expr_safe = protect_ass_backslashes_in_quotes(val_expr)
+                        eval_res = execute_python_script(context, val_expr_safe, {})
+                finally:
+                    if isinstance(context, dict):
+                        if prev_label is None:
+                            context.pop("_active_callsite_label", None)
+                        else:
+                            context["_active_callsite_label"] = prev_label
                 _restore_reserved()
-                if not str(eval_res).startswith("[Err Python Script:"):
+                if eval_res is not _EVAL_SENTINEL and not str(eval_res).startswith("[Err Python Script:"):
                     from utils import to_pyxis_num
                     val_typed = to_pyxis_num(eval_res, default=eval_res)
                 else:
@@ -674,7 +897,8 @@ def _apply_set_vars_to_context_helper(vars_str, context, active_unit=None):
                         _assign_single_target(t_k, val_typed)
                 _restore_reserved()
         else:
-            execute_python_script(context, part_clean, {})
+            part_safe = protect_ass_backslashes_in_quotes(strip_inline_comments_outside_quotes(part_clean))
+            execute_python_script(context, part_safe, {})
             _restore_reserved()
 
 
@@ -707,17 +931,13 @@ class FxContext:
             return getattr (ShapePresetsNamespace (),name [6 :])
 
 
-        if name in ("dur", "duration"):
-            for k in ("fx_dur", "effect_dur", "dur", "duration"):
-                if k in self._ctx and self._ctx[k] is not None:
-                    return self._ctx[k]
-            if "fx_end_time" in self._ctx and "fx_start_time" in self._ctx:
-                return max(0.0, float(self._ctx["fx_end_time"]) - float(self._ctx["fx_start_time"]))
-            u = self._ctx.get("active_unit")
-            l = self._ctx.get("line")
-            return getattr(u, "duration", getattr(u, "dur", getattr(l, "duration", 0.0)))
+        dirty = getattr(self._ctx, "dirty_keys", None)
 
-        if name in ("start_time", "st"):
+        if name in ("start_time", "st", "time_start"):
+            if dirty:
+                for k in ("st", "start_time", "val_start", "start", "fx_start_time", "fx_st"):
+                    if k in dirty and k in self._ctx and self._ctx[k] is not None:
+                        return self._ctx[k]
             for k in ("fx_start_time", "fx_st", "effect_st", "start_time", "st", "unit_abs_start_time"):
                 if k in self._ctx and self._ctx[k] is not None:
                     return self._ctx[k]
@@ -728,7 +948,11 @@ class FxContext:
                 return line_st + float(getattr(u, "start_time", 0.0))
             return getattr(l, "start_time", 0.0)
 
-        if name in ("end_time", "et"):
+        if name in ("end_time", "et", "time_end"):
+            if dirty:
+                for k in ("et", "end_time", "val_end", "end", "fx_end_time", "fx_et"):
+                    if k in dirty and k in self._ctx and self._ctx[k] is not None:
+                        return self._ctx[k]
             for k in ("fx_end_time", "fx_et", "effect_et", "end_time", "et", "unit_abs_end_time"):
                 if k in self._ctx and self._ctx[k] is not None:
                     return self._ctx[k]
@@ -738,6 +962,52 @@ class FxContext:
             if u is not None and u is not l and hasattr(u, "end_time"):
                 return line_st + float(getattr(u, "end_time", 0.0))
             return getattr(l, "end_time", 0.0)
+
+        if name in ("dur", "duration", "time_dur"):
+            if dirty:
+                st_or_et_dirty = any(
+                    k in dirty for k in (
+                        "st", "start_time", "val_start", "start", "fx_start_time", "fx_st",
+                        "et", "end_time", "val_end", "end", "fx_end_time", "fx_et",
+                    )
+                )
+                dur_dirty = any(k in dirty for k in ("dur", "duration", "val_dur", "fx_dur", "time_dur"))
+                if dur_dirty and not st_or_et_dirty:
+                    for k in ("dur", "duration", "val_dur", "fx_dur", "time_dur"):
+                        if k in dirty and k in self._ctx and self._ctx[k] is not None:
+                            return self._ctx[k]
+                if st_or_et_dirty:
+                    st_val = self.__getattr__("start_time")
+                    et_val = self.__getattr__("end_time")
+                    if st_val is not None and et_val is not None:
+                        return round(max(0.0, float(et_val) - float(st_val)), 3)
+            has_start_bound = (
+                self._ctx.get("active_unit") is not None
+                or self._ctx.get("line") is not None
+                or any(
+                    self._ctx.get(k) is not None
+                    for k in ("fx_start_time", "fx_st", "effect_st", "start_time", "st", "unit_abs_start_time")
+                )
+            )
+            has_end_bound = (
+                self._ctx.get("active_unit") is not None
+                or self._ctx.get("line") is not None
+                or any(
+                    self._ctx.get(k) is not None
+                    for k in ("fx_end_time", "fx_et", "effect_et", "end_time", "et", "unit_abs_end_time")
+                )
+            )
+            if has_start_bound and has_end_bound:
+                st_val = self.__getattr__("start_time")
+                et_val = self.__getattr__("end_time")
+                if st_val is not None and et_val is not None:
+                    return round(max(0.0, float(et_val) - float(st_val)), 3)
+            for k in ("fx_dur", "effect_dur", "dur", "duration"):
+                if k in self._ctx and self._ctx[k] is not None:
+                    return self._ctx[k]
+            u = self._ctx.get("active_unit")
+            l = self._ctx.get("line")
+            return getattr(u, "duration", getattr(u, "dur", getattr(l, "duration", 0.0)))
 
 
         if name in ("x","pos_x"):
@@ -1319,31 +1589,104 @@ _PROFILER_ENABLED =False
 _GLOBAL_ACTIVE_EXECUTOR =None 
 _WORKER_LINE_COUNTER =None 
 _WORKER_CANCEL_FLAG =None 
+_PERSISTENT_POOL =None 
+_PERSISTENT_POOL_WORKERS =0 
+_PERSISTENT_POOL_COUNTER =None 
+_PERSISTENT_POOL_CANCEL =None 
+_PERSISTENT_POOL_LOCK =threading .RLock ()
 
-def _worker_init(line_counter, cancel_flag):
+
+def _is_spawn_platform ()->bool :
+    """Return True when the active multiprocessing backend starts workers via 'spawn'."""
+    try :
+        method =multiprocessing .get_start_method (allow_none =True )
+        if method :
+            return method =="spawn"
+    except Exception :
+        pass 
+    return os .name =="nt"or sys .platform =="darwin"
+
+
+def _worker_init (line_counter ,cancel_flag ):
     """Initialise global telemetry synchronization and cancellation flags in multiprocessing workers.
 
     Args:
         line_counter: Shared multiprocessing Value or integer tracking completed lines.
         cancel_flag: Shared multiprocessing Value or Event indicating execution cancellation.
     """
-    global _WORKER_LINE_COUNTER, _WORKER_CANCEL_FLAG 
-    _WORKER_LINE_COUNTER = line_counter 
-    _WORKER_CANCEL_FLAG = cancel_flag 
+    global _WORKER_LINE_COUNTER ,_WORKER_CANCEL_FLAG 
+    _WORKER_LINE_COUNTER =line_counter 
+    _WORKER_CANCEL_FLAG =cancel_flag 
 
-def abort_global_multiprocessing():
-    """Cancel pending generation futures and asynchronously terminate the active process pool.
+
+def _get_or_create_persistent_pool (max_workers :int ):
+    """Return a warm persistent ProcessPoolExecutor and reset shared synchronization values."""
+    global _PERSISTENT_POOL ,_PERSISTENT_POOL_WORKERS ,_PERSISTENT_POOL_COUNTER ,_PERSISTENT_POOL_CANCEL 
+    with _PERSISTENT_POOL_LOCK :
+        pool_broken =bool (getattr (_PERSISTENT_POOL ,"_broken",False ))if _PERSISTENT_POOL is not None else False 
+        if (
+            _PERSISTENT_POOL is not None 
+            and not pool_broken 
+            and _PERSISTENT_POOL_WORKERS >=max_workers 
+            and _PERSISTENT_POOL_COUNTER is not None 
+            and _PERSISTENT_POOL_CANCEL is not None 
+        ):
+            _PERSISTENT_POOL_COUNTER .value =0 
+            _PERSISTENT_POOL_CANCEL .value =False 
+            return _PERSISTENT_POOL ,_PERSISTENT_POOL_COUNTER ,_PERSISTENT_POOL_CANCEL 
+
+        if _PERSISTENT_POOL is not None :
+            try :
+                _PERSISTENT_POOL .shutdown (wait =False ,cancel_futures =True )
+            except Exception :
+                pass 
+            _PERSISTENT_POOL =None 
+            _PERSISTENT_POOL_WORKERS =0 
+
+        _PERSISTENT_POOL_COUNTER =multiprocessing .Value ('i',0 )
+        _PERSISTENT_POOL_CANCEL =multiprocessing .Value ('b',False )
+        _PERSISTENT_POOL =concurrent .futures .ProcessPoolExecutor (
+            max_workers =max_workers ,
+            initializer =_worker_init ,
+            initargs =(_PERSISTENT_POOL_COUNTER ,_PERSISTENT_POOL_CANCEL ),
+        )
+        _PERSISTENT_POOL_WORKERS =max_workers 
+        return _PERSISTENT_POOL ,_PERSISTENT_POOL_COUNTER ,_PERSISTENT_POOL_CANCEL 
+
+
+def abort_global_multiprocessing ():
+    """Cancel pending generation futures and terminate active and persistent process pools.
 
     Invoked upon user cancellation, fatal runtime exceptions, or process shutdown to prevent
     orphaned child worker processes from consuming CPU resources.
     """
-    global _GLOBAL_ACTIVE_EXECUTOR 
-    if _GLOBAL_ACTIVE_EXECUTOR is not None :
-        try :
-            _GLOBAL_ACTIVE_EXECUTOR .shutdown (wait =False ,cancel_futures =True )
-        except Exception :
-            pass 
+    global _GLOBAL_ACTIVE_EXECUTOR ,_PERSISTENT_POOL ,_PERSISTENT_POOL_WORKERS ,_PERSISTENT_POOL_COUNTER ,_PERSISTENT_POOL_CANCEL 
+    with _PERSISTENT_POOL_LOCK :
+        seen_ids =set ()
+        for pool in (_GLOBAL_ACTIVE_EXECUTOR ,_PERSISTENT_POOL ):
+            if pool is None or id (pool )in seen_ids :
+                continue 
+            seen_ids .add (id (pool ))
+            try :
+                procs =getattr (pool ,"_processes",None )
+                if isinstance (procs ,dict ):
+                    for proc in list (procs .values ()):
+                        try :
+                            if proc is not None and proc .is_alive ():
+                                proc .terminate ()
+                        except Exception :
+                            pass 
+                pool .shutdown (wait =False ,cancel_futures =True )
+            except Exception :
+                pass 
         _GLOBAL_ACTIVE_EXECUTOR =None 
+        _PERSISTENT_POOL =None 
+        _PERSISTENT_POOL_WORKERS =0 
+        _PERSISTENT_POOL_COUNTER =None 
+        _PERSISTENT_POOL_CANCEL =None 
+
+
+atexit .register (abort_global_multiprocessing )
 
 
 class GraphEngine:
@@ -1388,7 +1731,7 @@ class GraphEngine:
                                 clean_inputs[_clean_key(inp_prop)] = (i, inp_obj)
                     n['_clean_inputs_map'] = clean_inputs
                 n_type = str(n.get('type', ''))
-                if n_type in ("Variables/Memory", "Memory", "System/Script Code", "Script Code"):
+                if n_type in ("Variables/Memory", "Memory"):
                     self._leaf_side_effect_nodes.append((n_id, n, n_type))
         self .all_generated_lines =[]
         self .rx ,self .ry ,self .fd =rx ,ry ,fd 
@@ -1882,6 +2225,75 @@ class GraphEngine:
         context ['m']=module 
         return context 
 
+    def _sync_output_timing_context(self, context, active_unit, st_num, et_num, line_st=None):
+        """Synchronizes quantized effect timing aliases and unit-relative markers in context."""
+        if context is None:
+            return
+        if line_st is None:
+            line_obj = context.get('line') or getattr(active_unit, 'line', None)
+            line_st = float(getattr(line_obj, 'start_time', 0.0)) if line_obj else 0.0
+
+        st_f = float(st_num)
+        et_f = float(et_num)
+        eff_dur = max(0.0, et_f - st_f)
+
+        context['fx_start_time'] = st_f
+        context['fx_st'] = st_f
+        context['effect_st'] = st_f
+        context['start_time'] = st_f
+        context['st'] = st_f
+        context['val_start'] = st_f
+        context['fx_end_time'] = et_f
+        context['fx_et'] = et_f
+        context['effect_et'] = et_f
+        context['end_time'] = et_f
+        context['et'] = et_f
+        context['val_end'] = et_f
+        context['fx_dur'] = eff_dur
+        context['effect_dur'] = eff_dur
+        context['dur'] = eff_dur
+        context['duration'] = eff_dur
+        context['val_dur'] = eff_dur
+        if "fx" not in context or not isinstance(context["fx"], FxContext) or context["fx"]._ctx is not context:
+            context["fx"] = FxContext(context)
+
+        ini = line_st - st_f
+        context['ini'] = ini
+
+        syl_obj = context.get('syl')
+        char_obj = context.get('char')
+        word_obj = context.get('word')
+        if isinstance(syl_obj, PyxisUnit):
+            s_st = float(getattr(syl_obj, 'start_time', 0.0))
+            s_dur = float(getattr(syl_obj, 'dur', getattr(syl_obj, 'duration', 0.0)))
+            syl_obj.syl_start = round(ini + s_st, 3)
+            syl_obj.syl_end = round(syl_obj.syl_start + s_dur, 3)
+            syl_obj.syl_mid = round(syl_obj.syl_start + s_dur / 2.0, 3)
+        elif isinstance(active_unit, PyxisUnit) and not hasattr(active_unit, 'style_name'):
+            s_st = float(getattr(active_unit, 'start_time', 0.0))
+            s_dur = float(getattr(active_unit, 'dur', getattr(active_unit, 'duration', 0.0)))
+            active_unit.syl_start = round(ini + s_st, 3)
+            active_unit.syl_end = round(active_unit.syl_start + s_dur, 3)
+            active_unit.syl_mid = round(active_unit.syl_start + s_dur / 2.0, 3)
+        if isinstance(char_obj, PyxisUnit):
+            syl_parent = getattr(char_obj, 'syl', None)
+            s_st = float(getattr(syl_parent, 'start_time', 0.0)) if isinstance(syl_parent, PyxisUnit) else 0.0
+            s_dur = float(getattr(syl_parent, 'dur', getattr(syl_parent, 'duration', 0.0))) if isinstance(syl_parent, PyxisUnit) else 0.0
+            c_st = float(getattr(char_obj, 'start_time', 0.0))
+            c_dur = float(getattr(char_obj, 'dur', getattr(char_obj, 'duration', 0.0)))
+            char_obj.syl_start = round(ini + s_st, 3)
+            char_obj.syl_end = round(char_obj.syl_start + s_dur, 3)
+            char_obj.syl_mid = round(char_obj.syl_start + s_dur / 2.0, 3)
+            char_obj.char_start = round(ini + s_st + c_st, 3)
+            char_obj.char_end = round(char_obj.char_start + c_dur, 3)
+            char_obj.char_mid = round(char_obj.char_start + c_dur / 2.0, 3)
+        if isinstance(word_obj, PyxisUnit):
+            w_st = float(getattr(word_obj, 'start_time', 0.0))
+            w_dur = float(getattr(word_obj, 'dur', getattr(word_obj, 'duration', 0.0)))
+            word_obj.word_start = round(ini + w_st, 3)
+            word_obj.word_end = round(word_obj.word_start + w_dur, 3)
+            word_obj.word_mid = round(word_obj.word_start + w_dur / 2.0, 3)
+
     def _apply_defaults (self ,active_unit ,layer_raw ,st_raw ,et_raw ,tags_raw ,return_raw ,context =None ):
         """Apply final default values, positioning, and formatting rules to generated ASS line components.
 
@@ -1915,54 +2327,16 @@ class GraphEngine:
 
         layer = _to_int_or_default(layer_raw, default_layer, context=context)
         if context and (context.get('in_fbf_loop') or context.get('in_anim_loop') or context.get('anim_step_ms')) and 'st' in context:
-            st = _to_int_or_default(context['st'], default_st, context=context)
+            st = quantize_ass_ms(_to_int_or_default(context['st'], default_st, context=context))
         else:
-            st = _to_int_or_default(st_raw, default_st, context=context)
+            st = quantize_ass_ms(_to_int_or_default(st_raw, default_st, context=context))
 
         if context and (context.get('in_fbf_loop') or context.get('in_anim_loop') or context.get('anim_step_ms')) and 'et' in context:
-            et = _to_int_or_default(context['et'], default_et, context=context)
+            et = quantize_ass_ms(_to_int_or_default(context['et'], default_et, context=context))
         else:
-            et = _to_int_or_default(et_raw, default_et, context=context)
+            et = quantize_ass_ms(_to_int_or_default(et_raw, default_et, context=context))
 
-        if context is not None:
-            context['fx_start_time'] = st
-            context['fx_end_time'] = et
-            context['fx_dur'] = max(0, et - st)
-            ini = line_st - st
-            context['ini'] = ini
-            syl_obj = context.get('syl')
-            char_obj = context.get('char')
-            word_obj = context.get('word')
-            if isinstance(syl_obj, PyxisUnit):
-                s_st = float(getattr(syl_obj, 'start_time', 0.0))
-                s_dur = float(getattr(syl_obj, 'dur', getattr(syl_obj, 'duration', 0.0)))
-                syl_obj.syl_start = round(ini + s_st, 3)
-                syl_obj.syl_end = round(syl_obj.syl_start + s_dur, 3)
-                syl_obj.syl_mid = round(syl_obj.syl_start + s_dur / 2.0, 3)
-            elif isinstance(active_unit, PyxisUnit) and not hasattr(active_unit, 'style_name'):
-                s_st = float(getattr(active_unit, 'start_time', 0.0))
-                s_dur = float(getattr(active_unit, 'dur', getattr(active_unit, 'duration', 0.0)))
-                active_unit.syl_start = round(ini + s_st, 3)
-                active_unit.syl_end = round(active_unit.syl_start + s_dur, 3)
-                active_unit.syl_mid = round(active_unit.syl_start + s_dur / 2.0, 3)
-            if isinstance(char_obj, PyxisUnit):
-                syl_parent = getattr(char_obj, 'syl', None)
-                s_st = float(getattr(syl_parent, 'start_time', 0.0)) if isinstance(syl_parent, PyxisUnit) else 0.0
-                s_dur = float(getattr(syl_parent, 'dur', getattr(syl_parent, 'duration', 0.0))) if isinstance(syl_parent, PyxisUnit) else 0.0
-                c_st = float(getattr(char_obj, 'start_time', 0.0))
-                c_dur = float(getattr(char_obj, 'dur', getattr(char_obj, 'duration', 0.0)))
-                char_obj.syl_start = round(ini + s_st, 3)
-                char_obj.syl_end = round(char_obj.syl_start + s_dur, 3)
-                char_obj.syl_mid = round(char_obj.syl_start + s_dur / 2.0, 3)
-                char_obj.char_start = round(ini + s_st + c_st, 3)
-                char_obj.char_end = round(char_obj.char_start + c_dur, 3)
-                char_obj.char_mid = round(char_obj.char_start + c_dur / 2.0, 3)
-            if isinstance(word_obj, PyxisUnit):
-                w_st = float(getattr(word_obj, 'start_time', 0.0))
-                w_dur = float(getattr(word_obj, 'dur', getattr(word_obj, 'duration', 0.0)))
-                word_obj.word_start = round(ini + w_st, 3)
-                word_obj.word_end = round(word_obj.word_start + w_dur, 3)
-                word_obj.word_mid = round(word_obj.word_start + w_dur / 2.0, 3)
+        self._sync_output_timing_context(context, active_unit, st, et, line_st=line_st)
 
         tags_raw = "" if _is_empty_value(tags_raw) else str(tags_raw).strip()
         if tags_raw:
@@ -2088,6 +2462,8 @@ class GraphEngine:
             except Exception:
                 return str(v)
 
+        preserve_tags = ctx.get('preserve_tags', True) if ctx else True
+
         # Canonical precedence rule for \pos / \move:
         # 1. If tags_raw already contains \pos or \move, it strictly prevails (original line pos/move is ignored).
         # 2. Else if Return/context brings pos_overridden, inject Return position.
@@ -2099,20 +2475,40 @@ class GraphEngine:
                 pos_y = ctx.get('pos_y', ctx.get('y', default_orig_y))
                 tags_raw += f"\\pos({_fmt_coord(pos_x)},{_fmt_coord(pos_y)})"
             elif line_obj and getattr(line_obj, 'has_move', False):
-                l_x = float(getattr(line_obj, 'x', getattr(line_obj, 'center', default_orig_x)))
-                l_y = float(getattr(line_obj, 'y', getattr(line_obj, 'middle', default_orig_y)))
-                delta_x = default_orig_x - l_x
-                delta_y = default_orig_y - l_y
-                u_x1 = float(getattr(line_obj, 'move_x1', l_x)) + delta_x
-                u_y1 = float(getattr(line_obj, 'move_y1', l_y)) + delta_y
-                u_x2 = float(getattr(line_obj, 'move_x2', l_x)) + delta_x
-                u_y2 = float(getattr(line_obj, 'move_y2', l_y)) + delta_y
-                t1 = getattr(line_obj, 'move_t1', None)
-                t2 = getattr(line_obj, 'move_t2', None)
-                if t1 is not None and t2 is not None:
-                    tags_raw += f"\\move({_fmt_coord(u_x1)},{_fmt_coord(u_y1)},{_fmt_coord(u_x2)},{_fmt_coord(u_y2)},{t1},{t2})"
+                if preserve_tags:
+                    from ass_kinetics import remap_unit_move
+                    l_x = float(getattr(line_obj, 'x', getattr(line_obj, 'center', default_orig_x)))
+                    l_y = float(getattr(line_obj, 'y', getattr(line_obj, 'middle', default_orig_y)))
+                    l_st = float(getattr(line_obj, 'start_time', 0.0))
+                    l_et = float(getattr(line_obj, 'end_time', 0.0))
+                    mv_x1 = getattr(line_obj, 'move_x1', l_x)
+                    mv_y1 = getattr(line_obj, 'move_y1', l_y)
+                    mv_x2 = getattr(line_obj, 'move_x2', l_x)
+                    mv_y2 = getattr(line_obj, 'move_y2', l_y)
+                    mv_t1 = getattr(line_obj, 'move_t1', None)
+                    mv_t2 = getattr(line_obj, 'move_t2', None)
+                    applied, move_or_pos_tag = remap_unit_move(
+                        mv_x1, mv_y1, mv_x2, mv_y2, mv_t1, mv_t2,
+                        orig_st=l_st, orig_et=l_et, fx_st=st, fx_et=et,
+                        default_orig_x=default_orig_x, default_orig_y=default_orig_y,
+                        line_x=l_x, line_y=l_y
+                    )
+                    tags_raw += move_or_pos_tag
                 else:
-                    tags_raw += f"\\move({_fmt_coord(u_x1)},{_fmt_coord(u_y1)},{_fmt_coord(u_x2)},{_fmt_coord(u_y2)})"
+                    l_x = float(getattr(line_obj, 'x', getattr(line_obj, 'center', default_orig_x)))
+                    l_y = float(getattr(line_obj, 'y', getattr(line_obj, 'middle', default_orig_y)))
+                    delta_x = default_orig_x - l_x
+                    delta_y = default_orig_y - l_y
+                    u_x1 = float(getattr(line_obj, 'move_x1', l_x)) + delta_x
+                    u_y1 = float(getattr(line_obj, 'move_y1', l_y)) + delta_y
+                    u_x2 = float(getattr(line_obj, 'move_x2', l_x)) + delta_x
+                    u_y2 = float(getattr(line_obj, 'move_y2', l_y)) + delta_y
+                    t1 = getattr(line_obj, 'move_t1', None)
+                    t2 = getattr(line_obj, 'move_t2', None)
+                    if t1 is not None and t2 is not None:
+                        tags_raw += f"\\move({_fmt_coord(u_x1)},{_fmt_coord(u_y1)},{_fmt_coord(u_x2)},{_fmt_coord(u_y2)},{t1},{t2})"
+                    else:
+                        tags_raw += f"\\move({_fmt_coord(u_x1)},{_fmt_coord(u_y1)},{_fmt_coord(u_x2)},{_fmt_coord(u_y2)})"
             else:
                 pos_x = default_orig_x
                 pos_y = default_orig_y
@@ -2139,7 +2535,20 @@ class GraphEngine:
                 u_org_y = default_orig_y + delta_oy
                 tags_raw += f"\\org({_fmt_coord(u_org_x)},{_fmt_coord(u_org_y)})"
 
-        tags_raw = merge_ass_tags(return_tags_str="", port_tags_str=tags_raw, context=ctx)
+        if preserve_tags and active_unit:
+            from ass_kinetics import resolve_preserved_tags
+            is_shape_ret = bool(ctx.get('_return_node_is_shape') or (return_raw and str(return_raw).startswith(('m ', 'c ', 'l ', 'b ', 's ', 'p '))))
+            l_st = float(getattr(line_obj, 'start_time', 0.0)) if line_obj else 0.0
+            l_et = float(getattr(line_obj, 'end_time', 0.0)) if line_obj else 0.0
+            preserved_str = resolve_preserved_tags(
+                active_unit, orig_st=l_st, orig_et=l_et, fx_st=st, fx_et=et, is_shape_output=is_shape_ret
+            )
+            if preserved_str:
+                tags_raw = merge_ass_tags(return_tags_str="", port_tags_str=f"{preserved_str}{tags_raw}", context=ctx)
+            else:
+                tags_raw = merge_ass_tags(return_tags_str="", port_tags_str=tags_raw, context=ctx)
+        else:
+            tags_raw = merge_ass_tags(return_tags_str="", port_tags_str=tags_raw, context=ctx)
 
         return layer, st, et, tags_raw, return_raw 
 
@@ -2189,7 +2598,12 @@ class GraphEngine:
             props =origin_node .get ('properties',{})
 
             if node_type in ["Loops/Main Loop","Main Loop"]:
-                chain .append ({'type':'base','val':props .get ('iterator',props .get ('base_unit','syl')),'noblank':props .get ('blank_mode',props .get ('noblank',''))})
+                chain.append({
+                    'type': 'base',
+                    'val': props.get('iterator', props.get('base_unit', 'syl')),
+                    'noblank': props.get('blank_mode', props.get('noblank', '')),
+                    'preserve_tags': props.get('preserve_tags', True)
+                })
                 break 
             elif node_type in ["Loops/MaxLoop","MaxLoop"]:
                 chain .append ({
@@ -2355,40 +2769,44 @@ class GraphEngine:
 
             return str(math_random_master(context, mode=modo, min_val=min_val, max_val=max_val, step=step, options=options, counter=counter, seed=seed, iterator=iterator_val))
 
-        elif node_type in ["Basics/Math", "Math", "Math/Math"] or name == "Math":
-            try :
-                inputs_list =node .get ("inputs",[])
-                kwargs ={}
-                for i ,inp_obj in enumerate (inputs_list ):
-                    inp_name =inp_obj .get ("name","")
-                    inp_prop =inp_obj .get ("property")or inp_name 
-                    val =self .get_input_value (node ,i ,context )
-                    if val =="":
-                        prop_val =str (_get_prop_value (props ,inp_prop ,_get_prop_value (props ,inp_name ,""))).strip ()
-                        if prop_val ==""and "value"in inp_obj and inp_obj ["value"]is not None :
-                            prop_val =str (inp_obj ["value"]).strip ()
-                        val =prop_val 
-                    if val !="":
-                        if inp_name :
-                            kwargs [str (inp_name )]=val 
-                        if inp_prop :
-                            kwargs [str (inp_prop )]=val 
+        elif node_type == "Basics/Math":
+            try:
+                inputs_list = node.get("inputs", [])
+                kwargs = {}
+                for i, inp_obj in enumerate(inputs_list):
+                    inp_prop = inp_obj.get("property") or inp_obj.get("name", "")
+                    val = self.get_input_value(node, i, context)
+                    if val == "":
+                        prop_val = _get_prop_value(props, inp_prop, "")
+                        if prop_val is None or str(prop_val).strip() == "":
+                            if "value" in inp_obj and inp_obj["value"] is not None:
+                                prop_val = inp_obj["value"]
+                        val = prop_val
+                    if inp_prop and val is not None and str(val).strip() != "":
+                        kwargs[str(inp_prop)] = val
 
-                for k ,v in props .items ():
-                    if k not in kwargs :
-                        kwargs [k ]=v 
+                for k, v in props.items():
+                    if k not in kwargs:
+                        kwargs[k] = v
 
-                from nodes .math_nodes import eval_math_node 
-                res_num =eval_math_node (context ,**kwargs )
-                if isinstance (res_num ,(int ,float )):
-                    if float (res_num ).is_integer ():
-                        return str (int (res_num ))
-                    return f"{res_num :.4f}".rstrip ('0').rstrip ('.')
-                return str (res_num )
-            except Exception as e :
-                import traceback 
-                print (f"[Pyxis Engine Error] Math node evaluation failed: {e }")
-                traceback .print_exc ()
+                from nodes.math_nodes import eval_math_node
+                res = eval_math_node(context, node_id=node_id, **kwargs)
+                if isinstance(res, tuple):
+                    idx = output_slot_index if 0 <= output_slot_index < len(res) else 0
+                    res = res[idx]
+                if isinstance(res, bool):
+                    return "True" if res else "False"
+                if isinstance(res, (int, float)):
+                    if abs(float(res)) < 1e-12:
+                        return "0"
+                    if float(res).is_integer():
+                        return str(int(round(res)))
+                    return f"{res:.6f}".rstrip("0").rstrip(".")
+                return str(res)
+            except Exception as e:
+                import traceback
+                print(f"[Pyxis Engine Error] Math node evaluation failed: {e}")
+                traceback.print_exc()
                 return "0"
 
         elif node_type in ["Basics/Text", "Text"] or name == "Text":
@@ -2779,7 +3197,7 @@ class GraphEngine:
 
                 text_scale =safe_float (get_val (["Text Scale","text_scale"],"1.0"),1.0 )
                 pre_offset =safe_float (get_val (["Pre-Offset","pre_offset","preoffset","Pre Offset","pre-offset"],"0"),0.0 )
-                order =safe_int (get_val (["Order","order"],"79"),79 )
+                order =str (get_val (["Order","order"],"79")or "79").strip ()
 
                 unit =context .get ('active_unit')if isinstance (context ,dict )else None 
                 parent_x =float (context .get ('_base_unit_x',context .get ('pos_x',context .get ('line_x',context .get ('syl_x',context .get ('x',0.0 ))))))
@@ -2875,20 +3293,20 @@ class GraphEngine:
                     context['maxloop'] = total_pieces
 
 
+                is_clip_out = ("iclip" in out_mode or "clip" in out_mode)
                 if is_shape_mode:
                     from nodes.shape_nodes import resolve_piece_anchor
                     piece_drawings = []
+                    anc_ctx = None if is_clip_out else context
                     for p_item in pieces:
                         c_val = str(p_item.get("code", ""))
                         p_cx, p_cy = float(p_item.get("cx", 0)), float(p_item.get("cy", 0))
-                        anc_res = resolve_piece_anchor(c_val, piece_cx=p_cx, piece_cy=p_cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
+                        anc_res = resolve_piece_anchor(c_val, piece_cx=p_cx, piece_cy=p_cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=anc_ctx)
                         piece_drawings.append(anc_res['formatted_code'])
 
                     combined_code = " ".join(piece_drawings)
-                    if "iclip" in out_mode:
-                        final_res = f"\\iclip({combined_code})"
-                    elif "clip" in out_mode:
-                        final_res = f"\\clip({combined_code})"
+                    if is_clip_out:
+                        final_res = ClipperEngine.format_clip_tag(combined_code, is_iclip=("iclip" in out_mode), braces=False)
                     else:
                         final_res = f"{source_tags}{combined_code}" if source_tags else combined_code
 
@@ -2914,28 +3332,25 @@ class GraphEngine:
                     if upstream_overridden:
                         context['pos_x'] = upstream_px
                         context['pos_y'] = upstream_py
-                anc_res = resolve_piece_anchor(code_val, piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=context)
+                # Do not inject \pos/\org into line context when emitting \clip/\iclip tags
+                anc_res = resolve_piece_anchor(code_val, piece_cx=cx, piece_cy=cy, parent_x=parent_x, parent_y=parent_y, anchor=anchor_mode, context=(None if is_clip_out else context))
                 formatted_code = anc_res['formatted_code']
-                if source_tags:
+                if source_tags and not is_clip_out:
                     anc_tags, pure_code = split_shape_and_tags(formatted_code)
                     final_tags = merge_override_tags(source_tags, anc_tags)
                     formatted_code = f"{final_tags}{pure_code}"
                 if isinstance(context, dict):
                     context['col'] = piece.get("col", 1)
                     context['row'] = piece.get("row", 1)
-                    if anc_res['pos_overridden']:
+                    if not is_clip_out and anc_res['pos_overridden']:
                         context['x'] = abs_x
                         context['y'] = abs_y
                         context['fx_pos_x'] = abs_x
                         context['fx_pos_y'] = abs_y
 
 
-                if "iclip" in out_mode:
-                    abs_code = ClipperEngine.transform_shape(code_val, mode="Offset", offset_x=parent_x, offset_y=parent_y)
-                    final_res = f"\\iclip({abs_code})"
-                elif "clip" in out_mode:
-                    abs_code = ClipperEngine.transform_shape(code_val, mode="Offset", offset_x=parent_x, offset_y=parent_y)
-                    final_res = f"\\clip({abs_code})"
+                if is_clip_out:
+                    final_res = ClipperEngine.format_clip_tag(formatted_code, is_iclip=("iclip" in out_mode), braces=False)
                 else:
                     final_res = formatted_code 
 
@@ -4866,6 +5281,9 @@ class GraphEngine:
                             context ['pos_y']=round (abs_y ,3 )
                             context ['pos_overridden']=True 
                             context ['has_org']=False 
+                        elif anchor_clean == "relative2":
+                            context ['pos_overridden']=False 
+                            context ['has_org']=False 
 
                     return all_pieces [target_idx ]
             except Exception as e :
@@ -5420,8 +5838,10 @@ class GraphEngine:
                 escala_raw =get_val (["Scale","scale"],"1.0")
                 min_hz_raw =get_val (["Min Hz","min_hz","f_min"],"20")
                 max_hz_raw =get_val (["Max Hz","max_hz","f_max"],"16000")
+                smoothing_raw =get_val (["Smoothing","smoothing"],"0.2")
                 start_time_raw =get_val (["Start Time","start_time","st"],"")
                 end_time_raw =get_val (["End Time","end_time","et"],"")
+                anchor_raw =get_val (["Anchor","anchor"],"center")
                 modo_raw =str (_get_prop_value (props ,"mode",_get_prop_value (props ,"modo","oscilloscope"))).strip ().lower ()
 
                 from nodes .audio_nodes import audio_waveform_master 
@@ -5437,8 +5857,10 @@ class GraphEngine:
                 min_hz =min_hz_raw ,
                 max_hz =max_hz_raw ,
                 scale =escala_raw ,
+                smoothing =smoothing_raw ,
                 start_time =start_time_raw ,
                 end_time =end_time_raw ,
+                anchor =anchor_raw ,
                 output_slot_index =output_slot_index 
                 )
                 if output_slot_index in (2 ,3 ,4 )and isinstance (res ,list ):
@@ -6121,15 +6543,17 @@ class GraphEngine:
                         return rgb_to_ass_color (r ,g ,b )
 
 
-                if output_slot_index ==0 :
-                    palette =[_format_color (i )for i in range (len (colors ))]
-                    return ", ".join (palette )
+                try:
+                    slot_idx = int(output_slot_index) if output_slot_index is not None else 0
+                except (ValueError, TypeError):
+                    slot_idx = 0
 
-                elif output_slot_index is not None and output_slot_index >0 :
-                    swatch_idx =min (len (colors )-1 ,output_slot_index -1 )
-                    return _format_color (swatch_idx )
-                else :
-                    return _format_color (0 )
+                if slot_idx == 0:
+                    palette = [_format_color(i) for i in range(len(colors))]
+                    return ", ".join(palette)
+                else:
+                    swatch_idx = min(len(colors) - 1, max(0, slot_idx - 1))
+                    return _format_color(swatch_idx)
             except Exception as e :
                 import traceback 
                 print (f"[Pyxis Engine Error] Color Picker evaluation failed: {e }")
@@ -6230,77 +6654,6 @@ class GraphEngine:
 
                 return ", ".join (keyframes )
 
-            elif mode in ("merge",):
-                from nodes.shape_nodes import split_shape_and_tags
-                from clipper_engine import ClipperEngine
-
-                clean_drawings = []
-                base_pos = None
-                first_prefix = ""
-
-                for i in range(inputs_count):
-                    inp_def = node.get('inputs', [])[i] if i < len(node.get('inputs', [])) else {}
-                    has_link = inp_def.get('link') is not None
-                    wire_val = self.get_input_value(node, i, context) if has_link else None
-                    if not has_link or wire_val is None or str(wire_val).strip() == "":
-                        wire_val = props.get(f"In{i + 1}", props.get(f"in{i + 1}", ""))
-
-                    if wire_val is None or str(wire_val).strip() == "":
-                        continue
-
-                    raw_items = []
-                    if isinstance(wire_val, (list, tuple)):
-                        raw_items = list(wire_val)
-                    elif isinstance(wire_val, str) and wire_val.strip().startswith("[") and wire_val.strip().endswith("]"):
-                        try:
-                            import json
-                            parsed = json.loads(wire_val)
-                            if isinstance(parsed, list):
-                                raw_items = parsed
-                            else:
-                                raw_items = [wire_val]
-                        except Exception:
-                            raw_items = [wire_val]
-                    else:
-                        raw_items = [wire_val]
-
-                    for item in raw_items:
-                        if item is None or str(item).strip() == "":
-                            continue
-                        t_pfx, clean_shp = split_shape_and_tags(item)
-                        clean_shp = str(clean_shp or "").strip()
-                        if not clean_shp:
-                            continue
-
-                        if not first_prefix and t_pfx:
-                            first_prefix = str(t_pfx).strip()
-
-                        m_pos = re.search(r'\\pos\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)', str(t_pfx or ""))
-                        if m_pos:
-                            cur_pos = (float(m_pos.group(1)), float(m_pos.group(2)))
-                            if base_pos is None:
-                                base_pos = cur_pos
-                            else:
-                                dx = cur_pos[0] - base_pos[0]
-                                dy = cur_pos[1] - base_pos[1]
-                                if abs(dx) > 1e-4 or abs(dy) > 1e-4:
-                                    clean_shp = ClipperEngine.transform_shape(
-                                        clean_shp, mode="Offset", offset_x=dx, offset_y=dy
-                                    )
-
-                        clean_drawings.append(clean_shp)
-
-                if not clean_drawings:
-                    return ""
-
-                if isinstance(context, dict):
-                    context['_merge_manifest'] = list(clean_drawings)
-
-                merged_body = " ".join(clean_drawings)
-                if first_prefix:
-                    return f"{first_prefix}{merged_body}"
-                return merged_body
-
             else :
                 static_an_match = None
                 for j in range(inputs_count):
@@ -6333,6 +6686,296 @@ class GraphEngine:
                 else :
                     sep_char =sep 
                 return sep_char .join (values )
+
+        # -------------------------------------------------------------------------
+        # Basics/Builder: Universal Monoline Stream Assembler (Shape & Text)
+        # -------------------------------------------------------------------------
+        # Architectural Role:
+        #   Compiles sequences of text units or decomposed vector shapes into a single
+        #   continuous ASS Dialogue line delimited by \r style reset barriers.
+        #   Executes an internal private sub-loop (bu_i, bu_n, max_bu) to dynamically
+        #   evaluate upstream Tags per block without multiplying ASS event lines.
+        # -------------------------------------------------------------------------
+        elif node_type in ["Basics/Builder", "Builder"] or name == "Builder":
+            try:
+                from nodes.text_nodes import builder_extract_items
+                from clipper_engine import ClipperEngine
+                from string_evaluator import eval_string_template, tokenize_ass_tags
+                from nodes.math_nodes import PyxisByDispatcher
+
+                mode_val = str(_get_prop_value(props, "mode", "text")).strip().lower()
+                sub_mode_val = str(_get_prop_value(props, "sub_mode", "splitter")).strip().lower()
+                split_by_val = str(_get_prop_value(props, "split_by", "syl")).strip().lower()
+                source_val = str(_get_prop_value(props, "source", "active_unit")).strip().lower()
+                repeat_val = str(_get_prop_value(props, "repeat", "2")).strip()
+                custom_text_val = str(_get_prop_value(props, "custom_text", ""))
+                delim_val = str(_get_prop_value(props, "delim", ","))
+                shape_layout_val = str(_get_prop_value(props, "shape_layout", "auto")).strip().lower()
+                shape_split_val = str(_get_prop_value(props, "shape_split_mode", "subpaths")).strip().lower()
+
+                # inject_r boolean resolution
+                inject_r_raw = _get_prop_value(props, "inject_r", True)
+                if isinstance(inject_r_raw, str):
+                    inject_r = inject_r_raw.strip().lower() in ("true", "1", "yes", "on")
+                else:
+                    inject_r = bool(inject_r_raw)
+
+                # Identify 'Tags' port vs item data ports (In1, In2, Items, etc.)
+                inputs_list = node.get("inputs", [])
+                tags_port_idx = None
+                item_ports = []
+
+                if inputs_list:
+                    for p_idx, inp in enumerate(inputs_list):
+                        p_name = str(inp.get("name", "")).strip().lower()
+                        p_prop = str(inp.get("property", "")).strip().lower()
+                        if p_name == "tags" or p_prop == "tags":
+                            tags_port_idx = p_idx
+                        elif p_name in ("repeat", "repeticiones", "text", "custom_text") or p_prop in ("repeat", "custom_text"):
+                            continue
+                        else:
+                            item_ports.append((p_idx, inp))
+                else:
+                    tags_port_idx = 0
+
+                # Collect values from connected item ports or inline properties
+                collected_items = []
+                for p_idx, inp in item_ports:
+                    val = None
+                    if self.is_port_connected(node, p_idx):
+                        val = self.get_input_value(node, p_idx, context)
+                    if val is None or val == "":
+                        p_name = inp.get("property") or inp.get("name")
+                        val = _get_prop_value(props, p_name, "")
+                    if val is not None and (not isinstance(val, str) or val != ""):
+                        collected_items.append(val)
+
+                if not collected_items:
+                    # Fallback to legacy single "Items" / "items" inline property
+                    inline_items = _get_prop_value(props, "Items", _get_prop_value(props, "items", ""))
+                    if inline_items != "":
+                        collected_items.append(inline_items)
+
+                items_in_param = collected_items if collected_items else None
+
+                items_list, manifest, first_prefix = builder_extract_items(
+                    context=context,
+                    items_in=items_in_param,
+                    mode=mode_val,
+                    sub_mode=sub_mode_val,
+                    split_by=split_by_val,
+                    source=source_val,
+                    repeat=repeat_val,
+                    custom_text=custom_text_val,
+                    delim=delim_val,
+                    shape_layout=shape_layout_val,
+                    shape_split_mode=shape_split_val,
+                )
+
+                if isinstance(context, dict):
+                    context["_builder_manifest"] = {
+                        "total_pieces": len(items_list),
+                        "pieces": manifest,
+                    }
+
+                if output_slot_index == 1:
+                    return items_list
+
+                if not items_list:
+                    return ""
+
+                bu_n = len(items_list)
+                if isinstance(context, dict) and not isinstance(context.get("_scoped_rnd_cache"), dict):
+                    context["_scoped_rnd_cache"] = {}
+
+                # Pre-pass: Evaluate Tags per block and collect all upstream and block tags
+                block0_pos = None
+                parsed_blocks_data = []
+
+                for idx, item_val in enumerate(items_list):
+                    bu_i = idx + 1
+                    loop_context = context.copy() if isinstance(context, dict) else {}
+                    loop_context["bu_i"] = bu_i
+                    loop_context["bu_n"] = bu_n
+                    loop_context["max_bu"] = bu_n
+                    loop_context["fx_i"] = bu_i
+                    loop_context["fx_n"] = bu_n
+                    loop_context["fx"] = FxContext(loop_context)
+                    loop_context["by"] = PyxisByDispatcher(loop_context)
+
+                    # Re-apply active user variables from Define Vars now that bu_i, bu_n and max_bu are bound
+                    active_vars = loop_context.get("_active_set_vars", [])
+                    for v_str in active_vars:
+                        self._apply_set_vars_to_context(
+                            v_str, loop_context, loop_context.get("active_unit") or loop_context.get("line")
+                        )
+
+                    # 1. Tags evaluated from Builder's 'Tags' input
+                    raw_tags_k = ""
+                    if tags_port_idx is not None and self.is_port_connected(node, tags_port_idx):
+                        raw_tags_k = self.get_input_value(node, tags_port_idx, loop_context)
+                    if not raw_tags_k:
+                        raw_tags_k = _get_prop_value(props, "Tags", _get_prop_value(props, "tags", ""))
+
+                    if isinstance(raw_tags_k, (list, tuple)):
+                        raw_tags_k = raw_tags_k[min(idx, len(raw_tags_k) - 1)] if raw_tags_k else ""
+
+                    eval_tags_k = eval_string_template(str(raw_tags_k), loop_context) if raw_tags_k else ""
+                    eval_tags_k = str(eval_tags_k or "").strip()
+
+                    # 2. Upstream tags inherited from the item itself (e.g. Animation, Slicer)
+                    m_entry = manifest[idx] if idx < len(manifest) else {}
+                    upstream_tags = str(m_entry.get("tags") or "").strip()
+                    if not upstream_tags and idx == 0 and first_prefix:
+                        upstream_tags = str(first_prefix).strip()
+
+                    # Strip curly braces from both tag sources and tokenize independently
+                    clean_upstream = re.sub(r"[{}]+", "", upstream_tags).strip() if upstream_tags else ""
+                    clean_eval_tags = re.sub(r"[{}]+", "", eval_tags_k).strip() if eval_tags_k else ""
+
+                    upstream_tokens = tokenize_ass_tags(clean_upstream) if clean_upstream else []
+                    block_tokens = tokenize_ass_tags(clean_eval_tags) if clean_eval_tags else []
+
+                    # Evaluate which tokens to keep and which to discard:
+                    # - Discard structural drawing/reset tags (\r, \p) as Builder manages them
+                    # - Merge positional/alignment tags by collision_key (block_tokens override upstream_tokens)
+                    # - Collect cumulative transform tags (\t)
+                    # - Merge style tags by collision_key (block_tokens override upstream_tokens, preserving non-colliding upstream tags)
+                    pos_map = {}
+                    style_map = {}
+                    transform_tokens = []
+
+                    for tok in upstream_tokens:
+                        if tok.collision_key in ("pos_move", "pos", "move", "an", "org") or tok.name in ("pos", "move", "an", "a", "org"):
+                            pos_map[tok.collision_key] = tok
+                        elif tok.is_transform:
+                            transform_tokens.append(tok)
+                        elif tok.name not in ("r", "p"):
+                            style_map[tok.collision_key] = tok
+
+                    for tok in block_tokens:
+                        if tok.collision_key in ("pos_move", "pos", "move", "an", "org") or tok.name in ("pos", "move", "an", "a", "org"):
+                            pos_map[tok.collision_key] = tok
+                        elif tok.is_transform:
+                            transform_tokens.append(tok)
+                        elif tok.name not in ("r", "p"):
+                            style_map[tok.collision_key] = tok
+
+                    pos_tokens = list(pos_map.values())
+                    style_tokens = list(style_map.values())
+
+                    # Positional coordination
+                    if idx == 0:
+                        for ptok in pos_tokens:
+                            m_p = re.search(r"\\pos\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)", ptok.raw)
+                            if m_p:
+                                block0_pos = (float(m_p.group(1)), float(m_p.group(2)))
+                                break
+                        if block0_pos is None and isinstance(context, dict):
+                            u_ref = context.get("active_unit") or context.get("syl") or context.get("line")
+                            if u_ref is not None:
+                                block0_pos = (
+                                    float(context.get("pos_x", getattr(u_ref, "x", getattr(u_ref, "center", 0.0)))),
+                                    float(context.get("pos_y", getattr(u_ref, "y", getattr(u_ref, "middle", 0.0)))),
+                                )
+                    else:
+                        for ptok in pos_tokens:
+                            m_p = re.search(r"\\pos\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)", ptok.raw)
+                            if m_p and mode_val == "shape" and block0_pos is not None:
+                                cur_px = float(m_p.group(1))
+                                cur_py = float(m_p.group(2))
+                                dx_p = cur_px - block0_pos[0]
+                                dy_p = cur_py - block0_pos[1]
+                                if abs(dx_p) > 1e-4 or abs(dy_p) > 1e-4:
+                                    item_val = ClipperEngine.transform_shape(
+                                        item_val, mode="Offset", offset_x=dx_p, offset_y=dy_p
+                                    )
+
+                    parsed_blocks_data.append({
+                        "item_val": item_val,
+                        "pos_tokens": pos_tokens,
+                        "transform_tokens": transform_tokens,
+                        "style_tokens": style_tokens,
+                    })
+
+                # Deduplicate transforms across all blocks
+                all_transforms = []
+                seen_transforms = set()
+                for b_data in parsed_blocks_data:
+                    for t_tok in b_data["transform_tokens"]:
+                        norm_t = t_tok.raw.strip().replace(" ", "")
+                        if norm_t not in seen_transforms:
+                            seen_transforms.add(norm_t)
+                            all_transforms.append(t_tok.raw.strip())
+
+                # Build final dialogue stream
+                blocks = []
+                active_style_state = {}
+                for idx, b_data in enumerate(parsed_blocks_data):
+                    item_val = b_data["item_val"]
+                    style_str = "".join(tok.raw.strip() for tok in b_data["style_tokens"])
+                    trans_str = "".join(tok.raw.strip() for tok in b_data["transform_tokens"])
+
+                    if idx == 0:
+                        for tok in b_data["style_tokens"]:
+                            active_style_state[tok.collision_key] = tok.raw.strip()
+                        pos_str = "".join(tok.raw.strip() for tok in b_data["pos_tokens"])
+                        if inject_r:
+                            head_trans = trans_str if trans_str else "".join(all_transforms)
+                            if mode_val == "shape":
+                                p1_str = "" if re.search(r"\\p[1-9]", style_str + pos_str) else r"\p1"
+                                fscx_str = "" if re.search(r"\\fscx", style_str) else r"\fscx100"
+                                fscy_str = "" if re.search(r"\\fscy", style_str) else r"\fscy100"
+                                head_tags = f"{p1_str}{fscx_str}{fscy_str}{pos_str}{style_str}{head_trans}"
+                            else:
+                                head_tags = f"{pos_str}{style_str}{head_trans}"
+                            blocks.append(f"{{{head_tags}}}{item_val}" if head_tags else f"{item_val}")
+                        else:
+                            # inject_r == False: all deduplicated transforms go strictly into header after static styles
+                            all_trans_str = "".join(all_transforms)
+                            if mode_val == "shape":
+                                p1_str = "" if re.search(r"\\p[1-9]", style_str + pos_str) else r"\p1"
+                                fscx_str = "" if re.search(r"\\fscx", style_str) else r"\fscx100"
+                                fscy_str = "" if re.search(r"\\fscy", style_str) else r"\fscy100"
+                                head_tags = f"{p1_str}{fscx_str}{fscy_str}{pos_str}{style_str}{all_trans_str}"
+                            else:
+                                head_tags = f"{pos_str}{style_str}{all_trans_str}"
+                            blocks.append(f"{{{head_tags}}}{item_val}" if head_tags else f"{item_val}")
+                    else:
+                        # Subsequent blocks (idx >= 1)
+                        if inject_r:
+                            # Re-inject \r, \p1\fscx\fscy, global animation transforms, plus piece specific styles
+                            blk_trans = trans_str if trans_str else "".join(all_transforms)
+                            if mode_val == "shape":
+                                p1_str = "" if re.search(r"\\p[1-9]", style_str) else r"\p1"
+                                fscx_str = "" if re.search(r"\\fscx", style_str) else r"\fscx100"
+                                fscy_str = "" if re.search(r"\\fscy", style_str) else r"\fscy100"
+                                blk_tags = f"\\r{p1_str}{fscx_str}{fscy_str}{style_str}{blk_trans}"
+                            else:
+                                blk_tags = f"\\r{style_str}{blk_trans}"
+                            blocks.append(f"{{{blk_tags}}}{item_val}")
+                        else:
+                            # inject_r == False: continuous stream, no \r, no transforms; emit only changed static style overrides
+                            delta_tokens = []
+                            for tok in b_data["style_tokens"]:
+                                raw_t = tok.raw.strip()
+                                if active_style_state.get(tok.collision_key) != raw_t:
+                                    delta_tokens.append(raw_t)
+                                    active_style_state[tok.collision_key] = raw_t
+                            delta_style_str = "".join(delta_tokens)
+                            if delta_style_str:
+                                blocks.append(f"{{{delta_style_str}}}{item_val}")
+                            else:
+                                blocks.append(f"{item_val}")
+
+                return "".join(blocks)
+            except Exception as e:
+                import traceback
+                print(f"[Pyxis Engine Error] Builder evaluation failed: {e}")
+                traceback.print_exc()
+                return ""
+                traceback.print_exc()
+                return ""
 
         # -------------------------------------------------------------------------
         # Functions/Interpolator: Polymorphic Multi-Type Easing Interpolator
@@ -7092,8 +7735,7 @@ class GraphEngine:
         Processing Pipeline:
             1. Variable Refresh & Side-Effect Evaluation:
                - Re-evaluates active user variables (`_active_set_vars`).
-               - Executes side-effect nodes: `Variables/Memory` (in 'Remember' mode) and
-                 `System/Script Code` to allow per-iteration state updates or logging.
+               - Executes persistent side-effect nodes: `Variables/Memory` (in 'remember' mode).
             2. Timing & Layer Resolution:
                - Evaluates Layer (port 1), StartTime (port 2), and EndTime (port 3).
                - Prioritises frame-by-frame timing when in animation/fbf loops (`anim_step_ms`).
@@ -7136,14 +7778,12 @@ class GraphEngine:
             for v_str in active_vars:
                 self._apply_set_vars_to_context(v_str, context, active_unit)
 
-        # Execute persistent memory and side-effect scripting nodes per leaf
+        # Execute persistent memory side-effect nodes per leaf
         for n_id, n_obj, node_type in self._leaf_side_effect_nodes:
             if node_type in ["Variables/Memory", "Memory"]:
-                mode = str(n_obj.get("properties", {}).get("mode", "")).strip()
-                if "Remember" in mode:
+                mode = str(n_obj.get("properties", {}).get("mode", "")).strip().lower()
+                if "remember" in mode:
                     self.evaluate_data_node(n_id, context)
-            elif node_type in ["System/Script Code", "Script Code"]:
-                self.evaluate_data_node(n_id, context)
 
         # 1. Resolve Layer, Start Time, and End Time within active leaf context
         # Hierarchy: Level 1 (Original Line/Unit) < Level 2 (Define Vars) < Level 3 (Return / Output ports) < Level 4 (Tags)
@@ -7166,16 +7806,18 @@ class GraphEngine:
             st_val = st_in
 
         if context and (context.get('in_fbf_loop') or context.get('in_anim_loop') or context.get('anim_step_ms')) and 'st' in context:
-            st_num = _to_int_or_default(context['st'], default_st, context=context)
+            st_num = quantize_ass_ms(_to_int_or_default(context['st'], default_st, context=context))
         else:
-            st_num = _to_int_or_default(st_val, default_st, context=context)
+            st_num = quantize_ass_ms(_to_int_or_default(st_val, default_st, context=context))
 
-        context['fx_start_time'] = float(st_num)
-        context['fx_st'] = float(st_num)
-        context['effect_st'] = float(st_num)
-        context['start_time'] = float(st_num)
-        context['st'] = float(st_num)
-        context['val_start'] = float(st_num)
+        # Populate fx_start_time / st before evaluating End Time so expressions like fx.start_time + N see the active unit's snapped start
+        st_f = float(st_num)
+        context['fx_start_time'] = st_f
+        context['fx_st'] = st_f
+        context['effect_st'] = st_f
+        context['start_time'] = st_f
+        context['st'] = st_f
+        context['val_start'] = st_f
         if "fx" not in context or not isinstance(context["fx"], FxContext) or context["fx"]._ctx is not context:
             context["fx"] = FxContext(context)
 
@@ -7184,202 +7826,165 @@ class GraphEngine:
             et_val = et_in
 
         if context and (context.get('in_fbf_loop') or context.get('in_anim_loop') or context.get('anim_step_ms')) and 'et' in context:
-            et_num = _to_int_or_default(context['et'], default_et, context=context)
+            et_num = quantize_ass_ms(_to_int_or_default(context['et'], default_et, context=context))
         else:
-            et_num = _to_int_or_default(et_val, default_et, context=context)
+            et_num = quantize_ass_ms(_to_int_or_default(et_val, default_et, context=context))
 
-        context['fx_end_time'] = float(et_num)
-        context['fx_et'] = float(et_num)
-        context['effect_et'] = float(et_num)
-        context['end_time'] = float(et_num)
-        context['et'] = float(et_num)
-        context['val_end'] = float(et_num)
+        self._sync_output_timing_context(context, active_unit, st_num, et_num, line_st=line_st)
 
-        eff_dur = max(0.0, float(et_num) - float(st_num))
-        context['fx_dur'] = eff_dur
-        context['effect_dur'] = eff_dur
-        context['dur'] = eff_dur
-        context['duration'] = eff_dur
-        context['val_dur'] = eff_dur
+        from ass_kinetics import set_active_fx_window, reset_active_fx_window
+        _fx_tok = set_active_fx_window(st_num, et_num)
+        try:
+            # 2. Evaluate Return Stage (Geometry / Vector Shapes / Plain Text)
+            pre_ret_st = float(context.get('st', st_num))
+            pre_ret_et = float(context.get('et', et_num))
+            pre_ret_layer = context.get('fx_layer', context.get('layer', default_layer))
 
-        # Adjust relative unit timing offsets for syllable/character/word proxies
-        ini = line_st - float(st_num)
-        context['ini'] = ini
-        syl_obj = context.get('syl')
-        char_obj = context.get('char')
-        word_obj = context.get('word')
-        if isinstance(syl_obj, PyxisUnit):
-            s_st = float(getattr(syl_obj, 'start_time', 0.0))
-            s_dur = float(getattr(syl_obj, 'dur', getattr(syl_obj, 'duration', 0.0)))
-            syl_obj.syl_start = round(ini + s_st, 3)
-            syl_obj.syl_end = round(syl_obj.syl_start + s_dur, 3)
-            syl_obj.syl_mid = round(syl_obj.syl_start + s_dur / 2.0, 3)
-        elif isinstance(active_unit, PyxisUnit) and not hasattr(active_unit, 'style_name'):
-            s_st = float(getattr(active_unit, 'start_time', 0.0))
-            s_dur = float(getattr(active_unit, 'dur', getattr(active_unit, 'duration', 0.0)))
-            active_unit.syl_start = round(ini + s_st, 3)
-            active_unit.syl_end = round(active_unit.syl_start + s_dur, 3)
-            active_unit.syl_mid = round(active_unit.syl_start + s_dur / 2.0, 3)
-        if isinstance(char_obj, PyxisUnit):
-            syl_parent = getattr(char_obj, 'syl', None)
-            s_st = float(getattr(syl_parent, 'start_time', 0.0)) if isinstance(syl_parent, PyxisUnit) else 0.0
-            s_dur = float(getattr(syl_parent, 'dur', getattr(syl_parent, 'duration', 0.0))) if isinstance(syl_parent, PyxisUnit) else 0.0
-            c_st = float(getattr(char_obj, 'start_time', 0.0))
-            c_dur = float(getattr(char_obj, 'dur', getattr(char_obj, 'duration', 0.0)))
-            char_obj.syl_start = round(ini + s_st, 3)
-            char_obj.syl_end = round(char_obj.syl_start + s_dur, 3)
-            char_obj.syl_mid = round(char_obj.syl_start + s_dur / 2.0, 3)
-            char_obj.char_start = round(ini + s_st + c_st, 3)
-            char_obj.char_end = round(char_obj.char_start + c_dur, 3)
-            char_obj.char_mid = round(char_obj.char_start + c_dur / 2.0, 3)
-        if isinstance(word_obj, PyxisUnit):
-            w_st = float(getattr(word_obj, 'start_time', 0.0))
-            w_dur = float(getattr(word_obj, 'dur', getattr(word_obj, 'duration', 0.0)))
-            word_obj.word_start = round(ini + w_st, 3)
-            word_obj.word_end = round(word_obj.word_start + w_dur, 3)
-            word_obj.word_mid = round(word_obj.word_start + w_dur / 2.0, 3)
+            is_ret_conn = self.is_port_connected(output_node, 5)
+            context["_return_port_connected"] = is_ret_conn
+            if is_ret_conn:
+                inp_5 = output_node.get("inputs", [])[5] if len(output_node.get("inputs", [])) > 5 else None
+                link_id = inp_5.get("link") if isinstance(inp_5, dict) else None
+                link_obj = self.links_by_id.get(link_id) if link_id else None
+                src_node = self.nodes.get(link_obj[1]) if link_obj else None
+                src_type = str(src_node.get("type", "")).lower() if src_node else ""
+                context["_return_node_is_shape"] = any(
+                    kw in src_type for kw in ["shape", "stroke", "walker", "slicer", "border", "drawing", "particle", "pixel", "curva", "bezier", "animation"]
+                )
+                return_str = self.get_input_value(output_node, 5, context)
+            else:
+                context["_return_node_is_shape"] = False
+                inline_ret = self.get_input_value(output_node, 5, context)
+                return_str = inline_ret if not _is_empty_value(inline_ret) else getattr(active_unit, "text_stripped", "")
 
-        # 2. Evaluate Return Stage (Geometry / Vector Shapes / Plain Text)
-        pre_ret_st = float(context.get('st', st_num))
-        pre_ret_et = float(context.get('et', et_num))
-        pre_ret_layer = context.get('fx_layer', context.get('layer', default_layer))
+            if _is_empty_value(return_str) or not str(return_str).strip():
+                return
 
-        is_ret_conn = self.is_port_connected(output_node, 5)
-        context["_return_port_connected"] = is_ret_conn
-        if is_ret_conn:
-            inp_5 = output_node.get("inputs", [])[5] if len(output_node.get("inputs", [])) > 5 else None
-            link_id = inp_5.get("link") if isinstance(inp_5, dict) else None
-            link_obj = self.links_by_id.get(link_id) if link_id else None
-            src_node = self.nodes.get(link_obj[1]) if link_obj else None
-            src_type = str(src_node.get("type", "")).lower() if src_node else ""
-            context["_return_node_is_shape"] = any(
-                kw in src_type for kw in ["shape", "stroke", "walker", "slicer", "border", "drawing", "particle", "pixel", "curva", "bezier", "animation"]
+            context["return_raw"] = return_str
+
+            # If the Return stage mutated timing or layer in context (Level 3 precedence) and the explicit
+            # Output port was left empty, promote the Return-mutated value over Define Vars (Level 2).
+            post_ret_st = float(context.get('st', st_num))
+            post_ret_et = float(context.get('et', et_num))
+            post_ret_layer = context.get('fx_layer', context.get('layer', pre_ret_layer))
+            timing_updated = False
+            if _is_empty_value(self.get_input_value(output_node, 2, context)) and post_ret_st != pre_ret_st:
+                st_num = quantize_ass_ms(_to_int_or_default(post_ret_st, default_st, context=context))
+                timing_updated = True
+            if _is_empty_value(self.get_input_value(output_node, 3, context)) and post_ret_et != pre_ret_et:
+                et_num = quantize_ass_ms(_to_int_or_default(post_ret_et, default_et, context=context))
+                timing_updated = True
+            if timing_updated:
+                self._sync_output_timing_context(context, active_unit, st_num, et_num, line_st=line_st)
+                reset_active_fx_window(_fx_tok)
+                _fx_tok = set_active_fx_window(st_num, et_num)
+            if _is_empty_value(self.get_input_value(output_node, 1, context)) and post_ret_layer != pre_ret_layer:
+                layer_val = post_ret_layer
+
+            # 3. Evaluate Tags, Queues, and Defaults
+            tags_str = self.get_input_value(output_node, 4, context)
+            if "an" not in context and tags_str:
+                m_an = re.findall(r"\\an([1-9])", str(tags_str))
+                if m_an:
+                    context["an"] = int(m_an[-1])
+            loop_tags = str(context.get("loop_tags") or context.get("script_tags") or "").strip()
+            if loop_tags:
+                tags_str = merge_ass_tags(tags_str, loop_tags, context=context) if tags_str else loop_tags
+
+            queue_id = self.get_input_value(output_node, 6, context)
+            if _is_empty_value(queue_id):
+                for k in ["queue_id", "actor", "Queue ID", "Queue_ID", "queue"]:
+                    if k in props and not _is_empty_value(props[k]):
+                        queue_id = str(props[k]).strip()
+                        break
+
+            queue_order = self.get_input_value(output_node, 7, context)
+            if _is_empty_value(queue_order):
+                for k in ["queue_order", "order", "Queue Order", "Queue_Order"]:
+                    if k in props and not _is_empty_value(props[k]):
+                        queue_order = props[k]
+                        break
+
+            layer, st, et, tags_str, return_str = self._apply_defaults(
+                active_unit, layer_val, st_num, et_num, tags_str, return_str, context=context
             )
-            return_str = self.get_input_value(output_node, 5, context)
-        else:
-            context["_return_node_is_shape"] = False
-            inline_ret = self.get_input_value(output_node, 5, context)
-            return_str = inline_ret if not _is_empty_value(inline_ret) else getattr(active_unit, "text_stripped", "")
 
-        if _is_empty_value(return_str) or not str(return_str).strip():
-            return
+            if _is_empty_value(return_str) or not str(return_str).strip():
+                return
 
-        context["return_raw"] = return_str
+            if not _final_text_has_content(return_str) and not (
+                context.get("_return_node_is_shape") or r"\p1" in str(tags_str or "") or str(return_str).startswith(("m ", "c ", "l ", "b ", "s ", "p "))
+            ):
+                return
 
-        # If the Return stage mutated timing or layer in context (Level 3 precedence) and the explicit
-        # Output port was left empty, promote the Return-mutated value over Define Vars (Level 2).
-        post_ret_st = float(context.get('st', st_num))
-        post_ret_et = float(context.get('et', et_num))
-        post_ret_layer = context.get('fx_layer', context.get('layer', pre_ret_layer))
-        if _is_empty_value(self.get_input_value(output_node, 2, context)) and post_ret_st != pre_ret_st:
-            st_num = _to_int_or_default(post_ret_st, default_st, context=context)
-        if _is_empty_value(self.get_input_value(output_node, 3, context)) and post_ret_et != pre_ret_et:
-            et_num = _to_int_or_default(post_ret_et, default_et, context=context)
-        if _is_empty_value(self.get_input_value(output_node, 1, context)) and post_ret_layer != pre_ret_layer:
-            layer_val = post_ret_layer
+            queue_id = queue_id.strip() if queue_id else "default"
+            queue_order = _to_int_or_default(queue_order, 0, context=context)
 
-        # 3. Evaluate Tags, Queues, and Defaults
-        tags_str = self.get_input_value(output_node, 4, context)
-        if "an" not in context and tags_str:
-            m_an = re.findall(r"\\an([1-9])", str(tags_str))
-            if m_an:
-                context["an"] = int(m_an[-1])
-        loop_tags = str(context.get("loop_tags") or context.get("script_tags") or "").strip()
-        if loop_tags:
-            tags_str = merge_ass_tags(tags_str, loop_tags, context=context) if tags_str else loop_tags
+            pyxis_line = context["line"]
+            line_idx = getattr(pyxis_line, "i", 0) if pyxis_line else 0
+            from string_evaluator import eval_string_template, evaluate_ass_line_tag_blocks
+            tags_clean = str(tags_str or "").strip()
+            if tags_clean.startswith("{") and tags_clean.endswith("}"):
+                tags_clean = tags_clean[1:-1].strip()
+            evaluated_tags = eval_string_template(tags_clean, context) if tags_clean else ""
 
-        queue_id = self.get_input_value(output_node, 6, context)
-        if _is_empty_value(queue_id):
-            for k in ["queue_id", "actor", "Queue ID", "Queue_ID", "queue"]:
-                if k in props and not _is_empty_value(props[k]):
-                    queue_id = str(props[k]).strip()
-                    break
-
-        queue_order = self.get_input_value(output_node, 7, context)
-        if _is_empty_value(queue_order):
-            for k in ["queue_order", "order", "Queue Order", "Queue_Order"]:
-                if k in props and not _is_empty_value(props[k]):
-                    queue_order = props[k]
-                    break
-
-        layer, st, et, tags_str, return_str = self._apply_defaults(
-            active_unit, layer_val, st_num, et_num, tags_str, return_str, context=context
-        )
-
-        if _is_empty_value(return_str) or not str(return_str).strip():
-            return
-
-        if not _final_text_has_content(return_str) and not (
-            context.get("_return_node_is_shape") or r"\p1" in str(tags_str or "") or str(return_str).startswith(("m ", "c ", "l ", "b ", "s ", "p "))
-        ):
-            return
-
-        queue_id = queue_id.strip() if queue_id else "default"
-        queue_order = _to_int_or_default(queue_order, 0, context=context)
-
-        pyxis_line = context["line"]
-        line_idx = getattr(pyxis_line, "i", 0) if pyxis_line else 0
-        from string_evaluator import eval_string_template, evaluate_ass_line_tag_blocks
-        tags_clean = str(tags_str or "").strip()
-        if tags_clean.startswith("{") and tags_clean.endswith("}"):
-            tags_clean = tags_clean[1:-1].strip()
-        evaluated_tags = eval_string_template(tags_clean, context) if tags_clean else ""
-
-        ret_clean = str(return_str or "")
-        is_shape_return = context.get("_return_node_is_shape") or (r"\p1" in (evaluated_tags or tags_clean)) or ret_clean.startswith(("m ", "c ", "l ", "b ", "s ", "p "))
-        if not is_shape_return and ret_clean:
-            if "{" in ret_clean:
-                evaluated_ret = evaluate_ass_line_tag_blocks(ret_clean, context)
-            elif "(" in ret_clean:
-                from string_evaluator import evaluate_isolated_ternaries
-                evaluated_ret = evaluate_isolated_ternaries(ret_clean, context)
+            ret_clean = str(return_str or "")
+            is_shape_return = context.get("_return_node_is_shape") or (r"\p1" in (evaluated_tags or tags_clean)) or ret_clean.startswith(("m ", "c ", "l ", "b ", "s ", "p "))
+            if not is_shape_return and ret_clean:
+                if "{" in ret_clean:
+                    evaluated_ret = evaluate_ass_line_tag_blocks(ret_clean, context)
+                elif "(" in ret_clean:
+                    from string_evaluator import evaluate_isolated_ternaries
+                    evaluated_ret = evaluate_isolated_ternaries(ret_clean, context)
+                else:
+                    evaluated_ret = ret_clean
             else:
                 evaluated_ret = ret_clean
-        else:
-            evaluated_ret = ret_clean
 
-        if evaluated_tags:
-            evaluated_text = f"{{{evaluated_tags}}}{evaluated_ret}"
-        else:
-            evaluated_text = evaluated_ret
+            if evaluated_tags:
+                evaluated_text = f"{{{evaluated_tags}}}{evaluated_ret}"
+            else:
+                evaluated_text = evaluated_ret
 
-        ass_line = {
-            "line_idx": line_idx,
-            "layer": layer,
-            "start_time": st,
-            "end_time": et,
-            "style_name": pyxis_line.style_name,
-            "actor": queue_id,
-            "margin_l": pyxis_line.margin_l,
-            "margin_r": pyxis_line.margin_r,
-            "margin_v": pyxis_line.margin_v,
-            "effect": "pyxis_fx",
-            "text": evaluated_text,
-            "queue_id": queue_id,
-            "queue_order": queue_order,
-        }
-        self.all_generated_lines.append(ass_line)
+            ass_line = {
+                "line_idx": line_idx,
+                "layer": layer,
+                "start_time": st,
+                "end_time": et,
+                "style_name": pyxis_line.style_name,
+                "actor": queue_id,
+                "margin_l": pyxis_line.margin_l,
+                "margin_r": pyxis_line.margin_r,
+                "margin_v": pyxis_line.margin_v,
+                "effect": "pyxis_fx",
+                "text": evaluated_text,
+                "queue_id": queue_id,
+                "queue_order": queue_order,
+            }
+            self.all_generated_lines.append(ass_line)
 
-        self._local_line_batch = getattr(self, "_local_line_batch", 0) + 1
-        if self._local_line_batch >= 25:
-            if getattr(self, "shared_line_counter", None) is not None:
-                try:
-                    with self.shared_line_counter.get_lock():
-                        self.shared_line_counter.value += self._local_line_batch
-                except Exception:
-                    pass
-            self._local_line_batch = 0
-            if progress_tracker and callable(progress_callback):
-                self._update_progress(progress_tracker, progress_callback)
+            self._local_line_batch = getattr(self, "_local_line_batch", 0) + 1
+            if self._local_line_batch >= 25:
+                if getattr(self, "shared_line_counter", None) is not None:
+                    try:
+                        with self.shared_line_counter.get_lock():
+                            self.shared_line_counter.value += self._local_line_batch
+                    except Exception:
+                        pass
+                self._local_line_batch = 0
+                if progress_tracker and callable(progress_callback):
+                    self._update_progress(progress_tracker, progress_callback)
 
-        if len(self.all_generated_lines) % 10 == 0:
-            cancel_signal = False
-            if getattr(self, "shared_cancel_flag", None) is not None and getattr(self.shared_cancel_flag, "value", False):
-                cancel_signal = True
-            elif callable(check_cancel) and check_cancel():
-                cancel_signal = True
-            if cancel_signal:
-                self.is_cancelled = True
+            if len(self.all_generated_lines) % 10 == 0:
+                cancel_signal = False
+                if getattr(self, "shared_cancel_flag", None) is not None and getattr(self.shared_cancel_flag, "value", False):
+                    cancel_signal = True
+                elif callable(check_cancel) and check_cancel():
+                    cancel_signal = True
+                if cancel_signal:
+                    self.is_cancelled = True
+        finally:
+            reset_active_fx_window(_fx_tok)
 
     def execute_loops_recursive (self ,chain ,context ,output_node ,active_unit =None ,check_cancel =None ,progress_tracker =None ,progress_callback =None ):
         """Recursively traverses and unrolls user-defined loop chains down to terminal sub-loop emission.
@@ -7525,6 +8130,8 @@ class GraphEngine:
 
         if current_loop ['type']=='base':
             base_type ,pyxis_line =current_loop ['val'],context ['line']
+            preserve_tags = current_loop.get('preserve_tags', True)
+            context['preserve_tags'] = preserve_tags
             if base_type =="line":
                 self .bind_active_unit (context ,pyxis_line ,is_noblank =is_noblank ,output_node =output_node )
                 self .execute_loops_recursive (rest_chain ,context ,output_node ,pyxis_line ,check_cancel ,progress_tracker ,progress_callback )
@@ -7535,6 +8142,7 @@ class GraphEngine:
                     if is_noblank and (getattr (unit ,'is_blank',False )or not _has_visible_content (unit )):continue 
                     if not _has_visible_content (unit ):continue 
                     ctx =context .copy ()
+                    ctx['preserve_tags'] = preserve_tags
                     ctx [base_type ]=unit 
                     if base_type =='char':
                         if getattr (unit ,'syl',None ):ctx ['syl']=unit .syl 
@@ -7690,6 +8298,10 @@ class GraphEngine:
                 active_vars.append(vars_str)
             ctx['_active_set_vars'] = active_vars
             self._apply_set_vars_to_context(vars_str, ctx, active_unit)
+            if ctx.get('st_overridden') or ctx.get('et_overridden'):
+                st_sync = quantize_ass_ms(ctx['defvars_st']) if ctx.get('st_overridden') else float(ctx.get('fx_start_time', ctx.get('unit_abs_start_time', 0.0)))
+                et_sync = quantize_ass_ms(ctx['defvars_et']) if ctx.get('et_overridden') else float(ctx.get('fx_end_time', ctx.get('unit_abs_end_time', 0.0)))
+                self._sync_output_timing_context(ctx, active_unit, st_sync, et_sync)
             self .execute_loops_recursive (rest_chain ,ctx ,output_node ,active_unit ,check_cancel ,progress_tracker ,progress_callback )
 
         elif current_loop ['type']=='code_script':
@@ -7748,40 +8360,34 @@ class GraphEngine:
         processor =KaraokeProcessor (self .rx ,self .ry ,self .fd ,video_x_correct_factor =getattr (self ,'video_x_correct_factor',1.0 ))
 
         parsed_lines =[]
-        selected_styles =set (global_selected_styles )if global_selected_styles is not None else set ()
 
         for item in dialogue_items :
+            if is_vetoed_dialogue_item(item):
+                continue
             if hasattr (item ,'raw_text')and hasattr (item ,'syls'):
                 pyxis_line =item 
             else :
                 raw_line =item ['raw']if isinstance (item ,dict )else getattr (item ,'raw','')
-                raw_str =str (raw_line ).strip ()
-                if raw_str .startswith ('Comment:')or raw_str .startswith ('Comment :')or getattr (item ,'is_comment',False ):
-                    continue 
                 metrics =item .get ('metrics')if isinstance (item ,dict )else getattr (item ,'metrics',None )
                 style_name =raw_line .split (',')[3 ]if ','in raw_line else ''
                 pyxis_line =processor .process_line (raw_line ,styles .get (style_name ,{}),metrics )
                 if pyxis_line :
-                    is_item_selected =bool (
-                        (isinstance (item ,dict )and (item .get ('is_selected')or (isinstance (item .get ('metrics'),dict )and item ['metrics'].get ('sel'))))
-                        or getattr (item ,'is_selected',False )
-                        or getattr (pyxis_line ,'is_selected',False )
-                    )
-                    pyxis_line .is_selected =is_item_selected 
+                    pyxis_line .is_selected =is_dialogue_item_selected (item )or getattr (pyxis_line ,'is_selected',False )
             if pyxis_line :
                 parsed_lines .append (pyxis_line )
-                if not getattr(pyxis_line, 'is_comment', False) and pyxis_line .is_selected :
-                    selected_styles .add (pyxis_line .style_name )
 
-        selected_lines_list =[l for l in parsed_lines if l .is_selected and not getattr(l, 'is_comment', False)]
-        if not selected_lines_list and allow_fallback_select_all :
-            for l in parsed_lines :
-                if not getattr(l, 'is_comment', False):
-                    l .is_selected =True 
-                    selected_styles .add (l .style_name )
-            selected_lines_list =[l for l in parsed_lines if not getattr(l, 'is_comment', False)]
+        non_comment_parsed =[l for l in parsed_lines if not is_vetoed_dialogue_item(l)]
+        if global_selected_styles is not None :
+            selected_styles ={str (s ).strip ()for s in global_selected_styles if str (s ).strip ()}
+        else :
+            selected_styles =resolve_first_style_in_order (non_comment_parsed ,allow_fallback =allow_fallback_select_all )
 
-        output_nodes =[n for n in self .nodes .values ()if 'output'in str (n .get ('type','')).lower ()]
+        selected_lines_list =[l for l in non_comment_parsed if l .is_selected ]
+        if not selected_lines_list and allow_fallback_select_all and non_comment_parsed :
+            non_comment_parsed [0 ].is_selected =True 
+            selected_lines_list =[non_comment_parsed [0 ]]
+
+        output_nodes =self ._resolve_target_output_nodes ()
 
         total_estimated_lines =0 
         total_base_units =0 
@@ -8000,10 +8606,11 @@ class GraphEngine:
                 static_mult_cache [cache_key ]=res_mult 
                 return res_mult 
 
+            norm_apply_to =normalize_apply_to (apply_to )
             for pyxis_line in parsed_lines :
-                if getattr(pyxis_line, 'is_comment', False): continue
-                if apply_to in ["Selected Lines","Sel. Lines"]and not pyxis_line .is_selected :continue 
-                if apply_to =="Style Lines"and pyxis_line .style_name not in selected_styles :continue 
+                if is_vetoed_dialogue_item(pyxis_line): continue
+                if norm_apply_to =="selected"and not pyxis_line .is_selected :continue 
+                if norm_apply_to =="style"and str (getattr (pyxis_line ,'style_name','')or '').strip ()not in selected_styles :continue 
 
                 active_input_line_ids .add (id (pyxis_line ))
 
@@ -8018,11 +8625,30 @@ class GraphEngine:
                     sample_unit =active_units [0 ]if active_units else None 
                     static_mult =_get_static_unit_multiplier (pyxis_line ,sample_unit )
 
+                    line_st = float(getattr(pyxis_line, 'start_time', 0.0))
                     for unit in active_units :
                         unit_mult =static_mult 
                         sim_mult =static_mult 
-                        u_st =float (getattr (unit ,'start_time',getattr (pyxis_line ,'start_time',0.0 )))
-                        u_et =float (getattr (unit ,'end_time',getattr (pyxis_line ,'end_time',0.0 )))
+                        if base_type == 'char':
+                            syl_parent = getattr(unit, 'syl', None)
+                            s_st = float(getattr(syl_parent, 'start_time', 0.0)) if (syl_parent and hasattr(syl_parent, 'start_time')) else 0.0
+                            c_st = float(getattr(unit, 'start_time', 0.0))
+                            c_dur = float(getattr(unit, 'dur', getattr(unit, 'duration', 0.0)))
+                            c_et = float(getattr(unit, 'end_time', c_st + c_dur))
+                            u_st = line_st + s_st + c_st
+                            u_et = line_st + s_st + c_et
+                        elif base_type == 'word':
+                            w_st = float(getattr(unit, 'start_time', 0.0))
+                            w_dur = float(getattr(unit, 'dur', getattr(unit, 'duration', 0.0)))
+                            w_et = float(getattr(unit, 'end_time', w_st + w_dur))
+                            u_st = line_st + w_st
+                            u_et = line_st + w_et
+                        else:
+                            s_st = float(getattr(unit, 'start_time', 0.0))
+                            s_dur = float(getattr(unit, 'dur', getattr(unit, 'duration', 0.0)))
+                            s_et = float(getattr(unit, 'end_time', s_st + s_dur))
+                            u_st = line_st + s_st
+                            u_et = line_st + s_et
                         for loop in fbf_maxloops :
                             step_val =loop .get ('step_ms')or loop .get ('val')or 41.7 
                             try :step_ms =max (1.0 ,float (step_val ))
@@ -8124,6 +8750,73 @@ class GraphEngine:
                     return False
         return True
 
+    def _resolve_target_output_nodes (self ):
+        """Return Output nodes targeted by ``self.target_output_id`` or all Output nodes."""
+        all_output_nodes =[node for node in self .nodes .values ()if 'output'in str (node .get ('type','')).lower ()]
+        if not (hasattr (self ,'target_output_id')and self .target_output_id is not None ):
+            return all_output_nodes 
+
+        if isinstance (self .target_output_id ,(list ,tuple ,set )):
+            raw_list =[]
+            for item in self .target_output_id :
+                if item is not None :
+                    for s in str (item ).split (','):
+                        s_clean =s .strip ()
+                        if s_clean :
+                            raw_list .append (s_clean )
+            target_ids =set (raw_list )
+        else :
+            target_ids ={s .strip ()for s in str (self .target_output_id ).split (',')if s .strip ()}
+
+        if not target_ids :
+            return []
+
+        if any (x .lower ()in ('all','*','all_outputs')for x in target_ids ):
+            return all_output_nodes 
+
+        numeric_targets =set ()
+        for t in target_ids :
+            try :
+                numeric_targets .add (int (t ))
+            except (ValueError ,TypeError ):
+                pass 
+
+        def _matches_output (n ):
+            nid_str =str (n .get ('id',''))
+            nid_int =n .get ('id')
+            node_title =str (n .get ('title')or '').strip ()
+            props =n .get ('properties',{})or {}
+            out_id =str (props .get ('output_id')or '').strip ()
+            queue_id =str (props .get ('queue_id')or '').strip ()
+
+            if nid_str in target_ids :
+                return True 
+            if nid_int is not None and nid_int in numeric_targets :
+                return True 
+            if node_title and node_title in target_ids :
+                return True 
+            if out_id and (out_id in target_ids or (_to_int_or_default (out_id ,None )in numeric_targets )):
+                return True 
+            if queue_id and (queue_id in target_ids or (_to_int_or_default (queue_id ,None )in numeric_targets )):
+                return True 
+
+            if n in all_output_nodes :
+                idx_1based =all_output_nodes .index (n )+1 
+                if (str (idx_1based )in target_ids or 
+                idx_1based in numeric_targets or 
+                f"Output {idx_1based }"in target_ids or 
+                f"Output_{idx_1based }"in target_ids or 
+                f"Output {idx_1based }".lower ()in (x .lower ()for x in target_ids )or 
+                f"Output_{idx_1based }".lower ()in (x .lower ()for x in target_ids )):
+                    return True 
+
+            if 'default'in target_ids and (not out_id or out_id =='default'):
+                return True 
+
+            return False 
+
+        return [n for n in all_output_nodes if _matches_output (n )]
+
     def process_single(
         self,
         dialogue_items,
@@ -8170,74 +8863,7 @@ class GraphEngine:
             clear_particle_caches()
         clear_all_shape_caches()
 
-        if hasattr (self ,'target_output_id')and self .target_output_id is not None :
-            if isinstance (self .target_output_id ,(list ,tuple ,set )):
-                raw_list =[]
-                for item in self .target_output_id :
-                    if item is not None :
-                        for s in str (item ).split (','):
-                            s_clean =s .strip ()
-                            if s_clean :
-                                raw_list .append (s_clean )
-                target_ids =set (raw_list )
-            else :
-                raw_list =[s .strip ()for s in str (self .target_output_id ).split (',')if s .strip ()]
-                target_ids =set (raw_list )
-
-            all_output_nodes =[node for node in self .nodes .values ()if 'output'in str (node .get ('type','')).lower ()]
-
-            numeric_targets =set ()
-            for t in target_ids :
-                try :
-                    numeric_targets .add (int (t ))
-                except (ValueError ,TypeError ):
-                    pass 
-
-            def _matches_output (n ):
-                n_type =str (n .get ('type','')).lower ()
-                if 'output'not in n_type :
-                    return False 
-
-                nid_str =str (n .get ('id',''))
-                nid_int =n .get ('id')
-                node_title =str (n .get ('title')or '').strip ()
-                props =n .get ('properties',{})or {}
-                out_id =str (props .get ('output_id')or '').strip ()
-                queue_id =str (props .get ('queue_id')or '').strip ()
-
-                if any (x .lower ()in ('all','*','all_outputs')for x in target_ids ):
-                    return True 
-
-                if nid_str in target_ids :
-                    return True 
-                if nid_int is not None and nid_int in numeric_targets :
-                    return True 
-                if node_title and node_title in target_ids :
-                    return True 
-
-                if out_id and (out_id in target_ids or (_to_int_or_default (out_id ,None )in numeric_targets )):
-                    return True 
-                if queue_id and (queue_id in target_ids or (_to_int_or_default (queue_id ,None )in numeric_targets )):
-                    return True 
-
-                if n in all_output_nodes :
-                    idx_1based =all_output_nodes .index (n )+1 
-                    if (str (idx_1based )in target_ids or 
-                    idx_1based in numeric_targets or 
-                    f"Output {idx_1based }"in target_ids or 
-                    f"Output_{idx_1based }"in target_ids or 
-                    f"Output {idx_1based }".lower ()in (x .lower ()for x in target_ids )or 
-                    f"Output_{idx_1based }".lower ()in (x .lower ()for x in target_ids )):
-                        return True 
-
-                if 'default'in target_ids and (not out_id or out_id =='default'):
-                    return True 
-
-                return False 
-
-            output_nodes =[n for n in self .nodes .values ()if _matches_output (n )]
-        else :
-            output_nodes =[n for n in self .nodes .values ()if 'output'in str (n .get ('type','')).lower ()]
+        output_nodes =self ._resolve_target_output_nodes ()
 
         def _get_node_sort_key (node ):
             props =node .get ('properties',{})
@@ -8255,13 +8881,11 @@ class GraphEngine:
         processor =KaraokeProcessor (self .rx ,self .ry ,self .fd ,video_x_correct_factor =getattr (self ,'video_x_correct_factor',1.0 ))
 
         parsed_lines =[]
-        selected_styles =set (global_selected_styles )if global_selected_styles is not None else set ()
 
         for idx ,item in enumerate (dialogue_items ,1 ):
+            if is_vetoed_dialogue_item(item):
+                continue
             raw_line =item ['raw']if isinstance (item ,dict )else getattr (item ,'raw','')
-            raw_str =str (raw_line ).strip ()
-            if raw_str .startswith ('Comment:')or raw_str .startswith ('Comment :')or getattr (item ,'is_comment',False ):
-                continue 
             metrics =item .get ('metrics')if isinstance (item ,dict )else getattr (item ,'metrics',None )
             style_name =raw_line .split (',')[3 ]if ','in raw_line else ''
             pyxis_line =processor .process_line (raw_line ,styles .get (style_name ,{}),metrics )
@@ -8273,23 +8897,19 @@ class GraphEngine:
                 else :
                     pyxis_line .i =idx 
                 
-                is_item_selected = bool(
-                    (isinstance(item, dict) and (item.get('is_selected') or (isinstance(item.get('metrics'), dict) and item['metrics'].get('sel'))))
-                    or getattr(item, 'is_selected', False)
-                    or getattr(pyxis_line, 'is_selected', False)
-                )
-                pyxis_line.is_selected = is_item_selected
-
+                pyxis_line .is_selected =is_dialogue_item_selected (item )or getattr (pyxis_line ,'is_selected',False )
                 parsed_lines .append (pyxis_line )
-                if not getattr(pyxis_line, 'is_comment', False) and pyxis_line .is_selected :
-                    selected_styles .add (pyxis_line .style_name )
 
-        selected_lines_list =[l for l in parsed_lines if l .is_selected and not getattr(l, 'is_comment', False)]
-        if not selected_lines_list and allow_fallback_select_all :
-            for l in parsed_lines :
-                if not getattr(l, 'is_comment', False):
-                    l .is_selected =True 
-            selected_lines_list =[l for l in parsed_lines if not getattr(l, 'is_comment', False)]
+        non_comment_parsed =[l for l in parsed_lines if not is_vetoed_dialogue_item(l)]
+        if global_selected_styles is not None :
+            selected_styles ={str (s ).strip ()for s in global_selected_styles if str (s ).strip ()}
+        else :
+            selected_styles =resolve_first_style_in_order (non_comment_parsed ,allow_fallback =allow_fallback_select_all )
+
+        selected_lines_list =[l for l in non_comment_parsed if l .is_selected ]
+        if not selected_lines_list and allow_fallback_select_all and non_comment_parsed :
+            non_comment_parsed [0 ].is_selected =True 
+            selected_lines_list =[non_comment_parsed [0 ]]
 
         subtitle_line_vars = set()
         if styles and isinstance(styles, dict):
@@ -8323,7 +8943,7 @@ class GraphEngine:
         total_work_units = 0 
         for out_node in output_nodes :
             props =out_node .get ('properties',{})
-            apply_to =props .get ('apply_to','Selected Lines')
+            norm_apply_to =normalize_apply_to (props .get ('apply_to','Selected Lines'))
             loop_chain =self .trace_loop_chain (out_node )
             if not loop_chain :continue 
 
@@ -8337,10 +8957,10 @@ class GraphEngine:
             is_noblank = "Con Blanks" not in _nb_str3 and "With" not in _nb_str3
 
             for pyxis_line in parsed_lines :
-                if getattr(pyxis_line, 'is_comment', False): continue
+                if is_vetoed_dialogue_item(pyxis_line): continue
                 if chunk_indices is not None and getattr(pyxis_line, 'i', None) not in chunk_indices: continue
-                if apply_to in ["Selected Lines","Sel. Lines"]and not pyxis_line .is_selected :continue 
-                if apply_to =="Style Lines"and pyxis_line .style_name not in selected_styles :continue 
+                if norm_apply_to =="selected"and not pyxis_line .is_selected :continue 
+                if norm_apply_to =="style"and str (getattr (pyxis_line ,'style_name','')or '').strip ()not in selected_styles :continue 
                 if win_min is not None and (getattr(pyxis_line, 'end_time', 0.0) < win_min or getattr(pyxis_line, 'start_time', 0.0) > win_max):
                     continue
 
@@ -8362,23 +8982,23 @@ class GraphEngine:
         for out_node in output_nodes :
             if self .is_cancelled :break 
             props =out_node .get ('properties',{})
-            apply_to =props .get ('apply_to','Selected Lines')
+            norm_apply_to =normalize_apply_to (props .get ('apply_to','Selected Lines'))
             loop_chain =self .trace_loop_chain (out_node )
             if not loop_chain :continue 
 
-            if apply_to in ["Selected Lines", "Sel. Lines"]:
-                target_lines_list = selected_lines_list
-            elif apply_to == "Style Lines":
-                target_lines_list = [l for l in parsed_lines if not getattr(l, 'is_comment', False) and l.style_name in selected_styles]
-            else:
-                target_lines_list = [l for l in parsed_lines if not getattr(l, 'is_comment', False)]
+            if norm_apply_to =="selected":
+                target_lines_list =selected_lines_list 
+            elif norm_apply_to =="style":
+                target_lines_list =[l for l in non_comment_parsed if str (getattr (l ,'style_name','')or '').strip ()in selected_styles ]
+            else :
+                target_lines_list =non_comment_parsed 
 
             for pyxis_line in parsed_lines :
                 if self .is_cancelled :break 
-                if getattr(pyxis_line, 'is_comment', False): continue
+                if is_vetoed_dialogue_item(pyxis_line): continue
                 if chunk_indices is not None and getattr(pyxis_line, 'i', None) not in chunk_indices: continue
-                if apply_to in ["Selected Lines","Sel. Lines"]and not pyxis_line .is_selected :continue 
-                if apply_to =="Style Lines"and pyxis_line .style_name not in selected_styles :continue 
+                if norm_apply_to =="selected"and not pyxis_line .is_selected :continue 
+                if norm_apply_to =="style"and str (getattr (pyxis_line ,'style_name','')or '').strip ()not in selected_styles :continue 
                 if win_min is not None and (getattr(pyxis_line, 'end_time', 0.0) < win_min or getattr(pyxis_line, 'start_time', 0.0) > win_max):
                     continue 
                 self .execute_loops_recursive (
@@ -8478,32 +9098,6 @@ class GraphEngine:
         cached_particle_data =(_GLOBAL_PARTICLE_PTS_CACHE .copy (),_GLOBAL_PARTICLE_IMG_CACHE .copy ())
 
 
-        has_any_selection =any (
-        bool (
-        (isinstance (d ,dict )and (d .get ('is_selected')or (isinstance (d .get ('metrics'),dict )and d ['metrics'].get ('sel'))))
-        or getattr (d ,'is_selected',False )
-        )
-        for d in dialogue_items 
-        if not (
-            (isinstance (d ,dict )and (str (d .get ('raw','')).strip ().startswith ('Comment:')or str (d .get ('raw','')).strip ().startswith ('Comment :')))
-            or getattr (d ,'is_comment',False )
-        )
-        )
-        allow_fallback_select_all =not has_any_selection 
-
-        global_selected_styles =set ()
-        for item in dialogue_items :
-            raw_line =item ['raw']if isinstance (item ,dict )else getattr (item ,'raw','')
-            if str (raw_line ).strip ().startswith ('Comment:')or str (raw_line ).strip ().startswith ('Comment :')or getattr (item ,'is_comment',False ):
-                continue 
-            style_name =raw_line .split (',')[3 ]if ','in raw_line else ''
-            is_sel =bool (
-            (isinstance (item ,dict )and (item .get ('is_selected')or (isinstance (item .get ('metrics'),dict )and item ['metrics'].get ('sel'))))
-            or getattr (item ,'is_selected',False )
-            )
-            if (is_sel or allow_fallback_select_all )and style_name :
-                global_selected_styles .add (style_name )
-
         for idx, item in enumerate(dialogue_items, 1):
             if isinstance(item, dict):
                 if 'i' not in item:
@@ -8512,76 +9106,93 @@ class GraphEngine:
                 if not hasattr(item, 'i'):
                     setattr(item, 'i', idx)
 
-        # Filter non-comment dialogue items and identify active target line indices for balanced multi-core distribution
-        non_comment_items =[]
-        all_non_comment_indices =[]
-        selected_or_style_indices =[]
-        any_out_uses_all =False 
-        for out_n in self .nodes .values ():
-            n_tp =str (out_n .get ('type','')).lower ()
-            if 'output'in n_tp :
-                app_mode =str ((out_n .get ('properties')or {}).get ('apply_to','Selected Lines')).strip ()
-                if app_mode in ('All Lines','all'):
-                    any_out_uses_all =True 
-                    break 
+        # Exclude ASS Comments and lines with empty/non-visible Text while preserving 1-based 'i'
+        non_comment_items = [item for item in dialogue_items if not is_vetoed_dialogue_item(item)]
+        has_any_selection = any(is_dialogue_item_selected(d) for d in non_comment_items)
+        allow_fallback_select_all = not has_any_selection
 
-        for idx ,item in enumerate (dialogue_items ,1 ):
-            raw_line =item ['raw']if isinstance (item ,dict )else getattr (item ,'raw','')
-            raw_str =str (raw_line ).strip ()
-            if raw_str .startswith ('Comment:')or raw_str .startswith ('Comment :')or getattr (item ,'is_comment',False ):
-                continue 
-            non_comment_items .append (item )
-            item_i =item .get ('i',idx )if isinstance (item ,dict )else getattr (item ,'i',idx )
-            all_non_comment_indices .append (item_i )
-            style_name =raw_line .split (',')[3 ]if ','in raw_line else ''
-            is_sel =bool (
-            (isinstance (item ,dict )and (item .get ('is_selected')or (isinstance (item .get ('metrics'),dict )and item ['metrics'].get ('sel'))))
-            or getattr (item ,'is_selected',False )
-            )
-            if is_sel or allow_fallback_select_all or (style_name and style_name in global_selected_styles ):
-                selected_or_style_indices .append (item_i )
+        # Resolve single first selected style in appearance order (or first valid style as fallback)
+        global_selected_styles = resolve_first_style_in_order(non_comment_items, allow_fallback=True)
 
-        active_indices =all_non_comment_indices if (any_out_uses_all or not selected_or_style_indices )else selected_or_style_indices 
-        num_active =len (active_indices )
+        # Compute exact target line indices across active Output scopes for balanced multiprocessing
+        active_outputs = self._resolve_target_output_nodes()
+        active_modes = [
+            normalize_apply_to((out_n.get('properties') or {}).get('apply_to', 'Selected Lines'))
+            for out_n in active_outputs
+        ] or ['selected']
+        matched_positions, _ = resolve_target_dialogue_indices(
+            non_comment_items,
+            active_modes,
+            allow_fallback=allow_fallback_select_all,
+        )
+        active_indices = [
+            non_comment_items[p].get('i') if isinstance(non_comment_items[p], dict) else getattr(non_comment_items[p], 'i')
+            for p in matched_positions
+        ]
+        num_active = len(active_indices)
 
         # Adaptive multiprocessing evaluation:
-        # On Windows (os.name == "nt"), CPython multiprocessing uses 'spawn', which introduces
-        # a static startup overhead (~400-800ms) to launch child processes and import modules.
-        # For lightweight workloads (few lines and small line counts), single-threaded execution is faster.
-        should_use_mp = use_multiprocessing and num_active > 1 and cpu_cores > 1
-        est_info = None
-        if should_use_mp and os.name == "nt":
-            if num_active < 4:
-                est_info = self.estimate_workload(
-                    non_comment_items,
-                    styles,
-                    allow_fallback_select_all=allow_fallback_select_all,
-                    global_selected_styles=global_selected_styles
+        # Both Windows and macOS CPython use 'spawn' for child processes, introducing startup
+        # and IPC overhead. Keep lightweight workloads on the single-threaded path and reuse
+        # a persistent worker pool when parallel execution is worthwhile.
+        is_spawn =_is_spawn_platform ()
+        should_use_mp =use_multiprocessing and num_active >1 and cpu_cores >1 
+        est_info =None 
+        if should_use_mp and is_spawn :
+            if num_active <12 :
+                est_info =self .estimate_workload (
+                    non_comment_items ,
+                    styles ,
+                    allow_fallback_select_all =allow_fallback_select_all ,
+                    global_selected_styles =global_selected_styles ,
                 )
-                est_lines = est_info.get("estimated_lines", 0)
-                has_heavy = est_info.get("has_particles", False) or est_info.get("has_slicer", False)
-                if est_lines < 600 and not has_heavy:
-                    should_use_mp = False
+                est_lines =est_info .get ("estimated_lines",0 )
+                has_heavy =est_info .get ("has_particles",False )or est_info .get ("has_slicer",False )
+                if est_lines <600 and not has_heavy :
+                    should_use_mp =False 
 
-        if should_use_mp:
+        if should_use_mp :
             stop_monitor =threading .Event ()
             monitor_th =None 
+            aborted_or_failed =False 
             try :
                 max_workers =min (cpu_cores ,num_active )
-                if os.name == "nt":
-                    if est_info is None:
-                        est_info = self.estimate_workload(
-                            non_comment_items,
-                            styles,
-                            allow_fallback_select_all=allow_fallback_select_all,
-                            global_selected_styles=global_selected_styles
+                if is_spawn :
+                    if est_info is None :
+                        est_info =self .estimate_workload (
+                            non_comment_items ,
+                            styles ,
+                            allow_fallback_select_all =allow_fallback_select_all ,
+                            global_selected_styles =global_selected_styles ,
                         )
-                    est_lines_cnt = est_info.get("estimated_lines", 100)
+                    est_lines_cnt =est_info .get ("estimated_lines",100 )
                     # Limit worker count to avoid excessive spawn overhead when workload per worker is trivial
-                    max_workers = min(max_workers, max(2, est_lines_cnt // 350))
+                    max_workers =min (max_workers ,max (2 ,est_lines_cnt //350 ))
 
-                shared_line_counter =multiprocessing .Value ('i',0 )
-                shared_cancel_flag =multiprocessing .Value ('b',False )
+                font_resolve_seed ={}
+                if sys .platform !="win32"and isinstance (styles ,dict ):
+                    try :
+                        from font_resolver import resolve_font_file 
+                        seen_fonts =set ()
+                        for st_obj in styles .values ():
+                            if isinstance (st_obj ,dict ):
+                                fn_val =str (st_obj .get ("Fontname")or st_obj .get ("fontname")or "").strip ()
+                                b_raw =st_obj .get ("Bold")if "Bold"in st_obj else st_obj .get ("bold")
+                                it_raw =st_obj .get ("Italic")if "Italic"in st_obj else st_obj .get ("italic")
+                                b_flag =str (b_raw ).strip ().lower ()in ("1","-1","true")if not isinstance (b_raw ,bool )else b_raw 
+                                it_flag =str (it_raw ).strip ().lower ()in ("1","-1","true")if not isinstance (it_raw ,bool )else it_raw 
+                                if fn_val :
+                                    seen_fonts .add ((fn_val ,b_flag ,it_flag ))
+                                    seen_fonts .add ((fn_val ,False ,False ))
+                        seen_fonts .add (("Arial",False ,False ))
+                        for fn_val ,b_flag ,it_flag in seen_fonts :
+                            resolved_fp =resolve_font_file (fn_val ,bold =b_flag ,italic =it_flag )
+                            if resolved_fp :
+                                font_resolve_seed [(fn_val .lower (),b_flag ,it_flag )]=resolved_fp 
+                    except Exception :
+                        font_resolve_seed ={}
+
+                pool ,shared_line_counter ,shared_cancel_flag =_get_or_create_persistent_pool (max_workers )
                 self .shared_line_counter =shared_line_counter 
                 self .shared_cancel_flag =shared_cancel_flag 
 
@@ -8604,11 +9215,12 @@ class GraphEngine:
                         allow_fallback_select_all ,
                         list (global_selected_styles ),
                         chunk_indices ,
-                        getattr (self ,'video_x_correct_factor',1.0 )
+                        getattr (self ,'video_x_correct_factor',1.0 ),
+                        font_resolve_seed ,
                     ))
 
                 if callable (progress_callback )or callable (check_cancel_callback ):
-                    if est_info is None:
+                    if est_info is None :
                         est_info =self .estimate_workload (non_comment_items ,styles ,allow_fallback_select_all =allow_fallback_select_all ,global_selected_styles =global_selected_styles )
                     est_lines =max (10 ,est_info .get ('estimated_lines',100 ))
 
@@ -8654,51 +9266,51 @@ class GraphEngine:
                     except Exception :
                         prof =None 
 
-                with concurrent .futures .ProcessPoolExecutor (
-                max_workers =max_workers ,
-                initializer =_worker_init ,
-                initargs =(shared_line_counter ,shared_cancel_flag )
-                )as pool :
-                    global _GLOBAL_ACTIVE_EXECUTOR 
-                    _GLOBAL_ACTIVE_EXECUTOR =pool 
+                global _GLOBAL_ACTIVE_EXECUTOR 
+                _GLOBAL_ACTIVE_EXECUTOR =pool 
 
-                    future_map ={
+                future_map ={
                     pool .submit (_process_line_chunk_worker ,p ):(i +1 ,len (p [11 ])if len (p )>=12 and p [11 ]is not None else len (p [5 ]),time .perf_counter ())
                     for i ,p in enumerate (payloads )
-                    }
+                }
 
-                    for future in concurrent .futures .as_completed (future_map ):
-                        if self .is_cancelled or (shared_cancel_flag and shared_cancel_flag .value ):
-                            break 
-                        w_id ,line_cnt ,t_start =future_map [future ]
-                        t_end =time .perf_counter ()
-                        if prof :
-                            prof .record_worker_chunk (w_id ,line_cnt ,t_end -t_start ,t_start ,t_end )
-                        try :
-                            lines_chunk =future .result ()
-                            if lines_chunk :
-                                self .all_generated_lines .extend (lines_chunk )
-                        except Exception as fe :
-                            if not self .is_cancelled :
-                                print (f"[Pyxis Worker Exception] {fe }",flush =True )
-                        completed_chunks +=1 
+                for future in concurrent .futures .as_completed (future_map ):
+                    if self .is_cancelled or (shared_cancel_flag and shared_cancel_flag .value ):
+                        aborted_or_failed =True 
+                        break 
+                    w_id ,line_cnt ,t_start =future_map [future ]
+                    t_end =time .perf_counter ()
+                    if prof :
+                        prof .record_worker_chunk (w_id ,line_cnt ,t_end -t_start ,t_start ,t_end )
+                    try :
+                        lines_chunk =future .result ()
+                        if lines_chunk :
+                            self .all_generated_lines .extend (lines_chunk )
+                    except Exception as fe :
+                        if not self .is_cancelled :
+                            print (f"[Pyxis Worker Exception] {fe }",flush =True )
+                    completed_chunks +=1 
 
             except Exception as mp_err :
+                aborted_or_failed =True 
                 print (f"[Pyxis Multiprocessing Warning] Falling back to sequential mode: {mp_err }",flush =True )
-                self.process_single(
-                    dialogue_items,
-                    styles,
-                    progress_callback,
-                    check_cancel_callback,
-                    allow_fallback_select_all=allow_fallback_select_all,
-                    global_selected_styles=global_selected_styles,
-                    preview_time_window=preview_time_window
+                self .process_single (
+                    dialogue_items ,
+                    styles ,
+                    progress_callback ,
+                    check_cancel_callback ,
+                    allow_fallback_select_all =allow_fallback_select_all ,
+                    global_selected_styles =global_selected_styles ,
+                    preview_time_window =preview_time_window ,
                 )
             finally :
                 stop_monitor .set ()
                 if monitor_th and monitor_th .is_alive ():
                     monitor_th .join (timeout =0.1 )
-                _GLOBAL_ACTIVE_EXECUTOR =None 
+                if aborted_or_failed or self .is_cancelled or (shared_cancel_flag and shared_cancel_flag .value ):
+                    abort_global_multiprocessing ()
+                else :
+                    _GLOBAL_ACTIVE_EXECUTOR =None 
         else :
             self.process_single(
                 dialogue_items,
@@ -8802,7 +9414,10 @@ def _process_line_chunk_worker (payload ):
         chunk_indices =None 
         video_x_correct_factor =1.0 
 
-        if len (payload )>=13 :
+        font_resolve_seed =None 
+        if len (payload )>=14 :
+            graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches ,target_output_id ,allow_fallback_select_all ,global_selected_styles ,chunk_indices ,video_x_correct_factor ,font_resolve_seed =payload [:14 ]
+        elif len (payload )>=13 :
             graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches ,target_output_id ,allow_fallback_select_all ,global_selected_styles ,chunk_indices ,video_x_correct_factor =payload [:13 ]
         elif len (payload )>=12 :
             graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles ,particle_caches ,target_output_id ,allow_fallback_select_all ,global_selected_styles ,chunk_indices =payload [:12 ]
@@ -8815,8 +9430,17 @@ def _process_line_chunk_worker (payload ):
         else :
             graph_data ,rx ,ry ,fd ,default_audio_source ,all_dialogue_items ,styles =payload [:7 ]
 
+        if font_resolve_seed :
+            try :
+                from font_resolver import seed_resolve_cache 
+                seed_resolve_cache (font_resolve_seed )
+            except Exception :
+                pass 
+
+        from particle_nodes import _GLOBAL_PARTICLE_PTS_CACHE ,_GLOBAL_PARTICLE_IMG_CACHE 
+        _GLOBAL_PARTICLE_PTS_CACHE .clear ()
+        _GLOBAL_PARTICLE_IMG_CACHE .clear ()
         if particle_caches :
-            from particle_nodes import _GLOBAL_PARTICLE_PTS_CACHE ,_GLOBAL_PARTICLE_IMG_CACHE 
             _GLOBAL_PARTICLE_PTS_CACHE .update (particle_caches [0 ])
             _GLOBAL_PARTICLE_IMG_CACHE .update (particle_caches [1 ])
 

@@ -195,6 +195,8 @@ Represents the active dialogue line and its associated typographical style defin
 | `line.fax`, `line.fay` | `float` | Horizontal and vertical typographical shear factors. |
 | `line.pos_x`, `line.pos_y` | `float` | Absolute or overridden screen position coordinates of the line (`\pos`). |
 | `line.org_x`, `line.org_y` | `float` | Origin or pivot coordinates for rotational transformations (`\org`). |
+| line.tags / l.tags | string | Resolved canonical ASS override tag string preserved from the baseline dialogue line, with dynamic \t transforms interpolated at the midpoint of the active unit. |
+| `line.<prop>_org` / `l.<prop>_org` | `mixed` | Canonical set of initial properties from the line and its leading ASS tags (with automatic fallback to `styleref`, excluding `\k` and `\t`): `color1_org`..`color4_org`, `alpha_org`, `alpha1_org`..`alpha4_org`, `fontname_org`, `fontsize_org`, `scale_x_org`, `scale_y_org`, `spacing_org`, `bold_org`, `italic_org`, `underline_org`, `strikeout_org`, `encoding_org`, `q_org`, `align_org`, `frz_org`, `frx_org`, `fry_org`, `fax_org`, `fay_org`, `pos_org`, `org_org`, `outline_org`, `xbord_org`, `ybord_org`, `shadow_org`, `xshad_org`, `yshad_org`, `blur_org`, `be_org`, `fad_org`, `clip_org`, `iclip_org`. |
 
 #### 1.4.2. Syllable (`syl.`), Character (`char.`), and Word (`word.`) Domains
 Represent the atomic syllable units, individual characters, or words segmented by `Main Loop`. Each unit automatically inherits the typographical and colour attributes of its parent line's baseline style or active overrides:
@@ -230,6 +232,7 @@ Represent the atomic syllable units, individual characters, or words segmented b
 | `syl.pos_x`, `syl.pos_y` | `float` | Calculated rendering anchor coordinate for the syllable (`\pos`). |
 | `syl.org_x`, `syl.org_y` | `float` | Calculated origin or rotation pivot for the syllable (`\org`). |
 | `syl.actor`, `syl.style`, `syl.layer`, `syl.effect` | `str`/`int` | Metadata inherited from the parent dialogue line. |
+| syl.tags / word.tags / char.tags | string | Resolved canonical ASS override tag string preserved from the active element, with temporal remapping and dynamic \t transforms interpolated. |
 | `char.dur` / `char.duration` | `int` | Calculated duration of the character glyph ($ms$). |
 | `char.start_time`, `char.end_time` | `int` | Start and end timestamps relative to its **parent syllable** ($ms$). |
 | `char.mid_time` | `float` | Relative midpoint timestamp of the character within its syllable: $t_{\text{start}} + \frac{t_{\text{dur}}}{2}$. |
@@ -354,21 +357,20 @@ Enable computing sequential animation delays and phases directly from expression
 | `time.loop_2` | `int` | Continuous cyclic animation timing in the exit phase. |
 
 #### 1.4.9. Vector Shape Library Presets (`shape.*`)
-The `shape` namespace provides Pyxis standard vector paths in ASSdraw format (`m ... l ... b ...`), accessible directly for clips, morphing transformations, or expressions in code:
+The `shape` namespace (`ShapePresetsNamespace`) exposes the 80 canonical `Shape/Library` vector paths in ASSdraw format (`m ... l ... b ...`). All identifiers are written in **lowercase with no underscores**, accessible directly in `Define Vars` and string expressions (`shape.<name>`), or via `fx.shape.<name>` and `resolve_shape("shape.<name>")` in `Script Code`:
 
-| Preset | Canonical Identifier | Emitted Geometry |
-| :--- | :--- | :--- |
-| **Circle** | `shape.circle` | Perfect normalised Bézier circle centred at $(0, 0)$. |
-| **Square** | `shape.square` | Equilateral square centred at $(0, 0)$. |
-| **Rectangle** | `shape.rect` / `shape.rectangle` | Parametric rectangle centred at $(0, 0)$. |
-| **Triangle** | `shape.triangle` | Equilateral triangle with top apex at $(0, 0)$. |
-| **Rhombus** | `shape.diamond` / `shape.rhombus` | Diamond rhombus shape centred at $(0, 0)$. |
-| **Rounded Corners** | `shape.rounded_corners` | Rectangle with fillet Bézier corner curvature on all 4 corners. |
-| **Regular Polygons** | `shape.pentagon`, `shape.hexagon`, `shape.octagon` | Regular equilateral 5-, 6-, and 8-sided polygons. |
-| **Star** | `shape.star` | Symmetrical 5-pointed star. |
-| **Heart** | `shape.heart` | Bicubic centred vector heart path. |
-| **Sakura** | `shape.sakura` | Stylised Japanese cherry blossom petal. |
-| **Symbols and Weather** | `shape.cross`, `shape.cloud`, `shape.sun`, `shape.moon`, `shape.flower` | Classical vector iconography for particle animations. |
+| Family | Canonical Identifiers (`shape.<name>`) | Count |
+| :--- | :--- | :---: |
+| **Basic Shapes (`Shapes`)** | `shape.circle`, `shape.triangle`, `shape.rectangle`, `shape.circangle`, `shape.pixel`, `shape.pentagon`, `shape.hexagon`, `shape.octagon`, `shape.diamond` | 9 |
+| **Hearts (`Hearts`)** | `shape.heart`, `shape.heart2t`, `shape.heartb` | 3 |
+| **Shines (`Shines`)** | `shape.shine1t`, `shape.shine2t`, `shape.shine3t`, `shape.shine4t` | 4 |
+| **Specials (`Specials`)** | `shape.clover`, `shape.feather`, `shape.feather2`, `shape.gear`, `shape.bubble` | 5 |
+| **Musical Notes (`Music`)** | `shape.note1t`, `shape.note2t`, `shape.note3t`, `shape.note4t` | 4 |
+| **Stars (`Stars`)** | `shape.star`, `shape.star1t` to `shape.star10t` | 11 |
+| **Sakura (`Sakura`)** | `shape.sakura`, `shape.sakura1t` to `shape.sakura7t` | 8 |
+| **Snow (`Snow`)** | `shape.snowflake1t`, `shape.snowflake2t`, `shape.snowflake3t` | 3 |
+| **Flowers (`Flowers`)** | `shape.flower1t` to `shape.flower29t` | 29 |
+| **Geometry (`Geometry`)** | `shape.crystal17`, `shape.geometric10`, `shape.diagonal13r`, `shape.diagonal13l` | 4 |
 
 #### 1.4.10. Project Metadata (`meta.`) and Context Shapes
 | Variable | Type | Description |
@@ -485,15 +487,18 @@ Extracting glyph metric coordinates and native syllable duration to position tex
 
 ### 2.2. Input Ports and Body Properties (*Inputs & Properties*)
 1. **`In` (`in_val`):** Pass-through input port. Accepts any data type (ASS tag strings, vector geometries, numbers, or text strings). If unwired, emits declared variables or an empty string.
-2. **`Vars` (`variables`):** Multi-line text block containing variable declarations formatted as `key = expression`.
-   * **Canonical Typification:** **Type A (Mathematical Formula / Evaluated Expression)**. Sequentially evaluated line-by-line within the mathematical expression evaluator environment.
-   * **Declaration Syntax:**
+2. **`Vars` (`variables`):** Multi-line text block containing variable declarations formatted as `key = expression` (delimited by newlines or `;` outside quotation marks).
+   * **Canonical Typification:** **Extended Type A (Unified Evaluated Expression / ASS Ternaries)**. Sequentially evaluated via the unified `eval_pyxis_expr` evaluator, sharing identical syntax behaviour with `Basics/String`.
+   * **Declaration Syntax (Formulas, Strings, and Quoted or Unquoted ASS Ternaries):**
+     Backslashes inside quoted ASS tag literals (`"\t(0, 500, \fry360)"`, `"\4a255"`) are automatically preserved verbatim (without requiring `r"..."` raw prefixes or doubled backslashes `\\t`), and ternary conditionals support both quoted and unquoted tag branches uniformly:
      ```python
      radius = 50 + (syl.i * 10)
      angle = (j / maxj) * 360
      pos_x = syl.x + math.cos(math.radians(angle)) * radius
      pos_y = syl.y + math.sin(math.radians(angle)) * radius
      current_colour = "&H00FFFF&"
+     anim = (\t(0, 500, \fry360) if l.i == 2 else "")
+     anim_quoted = ("\t(0, 500, \fry360)" if l.i == 2 else "")
      ```
 
 ---
@@ -764,7 +769,7 @@ Every string property across Pyxis is strictly categorised into one of three can
 * **Linter Behaviour:** Analysed statically via `ast.parse(mode="eval")`. The validator verifies that identifiers belong to known global variables or were declared upstream in the graph, warning of undeclared variables or syntax errors.
 * **Representative Properties:**
   * `Variables/Define Vars`: `variables` property (`Vars`).
-  * `Basics/Math`: numerical inputs and fields `A`, `B`.
+  * `Basics/Math`: dynamic numerical inputs and fields (`decimal`, `min_val`, `max_val`, `step`, `angle`, `radius`, `accel`, etc.).
   * `Functions/Conditioner`: `condition` field.
   * `Basics/Only`: `condition` field.
   * `Shape/Filter`: `expr_x`, `expr_y` fields.

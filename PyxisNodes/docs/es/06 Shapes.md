@@ -1,4 +1,4 @@
-# Shapes
+﻿# Shapes
 
 La categoría **Shape** contiene los nodos de generación, ingestión, manipulación y segmentación geométrica de trazados vectoriales en formato ASSdraw (`m`, `l`, `b`, `s`, `p`, `c`) y máscaras de recorte (`\clip`, `\iclip`).
 
@@ -94,10 +94,14 @@ Estos parámetros y botones de configuración están presentes o aplican de mane
      * **Posición (`\pos`):** Se reubica en el centroide absoluto de la pieza en pantalla (`pos_x = parent_x + cx`, `pos_y = parent_y + cy`).
      * **Origen Inyectado (`\org`):** Se inyecta `\org(pos_x, pos_y)` en el centroide de la propia pieza.
      * **Trazado Vectorial:** El dibujo se recentra en su origen local `(0, 0)` mediante offset perimetral `(-cx, -cy)`. Permite que cada fragmento rote y escale sobre su propio centro de masa de forma individual.
-   * **`Relativo`:** 
+   * **`Relativo` (`relative`):** 
      * **Posición (`\pos`):** Mantiene la posición del elemento padre (`parent_x`, `parent_y`).
      * **Origen Inyectado (`\org`):** Se inyecta `\org(parent_x, parent_y)` en el centroide del padre.
      * **Trazado Vectorial:** Conserva las coordenadas relativas originales respecto al origen del padre sin recentrar la pieza individual.
+   * **`Relativo 2 (Sin Org)` (`relative2`):** 
+     * **Posición (`\pos`):** Mantiene la posición del elemento padre (`parent_x`, `parent_y`), idéntico a `relative`.
+     * **Origen Inyectado (`\org`):** **No inyecta etiqueta `\org`** (`has_org = False`), a diferencia de `relative`, evitando fijar el pivote de rotación/escala en el centro padre y permitiendo usar el origen estándar de `\pos`/`\an` o un `\org` manual posterior.
+     * **Trazado Vectorial:** Conserva las coordenadas relativas originales sin recentrar la pieza individual.
    * **`Parent Org` (`Org Padre` — `parent_org`):** 
      * **Posición (`\pos`):** Se posiciona en el centroide de la pieza (`pos_x = parent_x + cx`, `pos_y = parent_y + cy`).
      * **Origen Inyectado (`\org`):** Se inyecta `\org(parent_x, parent_y)` forzado en el origen del elemento padre.
@@ -112,8 +116,8 @@ Estos parámetros y botones de configuración están presentes o aplican de mane
      * **Trazado Vectorial:** Las coordenadas absolutas en pantalla se hornean directamente dentro del código ASSdraw de la pieza mediante desplazamiento `(+parent_x, +parent_y)`.
 5. **`[2.5] Out:` (Modo de Salida Vectorial):** Botón selector del formato devuelto en el puerto `Piece`:
    * **`Shape`:** Emite el código ASSdraw directo del fragmento cortado (`m ... l ... b ...`).
-   * **`\clip`:** Emite la etiqueta de recorte ASS rectangular o poligonal `\clip(m ...)`.
-   * **`\iclip`:** Emite la etiqueta de recorte invertido ASS `\iclip(m ...)`.
+   * **`\clip`:** Emite la etiqueta de recorte ASS `\clip(x1,y1,x2,y2)` cuando el fragmento es un único rectángulo alineado a los ejes ($0^\circ, 90^\circ, 180^\circ, 270^\circ$) o `\clip(m ...)` para geometrías poligonales/curvas.
+   * **`\iclip`:** Emite la etiqueta de recorte invertido ASS `\iclip(x1,y1,x2,y2)` cuando el fragmento es un rectángulo alineado a los ejes o `\iclip(m ...)` para geometrías poligonales/curvas.
 6. **`[2.6] Bleed`:** Sangrado o solapamiento perimetral entre fragmentos adyacentes. Aplica una dilatación por pieza para erradicar cualquier costura o renderizado imperfecto de líneas divisorias entre piezas contiguas.
 7. **`[2.7] Order:` (Ordenamiento Espacial de Fragmentos):** Botón selector del orden de iteración basado en el teclado numérico de 9 posiciones:
    * **`79 (TL->BR)`:** De Arriba-Izquierda (*Top-Left*) a Abajo-Derecha (*Bottom-Right*).
@@ -799,10 +803,10 @@ El nodo procesa la geometría delegando en el motor de dilatación bilateral de 
 
 ---
 
-## 9. Nodo `Shape/Union & Divide` (Desglose Topológico, Unión y Fusión con Tags)
+## 9. Nodo `Shape/Union & Divide` (Desglose Topológico y Ufión Booleana)
 
 * **Categoría Canónica:** `Shape` (UI: *Shape / Union & Divide*)
-* **Propósito:** Nodo multifuncional de topología vectorial basado en *Clipper*. Permite descomponer trazados complejos en islas vectoriales reales mediante análisis de jerarquía de polígonos (*PolyTree*), separar subrutas simples, unir siluetas mediante unión booleana o fusionar múltiples piezas en un único bloque de dibujo intercalando etiquetas ASS con soporte de *keyframes* e interpolación.
+* **Propósito:** Nodo multifuncional de topología vectorial basado en *Clipper*, permitiendo descomponer trazados complejos en islas vectoriales reales mediante análisis de jerarquía de polígonos (*PolyTree*), separar subrutas simples o unir siluetas superpuestas mediante ufión booleana. Para ensamblar figuras con etiquetas y gradientes de color de forma monolínea, utilice `Basics/Builder` (mode: shape).
 
 ![Shape/Union & Divide](img/union_&_divide.png)
 
@@ -810,11 +814,10 @@ El nodo procesa la geometría delegando en el motor de dilatación bilateral de 
 
 ### 9.2. Encabezado y Barra de Título
 1. **`[1.1] Union & Divide`:** Título identificador del nodo.
-2. **`[1.2] Botón Selector de Modo` (`mode`):** Botón ubicado en la esquina superior derecha de la barra de título que conmuta entre las 4 operaciones topológicas disponibles:
-   * **`[DIVIDE]` (`Dividir (PolyTree)`):** Desglose topológico exacto en islas cerradas e independientes distinguiendo agujeros internos.
-   * **`[UNION]` (`Unir (Boolean Union)`):** Fusión geométrica booleana de dos formas o listas de trazados.
-   * **`[SUB-PATHS]` (`Sub-Ruta (Naive)`):** Separación directa e inmediata por comandos `m ...` de inicio de subtrazo.
-   * **`[FUSION]` (`Fusión (Tags)`):** Ensamblado monolítico de múltiples piezas en una única línea de dibujo intercalando bloques de etiquetas ASS (`{\tags1}m... {\tags2}m...`).
+2. **[1.2] Botón Selector de Modo` (`mode`):** Botón ubicado en la esquina superior derecha de la barra de título que conmuta entre las 3 operaciones modales disponibles:
+   * **[DIVIDE] (`Dividir (PolyTree)`):** Desglose topológico exacto en islas cerradas e independientes distinguiendo agujeros internos.
+   * **[UNION] (`Unir (Boolean Union)`)s:** Fusión geométrica booleana de dos formas o listas de trazados.
+   * **[SUB-PATHS] (`Sub-Ruta (Naive)`):** Separación directa e inmediata por comandos `m ...` de inicio de subtrazo.
 
 ---
 
@@ -822,76 +825,39 @@ El nodo procesa la geometría delegando en el motor de dilatación bilateral de 
 
 #### 1. Modo `[DIVIDE]` (Dividir PolyTree)
 Analiza la estructura anidada del trazado mediante el árbol de polígonos de Clipper (*PolyTree*). A diferencia de una simple separación por comandos `m`, este modo distingue correctamente entre contornos exteriores e islas con agujeros internos (por ejemplo, en letras como "O", "B", "A", "8" o caracteres kanji complejos), agrupando cada figura externa con sus respectivos huecos en una pieza cerrada autónoma.
-* **`[2.1] Shape In`:** Trazado ASSdraw o texto a descomponer en islas. Soporta prefijos de etiquetas ASS (como `{\pos(...)\1c...}`), los cuales se extraen para el cálculo geométrico y se heredan limpiamente en cada pieza resultante.
-* **`[2.2] Rule:` (`fill_type`):** Regla de devanado y relleno booleano (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
-* **`[2.3] Clean:` (`clean_self_intersect`):** Limpieza automática de auto-intersecciones de bordes (`Auto (1)` activado, `Off (0)` desactivado).
-* **`[2.4] Anchor` (`Pieces`):** Botón selector de anclaje de referencia espacial (`Pieces` recentra cada pieza en su centroide local, `Relative` mantiene las coordenadas originales, `Center` centra globalmente la forma en (0, 0), `Origin` sitúa el origen (0, 0) en la esquina superior izquierda de la caja delimitadora, `Parent Org` / `Org Padre`, `Pos`, `Absolute`).
-* **`[2.5] Order:` (`order`):** Criterio de ordenamiento espacial de las piezas para la secuencia de iteración (`79 (TL->BR)`, `97 (TR->BL)`, `13 (BL->TR)`, `31 (BR->TL)`, `71 (TL->BL)`, `17 (BL->TL)`, `93 (TR->BR)`, `39 (BR->TR)`, `5 (Centro)`, `-5 (Inverso)`, `cw` horario, `ccw` antihorario, `rand` aleatorio, `path` secuencia de dibujo original, `path_inv` secuencia invertida).
+* **`[2.1] Shape In`:** Trazado ASSdraw o texto a descomponer en islas. Soporta prefijos de etiquetas ASS (como `{\\pos(...)\\1c...}`), los cuales se extraen para el cálculo geométrico y se heredan limpiamente en cada pieza resultante.
+* **`[2.2] Rule:� (`fill_type`)s:** Regla de devanado y relleno booleano (`EvenOdd`, `NonZero`, `Positive`, `Negative`).
+* **@[2.3] Clean:` (`clean_self_intersect`):** Limpieza automática de auto-intersecciones de bordes (`Auto (1)` activado, `Off (0)` desactivado).
+* **`[2.4] Anchor` (`Pieces`):** Botón selector de anclaje de referencia espacial (`Pieces` recentra cada pieza en su centroide local, `Relative` mantiene las coordenadas originales, `Center` centra globalmente la forma en (0, 0), `Origin` situa el origen (0, 0) en la esquina superior izquierda de la caja delimitadora, `Parent Org` / `Org Padre`, `Pos`, `Absolute`).
+* **@[2.5] Order:X (`order`):** Criterio de ordenamiento espacial de las piezas para la secuencia de iteración (`79 (TL-.BR)`, `97 (TR->BL)`, `13 (BL-.TR)`, `31 (BR->TL)`, `71 (TL-.BL)`, `17 (BL-.TL)`, `93 (TR->BR)`, `39 (BR->TR)`, `5 (Centro)`, `-5 (Inverso)`, `cw` horario, `ccw` antihorario, `rand` aleatorio, `path` secuencia de dibujo original, `path_inv` secuencia invertida).
 
 #### 2. Modo `[UNION]` (Unir Boolean Union)
 Combina dos siluetas vectoriales superpuestas en un único trazado unificado, fusionando las masas y eliminando automáticamente cualquier línea perimetral o solapamiento interno.
 * **`[2.1] Shape In (A)`:** Primera forma vectorial base (`shape`).
-* **`[2.1b] Shape In (B)`:** Segunda forma vectorial (`shape_b`) a fusionar con la primera.
-* **`[2.2] Rule:` (`fill_type`):** Regla de relleno booleano (`EvenOdd`, `NonZero`).
-* **`[2.3] Clean:` (`clean_self_intersect`):** Limpieza automática de auto-intersecciones (`Auto (1)`).
-* **`[2.4] Anchor` (`Pieces`):** Punto de anclaje de la figura unificada resultante.
+* **`[2.1b] Shape In (B)`:** Segunda forma vectorial (`shape_b`) a unir con la primera.
+* **`[2.2] Rule:� (`fill_type`)s:** Regla de relleno booleano (`EvenOdd`, `NonZero`).
+* **`[2.3] Clean:` (`clean_self_intersect`)s:** Limpieza automática de auto-intersecciones (`Auto (1)`).
+* **@[2.4] Anchor` (`Pieces`)s:** Punto de anclaje de la figura unificada resultante.
 
 #### 3. Modo `[SUB-PATHS]` (Sub-Ruta Naive)
-Descompone el dibujo dividiendo de manera directa por cada comando de inicio `m ...` sin realizar cálculos topológicos de agujeros. Es ideal para formas abiertas, siluetas sencillas o líneas de caligrafía.
+Descompone el dibujo dividiendo de manera directa por cada comando de inicio `m ...` sin realizar cálculos topológicos de agujeros. Es ideal para formas abiertas, siluetas sencillas o líneas de caligrafía.
 * **`[2.1] Shape In`:** Trazado ASSdraw con múltiples comandos `m`.
 * **`[2.2] Anchor` (`Pieces`):** Punto de anclaje de los subcaminos resultantes.
-* **`[2.3] Order:` (`order`):** Criterio de ordenamiento espacial de los subcaminos (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
-
-#### 4. Modo `[FUSION]` (Fusión Tags con Keyframes)
-Permite empaquetar múltiples islas vectoriales en una **única línea de dibujo ASS** (`{\tags1}m ... {\tags2}m ...`), eliminando la necesidad de generar múltiples líneas en el archivo subtítulo. Permite estilizar individualmente cada pieza mediante bloques de etiquetas y transiciones de color.
-* **`[2.1] Shape In`:** Trazado multitrazo, texto o lista de formas vectoriales independientes a fusionar.
-* **`[2.2] Split:` (`split_mode`):** Selector de descomposición de la forma de entrada antes de aplicar las etiquetas:
-  * **`[Isla]` (`islands`, por defecto):** Descompone la silueta en islas topológicas reales mediante Clipper2 PolyTree (`decompose_shape_islands`). Las piezas que se tocan o comparten aristas se unifican limpiamente en una sola masa exterior con sus respectivos agujeros interiores.
-  * **`[Path]` (`path`):** Descompone la silueta de forma literal por cada comando `m` (*move to*) mediante `decompose_shape_subpaths`, sin aplicar unión booleana. Preserva intactas las rebanadas adyacentes emitidas por `Shape/Slicer` (en modo `Shape`) o contornos intencionalmente superpuestos, permitiendo que cada segmento reciba su propio bloque de tags o color independiente. Cuando la entrada procede de `Basics/Concatenate` en modo `merge`, el motor detecta automáticamente el manifiesto contextual `_merge_manifest`, discriminando formas con agujeros interiores (agrupándolas como una sola entidad `m ... m ...`) de piezas sueltas disjuntas, evitando que los agujeros interiores sean separados y coloreados como piezas sólidas.
-* **`[2.3] Tag Mode:` (`tagmode`):** Mecanismo de asignación de etiquetas:
-  * **`ipol` (Interpolado Progresivo):** Trata la lista de etiquetas como *keyframes*. Calcula la progresión espacial ($0.0 \to 1.0$) y realiza una interpolación matemática suave de los valores entre la primera y la última pieza (ideal para gradientes continuos de color `\1c`, rotaciones progresivas `\frz`, variaciones de transparencia `\alpha` o desenfoque `\blur`).
-  * **`line` (Lineal 1:1 Estricto):** Asigna cada bloque de etiquetas de la lista uno a uno a su pieza correspondiente según el orden establecido. Si faltan etiquetas, el resto de piezas recibe `{\p1}`; si sobran, se descartan ordenadamente.
-* **`[2.4] Tags` (`tags`):** Lista de etiquetas ASS o colores hexadecimales separados por comas o bloques (ej. `\1c&H0000FF&, \1c&H00FF00&, \1c&HFF0000&` o `#87F337, #61FBC7, #AF6DF6`).
-* **`[2.5] Accel` (`accel`):** Exponente no lineal de aceleración temporal/espacial para la interpolación progresiva de etiquetas y colores (Tipo A, valor por defecto: `1.0`). Se activa dinámicamente de forma exclusiva cuando `Tag Mode` está configurado en `ipol` (en modo `line` el puerto y campo de entrada se ocultan automáticamente). En la interfaz de usuario, este control se presenta como un campo de texto inline limpio sin etiqueta lateral fija, mostrando el texto descriptivo *"Aceleración"* como marcador de posición (*placeholder*) cuando se encuentra vacío. Permite doblar la curva de progresión normalizada ($t \in [0.0, 1.0]$) aplicando la función potencia $t' = t^{\text{accel}}$:
-  * $\text{accel} = 1.0$: Interpolación lineal uniforme tradicional (distribución homogénea de tonos y valores numéricos).
-  * $\text{accel} > 1.0$ (ej. `2.0`, `3.0`): Curva de aceleración (*ease-in* / concentración inicial). Los colores iniciales se prolongan a lo largo de la mayor parte de las piezas, concentrando la transición cromática y la aceleración de valores hacia el tramo final.
-  * $\text{accel} < 1.0$ (ej. `0.5`, `0.3`): Curva de desaceleración (*ease-out* / dispersión rápida). La transición cromática ocurre rápidamente en las primeras piezas y se estabiliza con suavidad hacia el tramo final.
-  * Admite expresiones matemáticas dinámicas y variables de contexto (ej. `1.0 + 0.5 * fx.i`). Si se deja vacío, revierte transparentemente al valor canónico `1.0`.
-* **`[2.6] Anchor` (`Pieces`):** Anclaje espacial de alineación (`Pieces`, `Relative`, `Center`, `Origin`, `Parent Org`, `Pos`, `Absolute`). En modo `Fusion (Tags)`, el motor aplica la compensación tipográfica de glifo para VSFilter/libass ($dx = -\text{sum\_w}$, $dy = -(\text{max\_h} - h_i)$) para neutralizar el avance del cursor horizontal y la caída a la línea base que el formateador ASS introduce al intercalar bloques de estilo, eliminando tags `\pos` de bloques intermedios para respetar la posición única de la línea, fusionando transparentemente los prefijos de estilo de entrada (como animaciones `\alpha` y `\t(...)` de `Functions/Animation`) y aislando atómicamente los bloques `{...}` intermedios al encadenarse con nodos de transformación posteriores (`Shape/Manipulator`, `Shape/Transform`, `Shape/Filter`).
-* **`[2.7] Order:` (`order`):** Orden espacial en que se asignan o interpolan los tags sobre las piezas (`79`, `97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
+* **@[2.3] Order:X (`order`):** Criterio de ordenamiento espacial de los subcaminos (`79`, `(97`, `13`, `31`, `71`, `17`, `93`, `39`, `5`, `-5`, `cw`, `ccw`, `rand`, `path`, `path_inv`).
 
 ---
 
 ### 9.4. Puertos de Salida (*Outputs*) y Pie del Nodo
-1. **`[3.1] Shape Out`:** Emite el trazado ASSdraw resultante:
+1. **[3.1] Shape Out`:** Emite el trazado ASSdraw resultante:
    * En modos de división (`DIVIDE`, `SUB-PATHS`): Emite la pieza individual correspondiente a la iteración activa `d_i`.
-   * En modos de unión y fusión (`UNION`, `FUSION`): Emite la forma única unificada o la cadena compuesta con etiquetas intercaladas.
+   * En modo de unión (`UNION`): Emite la forma única unificada.
 2. **`[3.2] Out List`:** Emite una lista en formato JSON con todas las piezas vectoriales generadas para procesamiento por lotes o encadenamiento con otros nodos.
-3. **`[3.3] BBox Data`:** Emite una cadena con los datos métricos del *bounding box* global (`min_x,min_y,max_x,max_y,cx,cy,width,height`).
+3. **[3.3] BBox Data`:** Emite una cadena con los datos métricos del *bounding box* global (`min_x,min_y,max_x,max_y,cx,cy,width,height`).
 
-* **Pie del Nodo (`d_i, d_n`):** Variables de contexto de acceso al sub-bucle/loop interno anidado generado por `Union & Divide` (`d_i` = índice ordinal de la pieza activa $[1 \dots N]$, `d_n` / `d_max` = cantidad total de piezas o islas generadas en la partición).
-
----
+* **Pie del Nodo (`d_i, d_n`):** Variables de contexto de acceso al sub-bucle/loop interno anidado generado por `Union & Divide` (`d_i` = índice ordinal de la pieza activa $[1 \dots NI$, `d_n` / `d_max` = cantidad total de piezas o islas generadas en la partición).
 
 ---
 
-### 9.6. Ejemplo Práctico de Producción
-* **Descomposición Topológica en Islas con Caída Gravitatoria Secuencial:**
-  Dividiendo un kanji o palabra compleja en piezas cerradas independientes (`DIVIDE`) y animando la caída de cada isla con retardo temporal gobernado por `d_i`:
-
-  ```
-  [System/Input: Syl Shape] ──► Shape In ──► [Shape/Union & Divide: DIVIDE, order=79, anchor=pieces]
-                                                   ├──► Shape Out ──► Return ──► [System/Output]
-                                                   └──► (d_i, d_n en contexto)
-  ```
-
-  En un nodo de etiquetas conectado a `System/Output (Tags)`:
-  ```
-  {\p1\pos(syl.center, syl.middle)\t(d_i * 40, d_i * 40 + 300, \frz(d_i * 15)\fscx0\fscy0\alpha&HFF&)}
-  ```
-  Cada isla vectorial desciende y rota sobre su propio centroide con un retardo escalonado de 40 ms por pieza, preservando los agujeros internos (PolyTree) sin colapsar la silueta general.
-
----
 
 ## 10. Nodo `Shape/Clipper` (Operaciones Booleanas Vectoriales Avanzadas y Morfología de Corte)
 

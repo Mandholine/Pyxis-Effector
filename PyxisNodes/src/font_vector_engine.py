@@ -18,11 +18,13 @@
 Supports Win32 GDI via ctypes on Windows with smooth fallback, normalized cache, and comprehensive context resolution.
 """
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import ctypes
 from ctypes import wintypes
 import platform
 import re
+import threading
 from typing import Optional, Dict, Any, Tuple, List
 
 PT_MOVETO = 0x06
@@ -122,12 +124,39 @@ class FontVectorEngine:
     """Canonical font-to-vector ASSdraw engine with normalized cache and context resolution."""
 
     MAX_CACHE_SIZE: int = 4096
+    MAX_FT_FACE_CACHE: int = 64
     _cache: Dict[tuple, FontVectorMetrics] = {}
+    _ft_face_cache: OrderedDict = OrderedDict()
+    _ft_lock: threading.RLock = threading.RLock()
 
     @classmethod
     def clear_cache(cls):
-        """Clears internal vector shapes cache."""
+        """Clears internal vector shapes cache and FreeType face cache."""
         cls._cache.clear()
+        with cls._ft_lock:
+            cls._ft_face_cache.clear()
+
+    @classmethod
+    def _get_freetype_face(cls, font_path: str, font_size: float):
+        """Returns a cached FreeType Face configured for the target 26.6 character size."""
+        import freetype
+
+        target_sz = int(round(float(font_size) * 64.0))
+        entry = cls._ft_face_cache.get(font_path)
+        if entry is not None:
+            face, last_sz = entry
+            cls._ft_face_cache.move_to_end(font_path)
+            if last_sz != target_sz:
+                face.set_char_size(target_sz)
+                cls._ft_face_cache[font_path] = (face, target_sz)
+            return face
+
+        face = freetype.Face(font_path)
+        face.set_char_size(target_sz)
+        while len(cls._ft_face_cache) >= cls.MAX_FT_FACE_CACHE:
+            cls._ft_face_cache.popitem(last=False)
+        cls._ft_face_cache[font_path] = (face, target_sz)
+        return face
 
     @classmethod
     def get_cache_size(cls) -> int:
@@ -897,12 +926,6 @@ to the ASS renderer to prevent compounding scale distortion).
         if not font_path:
             return FontVectorMetrics()
 
-        try:
-            face = freetype.Face(font_path)
-            face.set_char_size(int(round(font_size * 64.0)))
-        except Exception:
-            return FontVectorMetrics()
-
         text_w = str(text).rstrip()
         if not text_w:
             return FontVectorMetrics()
@@ -914,70 +937,79 @@ to the ASS renderer to prevent compounding scale distortion).
 
         cur_cursor_x = 0.0
         sp_64 = float(spacing) * 64.0
-        asc = float(face.size.ascender)
 
-        for idx, ch in enumerate(text_w):
+        with cls._ft_lock:
             try:
-                face.load_char(ch, freetype.FT_LOAD_NO_BITMAP | freetype.FT_LOAD_DEFAULT)
+                face = cls._get_freetype_face(font_path, font_size)
             except Exception:
-                continue
+                return FontVectorMetrics()
 
-            outline = face.glyph.outline
-            glyph_start_x = cur_cursor_x
+            asc = float(face.size.ascender)
+            ft_height = float(face.size.height)
+            ft_descender = abs(float(face.size.descender))
 
-            def move_to(a, ctx):
-                x = a.x + glyph_start_x
-                y = asc - a.y
-                all_points_x.append(x)
-                all_points_y.append(y)
-                cur_pos[0], cur_pos[1] = x, y
-                commands.append(('m', (x, y)))
+            for idx, ch in enumerate(text_w):
+                try:
+                    face.load_char(ch, freetype.FT_LOAD_NO_BITMAP | freetype.FT_LOAD_DEFAULT)
+                except Exception:
+                    continue
 
-            def line_to(a, ctx):
-                x = a.x + glyph_start_x
-                y = asc - a.y
-                all_points_x.append(x)
-                all_points_y.append(y)
-                cur_pos[0], cur_pos[1] = x, y
-                commands.append(('l', (x, y)))
+                outline = face.glyph.outline
+                glyph_start_x = cur_cursor_x
 
-            def conic_to(a, b, ctx):
-                p0 = (cur_pos[0], cur_pos[1])
-                p1 = (a.x + glyph_start_x, asc - a.y)
-                p2 = (b.x + glyph_start_x, asc - b.y)
-                all_points_x.extend([p1[0], p2[0]])
-                all_points_y.extend([p1[1], p2[1]])
-                c1, c2, c3 = cls._conic_to_cubic(p0, p1, p2)
-                cur_pos[0], cur_pos[1] = p2[0], p2[1]
-                commands.append(('b', (c1, c2, c3)))
+                def move_to(a, ctx):
+                    x = a.x + glyph_start_x
+                    y = asc - a.y
+                    all_points_x.append(x)
+                    all_points_y.append(y)
+                    cur_pos[0], cur_pos[1] = x, y
+                    commands.append(('m', (x, y)))
 
-            def cubic_to(a, b, c, ctx):
-                p1 = (a.x + glyph_start_x, asc - a.y)
-                p2 = (b.x + glyph_start_x, asc - b.y)
-                p3 = (c.x + glyph_start_x, asc - c.y)
-                all_points_x.extend([p1[0], p2[0], p3[0]])
-                all_points_y.extend([p1[1], p2[1], p3[1]])
-                cur_pos[0], cur_pos[1] = p3[0], p3[1]
-                commands.append(('b', (p1, p2, p3)))
+                def line_to(a, ctx):
+                    x = a.x + glyph_start_x
+                    y = asc - a.y
+                    all_points_x.append(x)
+                    all_points_y.append(y)
+                    cur_pos[0], cur_pos[1] = x, y
+                    commands.append(('l', (x, y)))
 
-            try:
-                outline.decompose(context=None, move_to=move_to, line_to=line_to, conic_to=conic_to, cubic_to=cubic_to)
-            except Exception:
-                pass
+                def conic_to(a, b, ctx):
+                    p0 = (cur_pos[0], cur_pos[1])
+                    p1 = (a.x + glyph_start_x, asc - a.y)
+                    p2 = (b.x + glyph_start_x, asc - b.y)
+                    all_points_x.extend([p1[0], p2[0]])
+                    all_points_y.extend([p1[1], p2[1]])
+                    c1, c2, c3 = cls._conic_to_cubic(p0, p1, p2)
+                    cur_pos[0], cur_pos[1] = p2[0], p2[1]
+                    commands.append(('b', (c1, c2, c3)))
 
-            adv_64 = float(face.glyph.metrics.horiAdvance)
-            if idx < len(text_w) - 1:
-                cur_cursor_x += adv_64 + sp_64
-            else:
-                cur_cursor_x += adv_64
+                def cubic_to(a, b, c, ctx):
+                    p1 = (a.x + glyph_start_x, asc - a.y)
+                    p2 = (b.x + glyph_start_x, asc - b.y)
+                    p3 = (c.x + glyph_start_x, asc - c.y)
+                    all_points_x.extend([p1[0], p2[0], p3[0]])
+                    all_points_y.extend([p1[1], p2[1], p3[1]])
+                    cur_pos[0], cur_pos[1] = p3[0], p3[1]
+                    commands.append(('b', (p1, p2, p3)))
+
+                try:
+                    outline.decompose(context=None, move_to=move_to, line_to=line_to, conic_to=conic_to, cubic_to=cubic_to)
+                except Exception:
+                    pass
+
+                adv_64 = float(face.glyph.metrics.horiAdvance)
+                if idx < len(text_w) - 1:
+                    cur_cursor_x += adv_64 + sp_64
+                else:
+                    cur_cursor_x += adv_64
 
         scale_factor_x = (1.0 / 64.0) * float(scale) * (float(scale_x) / 100.0) * float(video_x_correct_factor)
         scale_factor_y = (1.0 / 64.0) * float(scale) * (float(scale_y) / 100.0)
 
         adv_w = round(cur_cursor_x * scale_factor_x, 3)
-        cell_h = round(float(face.size.height) * scale_factor_y, 3)
-        ascent_val = round(float(face.size.ascender) * scale_factor_y, 3)
-        descent_val = round(abs(float(face.size.descender)) * scale_factor_y, 3)
+        cell_h = round(ft_height * scale_factor_y, 3)
+        ascent_val = round(asc * scale_factor_y, 3)
+        descent_val = round(ft_descender * scale_factor_y, 3)
 
         if not all_points_x:
             return FontVectorMetrics(
@@ -1000,7 +1032,7 @@ to the ASS renderer to prevent compounding scale distortion).
         ink_h = round(max(0.0, (max_py - min_py) * scale_factor_y), 3)
 
         typographic_cx = (cur_cursor_x * scale_factor_x) / 2.0
-        typographic_cy = (float(face.size.height) * scale_factor_y) / 2.0
+        typographic_cy = (ft_height * scale_factor_y) / 2.0
 
         ink_cx = ((min_px + max_px) * scale_factor_x) / 2.0
         ink_cy = ((min_py + max_py) * scale_factor_y) / 2.0

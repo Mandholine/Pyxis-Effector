@@ -251,8 +251,15 @@
 
                     ctx.restore();
 
-                    if (this.graph && this.graph.canvas) {
-                        this.graph.canvas.setDirtyCanvas(true, false);
+                    if (!this._pyxis_err_pulse_timer && this.graph && this.graph.canvas) {
+                        const targetCanvas = this.graph.canvas;
+                        const targetNode = this;
+                        this._pyxis_err_pulse_timer = setTimeout(function() {
+                            targetNode._pyxis_err_pulse_timer = null;
+                            if (targetNode.has_syntax_error && targetNode.graph && targetCanvas && !targetCanvas.pause_rendering) {
+                                targetCanvas.setDirtyCanvas(true, false);
+                            }
+                        }, 50);
                     }
                 }
 
@@ -524,6 +531,7 @@
 
                     const completions = [
                         // --- 1. Syllable (syl) Context Properties ---
+                        { caption: "syl.tags", value: "syl.tags", meta: "syl (str)", docHTML: "<b>syl.tags</b>: Preserved ASS override tags remapped to active effect window", score: 2000 },
                         { caption: "syl.text", value: "syl.text", meta: "syl (str)", docHTML: "<b>syl.text</b>: Clean text of the current syllable", score: 1000 },
                         { caption: "syl.text_stripped", value: "syl.text_stripped", meta: "syl (str)", docHTML: "<b>syl.text_stripped</b>: Syllable text without inline tags", score: 980 },
                         { caption: "syl.text_spacestripped", value: "syl.text_spacestripped", meta: "syl (str)", docHTML: "<b>syl.text_spacestripped</b>: Syllable text without whitespace", score: 970 },
@@ -578,6 +586,7 @@
                         { caption: "syl.org_y", value: "syl.org_y", meta: "syl (float)", docHTML: "<b>syl.org_y</b>: Active origin Y coordinate (\\org)", score: 950 },
 
                         // --- 2. Character (char) Context Properties ---
+                        { caption: "char.tags", value: "char.tags", meta: "char (str)", docHTML: "<b>char.tags</b>: Preserved ASS override tags remapped to active effect window", score: 2000 },
                         { caption: "char.text", value: "char.text", meta: "char (str)", docHTML: "<b>char.text</b>: Text of current character", score: 1000 },
                         { caption: "char.text_stripped", value: "char.text_stripped", meta: "char (str)", docHTML: "<b>char.text_stripped</b>: Character text without inline tags", score: 980 },
                         { caption: "char.i", value: "char.i", meta: "char (int)", docHTML: "<b>char.i</b>: Character index in line/syllable (1-based)", score: 1000 },
@@ -606,6 +615,7 @@
                         { caption: "char.is_last", value: "char.is_last", meta: "char (bool)", docHTML: "<b>char.is_last</b>: True if last character", score: 960 },
 
                         // --- 3. Word (word) Context Properties ---
+                        { caption: "word.tags", value: "word.tags", meta: "word (str)", docHTML: "<b>word.tags</b>: Preserved ASS override tags remapped to active effect window", score: 2000 },
                         { caption: "word.text", value: "word.text", meta: "word (str)", docHTML: "<b>word.text</b>: Clean text of the current word", score: 1000 },
                         { caption: "word.text_stripped", value: "word.text_stripped", meta: "word (str)", docHTML: "<b>word.text_stripped</b>: Word text without inline tags", score: 980 },
                         { caption: "word.i", value: "word.i", meta: "word (int)", docHTML: "<b>word.i</b>: Word index in line (1-based)", score: 1000 },
@@ -632,6 +642,13 @@
                         { caption: "word.is_last", value: "word.is_last", meta: "word (bool)", docHTML: "<b>word.is_last</b>: True if last word in line", score: 960 },
 
                         // --- 4. Line (line / l) Context Properties ---
+                        { caption: "line.tags", value: "line.tags", meta: "line (str)", docHTML: "<b>line.tags</b>: Preserved ASS override tags remapped to active effect window", score: 2000 },
+                        { caption: "line.color1_org", value: "line.color1_org", meta: "line (str)", docHTML: "<b>line.color1_org</b>: Line original primary color (falls back to styleref)", score: 1950 },
+                        { caption: "line.outline_org", value: "line.outline_org", meta: "line (float)", docHTML: "<b>line.outline_org</b>: Line original outline width (falls back to styleref)", score: 1950 },
+                        { caption: "\\1c!line.color1!", value: "\\1c!line.color1!", meta: "dark tag", docHTML: "<b>\\1c!line.color1!</b>: Restores line original primary color (supports cross-property e.g. \\1c!line.color4!)", score: 1950 },
+                        { caption: "\\1c!line.color4!", value: "\\1c!line.color4!", meta: "dark tag", docHTML: "<b>\\1c!line.color4!</b>: Assigns line original shadow color (color4) to primary color (1c)", score: 1950 },
+                        { caption: "\\bord!line.shadow!", value: "\\bord!line.shadow!", meta: "dark tag", docHTML: "<b>\\bord!line.shadow!</b>: Assigns line original shadow depth to border width", score: 1950 },
+                        { caption: "l.tags", value: "l.tags", meta: "line (str)", docHTML: "<b>l.tags</b>: Preserved ASS override tags remapped to active effect window", score: 2000 },
                         { caption: "line.text", value: "line.text", meta: "line (str)", docHTML: "<b>line.text</b>: Clean text of the full line", score: 990 },
                         { caption: "line.raw_text", value: "line.raw_text", meta: "line (str)", docHTML: "<b>line.raw_text</b>: Text with original ASS tags", score: 990 },
                         { caption: "line.i", value: "line.i", meta: "line (int)", docHTML: "<b>line.i</b>: Line number or index in file", score: 980 },
@@ -764,16 +781,43 @@
                         { caption: "s_n", value: "s_n", meta: "slicer (int)", docHTML: "<b>s_n</b>: Total Slicer piece count", score: 1000 },
                         { caption: "slice_i", value: "slice_i", meta: "slicer (int)", docHTML: "<b>slice_i</b>: Alias of s_i", score: 980 },
                         { caption: "slice_n", value: "slice_n", meta: "slicer (int)", docHTML: "<b>slice_n</b>: Alias of s_n", score: 980 },
+                        { caption: "slicer_loop_count", value: "slicer_loop_count", meta: "slicer (int)", docHTML: "<b>slicer_loop_count</b>: Total pieces processed in the active Slicer loop", score: 970 },
                         { caption: "j", value: "j", meta: "loop (int)", docHTML: "<b>j</b>: Active MaxLoop iteration index (1-based)", score: 1000 },
                         { caption: "maxj", value: "maxj", meta: "loop (int)", docHTML: "<b>maxj</b>: Alias of maxloop (total MaxLoop iterations)", score: 980 },
                         { caption: "maxloop", value: "maxloop", meta: "loop (int)", docHTML: "<b>maxloop</b>: Total MaxLoop iterations", score: 1000 },
                         { caption: "an_i", value: "an_i", meta: "anim (int)", docHTML: "<b>an_i</b>: Active Animation frame index (1-based)", score: 1000 },
                         { caption: "an_n", value: "an_n", meta: "anim (int)", docHTML: "<b>an_n</b>: Total Animation frames count", score: 1000 },
                         { caption: "an_max", value: "an_max", meta: "anim (int)", docHTML: "<b>an_max</b>: Alias of an_n (total Animation frames)", score: 980 },
+                        { caption: "d_i", value: "d_i", meta: "divide (int)", docHTML: "<b>d_i</b>: Active Shape/Union &amp; Divide piece index (1-based)", score: 980 },
+                        { caption: "d_n", value: "d_n", meta: "divide (int)", docHTML: "<b>d_n</b>: Total Shape/Union &amp; Divide piece count", score: 980 },
+                        { caption: "d_max", value: "d_max", meta: "divide (int)", docHTML: "<b>d_max</b>: Alias of d_n (total divided shapes)", score: 960 },
+                        { caption: "divide_loop_count", value: "divide_loop_count", meta: "divide (int)", docHTML: "<b>divide_loop_count</b>: Active sub-loop iteration count for divided contours", score: 960 },
+                        { caption: "b_i", value: "b_i", meta: "borders (int)", docHTML: "<b>b_i</b>: Active Concentric Borders ring index (1-based)", score: 980 },
+                        { caption: "b_n", value: "b_n", meta: "borders (int)", docHTML: "<b>b_n</b>: Total Concentric Borders rings count", score: 980 },
+                        { caption: "b_max", value: "b_max", meta: "borders (int)", docHTML: "<b>b_max</b>: Alias of b_n (total Concentric Borders rings)", score: 960 },
+                        { caption: "ring_i", value: "ring_i", meta: "borders (int)", docHTML: "<b>ring_i</b>: Alias of b_i (Concentric Borders ring index)", score: 960 },
+                        { caption: "m_i", value: "m_i", meta: "multi (int)", docHTML: "<b>m_i</b>: Active Shape/Multi shape index (1-based)", score: 980 },
+                        { caption: "m_n", value: "m_n", meta: "multi (int)", docHTML: "<b>m_n</b>: Total Shape/Multi shapes count", score: 980 },
+                        { caption: "m_max", value: "m_max", meta: "multi (int)", docHTML: "<b>m_max</b>: Alias of m_n (total Shape/Multi shapes)", score: 960 },
+                        { caption: "multi_i", value: "multi_i", meta: "multi (int)", docHTML: "<b>multi_i</b>: Alias of m_i (Shape/Multi shape index)", score: 960 },
+                        { caption: "ish_i", value: "ish_i", meta: "img2shape (int)", docHTML: "<b>ish_i</b>: Active IMG to Shape contour index (1-based)", score: 970 },
+                        { caption: "ish_n", value: "ish_n", meta: "img2shape (int)", docHTML: "<b>ish_n</b>: Total IMG to Shape contours count", score: 970 },
+                        { caption: "ish_max", value: "ish_max", meta: "img2shape (int)", docHTML: "<b>ish_max</b>: Alias of ish_n (total IMG to Shape contours)", score: 950 },
                         { caption: "col", value: "col", meta: "grid (int)", docHTML: "<b>col</b>: Spatial column index in slicer/mesh", score: 950 },
                         { caption: "row", value: "row", meta: "grid (int)", docHTML: "<b>row</b>: Spatial row index in slicer/mesh", score: 950 },
                         { caption: "a_i", value: "a_i", meta: "array (int)", docHTML: "<b>a_i</b>: Active Array/Particle element index", score: 950 },
                         { caption: "a_n", value: "a_n", meta: "array (int)", docHTML: "<b>a_n</b>: Total Array/Particle elements count", score: 950 },
+                        { caption: "sa_loop_count", value: "sa_loop_count", meta: "array (int)", docHTML: "<b>sa_loop_count</b>: Active sub-loop iteration count for Shape/Array", score: 950 },
+                        { caption: "p_i", value: "p_i", meta: "particle (int)", docHTML: "<b>p_i</b>: Active Particle/Pixel element index (1-based)", score: 960 },
+                        { caption: "p_n", value: "p_n", meta: "particle (int)", docHTML: "<b>p_n</b>: Total Particle/Pixel elements count", score: 960 },
+                        { caption: "tp_i", value: "tp_i", meta: "path (int)", docHTML: "<b>tp_i</b>: Active Text on Path glyph index (1-based)", score: 960 },
+                        { caption: "tp_n", value: "tp_n", meta: "path (int)", docHTML: "<b>tp_n</b>: Total Text on Path glyph count", score: 960 },
+                        { caption: "ip_i", value: "ip_i", meta: "pixel (int)", docHTML: "<b>ip_i</b>: Active IMG to pixels cell index (1-based)", score: 960 },
+                        { caption: "ip_n", value: "ip_n", meta: "pixel (int)", docHTML: "<b>ip_n</b>: Total IMG to pixels cells count", score: 960 },
+                        { caption: "bu_i", value: "bu_i", meta: "builder (int)", docHTML: "<b>bu_i</b>: Active Builder block index (1-based)", score: 1100 },
+                        { caption: "bu_n", value: "bu_n", meta: "builder (int)", docHTML: "<b>bu_n</b>: Total Builder block count", score: 1100 },
+                        { caption: "max_bu", value: "max_bu", meta: "builder (int)", docHTML: "<b>max_bu</b>: Alias of bu_n (total Builder blocks)", score: 1100 },
+                        { caption: "styleref", value: "styleref", meta: "style (obj)", docHTML: "<b>styleref</b>: Active ASS StyleRef descriptor (color1..4, fontsize, fontname, align, etc.)", score: 970 },
 
                         // --- 11. Time Modifiers & Calculations ---
                         { caption: "time_lead_in", snippet: "time_lead_in(${1:40})", meta: "time (ms)", docHTML: "<b>time_lead_in(delay, base_ms)</b>: Prior lead-in time calculation per unit", score: 960 },
@@ -953,7 +997,33 @@
                         { caption: "math.abs", snippet: "math.abs(${1:x})", meta: "math", docHTML: "<b>math.abs(x)</b>: Absolute value", score: 880 },
                         { caption: "math.pi", value: "math.pi", meta: "math", docHTML: "<b>math.pi</b>: Pi constant (3.14159...)", score: 880 },
                         { caption: "math.radians", snippet: isPython ? "math.radians(${1:deg})" : "math.rad(${1:deg})", meta: "math", docHTML: "<b>math.radians / math.rad</b>: Converts degrees to radians", score: 880 },
-                        { caption: "math.degrees", snippet: isPython ? "math.degrees(${1:rad})" : "math.deg(${1:rad})", meta: "math", docHTML: "<b>math.degrees / math.deg</b>: Converts radians to degrees", score: 880 }
+                        { caption: "math.degrees", snippet: isPython ? "math.degrees(${1:rad})" : "math.deg(${1:rad})", meta: "math", docHTML: "<b>math.degrees / math.deg</b>: Converts radians to degrees", score: 880 },
+
+                        // --- 23. Direct Node Callables (NODE_REGISTRY) ---
+                        { caption: "node_color_gradient", snippet: "node_color_gradient(None, prog=${1:0.5}, colors_str=\"${2:&HFFFFFF&,&H000000&}\", tag_type=\"${3:1c}\", output_slot_index=${4:2})", meta: "node (fn)", docHTML: "<b>node_color_gradient(context, prog, colors_str, tag_type, ...)</b>: Evaluates a multi-stop colour gradient", score: 900 },
+                        { caption: "clip_gradient_node", snippet: "clip_gradient_node(None, colors_str=\"${1:&HFFFFFF&,&H000000&}\", angle=${2:0}, steps=${3:10})", meta: "node (fn)", docHTML: "<b>clip_gradient_node(...)</b>: Generates clipped gradient strip lines", score: 890 },
+                        { caption: "node_conditioner", snippet: "node_conditioner(None, condition=${1:True}, tag_true=\"${2}\", tag_false=\"${3}\")", meta: "node (fn)", docHTML: "<b>node_conditioner(context, condition, tag_true, tag_false)</b>: Conditional tag/value selector", score: 890 },
+                        { caption: "tag_oscillator_node", snippet: "tag_oscillator_node(None, wave_type=\"${1:sine}\", freq=${2:1.0}, amp=${3:10}, base=${4:0})", meta: "node (fn)", docHTML: "<b>tag_oscillator_node(...)</b>: Evaluates periodic oscillator waveforms", score: 890 },
+                        { caption: "glitter_node", snippet: "glitter_node(None, count=${1:10})", meta: "node (fn)", docHTML: "<b>glitter_node(...)</b>: Generates glitter particle layer geometry", score: 885 },
+                        { caption: "audio_modulator_node", snippet: "audio_modulator_node(None, band=\"${1:bass}\")", meta: "node (fn)", docHTML: "<b>audio_modulator_node(...)</b>: Modulates scalar outputs using audio band energy", score: 885 },
+                        { caption: "audio_waveform_node", snippet: "audio_waveform_node(None, bars=${1:20})", meta: "node (fn)", docHTML: "<b>audio_waveform_node(...)</b>: Generates vector waveform geometry from audio", score: 885 },
+                        { caption: "shape_array_node", snippet: "shape_array_node(None, mode=\"${1:grid}\")", meta: "node (fn)", docHTML: "<b>shape_array_node(...)</b>: Arranges ASS shapes into spatial arrays", score: 885 },
+                        { caption: "shape_clipper_node", snippet: "shape_clipper_node(None, operation=\"${1:union}\")", meta: "node (fn)", docHTML: "<b>shape_clipper_node(...)</b>: Boolean union/difference/intersection on shapes", score: 885 },
+                        { caption: "shape_concentric_borders_node", snippet: "shape_concentric_borders_node(None, count=${1:3}, step=${2:5})", meta: "node (fn)", docHTML: "<b>shape_concentric_borders_node(...)</b>: Expands concentric outline rings", score: 885 },
+                        { caption: "shape_filter", snippet: "shape_filter(None, filter_type=\"${1:flatten}\")", meta: "node (fn)", docHTML: "<b>shape_filter(...)</b>: Applies vector geometry filters to shapes", score: 885 },
+                        { caption: "shape_manipulator", snippet: "shape_manipulator(None, mode=\"${1:center}\")", meta: "node (fn)", docHTML: "<b>shape_manipulator(...)</b>: Centres, normalizes, or transforms shape bounds", score: 885 },
+                        { caption: "shape_multi", snippet: "shape_multi(None)", meta: "node (fn)", docHTML: "<b>shape_multi(...)</b>: Combines or iterates multi-part vector shapes", score: 885 },
+                        { caption: "shape_stroke_node", snippet: "shape_stroke_node(None, width=${1:2.0})", meta: "node (fn)", docHTML: "<b>shape_stroke_node(...)</b>: Converts a vector path into a stroked outline polygon", score: 885 },
+                        { caption: "shape_transform", snippet: "shape_transform(None, scale_x=${1:100}, scale_y=${2:100})", meta: "node (fn)", docHTML: "<b>shape_transform(...)</b>: Applies 2D affine/nonlinear transforms to shapes", score: 885 },
+                        { caption: "shape_union_divide_node", snippet: "shape_union_divide_node(None, mode=\"${1:divide}\")", meta: "node (fn)", docHTML: "<b>shape_union_divide_node(...)</b>: Splits or merges vector sub-contours", score: 885 },
+                        { caption: "shape_walker_node", snippet: "shape_walker_node(None, progress=${1:0.5})", meta: "node (fn)", docHTML: "<b>shape_walker_node(...)</b>: Samples position/tangent along a vector path", score: 885 },
+                        { caption: "text_on_path_node", snippet: "text_on_path_node(None, progress=${1:0.0})", meta: "node (fn)", docHTML: "<b>text_on_path_node(...)</b>: Places glyphs along a vector contour", score: 885 },
+                        { caption: "eval_shapes_lib_node", snippet: "eval_shapes_lib_node(None, shape_name=\"${1:star}\", size=${2:50})", meta: "node (fn)", docHTML: "<b>eval_shapes_lib_node(...)</b>: Generates scaled preset vector drawings", score: 885 },
+                        { caption: "eval_math_node", snippet: "eval_math_node(None, category=\"${1:numeric}\", operation=\"${2:round}\")", meta: "node (fn)", docHTML: "<b>eval_math_node(None, category, operation, **kwargs)</b>: Canonical <code>ke.math</code> engine across 5 categories (<code>numeric</code>, <code>sequence</code>, <code>geometry</code>, <code>algebra</code>, <code>data</code>)", score: 885 },
+                        { caption: "eval_text_node", snippet: "eval_text_node(None)", meta: "node (fn)", docHTML: "<b>eval_text_node(...)</b>: Evaluates template text strings inside node context", score: 880 },
+                        { caption: "time_ipol", snippet: "time_ipol(None, t=${1:0.5}, a=${2:0}, b=${3:100}, accel=${4:1.0})", meta: "node (fn)", docHTML: "<b>time_ipol(...)</b>: Interpolates numeric/colour values with easing", score: 885 },
+                        { caption: "time_offset", snippet: "time_offset(None, start_offset=${1:0}, end_offset=${2:0})", meta: "node (fn)", docHTML: "<b>time_offset(...)</b>: Offsets active timing boundaries", score: 880 },
+                        { caption: "time_duration", snippet: "time_duration(None)", meta: "node (fn)", docHTML: "<b>time_duration(...)</b>: Computes duration of active unit/line", score: 880 }
                     ];
 
                     if (isPython) {
@@ -989,7 +1059,7 @@
                         const parts = checkPrefix.split(".");
                         const obj = parts[0];
                         if (obj === "by") {
-                            const iterators = ["s_i", "j", "syl", "char", "word", "line", "a_i", "p_i", "col", "row"];
+                            const iterators = ["s_i", "j", "syl", "char", "word", "line", "a_i", "p_i", "col", "row", "bu_i", "b_i", "m_i", "d_i", "ish_i", "tp_i", "ip_i"];
                             if (parts.length === 2) {
                                 iterators.forEach(it => {
                                     completions.push({
@@ -1031,7 +1101,7 @@
                                 });
                             }
                         } else if (obj === "syl") {
-                            ["text", "text_stripped", "text_spacestripped", "i", "n", "syl_i", "char_i", "word_i", "duration", "dur", "start_time", "end_time", "mid_time", "syl_start", "syl_end", "syl_mid", "x", "y", "center", "middle", "left", "right", "top", "bottom", "width", "height", "prespace", "postspace", "descent", "extlead", "actor", "style", "effect", "layer", "is_first", "is_last", "has_prev", "has_next", "ink", "color1", "color2", "color3", "color4", "alpha1", "alpha2", "alpha3", "alpha4", "fontname", "fontsize", "bold", "italic", "underline", "strikeout", "scale_x", "scale_y", "spacing", "outline", "shadow", "frz", "frx", "fry", "fax", "fay", "align", "pos_x", "pos_y", "org_x", "org_y"].forEach(p => {
+                            ["tags", "text", "text_stripped", "text_spacestripped", "i", "n", "syl_i", "char_i", "word_i", "duration", "dur", "start_time", "end_time", "mid_time", "syl_start", "syl_end", "syl_mid", "x", "y", "center", "middle", "left", "right", "top", "bottom", "width", "height", "prespace", "postspace", "descent", "extlead", "actor", "style", "effect", "layer", "is_first", "is_last", "has_prev", "has_next", "ink", "color1", "color2", "color3", "color4", "alpha1", "alpha2", "alpha3", "alpha4", "fontname", "fontsize", "bold", "italic", "underline", "strikeout", "scale_x", "scale_y", "spacing", "outline", "shadow", "frz", "frx", "fry", "fax", "fay", "align", "pos_x", "pos_y", "org_x", "org_y"].forEach(p => {
                                 completions.push({
                                     caption: "syl." + p,
                                     value: "syl." + p,
@@ -1040,7 +1110,7 @@
                                 });
                             });
                         } else if (obj === "char") {
-                            ["text", "text_stripped", "i", "n", "char_i", "duration", "dur", "start_time", "end_time", "mid_time", "char_start", "char_end", "char_mid", "x", "y", "center", "middle", "left", "right", "top", "bottom", "width", "height", "prespace", "postspace", "actor", "style", "is_first", "is_last", "has_prev", "has_next", "ink", "color1", "color2", "color3", "color4", "alpha1", "alpha2", "alpha3", "alpha4", "fontname", "fontsize", "bold", "italic", "underline", "strikeout", "scale_x", "scale_y", "spacing", "outline", "shadow", "frz", "frx", "fry", "fax", "fay", "align", "pos_x", "pos_y", "org_x", "org_y"].forEach(p => {
+                            ["tags", "text", "text_stripped", "i", "n", "char_i", "duration", "dur", "start_time", "end_time", "mid_time", "char_start", "char_end", "char_mid", "x", "y", "center", "middle", "left", "right", "top", "bottom", "width", "height", "prespace", "postspace", "actor", "style", "is_first", "is_last", "has_prev", "has_next", "ink", "color1", "color2", "color3", "color4", "alpha1", "alpha2", "alpha3", "alpha4", "fontname", "fontsize", "bold", "italic", "underline", "strikeout", "scale_x", "scale_y", "spacing", "outline", "shadow", "frz", "frx", "fry", "fax", "fay", "align", "pos_x", "pos_y", "org_x", "org_y"].forEach(p => {
                                 completions.push({
                                     caption: "char." + p,
                                     value: "char." + p,
@@ -1049,7 +1119,7 @@
                                 });
                             });
                         } else if (obj === "word") {
-                            ["text", "text_stripped", "i", "n", "word_i", "duration", "dur", "start_time", "end_time", "mid_time", "word_start", "word_end", "word_mid", "x", "y", "center", "middle", "left", "right", "top", "bottom", "width", "height", "prespace", "postspace", "actor", "style", "is_first", "is_last", "has_prev", "has_next", "ink", "color1", "color2", "color3", "color4", "alpha1", "alpha2", "alpha3", "alpha4", "fontname", "fontsize", "bold", "italic", "underline", "strikeout", "scale_x", "scale_y", "spacing", "outline", "shadow", "frz", "frx", "fry", "fax", "fay", "align", "pos_x", "pos_y", "org_x", "org_y"].forEach(p => {
+                            ["tags", "text", "text_stripped", "i", "n", "word_i", "duration", "dur", "start_time", "end_time", "mid_time", "word_start", "word_end", "word_mid", "x", "y", "center", "middle", "left", "right", "top", "bottom", "width", "height", "prespace", "postspace", "actor", "style", "is_first", "is_last", "has_prev", "has_next", "ink", "color1", "color2", "color3", "color4", "alpha1", "alpha2", "alpha3", "alpha4", "fontname", "fontsize", "bold", "italic", "underline", "strikeout", "scale_x", "scale_y", "spacing", "outline", "shadow", "frz", "frx", "fry", "fax", "fay", "align", "pos_x", "pos_y", "org_x", "org_y"].forEach(p => {
                                 completions.push({
                                     caption: "word." + p,
                                     value: "word." + p,
@@ -1058,12 +1128,15 @@
                                 });
                             });
                         } else if (obj === "line" || obj === "l") {
-                            ["text", "raw_text", "i", "n", "duration", "dur", "start_time", "end_time", "mid_time", "start", "end", "st", "et", "layer", "style", "actor", "effect", "margin_l", "margin_r", "margin_v", "width", "height", "center", "middle", "left", "right", "top", "bottom", "x", "y", "ink", "color1", "color2", "color3", "color4", "alpha1", "alpha2", "alpha3", "alpha4", "fontname", "fontsize", "bold", "italic", "underline", "strikeout", "scale_x", "scale_y", "spacing", "outline", "shadow", "frz", "frx", "fry", "fax", "fay", "align", "pos_x", "pos_y", "org_x", "org_y"].forEach(p => {
+                            [
+                                "tags", "text", "raw_text", "i", "n", "duration", "dur", "start_time", "end_time", "mid_time", "start", "end", "st", "et", "layer", "style", "actor", "effect", "margin_l", "margin_r", "margin_v", "width", "height", "center", "middle", "left", "right", "top", "bottom", "x", "y", "ink", "color1", "color2", "color3", "color4", "alpha1", "alpha2", "alpha3", "alpha4", "fontname", "fontsize", "bold", "italic", "underline", "strikeout", "scale_x", "scale_y", "spacing", "outline", "shadow", "frz", "frx", "fry", "fax", "fay", "align", "pos_x", "pos_y", "org_x", "org_y",
+                                "color1_org", "color2_org", "color3_org", "color4_org", "alpha_org", "alpha1_org", "alpha2_org", "alpha3_org", "alpha4_org", "fontname_org", "fontsize_org", "scale_x_org", "scale_y_org", "spacing_org", "bold_org", "italic_org", "underline_org", "strikeout_org", "encoding_org", "q_org", "align_org", "frz_org", "frx_org", "fry_org", "fax_org", "fay_org", "pos_org", "org_org", "outline_org", "xbord_org", "ybord_org", "shadow_org", "xshad_org", "yshad_org", "blur_org", "be_org", "fad_org", "clip_org", "iclip_org"
+                            ].forEach(p => {
                                 completions.push({
                                     caption: obj + "." + p,
                                     value: obj + "." + p,
                                     meta: obj,
-                                    score: 2000
+                                    score: p.endsWith("_org") ? 1950 : 2000
                                 });
                             });
                         } else if (obj === "prev") {
@@ -1110,6 +1183,16 @@
                                     meta: "shape (preset)",
                                     docHTML: "<b>shape." + p + "</b>: Pyxis canonical ASS vector preset",
                                     score: 2200
+                                });
+                            });
+                        } else if (obj === "styleref") {
+                            ["fontname", "fontsize", "bold", "italic", "underline", "strikeout", "scale_x", "scale_y", "spacing", "angle", "frz", "align", "color1", "color2", "color3", "color4", "alpha1", "alpha2", "alpha3", "alpha4", "outline", "bord", "shadow", "shad"].forEach(p => {
+                                completions.push({
+                                    caption: "styleref." + p,
+                                    value: "styleref." + p,
+                                    meta: "styleref",
+                                    docHTML: "<b>styleref." + p + "</b>: Active ASS style property",
+                                    score: 2100
                                 });
                             });
                         } else if (obj === "sync") {

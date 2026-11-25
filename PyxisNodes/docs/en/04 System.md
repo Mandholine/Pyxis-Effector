@@ -13,9 +13,9 @@ The **System** category comprises master nodes for terminal event assembly, real
 
 ### 1.1. Header Mode Combos
 1. **`[2.1] Apply to` (`apply_to`):** Scope of dialogue lines in Aegisub to which the graph is applied:
-   * `Sel. Lines` (*Selected Lines*): Processes exclusively lines currently selected in the Aegisub grid.
-   * `Style Lines`: Processes lines whose style matches that of the active selection.
-   * `All Lines`: Processes every dialogue line in the subtitle file.
+   * `Sel. Lines` (*Selected Lines*): Processes exclusively valid lines currently selected in the Aegisub grid; when no eligible line is selected, falls back strictly to the first valid dialogue line (excluding `Comment:`, prior `pyxis_fx` effect lines, and lines whose ASS `Text` field is empty or has no visible content outside `{...}`, while preserving `\p1` vector drawings).
+   * `Style Lines`: Processes all valid dialogue lines whose style matches solely the first style (in order of appearance) found within the active eligible selection, or the first valid line's style when nothing eligible is selected.
+   * `All Lines`: Processes every valid dialogue line (non-comment, without `pyxis_fx`, and containing visible text or `\p1` vector drawing commands) across the subtitle file, ignoring the current Aegisub grid selection.
 
 ### 1.2. Input Ports (*Inputs*)
 1. **`Loop / Domain`:** Primary execution flow signal originating from the terminal node of the active branch (`Main Loop`, `MaxLoop`, `Script Code`).
@@ -106,8 +106,8 @@ During compilation:
    * Detaches the player into a floating overlay window to preserve visual reference while navigating the canvas.
 4. **`[1.4] Refresh Button`:**
    * Recompiles branches wired to `Output`, updates the subtitle track in JASSUB/libass, and executes telemetry profiling over generated lines.
-   * **Scene Coexistence:** In the viewport, only original lines replaced by the `Output` scope (`Sel. Lines`, `Style Lines`, `All Lines`) are commented out, leaving coexisting dialogue and signs visible.
-   * **Playback Window:** The playable segment is bounded to the applied lines with a 2-second margin before and after. If there is an active selection in Aegisub, the window is centred on the selected lines even when the `Output` scope is `Style Lines` or `All Lines`, preventing the preview from spanning the whole file.
+   * **Scene Coexistence:** In the viewport, only eligible original lines replaced by the `Output` scope (`Sel. Lines`, `Style Lines`, `All Lines`) are commented out, leaving coexisting dialogue, signs, and vetoed/empty lines untouched.
+   * **Playback Window:** The playable segment is always bounded to the eligible target scope's dialogue lines with a 2-second margin before and after (`Sel. Lines`, `Style Lines`, or `All Lines`), excluding `Comment:` lines, prior `pyxis_fx` lines, and lines whose ASS `Text` field is empty, whitespace-only, or contains only `{...}` blocks and line breaks with no visible content (preserving `\p1` vector drawings); if no eligible lines remain, it falls back safely to `0.0 s .. 15.0 s`. When multiple `Output` nodes feed a `Previewer`, the window expands to the union of the broadest scope (`All Lines` > `Style Lines` > `Sel. Lines`); when no `Output` node is connected, the viewer retains the playback window of the first `Output` in the graph while generating no effects and commenting no lines upon pressing *Refresh*. Changing `Apply to` or `Output <-> Previewer` connections updates only the playback window immediately without triggering an automatic *Refresh*.
    * **Audio Compatibility:** Audio is played directly whenever the viewer engine decodes it natively (AAC, MP3, Opus, Vorbis, FLAC and standard PCM in MP4, MKV/MKA, WebM, Ogg, FLAC or WAV). When the video file contains formats unsupported by the browser (AC-3, E-AC-3, DTS, TrueHD, MP2, WMA, ADPCM, among others), Pyxis generates a unified MP4 file through lossless video stream copy (`-c:v copy`) and lightweight AAC transcoding (`-c:a aac -movflags +faststart`), preserving frame-accurate native sync and preventing demuxer buffer stalls.
 5. **`[1.5] Hardsub Render Button (FFmpeg Export)`:**
    * Opens the export dialogue to burn subtitles (*hardsub*) into an encoded MP4 video file via FFmpeg. Transcoding runs strictly and exclusively upon triggering this action.

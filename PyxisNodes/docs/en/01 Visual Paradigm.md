@@ -54,9 +54,9 @@ Effect processing in Pyxis follows a five-phase hierarchical decomposition and t
 
 ### Phase 1: Selection and Input Parsing
 The engine reads the ASS file dialogue lines loaded in Aegisub according to the target scope configured in `Output` (`apply_to`):
-* `Sel. Lines`: Exclusively the lines selected in the Aegisub grid.
-* `Style Lines`: All lines matching the style of the current selection.
-* `All Lines`: The entirety of the dialogue lines in the subtitle file.
+* `Sel. Lines`: Exclusively the valid lines selected in the Aegisub grid (or strictly the first valid dialogue line when nothing eligible is selected, excluding `Comment:`, `pyxis_fx`, and lines with empty or non-visible ASS `Text` outside `{...}`, while preserving `\p1` drawings).
+* `Style Lines`: All valid dialogue lines matching solely the first style (in order of appearance) within the active eligible selection.
+* `All Lines`: The entirety of valid dialogue lines (non-comment, without `pyxis_fx`, and with visible text or `\p1` drawings) in the subtitle file, ignoring active grid selection.
 
 Each line is parsed by the syntactic engine and decomposed into its typographic spatial metrics and karaoke timing markers (`\k`, `\kf`, `\ko`).
 

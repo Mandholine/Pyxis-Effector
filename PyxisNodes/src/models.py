@@ -107,6 +107,13 @@ class PyxisUnit:
         self.prev = None
         self.next = None
         self.style_override = None
+        self.raw_override_tags = []
+
+    @property
+    def tags(self) -> str:
+        """Returns preserved ASS override tags remapped to the active effect timeline."""
+        from ass_kinetics import resolve_preserved_tags
+        return resolve_preserved_tags(self)
 
     @property
     def is_first(self):
@@ -781,6 +788,19 @@ class PyxisLine(PyxisUnit):
         self.has_style_override = False
         self.has_pos = False
         self._pos_x = None
+        self._org_props_cache = None
+
+    def __getattr__(self, name: str):
+        """Lazily resolve canonical line.<prop>_org attributes from leading override tags and styleref."""
+        if name.endswith("_org"):
+            from ass_kinetics import LINE_ORG_TAG_KEYS, extract_line_org_props
+            if name in LINE_ORG_TAG_KEYS:
+                cache = object.__getattribute__(self, "_org_props_cache")
+                if cache is None:
+                    cache = extract_line_org_props(self)
+                    self._org_props_cache = cache
+                return cache[name]
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
         self._pos_y = None
         self.has_org = False
         self._org_x = None

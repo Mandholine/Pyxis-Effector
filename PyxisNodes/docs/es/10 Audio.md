@@ -190,8 +190,12 @@ Modulación simultánea de escala vertical `\fscy` con los graves (`bass`) y res
    * **Tipificación Canónica:** **Tipo A (Expresión evaluada)**.
 8. **`Min Hz` / `Max Hz` (`min_hz`, `max_hz`):** Rango de frecuencia para análisis FFT en modos `fftbars` y `radial` ($20\text{ Hz} \dots 16000\text{ Hz}$).
    * **Tipificación Canónica:** **Tipo A (Expresión evaluada)**.
-9. **`Start Time` / `End Time` (`start_time`, `end_time`):** Ventana temporal de extracción de muestras en milisegundos.
+9. **`Smoothing` (`smoothing`):** Factor de suavizado exponencial entre muestras adyacentes ($0.0 \dots 0.95$, Defecto: `0.2`), atenuando saltos bruscos de amplitud o espectro.
    * **Tipificación Canónica:** **Tipo A (Expresión evaluada)**.
+10. **`Start Time` / `End Time` (`start_time`, `end_time`):** Ventana temporal de extracción de muestras en milisegundos.
+   * **Tipificación Canónica:** **Tipo A (Expresión evaluada)**.
+11. **`Anchor` (`anchor`):** Punto de anclaje espacial aplicado a `Shape Out`, `X Array` e `Y Array` sobre la caja $(W, H)$: `"center"` (centrado en $(0, 0)$, defecto), `"origin"` (esquina superior izquierda en $(0, 0)$), `"relative"` (conserva coordenadas locales) y `"absolute"` (desplazado a la posición de la línea o sílaba en pantalla).
+   * **Tipificación Canónica:** **Tipo C (Enum de anclaje)**.
 
 ---
 

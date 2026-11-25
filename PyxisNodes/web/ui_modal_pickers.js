@@ -989,7 +989,136 @@
             "ko": { name: "ko (Border Karaoke)", desc: "border karaoke", params: ["value"], defaults: { value: "0" } },
             "p": { name: "p (Vector Drawing)", desc: "vector drawing", params: ["value"], defaults: { value: "1" } },
             "pbo": { name: "pbo (Baseline)", desc: "drawing baseline", params: ["value"], defaults: { value: "0" } },
-            "t": { name: "t (Animate Tags)", desc: "tag animation", params: ["tags", "t1", "t2", "accel"], defaults: { tags: "", t1: "", t2: "", accel: "" } }
+            "t": { name: "t (Animate Tags)", desc: "tag animation", params: ["tags", "t1", "t2", "accel"], defaults: { tags: "", t1: "", t2: "", accel: "" } },
+
+            // --- Dark Tags ---
+            // Composite & Multi-Channel Tags
+    "fscxy": { name: "fscxy (Scale X+Y)", desc: "proportional scale X and Y", params: ["value"], defaults: { value: "100" } },
+    "faxy": { name: "faxy (Shear X+Y)", desc: "proportional shear X and Y", params: ["value"], defaults: { value: "0" } },
+    "xybord": { name: "xybord (Border X+Y)", desc: "outline width X and Y", params: ["value"], defaults: { value: "1" } },
+    "xyshad": { name: "xyshad (Shadow X+Y)", desc: "shadow distance X and Y", params: ["value"], defaults: { value: "0" } },
+    "bs": { name: "bs (Border + Shadow)", desc: "border and shadow width", params: ["value"], defaults: { value: "1" } },
+    "frxy": { name: "frxy (Rotate X+Y)", desc: "rotation along X and Y axes", params: ["value"], defaults: { value: "0" } },
+    "frxz": { name: "frxz (Rotate X+Z)", desc: "rotation along X and Z axes", params: ["value"], defaults: { value: "0" } },
+    "fryz": { name: "fryz (Rotate Y+Z)", desc: "rotation along Y and Z axes", params: ["value"], defaults: { value: "0" } },
+    "frxyz": { name: "frxyz (Rotate X+Y+Z)", desc: "rotation along X, Y and Z axes", params: ["value"], defaults: { value: "0" } },
+    "134c": { name: "134c (Color 1+3+4)", desc: "primary, outline and shadow color", params: ["value"], defaults: { value: "&HFFFFFF&" } },
+    "13c": { name: "13c (Color 1+3)", desc: "primary and outline color", params: ["value"], defaults: { value: "&HFFFFFF&" } },
+    "14c": { name: "14c (Color 1+4)", desc: "primary and shadow color", params: ["value"], defaults: { value: "&HFFFFFF&" } },
+    "34c": { name: "34c (Color 3+4)", desc: "outline and shadow color", params: ["value"], defaults: { value: "&H000000&" } },
+    "12c": { name: "12c (Color 1+2)", desc: "primary and secondary color", params: ["value"], defaults: { value: "&HFFFFFF&" } },
+    "23c": { name: "23c (Color 2+3)", desc: "secondary and outline color", params: ["value"], defaults: { value: "&HFFFFFF&" } },
+    "134a": { name: "134a (Alpha 1+3+4)", desc: "primary, outline and shadow transparency", params: ["value"], defaults: { value: "0" } },
+    "13a": { name: "13a (Alpha 1+3)", desc: "primary and outline transparency", params: ["value"], defaults: { value: "0" } },
+    "14a": { name: "14a (Alpha 1+4)", desc: "primary and shadow transparency", params: ["value"], defaults: { value: "0" } },
+    "34a": { name: "34a (Alpha 3+4)", desc: "outline and shadow transparency", params: ["value"], defaults: { value: "0" } },
+    "12a": { name: "12a (Alpha 1+2)", desc: "primary and secondary transparency", params: ["value"], defaults: { value: "0" } },
+    "23a": { name: "23a (Alpha 2+3)", desc: "secondary and outline transparency", params: ["value"], defaults: { value: "0" } },
+
+    // Auto-Origin Rotations (o)
+    "fro": { name: "fro (Rotate Z Auto-Org)", desc: "rotation Z around center auto-origin", params: ["value"], defaults: { value: "0" } },
+    "frzo": { name: "frzo (Rotate Z Auto-Org)", desc: "rotation Z around center auto-origin", params: ["value"], defaults: { value: "0" } },
+    "frxo": { name: "frxo (Rotate X Auto-Org)", desc: "rotation X around center auto-origin", params: ["value"], defaults: { value: "0" } },
+    "fryo": { name: "fryo (Rotate Y Auto-Org)", desc: "rotation Y around center auto-origin", params: ["value"], defaults: { value: "0" } },
+    "frxyo": { name: "frxyo (Rotate X+Y Auto-Org)", desc: "rotation X+Y around center auto-origin", params: ["value"], defaults: { value: "0" } },
+    "frxzo": { name: "frxzo (Rotate X+Z Auto-Org)", desc: "rotation X+Z around center auto-origin", params: ["value"], defaults: { value: "0" } },
+    "fryzo": { name: "fryzo (Rotate Y+Z Auto-Org)", desc: "rotation Y+Z around center auto-origin", params: ["value"], defaults: { value: "0" } },
+    "frxyzo": { name: "frxyzo (Rotate X+Y+Z Auto-Org)", desc: "rotation X+Y+Z around center auto-origin", params: ["value"], defaults: { value: "0" } },
+
+    // Style Restoration Tags (~)
+    "c~": { name: "c~ (Restore Color 1)", desc: "restore base style primary color", params: [], defaults: {} },
+    "1c~": { name: "1c~ (Restore Color 1)", desc: "restore base style primary color", params: [], defaults: {} },
+    "2c~": { name: "2c~ (Restore Color 2)", desc: "restore base style secondary color", params: [], defaults: {} },
+    "3c~": { name: "3c~ (Restore Color 3)", desc: "restore base style outline color", params: [], defaults: {} },
+    "4c~": { name: "4c~ (Restore Color 4)", desc: "restore base style shadow color", params: [], defaults: {} },
+    "134c~": { name: "134c~ (Restore Color 1+3+4)", desc: "restore style primary, outline and shadow colors", params: [], defaults: {} },
+    "13c~": { name: "13c~ (Restore Color 1+3)", desc: "restore style primary and outline colors", params: [], defaults: {} },
+    "14c~": { name: "14c~ (Restore Color 1+4)", desc: "restore style primary and shadow colors", params: [], defaults: {} },
+    "34c~": { name: "34c~ (Restore Color 3+4)", desc: "restore style outline and shadow colors", params: [], defaults: {} },
+    "alpha~": { name: "alpha~ (Restore Alpha)", desc: "restore base style full opacity", params: [], defaults: {} },
+    "1a~": { name: "1a~ (Restore Alpha 1)", desc: "restore base style primary alpha", params: [], defaults: {} },
+    "2a~": { name: "2a~ (Restore Alpha 2)", desc: "restore base style secondary alpha", params: [], defaults: {} },
+    "3a~": { name: "3a~ (Restore Alpha 3)", desc: "restore base style outline alpha", params: [], defaults: {} },
+    "4a~": { name: "4a~ (Restore Alpha 4)", desc: "restore base style shadow alpha", params: [], defaults: {} },
+    "134a~": { name: "134a~ (Restore Alpha 1+3+4)", desc: "restore style primary, outline and shadow alphas", params: [], defaults: {} },
+    "13a~": { name: "13a~ (Restore Alpha 1+3)", desc: "restore style primary and outline alphas", params: [], defaults: {} },
+    "14a~": { name: "14a~ (Restore Alpha 1+4)", desc: "restore style primary and shadow alphas", params: [], defaults: {} },
+    "34a~": { name: "34a~ (Restore Alpha 3+4)", desc: "restore style outline and shadow alphas", params: [], defaults: {} },
+    "fscxy~": { name: "fscxy~ (Restore Scale X+Y)", desc: "restore base style scale X and Y", params: [], defaults: {} },
+    "fscx~": { name: "fscx~ (Restore Scale X)", desc: "restore base style horizontal scale", params: [], defaults: {} },
+    "fscy~": { name: "fscy~ (Restore Scale Y)", desc: "restore base style vertical scale", params: [], defaults: {} },
+    "fs~": { name: "fs~ (Restore Font Size)", desc: "restore base style font size", params: [], defaults: {} },
+    "fsp~": { name: "fsp~ (Restore Spacing)", desc: "restore base style letter spacing", params: [], defaults: {} },
+    "fn~": { name: "fn~ (Restore Font Name)", desc: "restore base style font name", params: [], defaults: {} },
+    "an~": { name: "an~ (Restore Alignment)", desc: "restore base style alignment", params: [], defaults: {} },
+    "bord~": { name: "bord~ (Restore Outline)", desc: "restore base style outline width", params: [], defaults: {} },
+    "xbord~": { name: "xbord~ (Restore Outline X)", desc: "restore base style outline X", params: [], defaults: {} },
+    "ybord~": { name: "ybord~ (Restore Outline Y)", desc: "restore base style outline Y", params: [], defaults: {} },
+    "xybord~": { name: "xybord~ (Restore Outline X+Y)", desc: "restore base style outline X and Y", params: [], defaults: {} },
+    "shad~": { name: "shad~ (Restore Shadow)", desc: "restore base style shadow distance", params: [], defaults: {} },
+    "xshad~": { name: "xshad~ (Restore Shadow X)", desc: "restore base style shadow X", params: [], defaults: {} },
+    "yshad~": { name: "yshad~ (Restore Shadow Y)", desc: "restore base style shadow Y", params: [], defaults: {} },
+    "xyshad~": { name: "xyshad~ (Restore Shadow X+Y)", desc: "restore base style shadow X and Y", params: [], defaults: {} },
+    "bs~": { name: "bs~ (Restore Border+Shadow)", desc: "restore base style border and shadow", params: [], defaults: {} },
+    "blur~": { name: "blur~ (Restore Blur)", desc: "restore base style blur (0)", params: [], defaults: {} },
+    "be~": { name: "be~ (Restore Edge Blur)", desc: "restore base style edge blur (0)", params: [], defaults: {} },
+    "frz~": { name: "frz~ (Restore Angle Z)", desc: "restore base style rotation angle", params: [], defaults: {} },
+    "fr~": { name: "fr~ (Restore Angle Z)", desc: "restore base style rotation angle", params: [], defaults: {} },
+    "frx~": { name: "frx~ (Restore Angle X)", desc: "restore base style angle X (0)", params: [], defaults: {} },
+    "fry~": { name: "fry~ (Restore Angle Y)", desc: "restore base style angle Y (0)", params: [], defaults: {} },
+    "frxy~": { name: "frxy~ (Restore Angle X+Y)", desc: "restore base style angles X and Y (0)", params: [], defaults: {} },
+    "frxz~": { name: "frxz~ (Restore Angle X+Z)", desc: "restore base style angles X and Z", params: [], defaults: {} },
+    "fryz~": { name: "fryz~ (Restore Angle Y+Z)", desc: "restore base style angles Y and Z", params: [], defaults: {} },
+    "frxyz~": { name: "frxyz~ (Restore Angle X+Y+Z)", desc: "restore base style angles X, Y and Z", params: [], defaults: {} },
+    "fax~": { name: "fax~ (Restore Shear X)", desc: "restore base style shear X (0)", params: [], defaults: {} },
+    "fay~": { name: "fay~ (Restore Shear Y)", desc: "restore base style shear Y (0)", params: [], defaults: {} },
+    "faxy~": { name: "faxy~ (Restore Shear X+Y)", desc: "restore base style shear X and Y (0)", params: [], defaults: {} },
+    "b~": { name: "b~ (Restore Bold)", desc: "restore base style bold flag", params: [], defaults: {} },
+    "i~": { name: "i~ (Restore Italic)", desc: "restore base style italic flag", params: [], defaults: {} },
+    "u~": { name: "u~ (Restore Underline)", desc: "restore base style underline flag", params: [], defaults: {} },
+    "s~": { name: "s~ (Restore Strikeout)", desc: "restore base style strikeout flag", params: [], defaults: {} },
+
+    // Style Ratio Tags (r)
+    "fscxyr": { name: "fscxyr (Scale X+Y Ratio)", desc: "multiply base style scale X and Y by ratio", params: ["ratio"], defaults: { ratio: "1.0" } },
+    "fscxr": { name: "fscxr (Scale X Ratio)", desc: "multiply base style scale X by ratio", params: ["ratio"], defaults: { ratio: "1.0" } },
+    "fscyr": { name: "fscyr (Scale Y Ratio)", desc: "multiply base style scale Y by ratio", params: ["ratio"], defaults: { ratio: "1.0" } },
+    "fsr": { name: "fsr (Font Size Ratio)", desc: "multiply base style font size by ratio", params: ["ratio"], defaults: { ratio: "1.0" } },
+
+    // Stochastic Tags (R)
+    "cR": { name: "cR (Random Color 1)", desc: "random primary color between two samples", params: ["min", "max"], defaults: { min: "&HFFFFFF&", max: "&H000000&" } },
+    "1cR": { name: "1cR (Random Color 1)", desc: "random primary color between two samples", params: ["min", "max"], defaults: { min: "&HFFFFFF&", max: "&H000000&" } },
+    "2cR": { name: "2cR (Random Color 2)", desc: "random secondary color between two samples", params: ["min", "max"], defaults: { min: "&HFFFFFF&", max: "&H000000&" } },
+    "3cR": { name: "3cR (Random Color 3)", desc: "random outline color between two samples", params: ["min", "max"], defaults: { min: "&HFFFFFF&", max: "&H000000&" } },
+    "4cR": { name: "4cR (Random Color 4)", desc: "random shadow color between two samples", params: ["min", "max"], defaults: { min: "&HFFFFFF&", max: "&H000000&" } },
+    "134cR": { name: "134cR (Random Color 1+3+4)", desc: "random color applied to channels 1, 3 and 4", params: ["min", "max"], defaults: { min: "&HFFFFFF&", max: "&H000000&" } },
+    "13cR": { name: "13cR (Random Color 1+3)", desc: "random color applied to channels 1 and 3", params: ["min", "max"], defaults: { min: "&HFFFFFF&", max: "&H000000&" } },
+    "14cR": { name: "14cR (Random Color 1+4)", desc: "random color applied to channels 1 and 4", params: ["min", "max"], defaults: { min: "&HFFFFFF&", max: "&H000000&" } },
+    "34cR": { name: "34cR (Random Color 3+4)", desc: "random color applied to channels 3 and 4", params: ["min", "max"], defaults: { min: "&HFFFFFF&", max: "&H000000&" } },
+    "alphaR": { name: "alphaR (Random Alpha)", desc: "stochastic transparency", params: ["min", "max", "step"], defaults: { min: "0", max: "255", step: "1" } },
+    "1aR": { name: "1aR (Random Alpha 1)", desc: "stochastic primary alpha", params: ["min", "max", "step"], defaults: { min: "0", max: "255", step: "1" } },
+    "2aR": { name: "2aR (Random Alpha 2)", desc: "stochastic secondary alpha", params: ["min", "max", "step"], defaults: { min: "0", max: "255", step: "1" } },
+    "3aR": { name: "3aR (Random Alpha 3)", desc: "stochastic outline alpha", params: ["min", "max", "step"], defaults: { min: "0", max: "255", step: "1" } },
+    "4aR": { name: "4aR (Random Alpha 4)", desc: "stochastic shadow alpha", params: ["min", "max", "step"], defaults: { min: "0", max: "255", step: "1" } },
+    "134aR": { name: "134aR (Random Alpha 1+3+4)", desc: "stochastic alpha applied to channels 1, 3 and 4", params: ["min", "max", "step"], defaults: { min: "0", max: "255", step: "1" } },
+    "13aR": { name: "13aR (Random Alpha 1+3)", desc: "stochastic alpha applied to channels 1 and 3", params: ["min", "max", "step"], defaults: { min: "0", max: "255", step: "1" } },
+    "14aR": { name: "14aR (Random Alpha 1+4)", desc: "stochastic alpha applied to channels 1 and 4", params: ["min", "max", "step"], defaults: { min: "0", max: "255", step: "1" } },
+    "34aR": { name: "34aR (Random Alpha 3+4)", desc: "stochastic alpha applied to channels 3 and 4", params: ["min", "max", "step"], defaults: { min: "0", max: "255", step: "1" } },
+    "fscxyR": { name: "fscxyR (Random Scale X+Y)", desc: "stochastic proportional scale X and Y", params: ["min", "max", "step"], defaults: { min: "80", max: "120", step: "1" } },
+    "fscxR": { name: "fscxR (Random Scale X)", desc: "stochastic horizontal scale", params: ["min", "max", "step"], defaults: { min: "80", max: "120", step: "1" } },
+    "fscyR": { name: "fscyR (Random Scale Y)", desc: "stochastic vertical scale", params: ["min", "max", "step"], defaults: { min: "80", max: "120", step: "1" } },
+    "frzR": { name: "frzR (Random Rotate Z)", desc: "stochastic rotation angle Z", params: ["min", "max", "step"], defaults: { min: "-15", max: "15", step: "1" } },
+    "frxR": { name: "frxR (Random Rotate X)", desc: "stochastic rotation angle X", params: ["min", "max", "step"], defaults: { min: "-30", max: "30", step: "1" } },
+    "fryR": { name: "fryR (Random Rotate Y)", desc: "stochastic rotation angle Y", params: ["min", "max", "step"], defaults: { min: "-30", max: "30", step: "1" } },
+    "frxyR": { name: "frxyR (Random Rotate X+Y)", desc: "stochastic rotation angles X and Y", params: ["min", "max", "step"], defaults: { min: "-20", max: "20", step: "1" } },
+    "frxzR": { name: "frxzR (Random Rotate X+Z)", desc: "stochastic rotation angles X and Z", params: ["min", "max", "step"], defaults: { min: "-20", max: "20", step: "1" } },
+    "fryzR": { name: "fryzR (Random Rotate Y+Z)", desc: "stochastic rotation angles Y and Z", params: ["min", "max", "step"], defaults: { min: "-20", max: "20", step: "1" } },
+    "frxyzR": { name: "frxyzR (Random Rotate X+Y+Z)", desc: "stochastic rotation angles X, Y and Z", params: ["min", "max", "step"], defaults: { min: "-20", max: "20", step: "1" } },
+    "bordR": { name: "bordR (Random Outline)", desc: "stochastic outline width", params: ["min", "max", "step"], defaults: { min: "0", max: "5", step: "0.5" } },
+    "shadR": { name: "shadR (Random Shadow)", desc: "stochastic shadow distance", params: ["min", "max", "step"], defaults: { min: "0", max: "8", step: "1" } },
+    "bsR": { name: "bsR (Random Border+Shadow)", desc: "stochastic border and shadow width", params: ["min", "max", "step"], defaults: { min: "0", max: "5", step: "0.5" } },
+    "blurR": { name: "blurR (Random Blur)", desc: "stochastic gaussian blur", params: ["min", "max", "step"], defaults: { min: "0", max: "4", step: "0.5" } },
+    "fsR": { name: "fsR (Random Font Size)", desc: "stochastic font size", params: ["min", "max", "step"], defaults: { min: "16", max: "32", step: "1" } },
+    "fspR": { name: "fspR (Random Spacing)", desc: "stochastic letter spacing", params: ["min", "max", "step"], defaults: { min: "-2", max: "10", step: "1" } }
         };
 
         function getParamValueForPreview(node, paramName, visited) {
@@ -1011,7 +1140,11 @@
                         if (typeName.includes("color picker") || originNode.updateColorPickerUI) {
                             if (originNode.properties && Array.isArray(originNode.properties.colors) && originNode.properties.colors.length > 0) {
                                 const slotIdx = (link.origin_slot !== undefined && link.origin_slot !== null) ? link.origin_slot : 0;
-                                const col = originNode.properties.colors[slotIdx] || originNode.properties.colors[0];
+                                if (slotIdx === 0) {
+                                    return originNode.properties.colors.join(", ");
+                                }
+                                const swatchIdx = Math.min(originNode.properties.colors.length - 1, Math.max(0, slotIdx - 1));
+                                const col = originNode.properties.colors[swatchIdx] || originNode.properties.colors[0];
                                 return String(col);
                             }
                         }
@@ -1097,6 +1230,36 @@
                 i18nKey: "ui.picker.tag_cat_clips",
                 icon: `<svg class="svg-icon" viewBox="0 0 24 24" style="width:14px; height:14px; stroke:var(--accent-primary, #8b5cf6); fill:none; stroke-width:2;"><path d="M6 3L18 21M18 3L6 21"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/></svg>`,
                 tags: ["clip", "iclip", "p", "pbo"]
+            },
+            {
+                title: "Dark Tags: Composite & Multi-Channel",
+                i18nKey: "ui.picker.tag_cat_dark_composite",
+                icon: `<svg class="svg-icon" viewBox="0 0 24 24" style="width:14px; height:14px; stroke:var(--accent-primary, #8b5cf6); fill:none; stroke-width:2;"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+                tags: ["fscxy", "faxy", "xybord", "xyshad", "bs", "frxy", "frxz", "fryz", "frxyz", "134c", "13c", "14c", "34c", "12c", "23c", "134a", "13a", "14a", "34a", "12a", "23a"]
+            },
+            {
+                title: "Dark Tags: Auto-Origin 3D",
+                i18nKey: "ui.picker.tag_cat_dark_auto_org",
+                icon: `<svg class="svg-icon" viewBox="0 0 24 24" style="width:14px; height:14px; stroke:var(--accent-primary, #8b5cf6); fill:none; stroke-width:2;"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>`,
+                tags: ["fro", "frzo", "frxo", "fryo", "frxyo", "frxzo", "fryzo", "frxyzo"]
+            },
+            {
+                title: "Dark Tags: Style Restoration (~)",
+                i18nKey: "ui.picker.tag_cat_dark_restore",
+                icon: `<svg class="svg-icon" viewBox="0 0 24 24" style="width:14px; height:14px; stroke:var(--accent-primary, #8b5cf6); fill:none; stroke-width:2;"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
+                tags: ["c~", "1c~", "2c~", "3c~", "4c~", "134c~", "13c~", "14c~", "34c~", "alpha~", "1a~", "2a~", "3a~", "4a~", "134a~", "13a~", "14a~", "34a~", "fscxy~", "fscx~", "fscy~", "fs~", "fsp~", "fn~", "an~", "bord~", "xbord~", "ybord~", "xybord~", "shad~", "xshad~", "yshad~", "xyshad~", "bs~", "blur~", "be~", "frz~", "fr~", "frx~", "fry~", "frxy~", "frxz~", "fryz~", "frxyz~", "fax~", "fay~", "faxy~", "b~", "i~", "u~", "s~"]
+            },
+            {
+                title: "Dark Tags: Style Ratio (r)",
+                i18nKey: "ui.picker.tag_cat_dark_ratio",
+                icon: `<svg class="svg-icon" viewBox="0 0 24 24" style="width:14px; height:14px; stroke:var(--accent-primary, #8b5cf6); fill:none; stroke-width:2;"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>`,
+                tags: ["fscxyr", "fscxr", "fscyr", "fsr"]
+            },
+            {
+                title: "Dark Tags: Stochastic (R)",
+                i18nKey: "ui.picker.tag_cat_dark_stochastic",
+                icon: `<svg class="svg-icon" viewBox="0 0 24 24" style="width:14px; height:14px; stroke:var(--accent-primary, #8b5cf6); fill:none; stroke-width:2;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><circle cx="15.5" cy="15.5" r="1.5"/><circle cx="12" cy="12" r="1.5"/></svg>`,
+                tags: ["cR", "1cR", "2cR", "3cR", "4cR", "134cR", "13cR", "14cR", "34cR", "alphaR", "1aR", "2aR", "3aR", "4aR", "134aR", "13aR", "14aR", "34aR", "fscxyR", "fscxR", "fscyR", "frzR", "frxR", "fryR", "frxyR", "frxzR", "fryzR", "frxyzR", "bordR", "shadR", "bsR", "blurR", "fsR", "fspR"]
             }
         ];
 
@@ -1148,7 +1311,7 @@
                         const def = TAG_DEFINITIONS[t];
                         const nameStr = def ? def.name.toLowerCase() : t;
                         const descStr = def ? def.desc.toLowerCase() : "";
-                        return t.includes(cleanFilter) || nameStr.includes(cleanFilter) || descStr.includes(cleanFilter);
+                        return t.toLowerCase().includes(cleanFilter) || nameStr.includes(cleanFilter) || descStr.includes(cleanFilter);
                     });
 
                     if (matchingTags.length > 0) {
@@ -1172,7 +1335,7 @@
                             const titleAttr = translatedDesc || (def ? def.desc || def.name : t);
 
                             const btn = document.createElement("button");
-                            btn.className = "pyxis-tag-btn" + (t === currentTag ? " active" : "");
+                            btn.className = "pyxis-tag-btn" + (t.toLowerCase() === currentTag ? " active" : "");
                             btn.innerText = label;
                             btn.setAttribute("title", titleAttr);
 

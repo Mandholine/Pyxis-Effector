@@ -49,6 +49,10 @@
     /**
      * Synchronises DOM widget inputs and floating previewer coordinates to node properties.
      * Guarantees 1:1 state parity before serialising the active LiteGraph canvas.
+     *
+     * Enforces INVARIANT 1: while `!p || !p.isInitialized`, `node.properties` is the
+     * Single Source of Truth (SSOT) and must never have `is_pinned` reset to `false`
+     * or its floating/unpinned geometry deleted.
      */
     function sync_graph_widgets() {
         if (typeof window.syncWidgetsToProperties === "function") {
@@ -62,12 +66,24 @@
             if (node.type === "System/Previewer" || node.type === "Previewer" || (node.title && node.title.includes("Previewer"))) {
                 var pMgr = window.PyxisNodePlayerManager;
                 var p = (pMgr && pMgr.activePlayers && node.id !== undefined) ? pMgr.activePlayers[String(node.id)] : null;
-                if (p && p.isPinned) {
+                if (node.preview_aspect_ratio && Number(node.preview_aspect_ratio) > 0.1) {
+                    node.properties.preview_aspect_ratio = Number(node.preview_aspect_ratio);
+                }
+                if (!p || !p.isInitialized) {
+                    if (node.properties.is_pinned) {
+                        if (node.size && node.size[0] >= 200) {
+                            node.properties.pinned_width = Math.round(node.size[0]);
+                        }
+                    } else if (node.size && Array.isArray(node.size) && node.size[0] >= 200 && node.size[1] >= 140) {
+                        node.properties.previewer_width = Math.round(node.size[0]);
+                        node.properties.previewer_height = Math.round(node.size[1]);
+                    }
+                } else if (p.isPinned) {
                     node.properties.is_pinned = true;
                     if (node.size && node.size[0] > 0) {
                         node.properties.pinned_width = Math.round(node.size[0]);
                     }
-                    if (p.originalSize) {
+                    if (p.originalSize && p.originalSize[0] >= 200 && p.originalSize[1] >= 140) {
                         node.properties.previewer_width = Math.round(p.originalSize[0]);
                         node.properties.previewer_height = Math.round(p.originalSize[1]);
                     }
@@ -87,6 +103,7 @@
                     }
                 } else if (node.size && Array.isArray(node.size) && node.size[0] > 0 && node.size[1] >= 140) {
                     node.properties.is_pinned = false;
+                    delete node.properties.pinned_width;
                     delete node.properties.floating_x;
                     delete node.properties.floating_y;
                     delete node.properties.floating_width;

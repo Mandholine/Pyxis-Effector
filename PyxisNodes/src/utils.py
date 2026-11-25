@@ -71,11 +71,33 @@ def parse_time(time_str: str) -> int:
     return 0
 
 
+def quantize_ass_ms(ms) -> int:
+    """
+    Quantizes a millisecond timestamp to the canonical ASS 10 ms centisecond grid.
+
+    Applies the canonical Aegisub rounding rule ((round(ms) + 5) // 10) * 10 so
+    that Dialogue start/end headers and kinetic tag interpolations share the exact
+    same temporal reference.
+
+    Args:
+        ms: Raw timestamp in milliseconds (int, float, or numeric string).
+
+    Returns:
+        int: Integer milliseconds snapped to the nearest 10 ms centisecond (>= 0).
+    """
+    try:
+        ms_int = max(0, int(round(float(ms))))
+    except (ValueError, TypeError):
+        return 0
+    return ((ms_int + 5) // 10) * 10
+
+
 def format_time(ms: int) -> str:
     """
     Converts integer milliseconds into an ASS standard 'H:MM:SS.CS' formatted string.
 
-    Applies the canonical Aegisub rounding algorithm (+5 ms // 10) for precise centisecond quantisation.
+    Applies the canonical Aegisub rounding algorithm via quantize_ass_ms for
+    precise centisecond quantisation.
 
     Args:
         ms (int): Time in integer milliseconds (supports prior float conversion with round).
@@ -86,11 +108,7 @@ def format_time(ms: int) -> str:
     Dependencies & Couplings:
         - Called by node_engine.py and Time/Format ASS Time to compile output subtitle lines.
     """
-    try:
-        ms = max(0, int(round(float(ms))))
-    except (ValueError, TypeError):
-        return "0:00:00.00"
-    cs_total = (ms + 5) // 10
+    cs_total = quantize_ass_ms(ms) // 10
     cs = cs_total % 100
     s_total = cs_total // 100
     s = s_total % 60

@@ -455,15 +455,7 @@ def audio_modulator_master(
 
                 raw_intensities.append(max(0.0, min(1.0, intensity)))
 
-            if smooth_factor > 0 and len(raw_intensities) > 1:
-                smoothed_intensities = [raw_intensities[0]]
-                for i in range(1, len(raw_intensities)):
-                    prev = smoothed_intensities[-1]
-                    curr = raw_intensities[i]
-                    smoothed_intensities.append(prev + (1.0 - smooth_factor) * (curr - prev))
-                intensities = smoothed_intensities
-            else:
-                intensities = raw_intensities
+            intensities = _apply_ema_smoothing(raw_intensities, smooth_factor)
 
             if len(_AUDIO_SERIES_CACHE) >= _MAX_AUDIO_SERIES_CACHE:
                 _AUDIO_SERIES_CACHE.popitem(last=False)
@@ -525,6 +517,43 @@ def audio_modulator_master(
     return "".join(chain_parts)
 
 
+def _apply_ema_smoothing(values: List[float], smooth_factor: float) -> List[float]:
+    """Apply exponential moving average low-pass smoothing across a sequence of samples."""
+    if smooth_factor <= 0.0 or len(values) <= 1:
+        return values
+    smoothed = [values[0]]
+    for curr in values[1:]:
+        prev = smoothed[-1]
+        smoothed.append(prev + (1.0 - smooth_factor) * (curr - prev))
+    return smoothed
+
+
+def _resolve_waveform_anchor_offset(anchor: str, width: float, height: float, ctx: dict) -> Tuple[float, float]:
+    """Compute coordinate translation (dx, dy) for a waveform bounding box (0, 0, width, height)."""
+    anchor_clean = str(anchor or "center").strip().lower()
+    if anchor_clean in ("origin", "relative"):
+        return 0.0, 0.0
+
+    pos_x, pos_y = 0.0, 0.0
+    if isinstance(ctx, dict):
+        unit = ctx.get("syl") or ctx.get("char") or ctx.get("word") or ctx.get("line") or ctx.get("active_unit")
+        line = ctx.get("line")
+        try:
+            pos_x = float(ctx.get("fx_pos_x", getattr(unit, "x", getattr(unit, "center", getattr(line, "x", 0.0)))))
+        except (TypeError, ValueError):
+            pos_x = 0.0
+        try:
+            pos_y = float(ctx.get("fx_pos_y", getattr(unit, "y", getattr(unit, "middle", getattr(line, "y", 0.0)))))
+        except (TypeError, ValueError):
+            pos_y = 0.0
+
+    if anchor_clean == "absolute":
+        return pos_x, pos_y
+    if anchor_clean == "pos":
+        return -pos_x, -pos_y
+    return -width / 2.0, -height / 2.0
+
+
 def audio_waveform_master(
     context: Optional[dict] = None,
     audio_path: str = "",
@@ -537,8 +566,10 @@ def audio_waveform_master(
     min_hz: Any = "20",
     max_hz: Any = "16000",
     scale: Any = "1.0",
+    smoothing: Any = "0.2",
     start_time: Any = "",
     end_time: Any = "",
+    anchor: str = "center",
     output_slot_index: int = 0,
     **kwargs
 ) -> Union[str, List[float]]:
@@ -601,6 +632,7 @@ def audio_waveform_master(
     gain_fac = max(0.01, _eval_val(gain_val, ctx, default=1.0))
     thick = max(1.0, _eval_val(thick_val, ctx, default=2.0))
     scale_fac = max(0.01, _eval_val(scale_val, ctx, default=1.0))
+    smooth_factor = max(0.0, min(0.95, _eval_val(kwargs.get("smoothing", smoothing), ctx, default=0.2)))
     f_min = _eval_val(min_hz, ctx, default=20.0)
     f_max = _eval_val(max_hz, ctx, default=16000.0)
 
@@ -619,6 +651,7 @@ def audio_waveform_master(
             raw_values = audio_obj.get_fft_bands(st, et, num_bands=num_samples, min_hz=f_min, max_hz=f_max, gain=gain_fac)
         else:
             raw_values = [0.0] * num_samples
+        raw_values = _apply_ema_smoothing(raw_values, smooth_factor)
 
         bar_slot_w = w / float(num_samples)
         bar_w = max(1.0, bar_slot_w * 0.8)
@@ -642,6 +675,7 @@ def audio_waveform_master(
             raw_values = audio_obj.get_fft_bands(st, et, num_bands=num_samples, min_hz=f_min, max_hz=f_max, gain=gain_fac)
         else:
             raw_values = [0.0] * num_samples
+        raw_values = _apply_ema_smoothing(raw_values, smooth_factor)
 
         cx = w / 2.0
         cy = h / 2.0
@@ -670,6 +704,7 @@ def audio_waveform_master(
             raw_values = audio_obj.get_samples(st, et, num_points=num_samples, gain=gain_fac)
         else:
             raw_values = [0.0] * num_samples
+        raw_values = _apply_ema_smoothing(raw_values, smooth_factor)
 
         mid_y = h / 2.0
         shape_parts = [f"m 0 {_fmt_val(mid_y)}"]
@@ -688,6 +723,7 @@ def audio_waveform_master(
             raw_values = audio_obj.get_samples(st, et, num_points=num_samples, gain=gain_fac)
         else:
             raw_values = [0.0] * num_samples
+        raw_values = _apply_ema_smoothing(raw_values, smooth_factor)
 
         mid_y = h / 2.0
         r = max(1.0, thick / 2.0)
@@ -709,6 +745,7 @@ def audio_waveform_master(
             raw_values = audio_obj.get_samples(st, et, num_points=num_samples, gain=gain_fac)
         else:
             raw_values = [0.0] * num_samples
+        raw_values = _apply_ema_smoothing(raw_values, smooth_factor)
 
         mid_y = h / 2.0
         half_thick = thick / 2.0
@@ -731,6 +768,16 @@ def audio_waveform_master(
             shape_parts.append(f"l {_fmt_val(p[0])} {_fmt_val(p[1])}")
         shape_parts.append(f"l {_fmt_val(top_points[0][0])} {_fmt_val(top_points[0][1])}")
         shape_str = " ".join(shape_parts) + " "
+
+    anchor_val = kwargs.get("anchor", anchor)
+    anchor_clean = str(anchor_val or "center").strip().lower()
+    dx, dy = _resolve_waveform_anchor_offset(anchor_clean, w, h, ctx)
+    if dx != 0.0 or dy != 0.0:
+        x_coords = [round(x + dx, 1) for x in x_coords]
+        y_coords = [round(y + dy, 1) for y in y_coords]
+        if output_slot_index == 0 and shape_str.strip():
+            from nodes.shape_nodes import apply_geometric_anchor
+            shape_str = apply_geometric_anchor(shape_str, anchor=anchor_clean, context=ctx, ref_bbox=(0.0, 0.0, w, h))
 
     if output_slot_index == 4:
         return [round(v, 4) for v in raw_values]
@@ -785,7 +832,7 @@ def audio_modulator_node(
     )
 
 
-@pyxis_node("Audio", "Waveform", ["Audio Path", "Width", "Height", "Samples", "Gain", "Thickness", "Scale", "Start Time", "End Time"])
+@pyxis_node("Audio", "Waveform", ["Audio Path", "Width", "Height", "Samples", "Gain", "Thickness", "Scale", "Smoothing", "Start Time", "End Time", "Anchor"])
 def audio_waveform_node(
     context=None,
     audio_path="",
@@ -798,8 +845,10 @@ def audio_waveform_node(
     min_hz="20",
     max_hz="16000",
     scale="1.0",
+    smoothing="0.2",
     start_time="",
     end_time="",
+    anchor="center",
     output_slot_index=0,
     **kwargs
 ):
@@ -816,8 +865,10 @@ def audio_waveform_node(
         min_hz=min_hz,
         max_hz=max_hz,
         scale=scale,
+        smoothing=smoothing,
         start_time=start_time,
         end_time=end_time,
+        anchor=anchor,
         output_slot_index=output_slot_index,
         **kwargs
     )

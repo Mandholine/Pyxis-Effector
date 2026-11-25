@@ -125,8 +125,22 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
 
                 if file_path and os.path.isfile(file_path):
                     import mimetypes
-                    mime_type, _ = mimetypes.guess_type(file_path)
-                    mime_type = mime_type or "video/mp4"
+                    ext = os.path.splitext(file_path)[1].lower()
+                    font_mimes = {
+                        ".ttf": "font/ttf",
+                        ".otf": "font/otf",
+                        ".ttc": "font/collection",
+                        ".woff": "font/woff",
+                        ".woff2": "font/woff2",
+                        ".dfont": "application/octet-stream",
+                    }
+                    is_font_asset = ext in font_mimes
+                    if is_font_asset:
+                        mime_type = font_mimes[ext]
+                    else:
+                        mime_type, _ = mimetypes.guess_type(file_path)
+                        mime_type = mime_type or "video/mp4"
+                    cache_header = "public, max-age=3600" if is_font_asset else "no-cache, no-store, must-revalidate"
                     file_size = os.path.getsize(file_path)
 
                     range_header = self.headers.get("Range")
@@ -150,7 +164,7 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
                         self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
                         self.send_header("Content-Length", str(chunk_size))
                         self.send_header("Accept-Ranges", "bytes")
-                        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                        self.send_header("Cache-Control", cache_header)
                         self.send_header("Access-Control-Allow-Origin", "*")
                         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                         self.send_header("Access-Control-Allow-Headers", "*")
@@ -172,7 +186,7 @@ class PyxisDaemonHandler(BaseHTTPRequestHandler):
                         self.send_header("Content-Type", mime_type)
                         self.send_header("Content-Length", str(file_size))
                         self.send_header("Accept-Ranges", "bytes")
-                        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                        self.send_header("Cache-Control", cache_header)
                         self.send_header("Access-Control-Allow-Origin", "*")
                         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                         self.send_header("Access-Control-Allow-Headers", "*")
@@ -256,6 +270,7 @@ class PyxisDaemonServer:
         self.daemon_mode = True
         self.running = False
         self._is_shutting_down = False
+        self.actual_port = PYXIS_DAEMON_PORT
 
     def start(self, port=PYXIS_DAEMON_PORT):
         """Bind and start the multi-threaded HTTP server thread on localhost.
@@ -273,12 +288,16 @@ class PyxisDaemonServer:
             except Exception:
                 pass
 
-            self.server = HTTPServer(("127.0.0.1", port), PyxisDaemonHandler)
+            try:
+                self.server = HTTPServer(("127.0.0.1", port), PyxisDaemonHandler)
+            except OSError:
+                self.server = HTTPServer(("127.0.0.1", 0), PyxisDaemonHandler)
+            self.actual_port = int(self.server.server_address[1])
             self.server.daemon_threads = True
             self.running = True
             self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
             self.server_thread.start()
-            print(f"[Pyxis Daemon] Server listening on http://127.0.0.1:{port} (PID: {os.getpid()})", flush=True)
+            print(f"[Pyxis Daemon] Server listening on http://127.0.0.1:{self.actual_port} (PID: {os.getpid()})", flush=True)
 
             threading.Thread(target=self._monitor_aegisub_pid, daemon=True).start()
         except Exception as e:

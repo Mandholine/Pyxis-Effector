@@ -1868,9 +1868,26 @@
             if (inputsVal) inputsVal.innerText = (data.input_lines || 0) + " " + unitLin;
             if (unitsVal) unitsVal.innerText = (data.base_units || 0) + " " + unitU;
             if (peakSimVal) {
-                const pSim = Number(data.peak_simultaneous_lines || 0);
+                const telPeakObjs = (data.last_telemetry_peak_objects !== undefined && data.last_telemetry_peak_objects !== null)
+                    ? Number(data.last_telemetry_peak_objects)
+                    : null;
+                const isMeasured = Boolean(telPeakObjs !== null && telPeakObjs > 0);
+                const pSim = isMeasured ? telPeakObjs : Number(data.peak_simultaneous_lines || 0);
+
                 peakSimVal.innerText = pSim.toLocaleString() + " " + unitLin;
-                peakSimVal.style.color = pSim > 600 ? "#f43f5e" : (pSim > 220 ? "#fbbf24" : "#f8fafc");
+
+                if (isMeasured) {
+                    const telTip = window.t ? window.t("estimation.telemetry_verified_tooltip") : "Empirical measurement verified by libass telemetry";
+                    peakSimVal.title = telTip;
+                } else {
+                    peakSimVal.title = "";
+                }
+
+                // Thresholds calibrated for modern ASS renderers (libass/VSFilter):
+                // Safe/Normal: <= 600
+                // Moderate: 601 - 1500 (#fbbf24)
+                // Heavy: > 1500 (#f43f5e)
+                peakSimVal.style.color = pSim > 1500 ? "#f43f5e" : (pSim > 600 ? "#fbbf24" : "#f8fafc");
             }
             if (expRatioVal) {
                 const ratio = Number(data.expansion_ratio || 0);
@@ -2492,6 +2509,21 @@
 
 
         // --- Widget Sync & State Serialization ---
+        /**
+         * Synchronises active LiteGraph widget values and System/Previewer runtime state
+         * into `node.properties` prior to JSON serialisation (session persistence, template save,
+         * undo snapshots, or graph execution).
+         *
+         * Canonical State Ownership Invariant (INVARIANT 1):
+         * - While `!activeP || !activeP.isInitialized` (during cold start in `initDynamicNodes`,
+         *   template deserialisation in `do_load_graph`, or while `createInNodePlayer` is awaiting
+         *   asynchronous IPC calls), `n.properties` is the Single Source of Truth (SSOT).
+         *   During this pre-initialisation window, `syncWidgetsToProperties` must NEVER overwrite
+         *   `n.properties.is_pinned` to `false` or delete `pinned_width`, `floating_x`, `floating_y`,
+         *   `floating_width`, `floating_height`, `previewer_width`, or `previewer_height`.
+         * - Once `activeP && activeP.isInitialized === true`, `activeP` becomes the runtime SSOT
+         *   and synchronises its live pinned/floating/viewport state into `n.properties`.
+         */
         function syncWidgetsToProperties() {
             if (!graph._nodes) return;
             graph._nodes.forEach(n => {
@@ -2501,16 +2533,26 @@
                         ? window.PyxisNodePlayerManager.activePlayers[String(n.id)]
                         : null;
 
-                    // Si se está cargando un template y el reproductor aún no se ha instanciado por completo,
-                    // proteger las propiedades cargadas del JSON para que no se sobreescriban con valores por defecto.
-                    if (window.__pyxis_is_loading_template && (!activeP || !activeP.isInitialized)) {
-                        // Preservar propiedades cargadas del template
-                    } else if (activeP && activeP.isPinned) {
+                    if (n.preview_aspect_ratio && Number(n.preview_aspect_ratio) > 0.1) {
+                        n.properties.preview_aspect_ratio = Number(n.preview_aspect_ratio);
+                    }
+
+                    // INVARIANT 1: Pre-initialisation protection (cold start, template load, or IPC in flight).
+                    if (!activeP || !activeP.isInitialized) {
+                        if (n.properties.is_pinned) {
+                            if (n.size && n.size[0] >= 200) {
+                                n.properties.pinned_width = Math.round(n.size[0]);
+                            }
+                        } else if (n.size && Array.isArray(n.size) && n.size[0] >= 200 && n.size[1] >= 140) {
+                            n.properties.previewer_width = Math.round(n.size[0]);
+                            n.properties.previewer_height = Math.round(n.size[1]);
+                        }
+                    } else if (activeP.isPinned) {
                         n.properties.is_pinned = true;
                         if (n.size && n.size[0] > 0) {
                             n.properties.pinned_width = Math.round(n.size[0]);
                         }
-                        if (activeP.originalSize) {
+                        if (activeP.originalSize && activeP.originalSize[0] >= 200 && activeP.originalSize[1] >= 140) {
                             n.properties.previewer_width = Math.round(activeP.originalSize[0]);
                             n.properties.previewer_height = Math.round(activeP.originalSize[1]);
                         }
@@ -2539,15 +2581,13 @@
                         n.properties.previewer_height = Math.round(n.size[1]);
                     }
 
-                    if (!window.__pyxis_is_loading_template || (activeP && activeP.isInitialized)) {
-                        if (activeP && activeP.transformState) {
-                            const ts = activeP.transformState;
-                            const isCust = Boolean(ts.isCustom);
-                            n.properties.viewport_zoom = isCust ? (ts.userZoom || 1.0) : 1.0;
-                            n.properties.viewport_pan_x = isCust ? Math.round((ts.panX || 0) * 100) / 100 : 0;
-                            n.properties.viewport_pan_y = isCust ? Math.round((ts.panY || 0) * 100) / 100 : 0;
-                            n.properties.viewport_custom = isCust;
-                        }
+                    if (activeP && activeP.isInitialized && activeP.transformState) {
+                        const ts = activeP.transformState;
+                        const isCust = Boolean(ts.isCustom);
+                        n.properties.viewport_zoom = isCust ? (ts.userZoom || 1.0) : 1.0;
+                        n.properties.viewport_pan_x = isCust ? Math.round((ts.panX || 0) * 100) / 100 : 0;
+                        n.properties.viewport_pan_y = isCust ? Math.round((ts.panY || 0) * 100) / 100 : 0;
+                        n.properties.viewport_custom = isCust;
                     }
                 }
                 if (!n.widgets) return;
@@ -2562,6 +2602,7 @@
                 });
             });
         }
+        window.syncWidgetsToProperties = syncWidgetsToProperties;
 
         window.__pyxis_get_state = function () {
             if (!graph || typeof graph.serialize !== "function") {

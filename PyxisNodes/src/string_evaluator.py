@@ -508,10 +508,12 @@ def _prepare_eval_locals(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         Dict[str, Any]: Fully initialised locals dictionary ready for AST evaluation.
     """
     if isinstance(context, dict):
+        ctx_id = id(context)
         helpers = context.get("_eval_helpers_cache")
-        if helpers is None:
+        if helpers is None or context.get("_eval_helpers_cache_ctx_id") != ctx_id:
             helpers = _build_context_eval_helpers(context)
             context["_eval_helpers_cache"] = helpers
+            context["_eval_helpers_cache_ctx_id"] = ctx_id
         eval_locals: Dict[str, Any] = dict(context)
         eval_locals.update(helpers)
     else:
@@ -671,6 +673,396 @@ def _transform_outside_quotes(expr_str: str, transform_fn) -> str:
     return "".join(out)
 
 
+_HEX_CHARS = frozenset("0123456789abcdefABCDEF")
+_VALID_STR_PREFIXES = frozenset(("r", "u", "f", "b", "rf", "fr", "rb", "br"))
+_RE_ASS_LITERAL_CONTEXT = re.compile(
+    r'\\(?:t\(|te\(|ts\(|tc\(|tw\(|[1-4]?[ca]|f[a-zA-Z]|b(?:ord|lur|e|[0-9])|'
+    r'a[ln]|p(?:os|[0-9])|m(?:ove|[0-9])|org\(|clip|iclip|fad|shad|xshad|yshad|'
+    r'xbord|ybord|k[fo]?|q[0-3]|r(?![a-zA-Z0-9_])|s[01]|i[01]|u[01]|N)'
+)
+_RE_ASS_UNQUOTED_TAG = re.compile(r'(?:^|[\s\)\}])\\(?:[0-9]+[ca]|[a-zA-Z]+)')
+
+
+def protect_ass_backslashes_in_quotes(expr_str: str) -> str:
+    """
+    Preserves ASS override backslashes inside non-raw Python string literals.
+
+    Converts single backslashes that would trigger Python control escapes
+    (such as '\\t', '\\f', '\\4', '\\b', '\\a', '\\r', '\\N', '\\x', '\\u')
+    into literal doubled backslashes while preserving already-escaped pairs ('\\\\'),
+    escaped closing quotes ('\\"' / "\\'"), valid hex/unicode escapes, and raw literals.
+    Idempotent across repeated passes.
+
+    Args:
+        expr_str: Expression string potentially containing quoted ASS tag literals.
+
+    Returns:
+        str: Normalized expression string safe for Python AST compilation and eval.
+    """
+    if not expr_str or '\\' not in expr_str or ('"' not in expr_str and "'" not in expr_str):
+        return expr_str
+
+    out: list[str] = []
+    n = len(expr_str)
+    i = 0
+    while i < n:
+        prefix = ""
+        q_idx = -1
+        is_boundary = i == 0 or not (expr_str[i - 1].isalnum() or expr_str[i - 1] == '_')
+
+        if is_boundary:
+            if (
+                i + 2 < n
+                and expr_str[i : i + 2].lower() in _VALID_STR_PREFIXES
+                and expr_str[i + 2] in ('"', "'")
+            ):
+                prefix = expr_str[i : i + 2]
+                q_idx = i + 2
+            elif (
+                i + 1 < n
+                and expr_str[i].lower() in ('r', 'u', 'f', 'b')
+                and expr_str[i + 1] in ('"', "'")
+            ):
+                prefix = expr_str[i]
+                q_idx = i + 1
+            elif expr_str[i] in ('"', "'"):
+                q_idx = i
+        elif expr_str[i] in ('"', "'"):
+            q_idx = i
+
+        if q_idx == -1:
+            out.append(expr_str[i])
+            i += 1
+            continue
+
+        q_char = expr_str[q_idx]
+        if expr_str[q_idx : q_idx + 3] == q_char * 3:
+            delim = q_char * 3
+            delim_len = 3
+        else:
+            delim = q_char
+            delim_len = 1
+
+        j = q_idx + delim_len
+        body_end = -1
+        end_idx = -1
+        while j < n:
+            ch = expr_str[j]
+            if ch == '\\' and j + 1 < n:
+                j += 2
+                continue
+            if delim_len == 1:
+                if ch == q_char:
+                    body_end = j
+                    end_idx = j
+                    break
+                j += 1
+            else:
+                if expr_str[j : j + 3] == delim:
+                    body_end = j
+                    end_idx = j + 2
+                    break
+                j += 1
+
+        if body_end == -1:
+            out.append(expr_str[i:])
+            break
+
+        body = expr_str[q_idx + delim_len : body_end]
+        p_low = prefix.lower()
+        if 'r' in p_low or '\\' not in body:
+            out.append(expr_str[i : end_idx + 1])
+            i = end_idx + 1
+            continue
+
+        is_fstring = 'f' in p_low
+        has_ass_ctx = bool(_RE_ASS_LITERAL_CONTEXT.search(body))
+        out_body: list[str] = []
+        b_len = len(body)
+        bi = 0
+        f_brace_depth = 0
+        while bi < b_len:
+            bch = body[bi]
+            if is_fstring:
+                if f_brace_depth == 0:
+                    if body[bi : bi + 2] in ('{{', '}}'):
+                        out_body.append(body[bi : bi + 2])
+                        bi += 2
+                        continue
+                    if bch == '{':
+                        f_brace_depth = 1
+                        out_body.append(bch)
+                        bi += 1
+                        continue
+                else:
+                    if bch == '{':
+                        f_brace_depth += 1
+                    elif bch == '}':
+                        f_brace_depth = max(0, f_brace_depth - 1)
+                    out_body.append(bch)
+                    bi += 1
+                    continue
+
+            if bch == '\\':
+                if bi + 1 >= b_len:
+                    out_body.append('\\')
+                    bi += 1
+                    continue
+                nxt = body[bi + 1]
+                if nxt == '\\':
+                    out_body.append('\\\\')
+                    bi += 2
+                elif nxt == q_char:
+                    out_body.append('\\' + nxt)
+                    bi += 2
+                elif nxt == 'n' and not has_ass_ctx:
+                    out_body.append('\\n')
+                    bi += 2
+                elif nxt == 'x' and bi + 3 < b_len and all(c in _HEX_CHARS for c in body[bi + 2 : bi + 4]):
+                    out_body.append(body[bi : bi + 4])
+                    bi += 4
+                elif nxt == 'u' and bi + 5 < b_len and all(c in _HEX_CHARS for c in body[bi + 2 : bi + 6]):
+                    out_body.append(body[bi : bi + 6])
+                    bi += 6
+                elif nxt == 'U' and bi + 9 < b_len and all(c in _HEX_CHARS for c in body[bi + 2 : bi + 10]):
+                    out_body.append(body[bi : bi + 10])
+                    bi += 10
+                elif nxt == 'N' and not is_fstring and re.match(r'^\{[A-Z0-9 -]+\}', body[bi + 2 :]):
+                    out_body.append('\\N')
+                    bi += 2
+                else:
+                    out_body.append('\\\\' + nxt)
+                    bi += 2
+                continue
+
+            out_body.append(bch)
+            bi += 1
+
+        out.append(prefix + delim + "".join(out_body) + delim)
+        i = end_idx + 1
+
+    return "".join(out)
+
+
+def _find_matching_paren_end(s: str, open_idx: int) -> int:
+    """Returns index of matching ')' for '(' at open_idx, respecting nested delimiters and quotes, or -1."""
+    n = len(s)
+    d_paren = 0
+    d_bracket = 0
+    d_brace = 0
+    in_q = None
+    i = open_idx
+    while i < n:
+        ch = s[i]
+        if in_q:
+            if ch == '\\' and i + 1 < n:
+                i += 2
+                continue
+            if ch == in_q:
+                in_q = None
+        elif ch in ('"', "'"):
+            in_q = ch
+        elif ch == '(':
+            d_paren += 1
+        elif ch == ')':
+            d_paren -= 1
+            if d_paren == 0 and d_bracket == 0 and d_brace == 0:
+                return i
+        elif ch == '[':
+            d_bracket += 1
+        elif ch == ']':
+            d_bracket = max(0, d_bracket - 1)
+        elif ch == '{':
+            d_brace += 1
+        elif ch == '}':
+            d_brace = max(0, d_brace - 1)
+        i += 1
+    return -1
+
+
+def _strip_outer_parens(s: str) -> str:
+    """Repeatedly unwraps enclosing balanced '(' ... ')' pairs around an entire expression."""
+    curr = s.strip()
+    while len(curr) >= 2 and curr.startswith('(') and curr.endswith(')'):
+        if _find_matching_paren_end(curr, 0) == len(curr) - 1:
+            curr = curr[1:-1].strip()
+        else:
+            break
+    return curr
+
+
+def _is_single_quoted_literal(s: str) -> bool:
+    """Returns True if stripped string s is strictly a single enclosed Python string literal."""
+    c = s.strip()
+    if len(c) < 2:
+        return False
+    m = re.match(r'^([rRuUfFbB]{0,2})(["\'])', c)
+    if not m:
+        return False
+    prefix = m.group(1).lower()
+    if len(prefix) == 2 and prefix not in _VALID_STR_PREFIXES:
+        return False
+    q_idx = len(prefix)
+    q_char = m.group(2)
+    if c[q_idx : q_idx + 3] == q_char * 3 and len(c) >= q_idx + 6:
+        delim = q_char * 3
+        delim_len = 3
+    else:
+        delim = q_char
+        delim_len = 1
+
+    i = q_idx + delim_len
+    n = len(c)
+    while i < n:
+        ch = c[i]
+        if ch == '\\' and i + 1 < n:
+            i += 2
+            continue
+        if delim_len == 1:
+            if ch == q_char:
+                return i == n - 1
+            i += 1
+        else:
+            if c[i : i + 3] == delim:
+                return i + 2 == n - 1
+            i += 1
+    return False
+
+
+def _looks_like_ass_tag_expr(s: str) -> bool:
+    """Returns True if an unquoted string represents ASS override tags (e.g. '\\t(...)', '\\blur2')."""
+    if not s or '\\' not in s:
+        return False
+    return bool(_RE_ASS_UNQUOTED_TAG.search(s.strip()))
+
+
+def split_statements_outside_quotes(s: str) -> list[str]:
+    """
+    Splits multi-line or semicolon-delimited variable assignments strictly outside quotes.
+
+    Allows multi-line parenthesized/bracketed/braced expressions across newlines when delimiters
+    balance cleanly, and isolates unclosed delimiter errors to their originating line.
+
+    Args:
+        s: Raw variable definition block.
+
+    Returns:
+        list[str]: Individual non-empty assignment statements.
+    """
+    if not s:
+        return []
+    parts: list[str] = []
+    n = len(s)
+    chunk_start = 0
+    i = 0
+    depth = 0
+    in_quote: Optional[str] = None
+    first_sep_while_open = -1
+
+    while i < n:
+        ch = s[i]
+        if in_quote is not None:
+            if ch == '\\' and i + 1 < n:
+                i += 2
+                continue
+            if ch == in_quote:
+                in_quote = None
+            i += 1
+            continue
+
+        if ch in ('"', "'"):
+            in_quote = ch
+        elif ch in ('(', '[', '{'):
+            depth += 1
+        elif ch in (')', ']', '}'):
+            depth = max(0, depth - 1)
+            if depth == 0:
+                first_sep_while_open = -1
+        elif ch in (';', '\n'):
+            if depth == 0:
+                stmt = s[chunk_start:i].strip()
+                if stmt:
+                    parts.append(stmt)
+                chunk_start = i + 1
+                first_sep_while_open = -1
+            elif first_sep_while_open == -1:
+                first_sep_while_open = i
+        i += 1
+
+    # Recover gracefully if delimiters remain unclosed at EOF by splitting at the first line break
+    while chunk_start < n and depth > 0 and first_sep_while_open != -1:
+        stmt = s[chunk_start:first_sep_while_open].strip()
+        if stmt:
+            parts.append(stmt)
+        chunk_start = first_sep_while_open + 1
+        i = chunk_start
+        depth = 0
+        in_quote = None
+        first_sep_while_open = -1
+        while i < n:
+            ch = s[i]
+            if in_quote is not None:
+                if ch == '\\' and i + 1 < n:
+                    i += 2
+                    continue
+                if ch == in_quote:
+                    in_quote = None
+                i += 1
+                continue
+            if ch in ('"', "'"):
+                in_quote = ch
+            elif ch in ('(', '[', '{'):
+                depth += 1
+            elif ch in (')', ']', '}'):
+                depth = max(0, depth - 1)
+                if depth == 0:
+                    first_sep_while_open = -1
+            elif ch in (';', '\n'):
+                if depth == 0:
+                    stmt = s[chunk_start:i].strip()
+                    if stmt:
+                        parts.append(stmt)
+                    chunk_start = i + 1
+                    first_sep_while_open = -1
+                elif first_sep_while_open == -1:
+                    first_sep_while_open = i
+            i += 1
+
+    if chunk_start < n:
+        tail = s[chunk_start:].strip()
+        if tail:
+            parts.append(tail)
+
+    return parts
+
+
+def strip_inline_comments_outside_quotes(expr_str: str) -> str:
+    """Strips inline Python '#' and Lua '--' comments occurring outside quotation marks."""
+    if not expr_str or ('#' not in expr_str and '--' not in expr_str):
+        return expr_str.strip() if expr_str else ""
+    n = len(expr_str)
+    i = 0
+    in_q: Optional[str] = None
+    while i < n:
+        ch = expr_str[i]
+        if in_q is not None:
+            if ch == '\\' and i + 1 < n:
+                i += 2
+                continue
+            if ch == in_q:
+                in_q = None
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_q = ch
+        elif ch == '#':
+            return expr_str[:i].strip()
+        elif ch == '-' and i + 1 < n and expr_str[i + 1] == '-':
+            return expr_str[:i].strip()
+        i += 1
+    return expr_str.strip()
+
+
 _AST_EXPR_SENTINEL = object()
 
 _RE_HEX_LITERAL = re.compile(r'&[hH]([0-9a-fA-F]+)&?')
@@ -688,14 +1080,15 @@ def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, de
     1. Direct scalar literal or context variable fast-path lookup.
     2. Top-level Lua ternary detection ('COND and A or B'): Evaluates the condition first to avoid
        falsy fall-through (e.g. 0 or empty string) in ternary branches.
-    3. Lexical pre-processing outside quoted literals:
+    3. Quoted ASS literal backslash protection via 'protect_ass_backslashes_in_quotes'.
+    4. Lexical pre-processing outside quoted literals:
        - Substitutes Lua inequality operator '~=' with Python '!='.
        - Converts ASS hex literals '&H<hex>&' or '&h<hex>&' into Python hex integers '0x<hex>'.
        - Expands frame time shortcuts '<num>f' into '(<num> * frame_dur)'.
        - Expands resolution ratio shortcuts '<num>r' into '(<num> * ratio)'.
        - Expands time modifier product syntax '<num>li', '<num>lo', '<num>m1', etc. into '<num> * li'.
-    4. Compilation and LRU AST Cache: Checks '_AST_EXPR_CACHE'; compiles with mode='eval' on miss.
-    5. Sandboxed execution: Invocates 'eval(code_obj, eval_globals, eval_locals)'.
+    5. Compilation and LRU AST Cache: Checks '_AST_EXPR_CACHE'; compiles with mode='eval' on miss.
+    6. Sandboxed execution: Invocates 'eval(code_obj, eval_globals, eval_locals)'.
 
     Args:
         expr_str: Raw expression string to evaluate.
@@ -730,7 +1123,7 @@ def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, de
                 return val
 
     # Handle top-level Lua ternary ('COND and A or B') safely so falsy A (e.g. 0) does not fall through to B
-    if " and " in expr_clean and " or " in expr_clean:
+    if "and" in expr_clean and "or" in expr_clean:
         parsed_lua = _split_top_level_ternary(expr_clean)
         if parsed_lua and parsed_lua[0] == "lua":
             _, val_true, cond, val_false = parsed_lua
@@ -759,6 +1152,7 @@ def eval_python_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, de
             seg = _RE_TIME_MOD.sub(r'\1 * \2', seg)
         return seg
 
+    expr_clean = protect_ass_backslashes_in_quotes(expr_clean)
     expr_clean = _transform_outside_quotes(expr_clean, _preprocess_code_segment)
 
     try:
@@ -881,7 +1275,7 @@ def _split_top_level_ternary(s: str) -> Optional[tuple[str, str, str, str]]:
     if not s_clean:
         return None
 
-    # Check for Python ' if ' ... ' else '
+    # Check for Python 'if' ... 'else' at delimiter depth 0
     depth_paren = 0
     depth_bracket = 0
     depth_brace = 0
@@ -891,6 +1285,9 @@ def _split_top_level_ternary(s: str) -> Optional[tuple[str, str, str, str]]:
     if_idx = -1
     else_idx = -1
 
+    def _is_kw_boundary_before(idx: int) -> bool:
+        return idx > 0 and (s_clean[idx - 1].isspace() or s_clean[idx - 1] in ')]}\'"')
+
     while i < n:
         ch = s_clean[i]
         if in_quote:
@@ -918,28 +1315,36 @@ def _split_top_level_ternary(s: str) -> Optional[tuple[str, str, str, str]]:
         elif ch == '}':
             depth_brace = max(0, depth_brace - 1)
         elif depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
-            if s_clean[i:i+4] == " if " or (i > 0 and s_clean[i:i+3] == "if " and (s_clean[i-1].isspace() or s_clean[i-1] in ')]}')):
+            if (
+                s_clean[i : i + 2] == "if"
+                and _is_kw_boundary_before(i)
+                and i + 2 < n
+                and (s_clean[i + 2].isspace() or s_clean[i + 2] in '(\'"')
+            ):
                 if if_idx == -1:
-                    kw_len = 4 if s_clean[i:i+4] == " if " else 3
                     if_idx = i
-                    i += kw_len
+                    i += 2
                     continue
-            elif s_clean[i:i+6] == " else " or (i > 0 and s_clean[i:i+5] == "else " and (s_clean[i-1].isspace() or s_clean[i-1] in ')]}')):
+            elif (
+                s_clean[i : i + 4] == "else"
+                and _is_kw_boundary_before(i)
+                and i + 4 < n
+                and (s_clean[i + 4].isspace() or s_clean[i + 4] in '(\'"\\')
+            ):
                 if if_idx != -1 and else_idx == -1:
-                    kw_len = 6 if s_clean[i:i+6] == " else " else 5
                     else_idx = i
-                    i += kw_len
+                    i += 4
                     continue
         i += 1
 
     if if_idx != -1 and else_idx != -1 and if_idx < else_idx:
         val_true = s_clean[:if_idx].strip()
-        cond = s_clean[if_idx + (4 if s_clean[if_idx:if_idx+4] == " if " else 3):else_idx].strip()
-        val_false = s_clean[else_idx + (6 if s_clean[else_idx:else_idx+6] == " else " else 5):].strip()
+        cond = s_clean[if_idx + 2 : else_idx].strip()
+        val_false = s_clean[else_idx + 4 :].strip()
         if val_true and cond and val_false:
             return ("python", val_true, cond, val_false)
 
-    # Check for Lua 'COND and A or B'
+    # Check for Lua 'COND and A or B' at delimiter depth 0
     depth_paren = 0
     depth_bracket = 0
     depth_brace = 0
@@ -947,7 +1352,6 @@ def _split_top_level_ternary(s: str) -> Optional[tuple[str, str, str, str]]:
     i = 0
     and_matches: list[tuple[int, int]] = []
     or_idx = -1
-    or_len = 0
 
     while i < n:
         ch = s_clean[i]
@@ -976,16 +1380,24 @@ def _split_top_level_ternary(s: str) -> Optional[tuple[str, str, str, str]]:
         elif ch == '}':
             depth_brace = max(0, depth_brace - 1)
         elif depth_paren == 0 and depth_bracket == 0 and depth_brace == 0:
-            if s_clean[i:i+5] == " and " or (i > 0 and s_clean[i:i+4] == "and " and (s_clean[i-1].isspace() or s_clean[i-1] in ')]}')):
-                kw_len = 5 if s_clean[i:i+5] == " and " else 4
-                and_matches.append((i, kw_len))
-                i += kw_len
+            if (
+                s_clean[i : i + 3] == "and"
+                and _is_kw_boundary_before(i)
+                and i + 3 < n
+                and (s_clean[i + 3].isspace() or s_clean[i + 3] in '(\'"')
+            ):
+                and_matches.append((i, 3))
+                i += 3
                 continue
-            elif s_clean[i:i+4] == " or " or (i > 0 and s_clean[i:i+3] == "or " and (s_clean[i-1].isspace() or s_clean[i-1] in ')]}')):
+            elif (
+                s_clean[i : i + 2] == "or"
+                and _is_kw_boundary_before(i)
+                and i + 2 < n
+                and (s_clean[i + 2].isspace() or s_clean[i + 2] in '(\'"\\')
+            ):
                 if and_matches and or_idx == -1:
-                    or_len = 4 if s_clean[i:i+4] == " or " else 3
                     or_idx = i
-                    i += or_len
+                    i += 2
                     continue
         i += 1
 
@@ -998,72 +1410,141 @@ def _split_top_level_ternary(s: str) -> Optional[tuple[str, str, str, str]]:
         if last_and is not None:
             and_idx, and_len = last_and
             cond = s_clean[:and_idx].strip()
-            val_true = s_clean[and_idx + and_len:or_idx].strip()
-            val_false = s_clean[or_idx + or_len:].strip()
+            val_true = s_clean[and_idx + and_len : or_idx].strip()
+            val_false = s_clean[or_idx + 2 :].strip()
             if cond and val_true and val_false:
                 return ("lua", val_true, cond, val_false)
 
     return None
 
 
-def _resolve_ternary_branch(branch_str: str, context: Optional[Dict[str, Any]] = None) -> str:
+def _eval_ternary_condition(cond_str: str, context: Optional[Dict[str, Any]] = None) -> bool:
+    """Safely evaluates a ternary condition expression to boolean without breaking on syntax errors."""
+    cond_clean = cond_str.strip()
+    if not cond_clean:
+        return False
+    res = eval_python_expr(cond_clean, context, default=_AST_EXPR_SENTINEL)
+    if res is _AST_EXPR_SENTINEL:
+        return False
+    return bool(res)
+
+
+def _format_scalar_for_template(res: Any) -> Optional[str]:
+    """Formats an evaluated Python scalar for template insertion, ignoring uninvoked callables/modules."""
+    if callable(res) or isinstance(res, type) or hasattr(res, "__file__"):
+        return None
+    if hasattr(res, "text_stripped") and not isinstance(res, (int, float, str, bool)):
+        return str(getattr(res, "text_stripped", getattr(res, "text", "")))
+    if res is None:
+        return ""
+    if isinstance(res, bool):
+        return "1" if res else "0"
+    if isinstance(res, (int, float)):
+        return _fmt_num(res)
+    if isinstance(res, str):
+        return res
+    return str(res)
+
+
+def _resolve_ternary_branch(
+    branch_str: str,
+    context: Optional[Dict[str, Any]] = None,
+    as_string: bool = True
+) -> Any:
     """
     Recursively resolves the selected branch of an evaluated ternary expression.
 
-    Handles:
-    - Stripping enclosing single or double quotes for literal text outputs.
-    - Preserving ASS hexadecimal colour literals (&HBBGGRR&).
-    - Unrolling chained or nested ternaries without outer parentheses (e.g. '\\blur2 if i == 2 else \\blur0').
-    - Evaluating nested isolated parenthesised expressions via 'evaluate_isolated_ternaries'.
-    - Evaluating mathematical formulas or numeric variables in non-tag branches.
+    Handles both string-template insertion ('as_string=True') and typed variable assignment
+    ('as_string=False' for Variables/Define Vars):
+    - Evaluates quoted string literals, string concatenations, and f-strings with protected ASS backslashes.
+    - Preserves ASS hexadecimal colour literals (&HBBGGRR&).
+    - Unrolls chained or nested ternaries with or without outer parentheses.
+    - Preserves unquoted ASS tag branches (e.g. '\\t(...)') and resolves inner isolated ternaries.
+    - Evaluates mathematical formulas, function calls, and context variables.
 
     Args:
         branch_str: The raw branch string chosen by condition evaluation.
         context: Active DAG context dictionary.
+        as_string: When True, serialises numbers/booleans into template strings; when False, keeps native types.
 
     Returns:
-        str: Fully evaluated and formatted string representation of the branch.
+        Any: Evaluated string or native Python value representing the resolved branch.
     """
     b = branch_str.strip()
     if not b:
         return ""
-    if (b.startswith('"') and b.endswith('"')) or (b.startswith("'") and b.endswith("'")):
-        return b[1:-1]
     if re.match(r'^&[hH][0-9a-fA-F]+&?$', b):
         return b
 
-    # Check for chained/nested ternary without parentheses (e.g. \blur2 if i == 2 else \blur0)
-    parsed = _split_top_level_ternary(b)
+    # Unroll chained or parenthesized nested ternary branches uniformly
+    b_unwrapped = _strip_outer_parens(b)
+    parsed = _split_top_level_ternary(b_unwrapped)
     if parsed:
         _, val_true, cond, val_false = parsed
-        try:
-            cond_clean = cond.strip()
-            cond_res = eval_python_expr(cond_clean, context, default=None)
-            if cond_res is None:
-                eval_globals = _get_eval_globals()
-                eval_locals = _prepare_eval_locals(context)
-                cond_res = eval(compile(cond_clean, "<ternary_cond>", "eval"), eval_globals, eval_locals)
-            is_true = bool(cond_res)
-        except Exception:
-            is_true = False
-        chosen = val_true if is_true else val_false
-        return _resolve_ternary_branch(chosen, context)
+        chosen = val_true if _eval_ternary_condition(cond, context) else val_false
+        return _resolve_ternary_branch(chosen, context, as_string=as_string)
 
-    # Evaluate nested isolated ternaries if present
-    nested = evaluate_isolated_ternaries(b, context)
-    if nested != b:
-        b = nested
+    # Evaluate valid Python / Pyxis expressions (including protected quoted ASS strings, numbers, vars)
+    py_res = eval_python_expr(b, context, default=_AST_EXPR_SENTINEL)
+    if py_res is not _AST_EXPR_SENTINEL:
+        if not as_string:
+            return py_res
+        formatted = _format_scalar_for_template(py_res)
+        if formatted is not None:
+            return formatted
 
-    # If it's a numeric expression, math function or simple variable, evaluate it
-    if "\\" not in b:
-        try:
-            res = eval_python_expr(b, context, default=None)
-            if res is not None:
-                return _fmt_num(res) if isinstance(res, (int, float)) else str(res)
-        except Exception:
-            pass
+    # Unwrap redundant outer parens around unquoted ASS tags (e.g. '(\t(...))')
+    work_b = b_unwrapped if (b_unwrapped != b and _looks_like_ass_tag_expr(b_unwrapped)) else b
 
-    return b
+    # Evaluate any isolated nested ternaries embedded inside unquoted text
+    if "(" in work_b:
+        nested = evaluate_isolated_ternaries(work_b, context)
+        if nested != work_b:
+            work_b = nested
+
+    return work_b
+
+
+def eval_pyxis_expr(expr_str: str, context: Optional[Dict[str, Any]] = None, default: Any = "") -> Any:
+    """
+    Canonical Pyxis expression evaluator unifying Variables/Define Vars and string-node syntax.
+
+    Supports identically:
+    1. Python and Lua ternary conditionals (parenthesized or bare, single or chained) with quoted
+       or unquoted ASS tag branches (e.g. '(\\t(...) if cond else "")' or '("\\t(...)" if cond else "")').
+    2. Standard Python expressions, math formulas, tuples, function calls, f-strings, and string
+       concatenations with protected ASS backslashes inside quoted literals.
+    3. Direct unquoted ASS tag sequences (e.g. '\\t(0, 500, \\fry360)').
+
+    Args:
+        expr_str: Source expression string.
+        context: Active DAG runtime context dictionary.
+        default: Fallback sentinel or value returned if evaluation fails.
+
+    Returns:
+        Any: Evaluated Python value, raw ASS tag string, or fallback default.
+    """
+    if not expr_str:
+        return default
+    expr_clean = expr_str.strip()
+    if not expr_clean:
+        return default
+
+    c_tern = _strip_outer_parens(expr_clean)
+    parsed = _split_top_level_ternary(c_tern)
+    if parsed:
+        _, val_true, cond, val_false = parsed
+        chosen = val_true if _eval_ternary_condition(cond, context) else val_false
+        return _resolve_ternary_branch(chosen, context, as_string=False)
+
+    py_res = eval_python_expr(expr_clean, context, default=_AST_EXPR_SENTINEL)
+    if py_res is not _AST_EXPR_SENTINEL:
+        return py_res
+
+    if _looks_like_ass_tag_expr(c_tern):
+        return c_tern
+
+    return default
 
 
 def _evaluate_single_ternary_expr(content: str, context: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -1090,59 +1571,28 @@ def _evaluate_single_ternary_expr(content: str, context: Optional[Dict[str, Any]
     if not c_clean:
         return None
 
-    # 1. Comprobar ternarios de nivel superior
-    parsed = _split_top_level_ternary(c_clean)
+    # 1. Check top-level ternaries (also unwrapping redundant outer parens like '((A if cond else B))')
+    c_tern = _strip_outer_parens(c_clean)
+    parsed = _split_top_level_ternary(c_tern)
     if parsed:
         _, val_true, cond, val_false = parsed
-        try:
-            cond_clean = cond.strip()
-            cond_res = eval_python_expr(cond_clean, context, default=None)
-            if cond_res is None:
-                eval_globals = _get_eval_globals()
-                eval_locals = _prepare_eval_locals(context)
-                cond_res = eval(compile(cond_clean, "<ternary_cond>", "eval"), eval_globals, eval_locals)
-            is_true = bool(cond_res)
-        except Exception:
-            is_true = False
-        chosen = val_true if is_true else val_false
-        return _resolve_ternary_branch(chosen, context)
+        chosen = val_true if _eval_ternary_condition(cond, context) else val_false
+        resolved = _resolve_ternary_branch(chosen, context, as_string=True)
+        return str(resolved) if resolved is not None else ""
 
-    # 2. Ignorar números puros y cadenas literales atómicas para preservar subtítulos literales como '(1999)' o '("palabra")'
-    if re.match(r'^[+-]?\d+(?:\.\d+)?$', c_clean):
+    # 2. Preserve pure numbers and atomic quoted string literals like '(1999)' or '("word")' in dialogue text
+    if re.match(r'^[+-]?\d+(?:\.\d+)?$', c_clean) or _is_single_quoted_literal(c_clean):
         return None
-    try:
-        import ast
-        node = ast.parse(c_clean, mode='eval')
-        if isinstance(node.body, ast.Constant) and isinstance(node.body.value, str):
-            return None
-    except Exception:
-        pass
 
-    # 3. Evaluar como expresión de Python con contexto
+    # 3. Evaluate as Python expression against active runtime context
     res = eval_python_expr(c_clean, context, default=_AST_EXPR_SENTINEL)
     if res is _AST_EXPR_SENTINEL:
         return None
 
-    # No serializar funciones, tipos o módulos que hayan quedado sin invocar (ej. '(min)' o '(math)')
-    if callable(res) or isinstance(res, type) or hasattr(res, "__file__"):
-        return None
-
-    # Si es una unidad con texto (ej. PyxisUnit)
-    if hasattr(res, "text_stripped") and not isinstance(res, (int, float, str, bool)):
-        return str(getattr(res, "text_stripped", getattr(res, "text", "")))
-
-    if res is None:
-        return ""
-    if isinstance(res, bool):
-        return "1" if res else "0"
-    if isinstance(res, (int, float)):
-        return _fmt_num(res)
-    if isinstance(res, str):
-        return res
     if isinstance(res, (list, tuple, dict, set)):
         return None
 
-    return str(res)
+    return _format_scalar_for_template(res)
 
 
 def evaluate_isolated_ternaries(text: str, context: Optional[Dict[str, Any]] = None) -> str:
@@ -1196,8 +1646,8 @@ def evaluate_isolated_ternaries(text: str, context: Optional[Dict[str, Any]] = N
                 i += 1
                 continue
 
-            # Check for parenthesis delimiters: ( ... ) not preceded by a tag name \tag
-            if ch == '(' and not (i > 0 and re.search(r'\\[a-zA-Z0-9]+$', curr[:i])):
+            # Check for parenthesis delimiters: ( ... ) not preceded directly by a tag name \tag
+            if ch == '(' and not (i > 0 and re.search(r'\\[a-zA-Z0-9]+\Z', curr[:i])):
                 d = 1
                 j = i + 1
                 in_q = None
@@ -1362,6 +1812,8 @@ def _get_context_style_props(context: Optional[Dict[str, Any]]) -> Dict[str, Any
 _RE_STOCHASTIC_TAG = re.compile(r'\\([a-zA-Z0-9]+)R\(')
 _RE_MULTI_C_TILDE = re.compile(r'\\([1-4]+)c~')
 _RE_MULTI_A_TILDE = re.compile(r'\\([1-4]+)a~')
+_RE_LINE_PAREN_TAG_REF = re.compile(r'\\(pos|org|fad|clip|iclip)!line\.(pos|org|fad|clip|iclip)!')
+_RE_LINE_TAG_REF = re.compile(r'!line\.([a-zA-Z0-9_]+)!')
 _RE_FSCXYR = re.compile(r'\\fscxyr([+-]?\d+(?:\.\d+)?)')
 _RE_FSCXR = re.compile(r'\\fscxr([+-]?\d+(?:\.\d+)?)')
 _RE_FSCYR = re.compile(r'\\fscyr([+-]?\d+(?:\.\d+)?)')
@@ -1441,6 +1893,96 @@ def _replace_balanced_parens_tags(text: str, tag_start_re: re.Pattern, handler_f
             pos = open_paren_idx + 1
 
     return "".join(out)
+
+
+def _build_line_tag_ref_map(context: Dict[str, Any], style_defaults: Dict[str, Any]) -> Dict[str, str]:
+    """Build a canonical property-name -> string value map for !line.<prop>! Dark Tag expansion."""
+    line_obj = context.get("line") or context.get("l")
+    if line_obj is not None:
+        from ass_kinetics import extract_line_org_props
+        org = extract_line_org_props(line_obj)
+        return {
+            "color1": org["color1_org"],
+            "color2": org["color2_org"],
+            "color3": org["color3_org"],
+            "color4": org["color4_org"],
+            "alpha": org["alpha_org"],
+            "alpha1": org["alpha1_org"],
+            "alpha2": org["alpha2_org"],
+            "alpha3": org["alpha3_org"],
+            "alpha4": org["alpha4_org"],
+            "fontname": org["fontname_org"],
+            "fontsize": _fmt_num(org["fontsize_org"]),
+            "scale_x": _fmt_num(org["scale_x_org"]),
+            "scale_y": _fmt_num(org["scale_y_org"]),
+            "spacing": _fmt_num(org["spacing_org"]),
+            "bold": str(org["bold_org"]),
+            "italic": str(org["italic_org"]),
+            "underline": str(org["underline_org"]),
+            "strikeout": str(org["strikeout_org"]),
+            "encoding": str(org["encoding_org"]),
+            "q": str(org["q_org"]),
+            "align": str(org["align_org"]),
+            "frz": _fmt_num(org["frz_org"]),
+            "frx": _fmt_num(org["frx_org"]),
+            "fry": _fmt_num(org["fry_org"]),
+            "fax": _fmt_num(org["fax_org"]),
+            "fay": _fmt_num(org["fay_org"]),
+            "pos": org["pos_org"],
+            "org": org["org_org"],
+            "outline": _fmt_num(org["outline_org"]),
+            "xbord": _fmt_num(org["xbord_org"]),
+            "ybord": _fmt_num(org["ybord_org"]),
+            "shadow": _fmt_num(org["shadow_org"]),
+            "xshad": _fmt_num(org["xshad_org"]),
+            "yshad": _fmt_num(org["yshad_org"]),
+            "blur": _fmt_num(org["blur_org"]),
+            "be": _fmt_num(org["be_org"]),
+            "fad": org["fad_org"],
+            "clip": org["clip_org"],
+            "iclip": org["iclip_org"],
+        }
+    return {
+        "color1": style_defaults["color1"],
+        "color2": style_defaults["color2"],
+        "color3": style_defaults["color3"],
+        "color4": style_defaults["color4"],
+        "alpha": "&H00&",
+        "alpha1": style_defaults["alpha1"],
+        "alpha2": style_defaults["alpha2"],
+        "alpha3": style_defaults["alpha3"],
+        "alpha4": style_defaults["alpha4"],
+        "fontname": style_defaults["fontname"],
+        "fontsize": style_defaults["fontsize"],
+        "scale_x": style_defaults["scale_x"],
+        "scale_y": style_defaults["scale_y"],
+        "spacing": style_defaults["spacing"],
+        "bold": style_defaults["bold"],
+        "italic": style_defaults["italic"],
+        "underline": style_defaults["underline"],
+        "strikeout": style_defaults["strikeout"],
+        "encoding": "1",
+        "q": "0",
+        "align": style_defaults["align"],
+        "frz": style_defaults["angle"],
+        "frx": "0",
+        "fry": "0",
+        "fax": "0",
+        "fay": "0",
+        "pos": "",
+        "org": "",
+        "outline": style_defaults["outline"],
+        "xbord": style_defaults["outline"],
+        "ybord": style_defaults["outline"],
+        "shadow": style_defaults["shadow"],
+        "xshad": style_defaults["shadow"],
+        "yshad": style_defaults["shadow"],
+        "blur": "0",
+        "be": "0",
+        "fad": "",
+        "clip": "",
+        "iclip": "",
+    }
 
 
 def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None) -> str:
@@ -1572,6 +2114,39 @@ def expand_custom_dark_tags(text: str, context: Optional[Dict[str, Any]] = None)
 
     if "R(" in s:
         s = _replace_balanced_parens_tags(s, _RE_STOCHASTIC_TAG, _replace_stochastic_tag)
+
+    if "!line." in s:
+        line_tag_map = _build_line_tag_ref_map(context, {
+            "color1": style_color1_clean,
+            "color2": style_color2_clean,
+            "color3": style_color3_clean,
+            "color4": style_color4_clean,
+            "alpha1": style_alpha1,
+            "alpha2": style_alpha2,
+            "alpha3": style_alpha3,
+            "alpha4": style_alpha4,
+            "fontname": style_fontname,
+            "fontsize": style_fontsize,
+            "scale_x": style_scale_x,
+            "scale_y": style_scale_y,
+            "spacing": style_spacing,
+            "bold": style_bold,
+            "italic": style_italic,
+            "underline": style_underline,
+            "strikeout": style_strikeout,
+            "align": style_align,
+            "angle": style_angle,
+            "outline": style_outline,
+            "shadow": style_shadow,
+        })
+        s = _RE_LINE_PAREN_TAG_REF.sub(
+            lambda m: f"\\{m.group(1)}({line_tag_map[m.group(2)]})" if line_tag_map.get(m.group(2)) else "",
+            s,
+        )
+        s = _RE_LINE_TAG_REF.sub(
+            lambda m: line_tag_map[m.group(1)] if m.group(1) in line_tag_map else m.group(0),
+            s,
+        )
 
     if "~" in s:
         tag_restorations = [
@@ -1821,10 +2396,14 @@ def evaluate_tag_parentheses(text: str, context: Optional[Dict[str, Any]] = None
                     eval_args.append(_fmt_num(eval_python_expr(a, context, a)))
             return f"\\{tag_name}({sep.join(eval_args)})"
         elif len(args) == 1:
+            from clipper_engine import ClipperEngine
             if "m " in args[0]:
-                return f"\\{tag_name}({args[0]})"
+                return f"\\{tag_name}({ClipperEngine.format_clip_payload(args[0])})"
             res_0 = eval_python_expr(args[0], context, args[0])
-            return f"\\{tag_name}({_fmt_num(res_0)})"
+            res_str = _fmt_num(res_0)
+            if "m " in str(res_str):
+                res_str = ClipperEngine.format_clip_payload(str(res_str))
+            return f"\\{tag_name}({res_str})"
 
         return f"\\{tag_name}({args_str})"
 
@@ -2225,18 +2804,10 @@ def tokenize_ass_tags(text: str) -> list[TagToken]:
         return []
 
     clean_text = text.strip()
-    if clean_text.startswith("{") and clean_text.endswith("}"):
-        blocks = re.findall(r"\{([^{}]*)\}", clean_text)
-        if blocks:
-            raw_stream = "".join(blocks)
-        else:
-            raw_stream = clean_text[1:-1]
+    if "{" in clean_text or "}" in clean_text:
+        raw_stream = re.sub(r"[{}]+", "", clean_text)
     else:
-        if "{" in clean_text and "}" in clean_text:
-            blocks = re.findall(r"\{([^{}]*)\}", clean_text)
-            raw_stream = "".join(blocks) if blocks else clean_text
-        else:
-            raw_stream = clean_text
+        raw_stream = clean_text
 
     tokens: list[TagToken] = []
     n = len(raw_stream)

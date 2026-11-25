@@ -51,7 +51,7 @@
         }
         const basicNames = [
             "Number", "String", "Text", "Color Picker", "Math", "MultiRandom",
-            "Concatenate", "Dynamic Format", "MultiTag", "Once", "Only",
+            "Concatenate", "Dynamic Format", "MultiTag", "Once", "Only", "Builder", "Constructor",
             "Número", "Numero", "Cadena de Texto", "Texto", "Selector de Color",
             "Mates", "Concatenar", "Formato Dinámico", "Formato Dinamico"
         ];

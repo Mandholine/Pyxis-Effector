@@ -54,7 +54,11 @@
 
     /**
      * Synchronises UI widget values to node properties prior to JSON serialisation.
-     * Extracts floating coordinates and viewport transform states for System/Previewer nodes.
+     *
+     * Delegates to `window.syncWidgetsToProperties` when available. The fallback path
+     * enforces INVARIANT 1: while `!p || !p.isInitialized`, `node.properties` is the
+     * Single Source of Truth (SSOT) and must never have `is_pinned` reset to `false`
+     * or its floating/unpinned geometry deleted.
      */
     function sync_widgets() {
         if (typeof window.syncWidgetsToProperties === "function") {
@@ -70,12 +74,24 @@
                 if (!p && window.PyxisNodePlayerManager && window.PyxisNodePlayerManager.activePlayers && node.id !== undefined) {
                     p = window.PyxisNodePlayerManager.activePlayers[String(node.id)];
                 }
-                if (p && p.isPinned) {
+                if (node.preview_aspect_ratio && Number(node.preview_aspect_ratio) > 0.1) {
+                    node.properties.preview_aspect_ratio = Number(node.preview_aspect_ratio);
+                }
+                if (!p || !p.isInitialized) {
+                    if (node.properties.is_pinned) {
+                        if (node.size && node.size[0] >= 200) {
+                            node.properties.pinned_width = Math.round(node.size[0]);
+                        }
+                    } else if (Array.isArray(node.size) && node.size[0] >= 200 && node.size[1] >= 140) {
+                        node.properties.previewer_width = Math.round(node.size[0]);
+                        node.properties.previewer_height = Math.round(node.size[1]);
+                    }
+                } else if (p.isPinned) {
                     node.properties.is_pinned = true;
                     if (node.size && node.size[0] > 0) {
                         node.properties.pinned_width = Math.round(node.size[0]);
                     }
-                    if (p.originalSize) {
+                    if (p.originalSize && p.originalSize[0] >= 200 && p.originalSize[1] >= 140) {
                         node.properties.previewer_width = Math.round(p.originalSize[0]);
                         node.properties.previewer_height = Math.round(p.originalSize[1]);
                     }
@@ -93,18 +109,17 @@
                         if (!isNaN(fh) && fh > 0) node.properties.floating_height = Math.round(fh);
                         else if (p.savedFloatingHeight) node.properties.floating_height = Math.round(parseFloat(p.savedFloatingHeight));
                     }
-                } else {
+                } else if (Array.isArray(node.size) && node.size[0] > 0 && node.size[1] >= 140) {
                     node.properties.is_pinned = false;
+                    delete node.properties.pinned_width;
                     delete node.properties.floating_x;
                     delete node.properties.floating_y;
                     delete node.properties.floating_width;
                     delete node.properties.floating_height;
-                    if (Array.isArray(node.size) && node.size[0] > 0 && node.size[1] >= 140) {
-                        node.properties.previewer_width = Math.round(node.size[0]);
-                        node.properties.previewer_height = Math.round(node.size[1]);
-                    }
+                    node.properties.previewer_width = Math.round(node.size[0]);
+                    node.properties.previewer_height = Math.round(node.size[1]);
                 }
-                if (p && p.transformState) {
+                if (p && p.isInitialized && p.transformState) {
                     node.properties.viewport_zoom = p.transformState.userZoom || 1.0;
                     node.properties.viewport_pan_x = p.transformState.panX || 0;
                     node.properties.viewport_pan_y = p.transformState.panY || 0;

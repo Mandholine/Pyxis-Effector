@@ -69,7 +69,9 @@ class TemplateStore:
         """
         if user_templates_dir is not None:
             self.user_templates_dir = Path(user_templates_dir)
-            self.system_templates_dir = Path(templates_dir) if templates_dir else Path(__file__).parent / "templates"
+            self.system_templates_dir = (
+                Path(templates_dir) if templates_dir else self._default_system_templates_dir()
+            )
         elif templates_dir is not None:
             self.user_templates_dir = Path(templates_dir)
             self.system_templates_dir = Path(templates_dir)
@@ -80,10 +82,19 @@ class TemplateStore:
             except ImportError:
                 appdata_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
                 self.user_templates_dir = Path(appdata_dir) / "PyxisNodes" / "templates"
-            self.system_templates_dir = Path(__file__).parent / "templates"
+            self.system_templates_dir = self._default_system_templates_dir()
 
         self.templates_dir = self.user_templates_dir
         self.aegisub_version = str(aegisub_version or "unknown")
+
+    @staticmethod
+    def _default_system_templates_dir() -> Path:
+        """Resolves the bundled system templates directory under the PyxisNodes root."""
+        try:
+            from paths import TEMPLATES_DIR
+            return Path(TEMPLATES_DIR)
+        except ImportError:
+            return Path(__file__).resolve().parent.parent / "templates"
 
     def ensure_directory(self) -> None:
         """Ensures that the user templates storage directory exists on the filesystem."""

@@ -20,6 +20,9 @@ La categoría **Loops** contiene los nodos que controlan el dominio de iteració
 2. **Tratamiento de Espacios (`blank_mode` / `noblank`):** Conmutable mediante el badge adyacente:
    * `no_blank` (*NO BLANK / Ignorar Espacios*): Omite automáticamente los caracteres de espacio, tabulaciones y saltos de línea. Los contadores de iteración reflejan únicamente elementos visibles ($ci$ y $cn$).
    * `with_blanks` (*WITH BLANK / Todos*): Procesa e itera sobre la totalidad de caracteres, asignando índices e intervalos de tiempo a los espacios en blanco ($i$ y $n$).
+3. **Preservación y Remapeo de Tags (`preserve_tags`):** Conmutable mediante el interruptor interactivo tipo píldora (*KEEP TAGS / Mantener Tags*) en el cuerpo del lienzo o en sus propiedades (`true` / `false`, por defecto: `true`):
+   * `true`: Detecta y conserva automáticamente los bloques de override `{...}` originales de la línea o unidad, remapeando tags estáticos (colores, bordes, sombras, clips, fuentes) y tags cinéticos (`\move`, `\t`, `\fad`, `\fade`) en función de la brecha temporal entre la línea original y el efecto activo. Cualquier tag definido en el grafo sobrescribe automáticamente al tag conservado homólogo.
+   * `false`: Desactiva la preservación global de tags de la línea original en la salida de `Main Loop`.
 
 ### 1.2. Puertos de Salida (*Outputs*)
 1. **`[1.1] Loop`:** Emite la señal de flujo de ejecución que sincroniza la cadena de nodos downstream para cada unidad elemental del dominio activo.
@@ -166,7 +169,7 @@ Para $i = 1 \dots N$ con $N > 1$:
 
 ### 3.5. Ejemplos Prácticos de Producción
 * **Modulación de Curvas Easing sobre Escala:**
-  Conectando `Data` al puerto de entrada de una fórmula cuadrática o al nodo `Basics/Math (Category: easing)` para transformar una distribución espacial de caracteres en una escala no lineal:
+  Conectando `Data` al puerto `t` de `Basics/Math (sequence / ipol)` o `Functions/Interpolator` para transformar una distribución espacial de caracteres en una escala no lineal:
   
   ```
   [Main Loop: char] ──► Iterator (i) ──► [Module] ──► Data ──► [Tags]

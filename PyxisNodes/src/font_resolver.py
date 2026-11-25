@@ -34,10 +34,13 @@ Side Effects and State:
 
 from __future__ import annotations
 
+import json
+import multiprocessing
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from typing import Dict, List, Optional, Tuple
 
@@ -54,6 +57,9 @@ _INDEX_BUILT: bool = False
 _LOCK = threading.Lock()
 
 _FONT_EXTENSIONS = (".ttf", ".otf", ".ttc", ".dfont")
+_CACHE_SCHEMA_VERSION = 1
+_FC_BIN_RESOLVED: bool = False
+_FC_BIN_PATH: Optional[str] = None
 
 
 def font_search_dirs() -> List[str]:
@@ -120,7 +126,11 @@ def _fc_match(font_name: str, bold: bool = False, italic: bool = False) -> Optio
     Returns:
         Optional[str]: Verified absolute path to font file, or None if fc-match fails.
     """
-    fc_bin = shutil.which("fc-match")
+    global _FC_BIN_RESOLVED, _FC_BIN_PATH
+    if not _FC_BIN_RESOLVED:
+        _FC_BIN_PATH = shutil.which("fc-match")
+        _FC_BIN_RESOLVED = True
+    fc_bin = _FC_BIN_PATH
     if not fc_bin:
         return None
 
@@ -156,22 +166,148 @@ def _fc_match(font_name: str, bold: bool = False, italic: bool = False) -> Optio
     return None
 
 
-def _build_family_index(extra_dirs: Optional[List[str]] = None) -> None:
+def _get_disk_cache_path() -> str:
+    """Returns the canonical filesystem path for the persistent font index cache."""
+    return os.path.join(get_user_data_dir(), "font_index_cache.json")
+
+
+def _get_dir_mtimes(dirs: List[str]) -> Dict[str, int]:
+    """Captures nanosecond modification timestamps for active font directories."""
+    mtimes: Dict[str, int] = {}
+    for d in dirs:
+        try:
+            mtimes[d] = int(os.stat(d).st_mtime_ns)
+        except OSError:
+            mtimes[d] = 0
+    return mtimes
+
+
+def _load_disk_index_cache(search_dirs: List[str]) -> bool:
+    """Hydrates _FAMILY_INDEX from persistent JSON cache if directory timestamps match."""
+    cache_path = _get_disk_cache_path()
+    if not os.path.isfile(cache_path):
+        return False
+
+    try:
+        with open(cache_path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        if not isinstance(payload, dict):
+            return False
+        if payload.get("schema_version") != _CACHE_SCHEMA_VERSION:
+            return False
+        if payload.get("dir_mtimes") != _get_dir_mtimes(search_dirs):
+            return False
+
+        raw_index = payload.get("family_index")
+        if not isinstance(raw_index, dict) or not raw_index:
+            return False
+
+        loaded_index: Dict[str, Dict[Tuple[bool, bool], str]] = {}
+        for fam_key, style_map in raw_index.items():
+            if not isinstance(style_map, dict):
+                continue
+            parsed_styles: Dict[Tuple[bool, bool], str] = {}
+            for style_code, font_path in style_map.items():
+                if not isinstance(font_path, str):
+                    continue
+                is_bold = style_code in ("10", "11")
+                is_italic = style_code in ("01", "11")
+                parsed_styles[(is_bold, is_italic)] = font_path
+            if parsed_styles:
+                loaded_index[fam_key] = parsed_styles
+
+        if not loaded_index:
+            return False
+
+        _FAMILY_INDEX.clear()
+        _FAMILY_INDEX.update(loaded_index)
+        return True
+    except Exception:
+        return False
+
+
+def _save_disk_index_cache(search_dirs: List[str]) -> None:
+    """Atomically persists _FAMILY_INDEX to disk from the main process only."""
+    try:
+        if multiprocessing.current_process().name != "MainProcess":
+            return
+    except Exception:
+        return
+
+    cache_path = _get_disk_cache_path()
+    cache_dir = os.path.dirname(cache_path)
+    tmp_path: Optional[str] = None
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        serializable_index: Dict[str, Dict[str, str]] = {}
+        for fam_key, style_map in _FAMILY_INDEX.items():
+            encoded_styles: Dict[str, str] = {}
+            for (is_bold, is_italic), font_path in style_map.items():
+                code = f"{1 if is_bold else 0}{1 if is_italic else 0}"
+                encoded_styles[code] = font_path
+            if encoded_styles:
+                serializable_index[fam_key] = encoded_styles
+
+        payload = {
+            "schema_version": _CACHE_SCHEMA_VERSION,
+            "dir_mtimes": _get_dir_mtimes(search_dirs),
+            "family_index": serializable_index,
+        }
+        fd, tmp_path = tempfile.mkstemp(prefix="font_cache_", suffix=".tmp", dir=cache_dir)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, separators=(",", ":"))
+        os.replace(tmp_path, cache_path)
+        tmp_path = None
+    except Exception:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+
+def seed_resolve_cache(entries: Optional[Dict[Tuple[str, bool, bool], str]]) -> None:
+    """Pre-populates _RESOLVE_CACHE (e.g. in spawned worker processes) to avoid disk/Fontconfig scans."""
+    if not entries or not isinstance(entries, dict):
+        return
+    with _LOCK:
+        for k, v in entries.items():
+            if isinstance(k, tuple) and len(k) == 3 and isinstance(v, str) and os.path.isfile(v):
+                _RESOLVE_CACHE[(str(k[0]).lower(), bool(k[1]), bool(k[2]))] = v
+
+
+def clear_cache() -> None:
+    """Clears in-memory font resolution caches and forces index reload on next lookup."""
+    global _INDEX_BUILT
+    with _LOCK:
+        _RESOLVE_CACHE.clear()
+        _FAMILY_INDEX.clear()
+        _INDEX_BUILT = False
+
+
+def _build_family_index(extra_dirs: Optional[List[str]] = None, force_rebuild: bool = False) -> None:
     """
     Builds an in-memory index mapping normalised font family names and styles to filepaths.
 
-    Scans font directories using FreeType face inspection (with filename fallback).
+    Attempts fast hydration from persistent disk cache first; falls back to FreeType
+    face inspection across font directories and saves the resulting index atomically.
     """
     global _INDEX_BUILT
-    if _INDEX_BUILT:
+    if _INDEX_BUILT and not force_rebuild:
         return
 
-    search_dirs = font_search_dirs()
+    base_dirs = font_search_dirs()
+    if not force_rebuild and not extra_dirs and _load_disk_index_cache(base_dirs):
+        _INDEX_BUILT = True
+        return
+
+    search_dirs = list(base_dirs)
     if extra_dirs:
         for ed in extra_dirs:
             if ed and os.path.isdir(ed) and ed not in search_dirs:
                 search_dirs.append(ed)
 
+    _FAMILY_INDEX.clear()
     for base_dir in search_dirs:
         try:
             for root, _, files in os.walk(base_dir):
@@ -185,6 +321,8 @@ def _build_family_index(extra_dirs: Optional[List[str]] = None) -> None:
             continue
 
     _INDEX_BUILT = True
+    if not extra_dirs:
+        _save_disk_index_cache(base_dirs)
 
 
 def _index_single_font_file(full_path: str) -> None:
@@ -192,6 +330,7 @@ def _index_single_font_file(full_path: str) -> None:
     Extracts font family and style from a single file and registers it in _FAMILY_INDEX.
     """
     if freetype is not None:
+        face = None
         try:
             face = freetype.Face(full_path)
             fam = face.family_name
@@ -223,6 +362,9 @@ def _index_single_font_file(full_path: str) -> None:
             return
         except Exception:
             pass
+        finally:
+            if face is not None:
+                del face
 
     # Fallback filename heuristic if FreeType is missing or failed to parse
     fname = os.path.basename(full_path)
@@ -364,6 +506,9 @@ def resolve_font_file(
             _build_family_index(extra_dirs=extra_dirs)
 
         idx_res = _family_index_lookup(font_str, bold=bold, italic=italic)
+        if idx_res and not os.path.isfile(idx_res):
+            _build_family_index(extra_dirs=extra_dirs, force_rebuild=True)
+            idx_res = _family_index_lookup(font_str, bold=bold, italic=italic)
         if idx_res and os.path.isfile(idx_res):
             _RESOLVE_CACHE[cache_key] = idx_res
             return idx_res

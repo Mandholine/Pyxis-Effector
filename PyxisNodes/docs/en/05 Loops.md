@@ -20,6 +20,9 @@ The **Loops** category contains nodes that govern the decomposition domain of di
 2. **Whitespace Handling (`blank_mode` / `noblank`):** Switchable via the adjacent header badge:
    * `no_blank` (*NO BLANK / Ignore Spaces*): Automatically skips whitespace characters, tabs, and line breaks. Iteration counters reflect visible elements only ($ci$ and $cn$).
    * `with_blanks` (*WITH BLANK / All*): Processes all characters, assigning indices and timing intervals to whitespace elements ($i$ and $n$).
+3. **Preserve and Remap Tags (`preserve_tags`):** Switchable via the interactive pill switch (*KEEP TAGS*) on the canvas body or in node properties (`true` / `false`, default: `true`):
+   * `true`: Automatically parses and preserves original `{...}` override blocks from the source dialogue line or unit, remapping static tags (colours, borders, shadows, clips, fonts) and kinetic tags (`\move`, `\t`, `\fad`, `\fade`) according to the temporal intersection between the source line timeline and the active effect duration. Any tag explicitly defined in the graph overrides the corresponding preserved tag.
+   * `false`: Disables global preservation of source tags at the `Main Loop` output.
 
 ### 1.2. Output Ports (*Outputs*)
 1. **`[1.1] Loop`:** Emits the primary execution flow signal that drives and synchronises downstream nodes for each elemental unit of the active domain.
@@ -166,7 +169,7 @@ For $i = 1 \dots N$ where $N > 1$:
 
 ### 3.5. Practical Production Examples
 * **Easing Curve Scale Modulation:**
-  Routing `Data` into a quadratic deceleration formula or the `Basics/Math (Category: easing)` node to map character sequence order to non-linear typographic scaling:
+  Routing `Data` into the `t` port of `Basics/Math (sequence / ipol)` or `Functions/Interpolator` to map character sequence order to non-linear typographic scaling:
   
   ```
   [Main Loop: char] ──► Iterator (i) ──► [Module] ──► Data ──► [Tags]

@@ -19,10 +19,12 @@
 Supports Win32 GDI on Windows with FreeType 26.6 sub-pixel normalization and high-performance caching.
 """
 
+from collections import OrderedDict
 import ctypes
 from ctypes import wintypes
 import platform
 import struct
+import threading
 from typing import Dict, Any, Tuple, List, Optional
 
 class SIZE(ctypes.Structure):
@@ -93,7 +95,9 @@ class FontEngine:
     _font_ratio_cache: Dict[Tuple[str, float], float] = {}
     _shaped_advances_cache: Dict[Tuple[str, float, bool, bool, bool, bool, str], Tuple[List[float], bool]] = {}
     _char_layout_cache: Dict[Tuple[str, float, bool, bool, bool, bool, float, float, str], List[Dict[str, Any]]] = {}
-    _ft_face_cache: Dict[str, Any] = {}
+    _ft_face_cache: OrderedDict = OrderedDict()
+    _ft_lock: threading.RLock = threading.RLock()
+    MAX_FT_FACE_CACHE: int = 64
 
     @staticmethod
     def snap_26_6(val: float) -> float:
@@ -108,7 +112,8 @@ class FontEngine:
         cls._font_ratio_cache.clear()
         cls._shaped_advances_cache.clear()
         cls._char_layout_cache.clear()
-        cls._ft_face_cache.clear()
+        with cls._ft_lock:
+            cls._ft_face_cache.clear()
 
     @classmethod
     def _get_dc(cls) -> int:
@@ -278,6 +283,11 @@ class FontEngine:
                     return [cls.snap_26_6(a * (scale_x / 100.0)) for a in advs]
             except Exception:
                 pass
+
+        if platform.system() != "Windows":
+            ft_widths = cls._get_char_widths_freetype(style, text)
+            if ft_widths is not None:
+                return ft_widths
 
         widths = []
         for char in text:
@@ -688,10 +698,64 @@ class FontEngine:
             return None
 
     @classmethod
+    def _get_freetype_face(cls, font_path: str, font_size: float):
+        """Retrieves or opens a cached FreeType Face configured for the target 26.6 character size."""
+        import freetype
+
+        target_sz = int(round(float(font_size) * 64.0))
+        entry = cls._ft_face_cache.get(font_path)
+        if entry is not None:
+            face, last_sz = entry
+            cls._ft_face_cache.move_to_end(font_path)
+            if last_sz != target_sz:
+                face.set_char_size(target_sz)
+                cls._ft_face_cache[font_path] = (face, target_sz)
+            return face
+
+        face = freetype.Face(font_path)
+        face.set_char_size(target_sz)
+        while len(cls._ft_face_cache) >= cls.MAX_FT_FACE_CACHE:
+            cls._ft_face_cache.popitem(last=False)
+        cls._ft_face_cache[font_path] = (face, target_sz)
+        return face
+
+    @classmethod
+    def _get_char_widths_freetype(cls, style: Dict[str, Any], text: str) -> Optional[List[float]]:
+        """Measures individual character widths in a single FreeType pass at 26.6 sub-pixel precision."""
+        try:
+            import freetype
+        except ImportError:
+            return None
+
+        font_name = str(style.get("fontname") or style.get("Fontname") or "Arial")
+        font_size = float(style.get("fontsize") or style.get("Fontsize") or 35.0)
+        bold = _to_bool(style.get("bold") if "bold" in style else style.get("Bold"))
+        italic = _to_bool(style.get("italic") if "italic" in style else style.get("Italic"))
+        scale_x = float(style.get("scale_x") or style.get("ScaleX") or 100.0)
+        sc_factor = scale_x / 100.0
+
+        path = cls._resolve_font_path(font_name, bold, italic)
+        if not path:
+            return None
+
+        try:
+            with cls._ft_lock:
+                face = cls._get_freetype_face(path, font_size)
+                load_flags = freetype.FT_LOAD_DEFAULT | freetype.FT_LOAD_NO_BITMAP
+                widths: List[float] = []
+                for char in text:
+                    face.load_char(char, load_flags)
+                    adv = (float(face.glyph.metrics.horiAdvance) / 64.0) * sc_factor
+                    widths.append(cls.snap_26_6(adv))
+                return widths
+        except Exception:
+            return None
+
+    @classmethod
     def _get_font_metrics_freetype(cls, font_name: str, font_size: float, bold: bool = False, italic: bool = False) -> Optional[Tuple[float, float, float]]:
         """Calculates (height, descent, extlead) using FreeType at 26.6 sub-pixel precision."""
         try:
-            import freetype
+            import freetype  # noqa: F401
         except ImportError:
             return None
 
@@ -700,17 +764,14 @@ class FontEngine:
             return None
 
         try:
-            if path not in cls._ft_face_cache:
-                cls._ft_face_cache[path] = freetype.Face(path)
-            face = cls._ft_face_cache[path]
-            face.set_char_size(int(round(font_size * 64.0)))
-
-            h = cls.snap_26_6(font_size)
-            d = cls.snap_26_6(abs(face.size.descender) / 64.0)
-            asc = abs(face.size.ascender) / 64.0
-            tot_h = abs(face.size.height) / 64.0
-            extlead = cls.snap_26_6(max(0.0, tot_h - (asc + d)))
-            return h, d, extlead
+            with cls._ft_lock:
+                face = cls._get_freetype_face(path, font_size)
+                h = cls.snap_26_6(font_size)
+                d = cls.snap_26_6(abs(face.size.descender) / 64.0)
+                asc = abs(face.size.ascender) / 64.0
+                tot_h = abs(face.size.height) / 64.0
+                extlead = cls.snap_26_6(max(0.0, tot_h - (asc + d)))
+                return h, d, extlead
         except Exception:
             return None
 
@@ -728,27 +789,25 @@ class FontEngine:
             return None
 
         try:
-            if path not in cls._ft_face_cache:
-                cls._ft_face_cache[path] = freetype.Face(path)
-            face = cls._ft_face_cache[path]
-            face.set_char_size(int(round(font_size * 64.0)))
+            with cls._ft_lock:
+                face = cls._get_freetype_face(path, font_size)
+                load_flags = freetype.FT_LOAD_DEFAULT | freetype.FT_LOAD_NO_BITMAP
+                total_advance = 0.0
+                for char in text:
+                    face.load_char(char, load_flags)
+                    total_advance += float(face.glyph.metrics.horiAdvance) / 64.0
 
-            total_advance = 0.0
-            for char in text:
-                face.load_char(char, freetype.FT_LOAD_DEFAULT | freetype.FT_LOAD_NO_BITMAP)
-                total_advance += float(face.glyph.metrics.horiAdvance) / 64.0
+                base_w = total_advance * (scale_x / 100.0)
+                extra_spacing = float(spacing) * max(0, len(text) - 1) * (scale_x / 100.0)
+                final_w = base_w + extra_spacing
 
-            base_w = total_advance * (scale_x / 100.0)
-            extra_spacing = float(spacing) * max(0, len(text) - 1) * (scale_x / 100.0)
-            final_w = base_w + extra_spacing
+                h = cls.snap_26_6(font_size)
+                d = cls.snap_26_6(abs(face.size.descender) / 64.0)
+                asc = abs(face.size.ascender) / 64.0
+                tot_h = abs(face.size.height) / 64.0
+                extlead = cls.snap_26_6(max(0.0, tot_h - (asc + d)))
 
-            h = cls.snap_26_6(font_size)
-            d = cls.snap_26_6(abs(face.size.descender) / 64.0)
-            asc = abs(face.size.ascender) / 64.0
-            tot_h = abs(face.size.height) / 64.0
-            extlead = cls.snap_26_6(max(0.0, tot_h - (asc + d)))
-
-            return cls.snap_26_6(final_w), h, d, extlead
+                return cls.snap_26_6(final_w), h, d, extlead
         except Exception:
             return None
 

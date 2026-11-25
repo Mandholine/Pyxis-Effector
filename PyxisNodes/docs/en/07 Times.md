@@ -469,9 +469,8 @@ $$T_{\text{out}} = T_{\text{base}} + \text{offset}$$
   [Loops/MaxLoop X: cols=4] ──► j
        └──► [Loops/MaxLoop Y: rows=3] ──► J
                  │
-  [Time/Loop 1: leadin, delay=30] ──► Data ──► In 1 ──► [Basics/Math: add]
-  [Time/Loop 2: leadin, delay=60] ──► Data ──► In 2 ─────────┘   │
-                                                                 └──► Offset In (ms) ──► [Time/Retime: syl]
+  [Time/Loop 1: leadin, delay=30] ──► Data ──► Start Time ──► [Time/Retime: syl]
+  [Time/Loop 2: leadin, delay=60] ──► Data ──► Offset In (ms) ──┘
   ```
 
   Summing the delays produces a diagonal wavefront sweep ($30 \cdot (j-1) + 60 \cdot (J-1)$ ms), triggering each cell in 2D space sequentially.
@@ -500,16 +499,16 @@ $$T_{\text{ms}} = (3600 \cdot H + 60 \cdot M + S) \cdot 1000 + CS \cdot 10$$
 $$\text{"0:01:23.45"} \implies (0 + 60 + 23) \cdot 1000 + 45 \cdot 10 = 83000 + 450 = 83450\text{ ms}$$
 
 ### 9.4. Synergies and Practical Workflow Examples
-* **Direct Timecode Arithmetic:** Enables decoding raw dialogue header timestamps to perform calculations with `Basics/Math` or `Time/Offset` before re-encoding via `Time/Format ASS Time` or injecting into `System/Output`.
+* **Direct Timecode Arithmetic:** Enables decoding raw dialogue header timestamps to apply shifts with `Time/Offset` or numeric expressions before re-encoding via `Time/Format ASS Time` or injecting into `System/Output`.
 
 ### 9.5. Practical Production Example
 * **Timestamp Decoding and Algebraic Shift:**
   Parsing a static timecode to advance it algebraically by 500 ms:
 
   ```
-  [Time/Parse ASS Time: ass_time="0:01:15.50"] ──► Time (ms) ──► In 1 ──► [Basics/Math: add, in2=500]
-                                                                                └──► In 1 ──► [Time/Format ASS Time]
-                                                                                                    └──► ASS Time ──► "0:01:16.00"
+  [Time/Parse ASS Time: ass_time="0:01:15.50"] ──► Time (ms) ──► Base Time ──► [Time/Offset: offset=500]
+                                                                                     └──► Time (ms) ──► [Time/Format ASS Time]
+                                                                                                             └──► ASS Time ──► "0:01:16.00"
   ```
   The decoded value (75500 ms) increments to 76000 ms and is re-encoded into standard ASS format with zero precision loss.
 

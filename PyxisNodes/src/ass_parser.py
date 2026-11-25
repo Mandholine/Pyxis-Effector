@@ -469,6 +469,8 @@ class KaraokeProcessor:
         line.effect, line.raw_text = groups[8], groups[9]
         line.styleref = StyleRef(style)
         line.video_x_correct_factor = self.video_x_correct_factor
+        from ass_kinetics import parse_tag_blocks
+        line.raw_override_tags = parse_tag_blocks(line.raw_text)
 
         meta = KaraskelMeta(res_x=self.res_x, res_y=self.res_y, video_x_correct_factor=self.video_x_correct_factor)
         line.meta = meta
@@ -568,6 +570,8 @@ class KaraokeProcessor:
                 syl.tag = k_syl.tag
                 syl.inline_fx = k_syl.inline_fx
                 syl.kdur = k_syl.kdur
+                syl_local_tags = parse_tag_blocks(k_syl.text)
+                syl.raw_override_tags = list(line.raw_override_tags) + syl_local_tags if syl_local_tags else list(line.raw_override_tags)
 
                 line.syls.append(syl)
 
@@ -626,6 +630,7 @@ class KaraokeProcessor:
                     char.bottom = line.bottom
                     char.x = char.center
                     char.y = char.middle
+                    char.raw_override_tags = list(syl.raw_override_tags)
 
                     syl.chars.append(char)
                     line.chars.append(char)
@@ -667,6 +672,7 @@ class KaraokeProcessor:
                 ch.bottom = line.bottom
                 ch.x = ch.center
                 ch.y = ch.middle
+                ch.raw_override_tags = list(line.raw_override_tags)
                 all_chars.append(ch)
                 cur_x += (adv + eff_sp)
 
@@ -729,6 +735,7 @@ class KaraokeProcessor:
                 syl.tag = "k"
                 syl.inline_fx = ""
                 syl.chars = w_chars
+                syl.raw_override_tags = list(line.raw_override_tags)
 
                 syl_cw_sum = sum(c.width for c in w_chars) or 1.0
                 curr_c_t = 0

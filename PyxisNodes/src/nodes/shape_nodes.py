@@ -452,6 +452,14 @@ def resolve_piece_anchor(piece_code, piece_cx=0.0, piece_cy=0.0, parent_x=0.0, p
         org_y = py
         has_org = True
         pos_overridden = False
+    elif anchor_str == "relative2":
+        formatted_code = raw_code
+        pos_x = px
+        pos_y = py
+        org_x = 0.0
+        org_y = 0.0
+        has_org = False
+        pos_overridden = False
     elif anchor_str == "parent_org":
         formatted_code = ClipperEngine.transform_shape(raw_code, mode="Offset", offset_x=-cx, offset_y=-cy) if raw_code else ""
         pos_x = abs_x
@@ -3136,12 +3144,9 @@ def shape_concentric_borders_node(
     out_mode_str = str(out_mode or "shape").strip().lower()
     anchor_str = str(anchor or "relative").strip().lower()
 
-    if "iclip" in out_mode_str:
+    if "iclip" in out_mode_str or "clip" in out_mode_str:
         abs_shp = ClipperEngine.transform_shape(current_ring_shape, mode="Offset", offset_x=parent_x, offset_y=parent_y)
-        final_output = f"\\iclip({abs_shp})"
-    elif "clip" in out_mode_str:
-        abs_shp = ClipperEngine.transform_shape(current_ring_shape, mode="Offset", offset_x=parent_x, offset_y=parent_y)
-        final_output = f"\\clip({abs_shp})"
+        final_output = ClipperEngine.format_clip_tag(abs_shp, is_iclip=("iclip" in out_mode_str), braces=False)
     else:
         if "abs" in anchor_str or "absoluto" in anchor_str:
             final_output = ClipperEngine.transform_shape(current_ring_shape, mode="Offset", offset_x=parent_x, offset_y=parent_y)
@@ -3631,10 +3636,9 @@ def clip_gradient_node(context=None, cols="5", rows="1", angle="0", padding="0",
         ass_draw = f"m {p1_x} {p1_y} l {p2_x} {p2_y} l {p3_x} {p3_y} l {p4_x} {p4_y}"
         if is_shape:
             clip_res = ass_draw
-        elif is_iclip:
-            clip_res = f"\\iclip({ass_draw})"
         else:
-            clip_res = f"\\clip({ass_draw})"
+            from clipper_engine import ClipperEngine
+            clip_res = ClipperEngine.format_clip_tag(ass_draw, is_iclip=is_iclip, braces=False)
 
     return clip_res, progress, curr_j, N, active_col, active_row
 
@@ -7854,10 +7858,11 @@ def shape_multi(
         abs_y = parent_y + piece_cy
 
         anc_clean = str(anc_val or "center").strip().lower()
+        is_clip_out = ("clip" in out_mode_clean)
         from clipper_engine import ClipperEngine
 
         if "abs" in anc_clean or "absoluto" in anc_clean:
-            if isinstance(context, dict):
+            if not is_clip_out and isinstance(context, dict):
                 context['pos_overridden'] = False
                 context['has_org'] = False
                 context['pos_x'] = parent_x
@@ -7866,7 +7871,7 @@ def shape_multi(
                 context['fx_pos_y'] = parent_y
             final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=parent_x, offset_y=parent_y)
         elif "rel" in anc_clean:
-            if isinstance(context, dict):
+            if not is_clip_out and isinstance(context, dict):
                 context['pos_overridden'] = False
                 context['has_org'] = True
                 context['org_x'] = parent_x
@@ -7877,7 +7882,7 @@ def shape_multi(
                 context['fx_pos_y'] = parent_y
             final_code = piece_code
         elif any(k in anc_clean for k in ["pieza", "piece", "true"]):
-            if isinstance(context, dict):
+            if not is_clip_out and isinstance(context, dict):
                 context['x'] = abs_x
                 context['y'] = abs_y
                 context['fx_pos_x'] = abs_x
@@ -7890,7 +7895,7 @@ def shape_multi(
                 context['org_y'] = abs_y
             final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=-piece_cx, offset_y=-piece_cy)
         elif "parent_org" in anc_clean or anc_clean == "org":
-            if isinstance(context, dict):
+            if not is_clip_out and isinstance(context, dict):
                 context['x'] = abs_x
                 context['y'] = abs_y
                 context['fx_pos_x'] = abs_x
@@ -7902,8 +7907,8 @@ def shape_multi(
                 context['org_x'] = parent_x
                 context['org_y'] = parent_y
             final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=-piece_cx, offset_y=-piece_cy)
-        elif "origin" in anc_clean or "topleft" in anc_clean:
-            if isinstance(context, dict):
+        elif "relative2" in anc_clean or "origin" in anc_clean or "topleft" in anc_clean:
+            if not is_clip_out and isinstance(context, dict):
                 context['pos_overridden'] = False
                 context['has_org'] = False
                 context['pos_x'] = parent_x
@@ -7912,7 +7917,8 @@ def shape_multi(
                 context['fx_pos_y'] = parent_y
             final_code = piece_code
         elif "pos" in anc_clean:
-            if isinstance(context, dict):
+            # Keep \pos tag only on the exclusive pos_str output when emitting \clip/\iclip
+            if not is_clip_out and isinstance(context, dict):
                 context['x'] = abs_x
                 context['y'] = abs_y
                 context['fx_pos_x'] = abs_x
@@ -7923,7 +7929,7 @@ def shape_multi(
                 context['has_org'] = False
             final_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=-piece_cx, offset_y=-piece_cy)
         else:  # "center" or default
-            if isinstance(context, dict):
+            if not is_clip_out and isinstance(context, dict):
                 context['pos_overridden'] = False
                 context['has_org'] = False
                 context['pos_x'] = parent_x
@@ -7932,12 +7938,8 @@ def shape_multi(
                 context['fx_pos_y'] = parent_y
             final_code = piece_code
 
-        if "iclip" in out_mode_clean:
-            abs_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=parent_x, offset_y=parent_y)
-            final_piece = f"{{\\iclip({abs_code})}}"
-        elif "clip" in out_mode_clean:
-            abs_code = ClipperEngine.transform_shape(piece_code, mode="Offset", offset_x=parent_x, offset_y=parent_y)
-            final_piece = f"{{\\clip({abs_code})}}"
+        if is_clip_out:
+            final_piece = ClipperEngine.format_clip_tag(final_code, is_iclip=("iclip" in out_mode_clean), braces=True)
         else:
             if d_tags and not tags_val:
                 anc_tags, pure_code = split_shape_and_tags(final_code)
@@ -7950,10 +7952,9 @@ def shape_multi(
         return final_piece, pos_str, round(abs_x, 2), round(abs_y, 2), 0.0, m_i_val, total_pieces, 1, 1
 
     combined_code = str(res)
-    if "iclip" in out_mode_clean:
-        final_res = f"{{\\iclip({combined_code})}}"
-    elif "clip" in out_mode_clean:
-        final_res = f"{{\\clip({combined_code})}}"
+    if "clip" in out_mode_clean:
+        from clipper_engine import ClipperEngine
+        final_res = ClipperEngine.format_clip_tag(combined_code, is_iclip=("iclip" in out_mode_clean), braces=True)
     else:
         if d_tags and not tags_val:
             final_res = f"{d_tags}{combined_code}"
@@ -7973,9 +7974,9 @@ NODE_REGISTRY["Shape/Multi"] = shape_multi
 NODE_REGISTRY["Multi"] = shape_multi
 
 
-def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=None, fill_type=None, clean_self_intersect=None, index_j=None, index_d=None, tags=None, tagmode=None, order=None, split_mode=None, accel=None, **kwargs):
+def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=None, fill_type=None, clean_self_intersect=None, index_j=None, index_d=None, order=None, **kwargs):
     """
-    Decomposes, merges, or fuses complex vector shapes via Clipper2 topological PolyTree.
+    Decomposes or merges complex vector shapes via Clipper2 topological PolyTree.
 
     Operational modes:
     - 'divide': Decomposes vector shapes into true topological islands using Clipper2 PolyTree,
@@ -7985,25 +7986,19 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
       into a single unified polygon using boolean union with configurable fill winding rules.
     - 'subpaths': Naive decomposition separating raw contours by ASSdraw move ('m') commands
       without full topological hierarchy reconstruction.
-    - 'fusion': Re-assembles or combines separated pieces while embedding style override tags
-      interpolated across pieces or formatted per line.
 
     Args:
         context (dict): Node evaluation context containing active line, syllable, and loop iterators.
         drawing (str | list[str] | Any): Primary ASS vector drawing, shape list, or variable reference.
         shape_b (str | list[str] | Any): Secondary clipping/subject shape for union operations.
-        mode (str): Operational mode ('divide', 'union', 'subpaths', 'fusion').
+        mode (str): Operational mode ('divide', 'union', 'subpaths').
         anchor (str): Spatial anchor reference ('pieces', 'relative', 'parent_org', 'pos', 'absolute').
         fill_type (str): Polygon winding fill rule ('evenodd', 'nonzero', 'positive', 'negative').
         clean_self_intersect (bool | int | str): Whether to pre-clean self-intersecting polygon loops.
         index_j (int | str, optional): Legacy 1-based piece index selector.
         index_d (int | str, optional): Canonical 1-based piece index selector (d_i / divide_i).
-        tags (str): ASS tag template string for fusion mode.
-        tagmode (str): Tag formatting mode for fusion ('ipol' for interpolation, 'line' for static).
         order (str): 2D spatial sorting order (Numpad: '79','97','13','31','71','17','93','39',
             Radials: '5','-5','cw','ccw', or stochastic 'rand').
-        split_mode (str, optional): Decomposition method for fusion ('islands' or 'path').
-        accel (float | str, optional): Non-linear acceleration exponent for tag/color keyframe interpolation in fusion mode.
         **kwargs: Extended parameters (return_all_pieces, return_list, etc.).
 
     Returns:
@@ -8080,57 +8075,6 @@ def shape_union_divide_node(context, drawing="", shape_b="", mode=None, anchor=N
         if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
             return [res] if res else []
         return res
-
-    elif "fusi" in mode_clean or "fusion" in mode_clean:
-        split_mode_val = split_mode if (split_mode is not None and str(split_mode).strip() != "") else kwargs.get("split_mode", "islands")
-        split_mode_clean = str(split_mode_val).strip().lower()
-        shapes_list = []
-        if isinstance(raw_shp, list):
-            for item in raw_shp:
-                if isinstance(item, list):
-                    shapes_list.extend([str(s).strip() for s in item if str(s).strip()])
-                elif item and str(item).strip():
-                    shapes_list.append(str(item).strip())
-            shapes_list = [s for s in shapes_list if s]
-            if len(shapes_list) > 1 and order_val not in ("raw", "none", "0"):
-                entries = []
-                for s in shapes_list:
-                    cnt = ClipperEngine.parse_assdraw(s)
-                    if cnt:
-                        f_min_x, f_min_y, f_max_x, f_max_y, f_cx, f_cy, f_w, f_h = ClipperEngine.get_bbox(cnt)
-                    else:
-                        f_min_x = f_min_y = f_max_x = f_max_y = f_cx = f_cy = f_w = f_h = 0.0
-                    entries.append({'figure': s, 'min_x': f_min_x, 'min_y': f_min_y, 'max_x': f_max_y, 'max_y': f_max_y, 'cx': f_cx, 'cy': f_cy, 'w': f_w, 'h': f_h})
-                sorted_entries = ClipperEngine.sort_islands_by_order(entries, order=order_val)
-                shapes_list = [e['figure'] for e in sorted_entries]
-        elif raw_shp:
-            if split_mode_clean in ("path", "subpaths", "subpath"):
-                manifest = context.get('_merge_manifest') if isinstance(context, dict) else None
-                if manifest and isinstance(manifest, list):
-                    for entry in manifest:
-                        shapes_list.extend(ClipperEngine.group_subpaths_by_holes(entry, bbox_mode="marco", order=order_val))
-                else:
-                    shapes_list.extend(ClipperEngine.decompose_shape_subpaths(raw_shp, bbox_mode="marco", order=order_val))
-            else:
-                shapes_list.extend(ClipperEngine.decompose_shape_islands(raw_shp, fill_rule=fill_clean, bbox_mode="marco", clean_self_intersect=auto_clean, order=order_val))
-
-        if "rel" in anchor_clean:
-            anchored_list = list(shapes_list)
-        else:
-            global_bbox = get_drawing_bbox(shapes_list)
-            anchored_list = [apply_geometric_anchor(p, anchor=anchor_clean, context=context, ref_bbox=global_bbox) for p in shapes_list]
-        tags_val = tags if (tags is not None and str(tags).strip() != "") else kwargs.get("tags_list", kwargs.get("tags", ""))
-        tag_mode_val = tagmode if (tagmode is not None and str(tagmode).strip() != "") else kwargs.get("tag_mode", kwargs.get("tagmode", "ipol"))
-        accel_raw = accel if (accel is not None and str(accel).strip() != "") else kwargs.get("accel", "1.0")
-        accel_val = _eval_num_expr(accel_raw, context, 1.0)
-        fused = ClipperEngine.fusion_shapes_tags(anchored_list, tags=tags_val, bbox_mode="marco", tag_mode=tag_mode_val, accel=accel_val)
-        if fused and tags_prefix:
-            fused_prefix, fused_body = split_shape_and_tags(fused)
-            merged_prefix = merge_override_tags(tags_prefix, fused_prefix).rstrip()
-            fused = merged_prefix + fused_body
-        if kwargs.get("return_all_pieces", False) or kwargs.get("return_list", False):
-            return [fused] if fused else []
-        return fused
 
     elif "subpath" in mode_clean or "sub-path" in mode_clean or "naive" in mode_clean:
         if not raw_shp:
@@ -8404,10 +8348,8 @@ def shape_clipper_node(
     if kwargs.get("return_bbox", False):
         return ClipperEngine.calc_bbox_raw(anchored_combined)
 
-    if "iclip" in out_mode_clean:
-        return f"{{\\iclip({anchored_combined})}}"
-    elif "clip" in out_mode_clean:
-        return f"{{\\clip({anchored_combined})}}"
+    if "clip" in out_mode_clean:
+        return ClipperEngine.format_clip_tag(anchored_combined, is_iclip=("iclip" in out_mode_clean), braces=True)
 
     if final_tags:
         return final_tags + anchored_combined

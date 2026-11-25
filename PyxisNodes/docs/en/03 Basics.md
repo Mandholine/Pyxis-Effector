@@ -1,4 +1,4 @@
-# Basics
+﻿# Basics
 
 The **Basics** category gathers nodes dedicated to primitive data generation, transformation, formatting, and routing (numbers, strings, colours, mathematical expressions, and conditionals) for building ASS subtitle effects.
 
@@ -131,94 +131,254 @@ $$\text{RGB: } (R, G, B) \implies \text{ASS Colour: } \&\text{H}B_{\text{hex}}G_
 
 ---
 
-## 5. Node `Basics/Math` (Mathematical Engine and Curves)
+## 5. Node `Basics/Math` (`ke.math` Mathematical Library)
 
 * **Canonical Category:** `Basics` (UI: *Basics / Math*)
-* **Purpose:** Evaluates arithmetic, trigonometric, acceleration curve (*easing*), periodic oscillation, and range utility operations structured across 8 calculation families.
+* **Purpose:** Brings together all 36 basic (expandable), numeric, sequence, geometric, algebraic, and data operations into a single adaptable node that reconfigures its inputs, controls, and outputs according to the selected operation.
 
 ![Basics/Math](img/math.png)
 
-### 5.1. Header Mode Combos
-1. **`[2.1] Category` (`category`):** Dropdown selector for the mathematical family:
-   * `basic`: Elementary arithmetic and algebra.
-   * `trig`: Direct and inverse trigonometry, plus angular conversions.
-   * `rounding`: Nearest integer rounding, floor, and ceiling.
-   * `clamping`: Strict range bounding and boundary comparisons.
-   * `easing`: Normalised acceleration and deceleration curves ($t \in [0.0, 1.0]$).
-   * `waves`: Continuous periodic waveform oscillators.
-   * `random`: Pseudo-random generation with deterministic seed support.
-   * `utilities`: Linear range re-mapping and scalar interpolation.
-2. **`[2.2] Operation` (`operation`):** Specific calculation function to execute within the selected family.
+### 5.1. Controls and Canvas Interaction
+The node organises its controls into five visual elements:
+1. **Header Mode Pills (`Category` and `Operation`):** Click the left pill to switch families (`basic`, `numeric`, `sequence`, `geometry`, `algebra`, `data`) and the right pill to choose the operation. When switching modes, input and output ports reconfigure automatically while keeping compatible wires connected.
+2. **`+` and `-` Buttons (`basic` only):** Add or remove input ports (`In1`, `In2`, ..., `InN`) to operate across two or more wired or inline values.
+3. **Editable Fields with Sockets:** Accept fixed numbers (`10`), comma-separated lists (`0, 50, 100`), or variables/expressions (`syl.i`, `char.dur / 2`). Connecting a wire to the left socket overrides the inline text.
+4. **Cyclic Buttons:** Pills inside the node body (such as `Algorithm`, `Seq Mode`, `Get`, `Axis`, or `Matrix Op`). Each click advances to the next option.
+5. **Checkboxes:** Square toggles switched with a single click (`Cycle`, `Random Sign`, `Reals Only`, `Is Row`).
 
-### 5.2. Input Ports (*Inputs*)
-1. **`A`:** Primary operand, progress factor $t$, angle, or base value. If disconnected, uses the numerical value configured in the internal property.
-2. **`B`:** Secondary operand, upper bound, frequency, or destination target.
+---
 
-### 5.3. Output Ports (*Outputs*)
-1. **`[1.1] Out`:** Resulting scalar numerical value. If the calculation yields an exact integer, it is formatted without decimal places (e.g. `25`); if fractional, it outputs up to 4 significant decimal places (e.g. `0.7071`).
+### 5.2. `basic` Category (Expandable Arithmetic)
 
-### 5.4. Breakdown of the 8 Mathematical Families
+Combines two or more inputs (`In1`, `In2`, ..., `InN`) using the `+` and `-` buttons. Empty inputs are skipped automatically.
 
-#### 5.4.1. `basic` Family (Arithmetic)
-* **`add` ($A + B$):** Algebraic addition.
-* **`sub` ($A - B$):** Arithmetic subtraction.
-* **`mul` ($A \cdot B$):** Multiplication.
-* **`div` ($A / B$):** Protected division (returns `0.0` if $B = 0$).
-* **`mod` ($A \pmod B$):** Integer modulo remainder (returns `0.0` if $B = 0$).
-* **`pow` ($A^B$):** Power exponentiation.
-* **`abs` ($|A|$):** Absolute value.
-* **`neg` ($-A$):** Arithmetic sign negation.
+* **`add` (Addition):** Sums all inputs (`In1 + In2 + ... + InN`).
+* **`sub` (Subtraction):** Subtracts sequentially from the first input (`In1 - In2 - ... - InN`).
+* **`mul` (Multiplication):** Multiplies all inputs (`In1 * In2 * ... * InN`).
+* **`div` (Division):** Divides sequentially from `In1` (`In1 / In2 / ... / InN`; returns `0` if any divisor is `0`).
+* **`mod` (Modulo):** Computes the sequential remainder (`In1 % In2 % ...`; returns `0` if any divisor is `0`).
+* **`pow` (Power):** Raises sequentially (`In1 ** In2 ** ...`).
+* **`min` (Minimum):** Outputs the smallest numeric value among all inputs.
+* **`max` (Maximum):** Outputs the largest numeric value among all inputs.
+* **`avg` (Average):** Computes the arithmetic mean of all connected or typed inputs.
 
-#### 5.4.2. `trig` Family (Trigonometry)
-Direct trigonometric functions (`sin`, `cos`, `tan`) expect angle $A$ in **sexagesimal degrees** ($0^\circ \dots 360^\circ$) to match the rotation convention of ASS subtitle tags (`\frz`, `\frx`, `\fry`). Inverse functions return results directly in degrees.
+---
 
-* **`sin`:** $\sin\left(\frac{A \cdot \pi}{180}\right)$
-* **`cos`:** $\cos\left(\frac{A \cdot \pi}{180}\right)$
-* **`tan`:** $\tan\left(\frac{A \cdot \pi}{180}\right)$
-* **`asin` / `arcsin`:** $\arcsin(\text{clamp}(A, -1, 1)) \cdot \frac{180}{\pi} \in [-90^\circ, 90^\circ]$
-* **`acos` / `arccos`:** $\arccos(\text{clamp}(A, -1, 1)) \cdot \frac{180}{\pi} \in [0^\circ, 180^\circ]$
-* **`atan` / `arctan`:** $\arctan(A) \cdot \frac{180}{\pi} \in (-90^\circ, 90^\circ)$
-* **`atan2`:** $\text{atan2}(Y, X) \cdot \frac{180}{\pi}$ where $Y = A$ and $X = B$, in range $[-180^\circ, 180^\circ]$
-* **`rad` / `radians`:** Converts degrees to radians: $A \cdot \frac{\pi}{180}$.
-* **`deg` / `degrees`:** Converts radians to degrees: $A \cdot \frac{180}{\pi}$.
+### 5.3. `numeric` Category (Numeric Calculation and Comparisons)
 
-#### 5.4.3. `rounding` Family (Rounding)
-* **`round`:** Rounds $A$ to the nearest integer.
-* **`floor`:** Largest integer less than or equal ($\lfloor A \rfloor$).
-* **`ceil`:** Smallest integer greater than or equal ($\lceil A \rceil$).
+#### `round` — Rounding
+Rounds a number or a comma-separated list to the specified number of decimal places, rounding halves (`.5`) upwards.
+* **Inputs:** `Value` (number or comma-separated list), `Decimals` (decimal places; default `0`).
+* **Output:** `Out`.
+* **Example:** `Value = "1.6, 3.25, 8.7"`, `Decimals = 1` $\to$ `"1.6, 3.3, 8.7"`.
 
-#### 5.4.4. `easing` Family (Progression Curves)
-Accepts a normalised progress factor $t = \text{clamp}(A, 0.0, 1.0)$ and outputs the transformed value within $[0.0, 1.0]$:
+#### `clamp` — Bounding and Cyclic Bounce
+Keeps a number (or list) inside `Min` and `Max`, regardless of which bound you type first.
+* **Inputs & Controls:** `Value`, `Min` (default `0`), `Max` (default `1`), **`Cycle`** checkbox.
+* **Output:** `Out`.
+* **Behaviour:**
+  * With `Cycle` unchecked: values below `Min` clamp to `Min`, and values above `Max` clamp to `Max`.
+  * With `Cycle` checked: values exceeding either bound bounce back and forth within the range (handy for continuous pendulum motion).
+* **Example:** `Value = 1.2`, `Min = 0`, `Max = 1`, `Cycle = checked` $\to$ `0.8`.
 
-* **`ease_in`:** Initial quadratic acceleration: $f(t) = t^2$.
-* **`ease_out`:** Terminal quadratic deceleration: $f(t) = 1 - (1 - t)^2$.
-* **`ease_in_out`:** Combined acceleration and deceleration:
-  $$f(t) = \begin{cases} 2t^2 & \text{if } t < 0.5 \\ 1 - \frac{(-2t + 2)^2}{2} & \text{if } t \ge 0.5 \end{cases}$$
-* **`cubic_in`:** Cubic acceleration: $f(t) = t^3$.
-* **`cubic_out`:** Cubic deceleration: $f(t) = 1 - (1 - t)^3$.
-* **`expo`:** Exponential progression: $f(t) = 2^{10(t - 1)}$ for $t > 0$.
-* **`elastic`:** Damped elastic oscillation.
-* **`bounce`:** Multi-impact ballistic bounce.
-* **`back`:** Anticipation overshoot: $f(t) = (c_1 + 1)t^3 - c_1 t^2$ where $c_1 = 1.70158$.
+#### `rand` — Advanced Random
+Generates random numbers with step increments, weighted sub-ranges, or random selection from a list.
+* **Inputs & Controls:**
+  * `Min` and `Max`: range bounds. If `Max` is left empty and `Min` contains a comma-separated list (e.g. `"10, 20, 30"`), picks one item at random. If both are empty, outputs a decimal between `0` and `1`.
+  * `Step`: allowed increment between values (e.g. `Step = 5` between `0` and `20` only produces `0, 5, 10, 15, 20`).
+  * `Range`: weighted sub-range in `rmin, rmax, percentage` format (e.g. `"20, 80, 75"` makes 75% of results fall between 20 and 80).
+  * **`Random Sign`** checkbox: randomly multiplies the result by `+1` or `-1`.
+* **Output:** `Out`.
 
-#### 5.4.5. `waves` Family (Periodic Oscillators)
-Generates continuous temporal oscillations driven by $t = A$, frequency $f = \text{freq}$, amplitude $A_{\text{amp}} = \text{amp}$, and constant offset $\text{Offset}$:
+#### `factk` — Factorial
+Computes the factorial of `N` (rounded up in absolute value; returns `1` for `0`).
+* **Inputs:** `N` $\to$ **Output:** `Out`.
+* **Example:** `N = 5` $\to$ `120`.
 
-* **`sine`:** $y(t) = A_{\text{amp}} \cdot \sin(2\pi \cdot f \cdot t) + \text{Offset}$
-* **`square`:** Emits $+A_{\text{amp}} + \text{Offset}$ during positive half-cycles and $-A_{\text{amp}} + \text{Offset}$ during negative ones.
-* **`triangle`:** Continuous bidirectional ramp: for $\phi = (t \cdot f) \pmod 1$, $y(t) = A_{\text{amp}} \cdot (2|2\phi - 1| - 1) + \text{Offset}$.
-* **`sawtooth`:** Linear upward ramp with instant drop: for $\phi = (t \cdot f) \pmod 1$, $y(t) = A_{\text{amp}} \cdot (2\phi - 1) + \text{Offset}$.
+#### `to16` — Hexadecimal Conversion
+Converts an integer (or a list) to uppercase hexadecimal text, useful for building ASS colour or alpha channel strings.
+* **Inputs:** `Number` $\to$ **Output:** `Out`.
+* **Example:** `Number = "255, 16, 12"` $\to$ `"FF, 10, C"`.
 
-#### 5.4.6. `utilities` and `clamping` Families
-* **`clamp`:** Bounds $A$ within interval $[\text{Min}, \text{Max}]$.
-* **`lerp`:** Linear interpolation between $A$ and $B$ driven by $t \in [0.0, 1.0]$: $\text{lerp}(A, B, t) = A + (B - A) \cdot t$.
-* **`map_range`:** Proportional re-mapping of $A$ from $[\text{MinIn}, \text{MaxIn}]$ to $[\text{MinOut}, \text{MaxOut}]$.
-* **`min` / `max`:** Compares $A$ and $B$, returning the minimum or maximum value.
-* **`random`:** Uniform pseudo-random generator within $[\text{Min}, \text{Max}]$ with optional seed (`Seed`).
+#### `equality` — Equality with Tolerance
+Compares `A` and `B` and outputs `True` when their difference is smaller than the margin set by `Tolerance` (where `Tolerance = 5` means a difference below `0.00001`).
+* **Inputs:** `A`, `B`, `Tolerance` (default `5`) $\to$ **Output:** `Out` (`True` or `False`).
 
-### 5.5. Synergies and Best Practices
-* **Harmonic ASS Rotation Oscillation:** Connect a `waves/sine` output directly into an `\frz` field in `Basics/Dynamic Format` to produce cyclical rocking (e.g. `\frz(%s)` with an amplitude of $10^\circ$).
-* **Non-Linear Scale Transitions:** Wire the `Out` port of an `easing/ease_out` curve into the `\fscx` and `\fscy` ports of `Basics/MultiTag` to animate smooth entrance reveals from 0% to 100%.
+#### `between` — Range Check
+Checks whether `Value` lies within the closed interval defined by `Min` and `Max` (bound order is adjusted automatically).
+* **Inputs:** `Value`, `Min`, `Max` $\to$ **Output:** `Out` (`True` or `False`).
+
+---
+
+### 5.3. `sequence` Category (Sequences, Counters, and Interpolation)
+
+#### `i` — Discrete Sequence Generator
+Turns a positive integer counter `Counter (i)` (such as `syl.i`, `char.i`, or `j`) into repeating numeric patterns without writing conditionals.
+* **Inputs & Controls:** `Counter (i)`, **`Algorithm`** cyclic button, `A`, `B`, `C`.
+* **Output:** `Out`.
+* **Quick guide to all 9 algorithms** (showing outputs for `Counter = 1, 2, 3, 4, 5, 6`):
+
+| Algorithm | What it does | Parameter example | Resulting sequence (`i = 1..6`) |
+| :--- | :--- | :--- | :--- |
+| `+,-` | Alternates `1` and `-1` every `A` steps | `A = 2` | `1, 1, -1, -1, 1, 1` |
+| `A,B` | Alternates between `A` and `B` every `C` steps | `A = 10, B = 20, C = 1` | `10, 20, 10, 20, 10, 20` |
+| `mxA` | Multiplies `A` stepping up every `B` steps | `A = 5, B = 2` | `5, 5, 10, 10, 15, 15` |
+| `A>B` | Cycles from `A` to `B` every `C` steps | `A = 1, B = 3, C = 1` | `1, 2, 3, 1, 2, 3` |
+| `ABA` | Ping-pongs between `A` and `B` | `A = 1, B = 3` | `1, 2, 3, 2, 1, 2` |
+| `ABB` | Emits `A` on step 1 and `B` thereafter | `A = 5, B = 9` | `5, 9, 9, 9, 9, 9` |
+| `ABC` | Emits `A` once and `B` for `C - 1` steps | `A = 1, B = 2, C = 3` | `1, 2, 2, 1, 2, 2` |
+| `ACB` | Emits `A` for `C - 1` steps then `B` once | `A = 1, B = 2, C = 3` | `1, 1, 2, 1, 1, 2` |
+| `N,n` | Natural numbers repeated `A` times each | `A = 2` | `1, 1, 2, 2, 3, 3` |
+
+#### `count` — Stateful Counter
+Keeps an internal counter for that node starting at `Init` and adding `Step` each time it is evaluated during generation.
+* **Inputs & Controls:** `Init` (default `1`), `Step` (default `1`), **`Seq Mode`** cyclic button (`none` or any of the 9 `i` algorithms), `A`, `B`, `C`.
+* **Output:** `Out`.
+
+#### `normalize` — Progress Normalisation
+Converts any number (or ascending list) into a normalised factor between `0` and `1`.
+* **Inputs:** `t` (values above `1` are automatically scaled down by the matching power of 10, e.g. `25` $\to$ `0.25`), `Accel` (acceleration exponent; `1` is linear, `2` starts slowly, `0.5` starts fast), and `Shape` (optional: when an ASSDraw path is connected, uses its vertical `Y` profile as the progression curve).
+* **Output:** `Out`.
+
+#### `ipol` — Multi-Point Interpolation
+Interpolates smoothly across two or more values in `Values` according to progress `t` (between `0` and `1`).
+* **Inputs:** `Values` (e.g. `"0, 30, 20"`), `t`, `Accel`, `Shape` (optional ASSDraw shape curve), and `Size` (optional: entering an integer such as `5` outputs the full list of 5 sampled values from start to finish).
+* **Output:** `Out`.
+* **Example:** `Values = "0, 100"`, `Size = 3` $\to$ `"0, 50, 100"`.
+
+---
+
+### 5.4. `geometry` Category (ASSDraw3 Geometry)
+
+All operations in this category work in the ASSDraw3 coordinate system used by subtitles (origin at top-left, Y-axis pointing downwards).
+
+#### `angle` — Angle Between Points
+Computes the angle in degrees (`0` to `360`) formed by one, two, or three points.
+* **Inputs:** `P1`, `P2`, `P3` (optional).
+  * `P1` only: angle of the point relative to the origin `(0, 0)`.
+  * `P1` and `P2`: angle of the segment from `P1` to `P2`.
+  * `P1`, `P2`, and `P3`: interior angle between the two segments meeting at `P2`.
+* **Output:** `Out`.
+
+#### `polar` — Polar Coordinates
+Converts an angle in degrees (`Angle`) and a pixel distance (`Radius`) into Cartesian `(X, Y)` coordinates ready for `\pos` or shapes.
+* **Inputs & Controls:** `Angle`, `Radius`, **`Get`** cyclic button (`xy`, `x`, `y`).
+* **Outputs:** `X`, `Y`. When `Get` is set to `y`, the primary output emits the vertical `Y` component.
+* **Example:** `Angle = 45`, `Radius = 10` $\to$ `X = 7.071`, `Y = -7.071`.
+
+#### `distance` — Distance and Path Length
+Measures the pixel distance between `P1` and `P2`, distance from the origin if `P2` is empty, or total length along a multi-vertex polyline or ASSDraw shape in `P1`.
+* **Inputs:** `P1`, `P2` $\to$ **Output:** `Out`.
+* **Example:** `P1 = "0, 0"`, `P2 = "3, 4"` $\to$ `5`.
+
+#### `intersect` — Segment Intersection
+Finds the exact intersection point between the lines defined by `Segment 1` (`x1 y1 x2 y2`) and `Segment 2` (`x3 y3 x4 y4`).
+* **Inputs:** `Segment 1`, `Segment 2`.
+* **Outputs:** `X`, `Y`, `t` (relative position of the crossing along the first segment; outputs `parallels` on `X` if they never meet).
+
+#### `circle` — Circle Through Three Points
+Finds the centre and radius of the unique circle passing through `P1`, `P2`, and `P3` (or the first three points of a shape).
+* **Inputs:** `P1`, `P2`, `P3`.
+* **Outputs:** `Center X`, `Center Y`, `Radius` (outputs `collineals` on `Center X` if the three points lie on a straight line).
+
+#### `rotate` — 2D / 3D Rotation for Points and Shapes
+Rotates a `(x, y, z)` point or every vertex of a full ASSDraw shape around the chosen axis.
+* **Inputs & Controls:** `Point / Shape` (coordinates or ASSDraw `m ... l ...` string), `Angle` (degrees), **`Axis`** cyclic button (`z`, `x`, `y`).
+* **Outputs:** `Out` (`x, y, z` list or rotated ASSDraw string), `X`, `Y`, `Z`.
+
+---
+
+### 5.5. `algebra` Category (Equations and Matrices)
+
+#### `quadratic` — Quadratic Equation
+Finds the real roots of a second-degree equation (`c1*x^2 + c2*x + c3 = 0`) sorted in ascending order.
+* **Inputs:** `c1 (x^2)`, `c2 (x)`, `c3 (1)` $\to$ **Output:** `Roots`.
+
+#### `cubic` — Cubic Equation
+Finds the real roots of a third-degree equation (`c1*x^3 + c2*x^2 + c3*x + c4 = 0`).
+* **Inputs:** `c1 (x^3)`, `c2 (x^2)`, `c3 (x)`, `c4 (1)` $\to$ **Output:** `Roots`.
+
+#### `resolve` — Automatic Solver
+Takes descending coefficients in `Coefficients` (stripping leading zeros) and automatically solves linear, quadratic, or cubic equations.
+* **Inputs:** `Coefficients` $\to$ **Output:** `Roots`.
+
+#### `equation` — N-Degree Polynomials
+Computes all roots of an arbitrary-degree polynomial given ascending coefficients (e.g. `"-5, -9, -3, 1"` represents `-5 - 9x - 3x^2 + x^3 = 0`).
+* **Inputs & Controls:** `Coefficients`, **`Reals Only`** checkbox (when checked, hides complex roots).
+* **Output:** `Roots`.
+
+#### `evaluate` — Polynomial Evaluation
+Evaluates the polynomial defined in `Coefficients` (ascending order) at `t`.
+* **Inputs:** `Coefficients`, `t` $\to$ **Output:** `Out`.
+* **Example:** `Coefficients = "5, -7"`, `t = 2` (computes `5 - 7*2`) $\to$ `-9`.
+
+#### `gauss` — Linear Equation System
+Solves an `n` by `n` system of linear equations by entering augmented matrix rows separated by semicolons `;`.
+* **Inputs:** `Matrix` (e.g. `"5, -3, -1; 2, 1, 4"` represents `5x - 3y = -1` and `2x + y = 4`).
+* **Output:** `Solutions` (e.g. `"1, 2"`, or `"singular system"` when no unique solution exists).
+
+#### `matrix` — Matrix Algebra
+Performs operations on square matrices and row vectors. Separate rows with `;` or enter a flat list of numbers (e.g. `"1, 2, 3, 4"` builds a 2x2 matrix).
+* **Inputs & Controls:**
+  * **`Matrix Op`** cyclic button:
+    * `mul`: Multiplies `Matrix A` by `Matrix B` (accepts another matrix, a scalar number, or a vector).
+    * `add` / `sub`: Element-wise addition or subtraction between `Matrix A` and `Matrix B` (or a scalar).
+    * `neg`: Negates every element in `Matrix A`.
+    * `det`: Computes the determinant of `Matrix A`.
+    * `inverse`: Computes the inverse matrix of `Matrix A` (or outputs `singular matrix` if the determinant is 0).
+    * `identity`: Builds an identity matrix of size `N` (using the first number in `Matrix A`).
+    * `rotate`: Multiplies `Matrix A` by the 3D rotation matrix defined in `Angles (x,y,z)`.
+    * `eq`: Checks whether `Matrix A` and `Matrix B` are equal (`True` or `False`).
+    * `toarray`: Flattens `Matrix A` into a comma-separated list.
+  * **`Is Row`** checkbox: treats `Matrix A` as a row vector instead of a square matrix.
+* **Outputs:** `Out` (formatted result) and `Det` (matrix determinant).
+
+---
+
+### 5.6. `data` Category (Extraction and Formatting)
+
+#### `getpair` — Extract Numeric Pair
+Extracts the first two numbers found in `Values` (handy for reading `(x, y)` coordinates from text or ASSDraw paths). If the second number is missing, repeats the first or falls back to `Default Y`; if empty, uses `Default X` and `Default Y`.
+* **Inputs:** `Values`, `Default X`, `Default Y` $\to$ **Outputs:** `X`, `Y`.
+
+#### `getnumbers` — Extract All Numbers
+Extracts every number from a text string, coordinate pair, or ASSDraw shape (`Input`) as a comma-separated list.
+* **Inputs:** `Input` $\to$ **Output:** `Out`.
+* **Example:** `Input = "m 1 2 l -3.5 4"` $\to$ `"1, 2, -3.5, 4"`.
+
+#### `format` — String Formatting
+Inserts comma-separated values from `Values` into placeholders such as `%s`, `%d`, or `%X` in `Format`.
+* **Inputs:** `Format`, `Values` $\to$ **Output:** `Out`.
+* **Example:** `Format = "pos(%d, %d)"`, `Values = "10, 20"` $\to$ `"pos(10, 20)"`.
+
+---
+
+### 5.7. Practical Production Workflows
+
+1. **Alternate tilt between odd and even syllables:**
+   ```
+   [Basics/Math (sequence / i, Algorithm: +,-)] ──► Out ──► \frz ──► [Basics/MultiTag]
+   ```
+   Type `syl.i` in `Counter (i)` and `1` in `A`; it emits `+1` and `-1` alternately to tilt each syllable without conditionals.
+
+2. **Arrange letters or particles in a circle around a centre:**
+   ```
+   [Basics/Math (geometry / polar)] ──► X ──► X ──► [Basics/MultiTag (\pos)]
+                                    └──► Y ──► Y ──┘
+   ```
+   Wire an angle proportional to each item's index (`360 * (char.i - 1) / char.n`) into `Angle` and the desired distance into `Radius`.
+
+3. **Motion curve driven by a shape profile:**
+   ```
+   [Shape/Library] ──► Shape ──► Shape ──► [Basics/Math (sequence / ipol)] ──► Out ──► [Basics/MultiTag]
+   ```
+   When any shape is wired into `Shape`, `ipol` uses its vertical profile as the easing curve across the values in `Values`.
+
+4. **Rotate an entire shape directly in the graph:**
+   ```
+   [Shape/Library] ──► Shape ──► Point / Shape ──► [Basics/Math (geometry / rotate)] ──► Out ──► [System/Output]
+   ```
+   With `Axis` set to `z`, every vertex in the shape rotates by the specified angle and outputs ready-to-use ASSDraw geometry.
 
 ---
 
@@ -256,7 +416,11 @@ To invoke deterministic random values cached per iterator inside ASS expressions
 Within the same cycle of the specified iterator, repeated queries return the identical memoised value. When the iterator advances, the engine automatically recomputes and stores a new value.
 
 * **Hierarchical Scope Inheritance:** Sub-loops (`by.j`, `by.s_i`, `by.p_i`) inherit the hierarchy of the enclosing active unit (`line` -> `char`/`syl`/`word` -> sub-loop). Thus, particle $j=1$ for character 1 generates values independently from particle $j=1$ for character 2. Concurrently, `by.char.R(...)` preserves its exact memoised value across all $j$ iterations of that same character, recalculating only when advancing to the subsequent character.
-* **Callsite Isolation:** Separate direct invocations in code generate independent random draws for that iterator cycle. To reuse the exact same random value across multiple properties or downstream nodes, assign the result to a variable (e.g. `my_var = by.j.R(...)`) or provide an explicit parameter `tag="my_tag"`.
+* **Callsite Isolation:** Every time you write `R(...)` or `by.<iter>.R*(...)` (even multiple times in the same expression, such as `R(10) + R(10) + R(10)`, or across separate variables such as `Origenx` and `Origeny`), each call is evaluated independently and never collides with other calls.
+* **Grouping via Variables vs. Mixed Scopes:** The only way to reuse the exact same random result across multiple places within an iteration is to **store it in a variable** and reference that variable:
+  * If you define `my_var = by.char.R(10)` and reuse `my_var` across tags or ports, it returns the same number across all sub-loops of that character (and updates only when advancing to the next character).
+  * If you combine scopes in one variable, e.g. `my_var = by.j.R(10) + by.char.R(10)`, the `by.char.R(10)` term stays constant per character whilst `by.j.R(10)` changes on every `j` cycle, so `my_var` produces a distinct value per `(char, j)` pair (and only repeats if you read `my_var` multiple times within that same `(char, j)` pass).
+  * If you use `R(10)` without `by.`, each call draws a fresh value on every loop iteration where it is evaluated.
 
 ### 6.4. Catalogue of the 15 Random Modes (`mode`)
 
@@ -284,67 +448,38 @@ Within the same cycle of the specified iterator, repeated queries return the ide
 
 ---
 
-## 7. Node `Basics/Concatenate` (Extensible Concatenator, Zip, and Merge)
+## 7. Node `Basics/Concatenate` (Extensible Concatenator and Zip)
 
-* **Canonical Category:** `Basics` (UI: *Basics / Concatenate*)
-* **Purpose:** Assembles multiple text strings, ASS tags, or vector commands using three operational modes (`basic`, `zip`, `merge`) selectable from the header pill, with a contextual separator selector in the bottom-right corner for basic mode.
+* **Canonical Category:** `Basics` (UI: *Basics / Concatenate:)
+* **Purpose:** Assembles multiple text fragments, ASS tags, or keyframe sequences via two header-selectable operational modes (`basic`, `zip`), incorporating a contextual separator selector in the lower-right corner for basic mode. For assembling and styling complex vector shapes in a continuous monolithic stream with or without `\r` style resets, canonically use `Basics/Builder`.
 
 ![Basics/Concatenate](img/concatenate.png)
 
 ### 7.1. Input Ports and Dynamic Expansion
-* **`In1`, `In2`, $\dots$, `InN`:** Sequential input sockets. Connecting or clicking `(+)` dynamically appends extra slots continuously.
-* **Precedence:** If a port has no incoming connection wire, the node uses the value typed into its inline text field.
+* **`In1`, `In2`, $\dots$, `InN`:** Sequential data input sockets. Clicking the expansion button `(+)` adds additional input slots continuously.
+* **Precedence:** If a port has no connected wire, the node falls back to the value entered manually into its inline text field.
 
-### 7.2. Output Ports (*Outputs*)
-1. **`[1.1] String`:** Resulting text string after joining active inputs according to the active mode.
+### 7.2. Output Ports
+1. **[1.1] String`:** Resulting string after assembling all active inputs according to the selected mode.
 
-### 7.3. Primary Operational Modes (`mode`)
-The pill on the right side of the title bar toggles between the 3 canonical modes:
+### 7.3. Main Operational Modes (`mode`)
+Flipping the mode pill button on the right side of the title bar cycles between the 2 unified canonical modes:
 
 | Mode (`mode`) | UI Badge | Algorithmic Description |
-| :--- | :---: | :--- |
-| `basic` | `BASIC` | Sequential linear concatenation interleaving the separator chosen on the body (`separator`). |
-| `zip` | `ZIP` | Positional element-by-element pairing algorithm to assemble timed keyframe lists. |
-| `merge` | `MERGE` | Geometric fusion of ASSdraw vector shapes (`m ... m ...`) with relative position offsetting (`\pos`) and tag cleansing. |
+| :--- | :--: | :--- |
+| `basic` | `BASIC` | Linear concatenation of inputs interleaving the delimiter selected in the node body (`separator`). |
+| `zip` | `ZIP` | Element-to-element positional interleaving for producing temporal keyframe lists. |
 
 ### 7.4. Contextual Separator Selector in Basic Mode (`separator`)
-When the node operates in `basic` mode, an interactive button is drawn at the bottom-right corner (beneath the *String / Texto* output slot). Clicking it cycles through supported delimiters:
+When `basic` mode is active, an interactive cyclic button is drawn at the bottom-right corner (under the *String* output port). Clicking it cycles through the five supported delimiters:
 
-| Separator (`separator`) | UI Badge | Injected Character | Typical Use Case |
-| :--- | :---: | :---: | :--- |
-| `nil` | `NIL` | *(None)* | Seamless continuous join (e.g. `\pos(X,Y)\blur2\1c&HFFFFFF&`). |
-| `space` | `SPACE` | Space `" "` | Word separation or simple ASSdraw coordinate sequences. |
-| `comma` | `,` | Comma `,` | Parameter lists and numeric arrays. |
-| `semicolon` | `;` | Semicolon `;` | Grouping script instructions or data declarations. |
-| `newline` | `ENTER` | Line break `\n` | Multiline stacked dialogue subtitle events. |
-
-*Note:* In `zip` and `merge` modes, the separator button is automatically hidden from the canvas, as both modes execute algorithmic joins that do not require textual delimiters.
-
-### 7.5. Parallel Interleaving Algorithm (*zip Mode*)
-When `mode` is set to `zip`, the node treats each input as a comma-separated list and joins them element by element:
-
-$$\text{In}_1 = [A_1, A_2, A_3], \quad \text{In}_2 = [B_1, B_2, B_3] \implies \text{Out} = [A_1 B_1, \, A_2 B_2, \, A_3 B_3]$$
-
-1. Decomposes each active input into a sequence of tokens.
-2. If an input port's inline field contains a tag prefix (e.g. `\1c`, `\blur`), it prepends it to each individual token of that list.
-3. Pairs tokens position by position up to the length of the shortest list containing more than one item, outputting a comma-separated list of merged keyframes.
-
-### 7.6. Vector Shape Merging Algorithm (*merge Mode*)
-When `mode` is set to `merge`, the node operates as a geometric assembler for ASSdraw vector paths:
-
-1. **Path Extraction and Cleansing:** Analyses each input to isolate ASSdraw vector drawing instructions (`m ...`, `b ...`, `l ...`), stripping intermediate ASS override tags to prevent corrupting drawing mode (`\p1`) syntax.
-2. **Style Header Preservation:** Retains the opening override tag block of the first input (e.g. `{\pos(X,Y)\an7\p1}`) so that the consolidated path preserves its screen anchor and initial visual styling.
-3. **Automatic Unpacking:** If an input receives a collection of shapes (such as comma-separated lists or JSON arrays produced by vector slicers), it automatically unpacks and stitches them individually into the sequence.
-4. **Relative Position Offsetting:** If a subsequent shape carries a `\pos(x_2, y_2)` tag that differs from the base `\pos(x_1, y_1)` coordinates of the first input, the engine computes the offset vector $\Delta x = x_2 - x_1$, $\Delta y = y_2 - y_1$ and transforms the vertices of that shape via Clipper2 prior to appending. This guarantees that relative spatial alignment across separate elements remains perfectly intact within a unified coordinate space.
-5. **Synchronised Parallel Animations:** When multiple `Functions/Animation` generator nodes feed into `Concatenate` in `merge` mode, the engine evaluates layers in strict lockstep across identical frame timestamps (`an_i`), producing exactly $N$ merged frames rather than an unwanted Cartesian product.
-6. **Contextual Manifest Publishing (`_merge_manifest`):** In `merge` mode, the node records the ordered list of clean vector paths from each connected input into the evaluation context (`context['_merge_manifest']`). This enables downstream nodes such as `Shape/Union & Divide` (in `Fusion (Tags)` mode with `split_mode: path`) to recognise the provenance boundaries of each drawing, cleanly distinguishing compound figures with internal holes (preserving them unified) from disjoint pieces (separating them individually).
-
-### 7.7. Synergies and Best Practices
-* **Clean ASS Block Assembly:** Use `mode: basic` with `separator: nil` when combining outputs from `MultiTag` or literal strings to prevent unintended spaces that could affect libass rendering.
-* **Vectorised Keyframe Generation:** Use `mode: zip` pairing a colour list from `Functions/Color Gradient` with an alpha list to drive complex per-frame transitions.
-* **Multilayer Animation and Shape Merging:** Connect multiple animation branches into `Concatenate` set to `mode: merge` to consolidate multicolour layers into a single ASS dialogue event, or route the combined path directly into `Shape/Union & Divide` (mode `fusion`, `split_mode: path`) for sub-path partitioning or individual styling without duplicating geometry.
-
----
+| Separator (`separator`) | UI Pill | Injected Character | Typical Use Case |
+| :--- | :--:(��贴���贴���4)���������9=9����9�������ɕ�Ёх�����������������q��̡`�d�q�����pŌ�!������4)�����������MA
+���M����������]�ɐ�͕�Օ���́�ȁ������MM�Ʌ܁��ѡ̸��4)���������������
+��������A�Ʌ��ѕȁ����́�����յ�ɥ����Ʌ�̸��4)��͕�����������퀁�M�����������M��ѥ�����չ��ɥ�́�ȁ͍ɥ�ѥ����хѕ����̸��4)����ݱ�������9QI���9�ݱ�����q����5ձѤ�������х������Չѥѱ�̸��4(4(�9�є訁%�������������ѡ��͕��Ʌѽȁ���ѽ���́��ѽ��ѥ����䁡�������ɽ��ѡ�����م̰��́�Ё������́��́�ݸ�����ɥѡ������������ݥѡ��Ёɕ�եɥ���ѕ��Յ��������ѕ�̸4(4(����ܸԸ�A�Ʌ�����i������ɥѡ����5��������4)]������������͕́ЁѼ�������ѡ��������ɕ��́���������Ё�́��������͕��Ʌѕ�����Ё����ѕ�́��������́ѡ�����ͥѥ�������ͥѥ���4(4(��qѕ���%��|Ā�m|İ�|Ȱ�|�t��q�Յ��qѕ���%��|Ȁ�m	|İ�	|Ȱ�	|�t�q������́qѕ���=����m|ā	|İ�p��|ȁ	|Ȱ�p��|́	|�t��4(4(ĸ�M����́�������ѥٔ�����Ё��Ѽ���͕�Օ�������ѽ���̸4(ȸ�%���������Н́����������������х��́��х���ɕ����������pō����q���ɀ����Ё�ɕ����́�ЁѼ��ٕ�䁥���٥�Յ��ѽ�������ѡ�Ё���и4(̸�A���́�ѕ�́��ͥѥ�������ͥѥ������Ѽ�ѡ������Ѡ����ѡ��͡��ѕ�Ё���ЁݥѠ���ɔ�ѡ��������ѕ�������ѥ�����������͕��Ʌѕ�����Ё�����ɝ������Ʌ��̸4(4(����ܸظ�M幕ɝ��́����	��ЁAɅ�ѥ���4(����
+�����ML�	������͕����訨�U͔������聉�ͥ���ݥѠ��͕��Ʌѽ�聹����Ѽ���ɝ��������́�ɽ���5ձѥQ�����ȁɅ܁��ɥ��́ݥѡ��Ё��͕�ѥ����������х��ݡ�ѕ������ѡ�Ё��䁍�����Ё�����́ɕ���ɥ���4(����Y��ѽɥ͕��-��Ʌ���
+ɕ�ѥ��訨�U͔�����������Ѽ����������������ȁ���Ё�ɽ���չ�ѥ��̽
+���ȁɅ����р�ݥѠ����������䁱��ЁѼ��ɥٔ���ȵ�Ʌ������Ʌ����Ʌ�͙�ɵ�ѥ��̸4(4(���4(
 
 ## 8. Node `Basics/Dynamic Format` (Dynamic String Formatter)
 
@@ -404,9 +539,8 @@ $$\text{Template: } \texttt{\\blur\%s\\bord\%s} \implies \texttt{"\\blur10\\bord
 [ Scalar ] ─> Inputs: [ Value ] (e.g. \fscx, \frz, \blur, \bord)
 ```
 
-2. **Double-Click Shortcut & Tag Catalogue Modal:**
-   * **Double-clicking the node body** or **clicking the mode pill in the header** opens the **Visual ASS Tag Catalogue**.
-   * Real-time search filter by tag name, prefix, or visual category (*Positioning, Kinematics, Colourimetry, Alpha, Scaling, Borders, Typography, Karaoke*).
+2. **Tag Catalogue Modal & Single-Click Access:**
+   * A **single click on the header mode pill** (or double-clicking the node body) immediately displays the interactive **ASS & Dark Tag Catalogue Modal** with real-time search. Clicking the mode pill no longer cycles tags manually; all selection is performed directly through the modal catalogue.
 
 ---
 
@@ -421,6 +555,13 @@ $$\text{Template: } \texttt{\\blur\%s\\bord\%s} \implies \texttt{"\\blur10\\bord
 * **`fad` $\to$ `\fad(FadeIn,FadeOut)`:** Simple millisecond fade in / fade out.
 * **`fade` $\to$ `\fade(A1,A2,A3,T1,T2,T3,T4)`:** Complex 3-point timed alpha fade.
 * **`clip` / `iclip` $\to$ `\clip(Shape)` / `\iclip(Shape)`:** Direct or inverted vector clipping mask.
+* **Standard Scaling, Rotation & Styling:** `\fscx`, `\fscy`, `\frz`, `\frx`, `\fry`, `\fax`, `\fay`, `\bord`, `\xbord`, `\ybord`, `\shad`, `\xshad`, `\yshad`, `\blur`, `\be`, `\fs`, `\fsp`, `\fn`, `\an`, `\r`, `\q`, `\b`, `\i`, `\u`, `\s`, `\k`, `\kf`, `\ko`, `\p`, `\pbo`.
+* **Pyxis Dark Tag Extensions Catalogue:**
+  * **Composite & Multi-Channel:** `\fscxy` (proportional scale X and Y), `\faxy` (proportional shear), `\xybord` (outline width X and Y), `\xyshad` (shadow distance X and Y), `\bs` (simultaneous border and shadow), `\frxy`, `\frxz`, `\fryz`, `\frxyz` (3D compound rotations), multi-channel colours (`\134c`, `\13c`, `\14c`, `\34c`, `\12c`, `\23c`), and multi-channel alpha opacities (`\134a`, `\13a`, `\14a`, `\34a`, `\12a`, `\23a`).
+  * **Auto-Origin 3D (`o`):** 3D rotation tags automatically anchored to the metric centre of the element without requiring manual `\org` coordinate calculation (`\fro`, `\frzo`, `\frxo`, `\fryo`, `\frxyo`, `\frxzo`, `\fryzo`, `\frxyzo`).
+  * **Baseline Style Restoration (`~`):** Parameterless override tags that instantly restore values from the baseline style header (`\c~`, `\alpha~`, `\fscxy~`, `\fscx~`, `\fscy~`, `\fs~`, `\fsp~`, `\fn~`, `\an~`, `\bord~`, `\shad~`, `\bs~`, `\blur~`, `\be~`, `\frz~`, `\frx~`, `\fry~`, `\frxyz~`, `\faxy~`, `\b~`, `\i~`, `\u~`, `\s~`, and multi-channel restorations `\134c~`..`\34c~`, `\134a~`..`\34a~`).
+  * **Style Ratio Scaling (`r`):** Multiplies baseline style metrics by an arbitrary scalar ratio (`\fscxyr`, `\fscxr`, `\fscyr`, `\fsr`).
+  * **Stochastic Randomisation (`R`):** Unit-level pseudo-random variance (`\cR`, `\1cR`..`\4cR`, `\alphaR`, `\1aR`..`\4aR`, `\fscxyR`, `\frzR`, `\bordR`, `\shadR`, `\bsR`, `\blurR`, `\fsR`, `\fspR`).
 * **`1c` $\dots$ `4c` $\to$ `\1c&HBBGGRR&` $\dots$ `\4c&HBBGGRR&`:** Primary fill, inactive karaoke, border, and shadow colours.
 * **`alpha`, `1a` $\dots$ `4a` $\to$ `\alpha&HAA&` $\dots$ `\4a&HAA&`:** Global or channel-specific opacity.
 * **Scale and Rotation:** `\fscx`, `\fscy`, `\frz`, `\frx`, `\fry`, `\fax`, `\fay`.
@@ -523,3 +664,56 @@ If $\text{CacheKey}$ exists in memory, it immediately returns the stored value i
 * **Vector Glyph Acceleration (`Text to Shape`):** Place a `Once (mode: char)` node after `Text to Shape` when driving multi-pass effects via `MaxLoop` or `Shape/Array`. This prevents re-rasterising font glyphs on every loop pass, computing vector geometry once per character.
 * **Homogeneous Per-Syllable Randomness:** Insert `Once (mode: syl)` after a stochastic generator to ensure all fragments or particles originating from a syllable share the identical random numerical value.
 
+
+---
+
+## 12. Node `Basics/Builder` (Monoline Block Assembler with Sub-Loop)
+
+* **Canonical Category:** `Basics` (UI: *Basics / Builder*)
+* **Purpose:** Assembles multiple text segments or vector shape pieces into a **single ASS dialogue line**. Features expandable data inputs with a fixed top `Tags` port and dynamic `In1`, `In2`, ... ports (extended via `+` and `-` buttons). Allows controlling via `Reset \r` whether each block is isolated with style reset barriers (`\r`) (re-injecting global animations into every sub-block) or emitted as a continuous `\p1` drawing stream where intermediate blocks receive static style overrides (such as `\1c` colour gradients or border/alpha shifts) without resetting the drawing mode, automatically preserving and deduplicating upstream temporal transformations (`\t(...)`) from nodes like `Animation`.
+
+![Basics/Builder](img/builder.png)
+
+### 12.1. Mode and Sub-Mode Buttons
+1. **Header Mode Button (`TEXT` / `SHAPE` — `mode` property):**
+   * `text`: Joins text fragments (syllables, characters, words, repetitions, or custom lists) within a single subtitle line.
+   * `shape`: Joins multiple vector drawing pieces (`\p1`) with automatic libass inline cursor advance neutralisation.
+2. **Secondary Header Mode Selector (`SPLIT` / `MULTI` / `CUSTOM` — `sub_mode` property):**
+   * `splitter` (`SPLIT`): Splits the text source into syllables, characters, or words (in `text` mode), or decomposes a compound vector drawing into individual sub-shapes (in `shape` mode).
+   * `multi` (`MULTI`): Clones the input text or shape `repeat` times inside the same ASS line, allowing you to customise colour, scale, or offset per copy using `bu_i`.
+   * `custom` (`CUSTOM`): Splits a list of text items or vector drawings by a chosen delimiter (`delim`) and assembles each element as an independent block.
+
+### 12.2. Input and Output Ports
+
+| Direction | Port | Type | Description |
+| :--- | :--- | :--- | :--- |
+| **Input 0** | `Tags` | `data` | Fixed top port. ASS override tags (or upstream chains from nodes such as `Color Gradient`, `MultiTag`, or `Interpolator`) re-evaluated for each block using `bu_i`, `bu_n`, and `max_bu`. |
+| **Inputs 1+** | `In1`, `In2`, ... | `data` | Dynamically expandable data ports (`+` / `-`). Receive the individual text items or vector shapes to assemble. Each connected input provides its own piece preserving its original holes and contours. |
+| **Output 0** | `Return` | `data` | Final monoline ASS payload ready to connect to the `Text` port of `System/Output`. |
+| **Output 1** | `Items Out` | `data` | Native list of extracted pieces prior to tag injection, useful for feeding parallel nodes. |
+
+### 12.3. Contextual Body Controls
+
+| Property | Visible in | Options / Type | Description |
+| :--- | :--- | :--- | :--- |
+| `split_by` | `text` + `splitter` | `syl`, `char`, `word` | Granularity used to partition the text (by syllables, characters, or words). |
+| `source` | `text` + (`splitter` or `multi`) when `In` ports unwired | `active_unit`, `line`, `text_field` | Selects whether text is read from the active main-loop unit, the full dialogue line, or the manual field. |
+| `repeat` | `multi` | Numeric expression (`2` by default) | Number of copies generated inside the same line. Accepts numbers or mathematical formulas. |
+| `custom_text` | `custom` when `In` ports unwired | Text or drawing template | List of items separated by the selected delimiter (e.g. `One, Two, Three`). |
+| `delim` | `custom` | `,`, `;`, `\|`, `newline`, `space` | Separator character used to split items in `custom` mode. |
+| `shape_split_mode` | `shape` + `splitter` | `subpaths`, `islands`, `raw_subpaths` | Geometric decomposition method: `subpaths` preserves inner holes (such as the counters inside letters `O`, `A`, `B`) attached to their outer parent contour; `islands` merges polygons via Clipper; `raw_subpaths` splits directly at every `m` command. |
+| `shape_layout` | `shape` | `auto`, `embedded_pos`, `advance`, `stack` | Spatial compensation across pieces: `auto` detects embedded `\pos` coordinates or stacks; `embedded_pos` shifts each piece by its relative `\pos(x,y)` offset from the first piece; `advance` lets shapes advance side by side; `stack` overlays all pieces on the same `(0,0)` origin. |
+| `inject_r` | All | Cyclic button (`ON` / `OFF`) | Controls `\r` barrier injection. When `ON`, isolates each block with `\r` and re-injects global animations and styles. When `OFF`, maintains a continuous `\p1` drawing stream, consolidates `\t(...)` transforms once in the header, and injects only static style overrides (`\1c`, `\3c`, `\alpha`, `\bord`, etc.) between pieces. |
+
+### 12.4. Internal Sub-Loop Variables (`bu_i`, `bu_n`, `max_bu`)
+As `Builder` constructs the monoline stream piece by piece, it injects three local variables readable by any node wired into its `Tags` port:
+* **`bu_i`**: 1-based index of the current piece (`1`, `2`, `3`...).
+* **`bu_n`** and **`max_bu`**: Total number of pieces assembled by the node.
+* **Per-piece stochastic values (`by.bu_i.R(min, max)`)**: Generates distinct yet deterministic random values for each block in the line (e.g. `\frz(by.bu_i.R(-15, 15))`).
+* **Scale override priority in `shape` mode**: By default, `Builder` inserts `\p1\fscx100\fscy100` in every drawing block so style font scaling does not distort vector geometry. If you provide an explicit `\fscx`, `\fscy`, or `\fscxy` tag in `Tags`, your custom scale automatically overrides the default `100` value.
+
+### 12.5. Synergies and Best Practices
+* **Replacing `Concatenate` (merge mode) and `Union & Divide` (fusion mode):**
+  * To combine multiple independent vector shapes whilst preserving their internal holes and spatial alignment, connect each shape to an `In` port on `Builder` (`In1`, `In2`, etc.).
+  * For continuous multi-piece colour gradients without breaking the vector drawing mode or cutting outlines, switch `Reset \r` to `OFF` and feed the gradient via the top `Tags` port.
+  * When your shapes carry upstream animations from `Functions/Animation` (such as an `\alpha` fade with `\t` keyframes), `Builder` automatically extracts the temporal transforms, deduplicates them in the line header, and guarantees that every piece animates in perfect unison.

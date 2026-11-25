@@ -1,4 +1,4 @@
-# Functions
+﻿# Functions
 
 The **Functions** category contains 16 specialised nodes dedicated to algebraic ASS tag manipulation, oscillator synthesis, conditional logic, colour gradients, kinematics, and vector deformation.
 
@@ -477,7 +477,7 @@ Given $K$ colour stops $\{C_0, C_1, \dots, C_{K-1}\}$:
 └───┴───┴───┴───┘                 └─────┴─────┴─────┘            └───────/───────┘
 ```
 
-#### 6.4.1. Orthogonal Rectangular Case ($0^\circ$)
+#### 6.4.1. Orthogonal Rectangular Case ($0^\circ, 90^\circ, 180^\circ, 270^\circ$)
 When the angle is $0^\circ$, the node outputs simple rectangular AABB `\clip(x1, y1, x2, y2)` coordinates for maximum raster performance in libass:
 $$W_{\text{cell}} = \frac{B_{\text{width}}}{C}, \quad H_{\text{cell}} = \frac{B_{\text{height}}}{R}$$
 $$x_1 = B_{\text{left}} + c \cdot W_{\text{cell}} - \text{ov}, \quad x_2 = B_{\text{left}} + (c + 1) \cdot W_{\text{cell}} + \text{ov}$$
@@ -852,8 +852,9 @@ At parameter $t$, intermediate points in the De Casteljau pyramid define the new
 
 ### 10.1. Header Mode Combos
 1. **`Trajectory` (`SMOVE`):** Takes an ASSdraw vector shape (`Shape`), computes total arc-length, and divides it into regular segments of max length `step_px` to generate smooth continuous motion.
-2. **`Waypoints` (`PMOVE`):** Takes a list of discrete Cartesian points (`Points` or `Shape`) and generates linear or interpolated transitions between waypoints.
-3. **`Jitter` (`RMOVE`):** Generates continuous pseudo-random jitter oscillating within range $(\pm \Delta X, \pm \Delta Y)$ at regular time intervals (`dur` ms) with seed reproducibility.
+2. **`Waypoints` (`waypoints`):** Takes a flat comma-separated list (`x1, y1, x2, y2, x3, y3...` with context variable/expression evaluation) or a `Shape`, and generates interpolated transitions between waypoints.
+3. **`Jitter` (`jitter`):** Generates continuous pseudo-random jitter oscillating within range $(\pm \Delta X, \pm \Delta Y)$ at regular time intervals (`dur` ms) with seed reproducibility.
+4. **`Shadtrick` (`shadtrick`):** Animates independent offsets via shadow channels (`\1a&HFF&\3a&HFF&\ko0\xshad...\yshad...` + `\t(...)`) using the flat `x1, y1, x2, y2...` list (or `0.001, 0.001` minimum when `Points` is empty), emitting strictly `N - 1` direct transitions. When an ASSDraw path is entered or wired in (including paths with prepended `{...}` tags, whose geometry is isolated automatically), `Step (px)` appears immediately in the UI for arc-length resampling. Ideal for moving individual `\r` blocks inside `Basics/Builder`.
 
 ---
 
@@ -1395,7 +1396,7 @@ TrueType/OpenType Font ───> FontVectorEngine (Win32 GDI 64x Subpixel) ─�
 
 ### 16.4. Synergies and Practical Workflow Examples
 * **Voronoi Text Shatter with `Shape/Slicer`:** Chain `Text to Shape` $\to$ `Shape/Slicer (Voronoi)` to fragment glyphs into polygonal shards for 3D explosion animations.
-* **Monolithic Line Fusion with `Shape/Union & Divide (FUSION)`:** Connect `Text to Shape` to `Union & Divide` in `FUSION` mode to emit optimised single-line vector subtitles without overloading libass.
+* **Monolithic Line Stream with `Basics/Builder`:** Connect `Text to Shape` to `Basics/Builder` in `Shape` mode to emit optimised single-line vector subtitles without overloading libass.
 
 ### 16.5. Practical Production Example
 * **Subpixel Vectorisation and Outline Extrusion:**

@@ -287,6 +287,34 @@ class TestLineTransformPositioning(unittest.TestCase):
         for i in range(len(chars) - 1):
             self.assertLessEqual(chars[i].left, chars[i + 1].left)
 
+    def test_preserved_line_pos_does_not_override_graph_move(self):
+        """Verifies that preserve_tags does not inject original line \\pos alongside a graph \\move."""
+        from node_engine import merge_ass_tags
+
+        raw_dialogue = r"Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\pos(960,540)\blur1\k50}ka{\k50}ra"
+        parsed = self.processor.process_line(raw_dialogue, self.styles["Default"])
+        self.assertIsNotNone(parsed)
+        unit = parsed.chars[0]
+
+        engine = GraphEngine()
+        ctx = {'line': parsed, 'preserve_tags': True, 'origin_align': 5}
+        _, _, _, tags, _ = engine._apply_defaults(
+            active_unit=unit,
+            layer_raw=0,
+            st_raw=1000,
+            et_raw=1500,
+            tags_raw=r"\an7\move(100,200,150,250,0,500)",
+            return_raw="m 0 0 l 10 0 10 10",
+            context=ctx,
+        )
+        self.assertIn(r"\move(100,200,150,250,0,500)", tags)
+        self.assertNotIn(r"\pos(960,540)", tags)
+        self.assertIn(r"\blur1", tags)
+
+        merged = merge_ass_tags("", r"\pos(960,540)\move(100,200,150,250,0,500)")
+        self.assertIn(r"\move(100,200,150,250,0,500)", merged)
+        self.assertNotIn(r"\pos(960,540)", merged)
+
 
 if __name__ == '__main__':
     unittest.main()
