@@ -6070,6 +6070,37 @@ body.pyxis-resizing-active .pyxis-floating-player-wrapper,
     z-index: 2000100 !important;
 }
 
+#pyxis-inline-text-editor.pyxis-value-unit-editor {
+    --pyxis-sb-thumb: rgba(167, 139, 250, 0.85);
+    --pyxis-sb-track: rgba(255, 255, 255, 0.06);
+    scrollbar-color: var(--pyxis-sb-thumb) var(--pyxis-sb-track);
+    scrollbar-width: thin;
+}
+
+@supports not (scrollbar-color: auto) {
+    #pyxis-inline-text-editor.pyxis-value-unit-editor {
+        scrollbar-width: auto;
+    }
+
+    #pyxis-inline-text-editor.pyxis-value-unit-editor::-webkit-scrollbar {
+        width: 7px;
+    }
+
+    #pyxis-inline-text-editor.pyxis-value-unit-editor::-webkit-scrollbar-track {
+        background: var(--pyxis-sb-track);
+        border-radius: 4px;
+    }
+
+    #pyxis-inline-text-editor.pyxis-value-unit-editor::-webkit-scrollbar-thumb {
+        background: var(--pyxis-sb-thumb);
+        border-radius: 4px;
+    }
+
+    #pyxis-inline-text-editor.pyxis-value-unit-editor::-webkit-scrollbar-thumb:hover {
+        background: rgba(167, 139, 250, 1);
+    }
+}
+
 /* =============================================================================
    Pre-Generation Graph Diagnostics & Linter Side Panel
    ============================================================================= */

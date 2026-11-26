@@ -1737,6 +1737,7 @@ function setupDynamicInlineNode(node) {
             const inputEl = document.createElement("textarea");
             inputEl.id = "pyxis-inline-text-editor";
             inputEl.name = "pyxis-inline-text-editor";
+            inputEl.classList.add("pyxis-value-unit-editor");
             inputEl.spellcheck = false;
             inputEl.autocomplete = "off";
             inputEl.autocorrect = "off";
@@ -1753,7 +1754,6 @@ function setupDynamicInlineNode(node) {
             inputEl.style.wordBreak = "break-all";
             inputEl.style.lineBreak = "anywhere";
             inputEl.style.hyphens = "none";
-            inputEl.style.scrollbarWidth = "none";
 
             inputEl.style.position = "fixed";
             inputEl.style.left = screenX + "px";
@@ -1792,7 +1792,7 @@ function setupDynamicInlineNode(node) {
 
             document.body.appendChild(inputEl);
             const targetContentW = Math.max(20, wWidth - 9.5) * scale;
-            const calibratedPadRight = Math.max(0, inputEl.clientWidth - padLeftPx - targetContentW);
+            const calibratedPadRight = Math.max(2 * scale, inputEl.clientWidth - padLeftPx - targetContentW);
             inputEl.style.padding = `${padTopPx}px ${calibratedPadRight}px 0px ${padLeftPx}px`;
 
             let isMounting = true;
@@ -1842,7 +1842,7 @@ function setupDynamicInlineNode(node) {
                 inputEl.style.fontSize = (11 * newScale) + "px";
                 const curPadLeftPx = Math.max(0, (textPadLeft - 0.5) * newScale);
                 const curTargetContentW = Math.max(20, newW - 9.5) * newScale;
-                const curPadRightPx = Math.max(0, inputEl.clientWidth - curPadLeftPx - curTargetContentW);
+                const curPadRightPx = Math.max(2 * newScale, inputEl.clientWidth - curPadLeftPx - curTargetContentW);
                 const curPadTopPx = Math.max(0, textPadTop * newScale);
                 inputEl.style.padding = `${curPadTopPx}px ${curPadRightPx}px 0px ${curPadLeftPx}px`;
                 inputEl.style.lineHeight = (16 * newScale) + "px";
@@ -1924,25 +1924,120 @@ function setupDynamicInlineNode(node) {
                 return x >= margin && x <= margin + wWidth && y >= drawY && y <= drawY + wHeight;
             };
 
+            function redrawWidgetCanvas() {
+                if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                const activeCanvas = (typeof LGraphCanvas !== "undefined" && LGraphCanvas.active_canvas) || window.canvas || window.graphcanvas;
+                if (activeCanvas && activeCanvas.draw) activeCanvas.draw(true, true);
+            }
+
+            function updateScrollFromThumbTop(targetThumbY, sb) {
+                const clampedThumbY = Math.max(sb.trackY, Math.min(sb.trackY + sb.maxTravel, targetThumbY));
+                const ratio = sb.maxTravel > 0 ? (clampedThumbY - sb.trackY) / sb.maxTravel : 0;
+                const nextLine = Math.max(0, Math.min(sb.maxScroll, Math.round(ratio * sb.maxScroll)));
+                if (widget._scroll_line !== nextLine) {
+                    widget._scroll_line = nextLine;
+                }
+                redrawWidgetCanvas();
+            }
+
+            function isOverScrollbar(pos, sb) {
+                return (
+                    pos[0] >= sb.barX - 8 &&
+                    pos[0] <= sb.barX + sb.barW + 6 &&
+                    pos[1] >= sb.trackY - 2 &&
+                    pos[1] <= sb.trackY + sb.trackH + 2
+                );
+            }
+
+            function stopScrollbarDrag() {
+                if (!widget._scrollbar_drag) return;
+                const drag = widget._scrollbar_drag;
+                delete widget._scrollbar_drag;
+                widget._just_finished_scrollbar_drag = true;
+                setTimeout(() => { delete widget._just_finished_scrollbar_drag; }, 0);
+                if (drag.onMove) {
+                    window.removeEventListener("mousemove", drag.onMove, true);
+                    window.removeEventListener("pointermove", drag.onMove, true);
+                }
+                if (drag.onUp) {
+                    window.removeEventListener("mouseup", drag.onUp, true);
+                    window.removeEventListener("pointerup", drag.onUp, true);
+                    window.removeEventListener("pointercancel", drag.onUp, true);
+                }
+                redrawWidgetCanvas();
+            }
+
             widget.mouse = function(event, pos, node) {
-                if (event.type === "mousedown" || event.type === "click") {
+                const evType = event && event.type ? event.type : "";
+                const isDown = evType === "mousedown" || evType === "pointerdown";
+                const isMove = evType === "mousemove" || evType === "pointermove";
+                const isUp = evType === "mouseup" || evType === "pointerup" || evType === "pointercancel";
+
+                if (isMove) {
+                    if (widget._scrollbar_drag && widget._scrollbar_info && pos) {
+                        updateScrollFromThumbTop(pos[1] - widget._scrollbar_drag.grabOffset, widget._scrollbar_info);
+                        return true;
+                    }
+                    return false;
+                }
+
+                if (isUp) {
+                    if (widget._scrollbar_drag) {
+                        stopScrollbarDrag();
+                        return true;
+                    }
+                    return false;
+                }
+
+                if (isDown || evType === "click") {
+                    if (widget._scrollbar_drag) {
+                        return true;
+                    }
+                    if (evType === "click" && widget._just_finished_scrollbar_drag) {
+                        delete widget._just_finished_scrollbar_drag;
+                        return true;
+                    }
                     if (pos && widget.isPointInside && !widget.isPointInside(pos[0], pos[1], node)) {
                         return false;
                     }
-                    if (widget._scrollbar_info && pos) {
+                    if (widget._scrollbar_info && pos && isOverScrollbar(pos, widget._scrollbar_info)) {
                         const sb = widget._scrollbar_info;
-                        if (pos[0] >= sb.barX - 6 && pos[0] <= sb.barX + sb.barW + 6 && pos[1] >= sb.trackY && pos[1] <= sb.trackY + sb.trackH) {
-                            const ratio = Math.max(0, Math.min(1, (pos[1] - sb.trackY) / sb.trackH));
-                            widget._scroll_line = Math.round(ratio * sb.maxScroll);
-                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
-                            const activeCanvas = (typeof LGraphCanvas !== "undefined" && LGraphCanvas.active_canvas);
-                            if (activeCanvas && activeCanvas.draw) activeCanvas.draw(true, true);
-                            return true;
+                        const onThumb = pos[1] >= sb.thumbY - 2 && pos[1] <= sb.thumbY + sb.thumbH + 2;
+                        const grabOffset = onThumb ? (pos[1] - sb.thumbY) : (sb.thumbH / 2);
+
+                        if (isDown) {
+                            if (!onThumb) {
+                                updateScrollFromThumbTop(pos[1] - grabOffset, sb);
+                            }
+                            const onWindowMove = function(moveEv) {
+                                if (!widget._scrollbar_drag || !widget._scrollbar_info) return;
+                                const activeCanvas = (typeof LGraphCanvas !== "undefined" && LGraphCanvas.active_canvas) || window.canvas || window.graphcanvas;
+                                if (!activeCanvas || !activeCanvas.canvas) return;
+                                const rect = activeCanvas.canvas.getBoundingClientRect();
+                                const scale = activeCanvas.ds ? activeCanvas.ds.scale : 1.0;
+                                const offset = activeCanvas.ds ? activeCanvas.ds.offset : [0, 0];
+                                const localY = (moveEv.clientY - rect.top) / scale - offset[1] - node.pos[1];
+                                updateScrollFromThumbTop(localY - widget._scrollbar_drag.grabOffset, widget._scrollbar_info);
+                            };
+                            const onWindowUp = function() {
+                                stopScrollbarDrag();
+                            };
+                            widget._scrollbar_drag = { grabOffset, onMove: onWindowMove, onUp: onWindowUp };
+                            window.addEventListener("mousemove", onWindowMove, true);
+                            window.addEventListener("pointermove", onWindowMove, true);
+                            window.addEventListener("mouseup", onWindowUp, true);
+                            window.addEventListener("pointerup", onWindowUp, true);
+                            window.addEventListener("pointercancel", onWindowUp, true);
+                            redrawWidgetCanvas();
                         }
+                        return true;
                     }
-                    openInlineValueUnitEditor(node, widget, propKey, titleName, event);
-                    return true;
+                    if (isDown) {
+                        openInlineValueUnitEditor(node, widget, propKey, titleName, event);
+                        return true;
+                    }
                 }
+                return false;
             };
 
             widget.callback = function(value, canvas, node, pos, event) {
@@ -2048,33 +2143,37 @@ function setupDynamicInlineNode(node) {
                 }
                 ctx.restore();
 
-                // Minimalist scrollbar
+                // Minimalist interactive scrollbar
                 if (!widget._is_inline_editing && wrappedLines && wrappedLines.length > 1) {
                     const totalLines = wrappedLines.length;
                     const isOverflowing = totalLines > maxVisibleLines;
                     if (isOverflowing) {
                         const maxScroll = Math.max(0, totalLines - maxVisibleLines);
                         const trackPadding = 3;
-                        const barW = 3.5;
-                        const barX = margin + wWidth - barW - 3;
+                        const isDragging = !!widget._scrollbar_drag;
+                        const barW = isDragging ? 5.5 : 4.5;
+                        const barX = margin + wWidth - barW - 2.5;
                         const trackY = drawY + trackPadding;
-                        const trackH = Math.max(8, wHeight - trackPadding * 2);
+                        const trackH = Math.max(10, wHeight - trackPadding * 2);
 
-                        widget._scrollbar_info = { barX, barW, trackY, trackH, maxScroll, boxX: margin, boxY: drawY, boxW: wWidth, boxH: wHeight };
+                        const thumbH = Math.max(12, Math.round((maxVisibleLines / totalLines) * trackH));
+                        const maxTravel = Math.max(0, trackH - thumbH);
+                        const curScroll = widget._scroll_line || 0;
+                        const thumbY = trackY + (maxScroll > 0 ? (curScroll / maxScroll) * maxTravel : 0);
+
+                        widget._scrollbar_info = {
+                            barX, barW, trackY, trackH, thumbY, thumbH, maxTravel, maxScroll,
+                            boxX: margin, boxY: drawY, boxW: wWidth, boxH: wHeight
+                        };
 
                         ctx.save();
-                        ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+                        ctx.fillStyle = isDragging ? "rgba(255, 255, 255, 0.12)" : "rgba(255, 255, 255, 0.08)";
                         ctx.beginPath();
                         if (ctx.roundRect) ctx.roundRect(barX, trackY, barW, trackH, barW / 2);
                         else ctx.rect(barX, trackY, barW, trackH);
                         ctx.fill();
 
-                        const thumbH = Math.max(8, Math.round((maxVisibleLines / totalLines) * trackH));
-                        const maxTravel = trackH - thumbH;
-                        const curScroll = widget._scroll_line || 0;
-                        const thumbY = trackY + (maxScroll > 0 ? (curScroll / maxScroll) * maxTravel : 0);
-
-                        ctx.fillStyle = "rgba(139, 92, 246, 0.6)";
+                        ctx.fillStyle = isDragging ? "rgba(167, 139, 250, 0.95)" : "rgba(139, 92, 246, 0.78)";
                         ctx.beginPath();
                         if (ctx.roundRect) ctx.roundRect(barX, thumbY, barW, thumbH, barW / 2);
                         else ctx.rect(barX, thumbY, barW, thumbH);
